@@ -14,5 +14,8 @@
   "installed_changed": false,
   "actor_ai_journal_enabled": false,
   "g0_replayed": false,
-  "recorded_at": "2026-10-11T17:12:19.282556+00:00"
+  "recorded_at": "2026-10-11T17:12:19.282556+00:00",
+  "committed_source_sha": "7ba1529ccf1f3f5b2940883f7e83777230b89018",
+  "committed_selected_log": "selected-committed.log",
+  "host_source_state": "ed48ca3b673c73f3804c55d4ea83955ded2ad8b9 with SET-R01 working-tree changes, separately hashed/qualified in host evidence"
 }
