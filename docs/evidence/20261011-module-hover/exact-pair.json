@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "kind": "focused committed-pair package input validation",
+  "companionSha": "a49284fa36cf030d3b2ab4212ecf7efebc63edf3",
+  "hostSha": "b543bb7602eb74901c3c137c89c70c301e12fde4",
+  "command": "python3 scripts/validate.py --hadalis-root ../Alis --only test-module-hover-runtime.py --require-clean",
+  "result": "PASS",
+  "exitCode": 0,
+  "checks": 946,
+  "fieldFrames": 49,
+  "cases": 36,
+  "validation": "1 PASS / 0 FAIL / 0 SKIP; clean source before and after; private payload readback assertion",
+  "outputRetention": "validator prints the last 1200 characters of successful native output; full working-source matrix is retained separately",
+  "scope": "Qt input dispatch in private unfocused Niri, actual package/actor/backend/perimeter; not wl_pointer delivery, resource measurement, G0 or owner desktop",
+  "payloadSha256": "e268319eeadcdbe087f45efbaa0d3deb206858b3b11bfab6fcdda1a73f4e32ab",
+  "testSha256": "12861ff316663ebdfcc6a0fc5e7f1a6a148d839cd55f8cc6473cf0c9565355ac",
+  "ownerInstall": false
+}

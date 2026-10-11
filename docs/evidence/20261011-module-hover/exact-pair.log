@@ -1,0 +1,17 @@
+Hadanion source: a49284fa36cf030d3b2ab4212ecf7efebc63edf3 committed
+Hadalis source: b543bb7602eb74901c3c137c89c70c301e12fde4 committed
+PASS test-module-hover-runtime.py
+e":{"x":1394,"y":331.90000000000003,"width":516,"height":328},"content":{"x":1408,"y":345.90000000000003,"width":390,"height":300},"input":{"x":1394,"y":331.90000000000003,"width":418,"height":328.00000000000006,"left":1394,"right":1812,"top":331.90000000000003,"bottom":659.9000000000001}}
+  INFO qml: COMPANION_BRIDGE_FOUND right absent weather 1791731934213 [1806,495]
+  INFO qml: COMPANION_EXIT_START right absent weather 1791731935038
+  INFO qml: COMPANION_EXIT_END right absent weather 1791731935503
+  INFO qml: COMPANION_HOVER_ENTER right absent media {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START right absent media 1791731936493 {"surface":{"x":1404,"y":680.4,"width":506,"height":182},"content":{"x":1418,"y":694.4,"width":380,"height":154},"input":{"x":1404,"y":680.4,"width":408,"height":182,"left":1404,"right":1812,"top":680.4,"bottom":862.4}}
+  INFO qml: COMPANION_BRIDGE_FOUND right absent media 1791731936493 [1806,771]
+  INFO qml: COMPANION_EXIT_START right absent media 1791731937320
+  INFO qml: COMPANION_EXIT_END right absent media 1791731937978
+  INFO qml: COMPANION_HOVER_PASS 946 49
+
+Process exit: 0
+
+Hadanion checks: 1 PASS / 0 FAIL / 0 SKIP

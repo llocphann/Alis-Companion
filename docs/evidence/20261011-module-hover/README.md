@@ -28,9 +28,9 @@ Private Performance rendering has actor animations enabled, AI/journal/
 speech disabled, and no owner installation or settings changes.
 
 The test uses polished real hit geometry between pointer moves. An
-earlier capture-after-every-move diagnostic blocked long enough for
-the actor inputReady deadline to fail on a later edge; that failure is
-retained. This is an input regression fixture, not frame pacing or
+earlier capture-after-every-move diagnostic failed the actor inputReady
+deadline on a later edge; that failure is retained and its exact cause
+is not diagnosed. This is an input regression fixture, not frame pacing or
 visual qualification. Vertical Media intentionally pins its popup on
 LeftButton; its separate Top-window outside catcher is tested directly.
 Dispatching that click into the masked field would be an invalid oracle.
@@ -45,7 +45,10 @@ python3 scripts/validate.py --hadalis-root /path/to/Alis \
 ```
 
 The receipt pins source bytes and the unchanged native tree/binary.
-Working-source results do not establish a committed exact-pair PASS.
+The subsequent `exact-pair.json`/`exact-pair.log` record focused PASS
+on Companion `a49284fa36cf030d3b2ab4212ecf7efebc63edf3` and host
+`b543bb7602eb74901c3c137c89c70c301e12fde4`, exit 0, with clean source
+before and after. This is one selected check, not the full package suite.
 QtTest dispatch bypasses compositor `wl_pointer` delivery. Physical
 pointer/focus, Wi-Fi/Bluetooth, scaling, multiple outputs/hotplug and
 owner drag/chat/animated acceptance remain separate. No Companion G0
