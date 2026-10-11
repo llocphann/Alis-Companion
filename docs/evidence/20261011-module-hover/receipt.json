@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "task": "AC-I04",
+  "scope": "real package + production perimeter; Qt input dispatch on private unfocused Niri; not native wl_pointer or owner acceptance",
+  "companionBaselineSha": "d80553ac7718b6c01f62d34877a511502d520db3",
+  "hostSha": "413c64be084225d0d4d01f5980652701cdce8681",
+  "baselinePayloadSha256": "605930d101d33eb6ffa8453cbbf18540c5ba654d5cb730a4939db9c36fe130f1",
+  "candidatePayloadSha256": "e268319eeadcdbe087f45efbaa0d3deb206858b3b11bfab6fcdda1a73f4e32ab",
+  "fixtureSha256": "12861ff316663ebdfcc6a0fc5e7f1a6a148d839cd55f8cc6473cf0c9565355ac",
+  "nativeTree": "ca37d7aa0bd43615ba5d376e687a2a31c95d34ed",
+  "nativeBinarySha256": "b0ec7fba18ef36635c0082c7576f461d59a56aa7be8e90984781969334786c28",
+  "workingMatrix": {
+    "result": "PASS",
+    "scriptExit": 0,
+    "processExit": 0,
+    "checks": 946,
+    "fieldFrames": 49,
+    "cases": 36,
+    "edges": [
+      "top",
+      "bottom",
+      "left",
+      "right"
+    ],
+    "statesAtEntry": [
+      "disabled",
+      "present",
+      "absent"
+    ],
+    "modules": [
+      "clock",
+      "weather",
+      "media"
+    ],
+    "rendererQuality": "performance",
+    "animationsEnabled": true
+  },
+  "baselineResult": "expected FAIL: present Clock hover intercepted",
+  "negativeControls": "only the full-output HoverHandler disable restores hover; ancestor retarget preserves observer coordinates; restoring sibling recreates regression",
+  "captureDrivenFailure": "actor inputReady deadline after top-to-bottom transition; 272 per-move grabs are not an input acceptance requirement; raw failure retained",
+  "oracleCorrections": "exclude body/source when choosing outside/connector points; click-pinned Vertical Media exits through its separate native catcher",
+  "productRendererChanged": false,
+  "nativeMaskChanged": false,
+  "ownerInstall": false,
+  "G0Replay": false,
+  "remaining": [
+    "committed exact-pair focused qualification",
+    "physical wl_pointer delivery",
+    "Wi-Fi/Bluetooth",
+    "fractional scale/multi-output/hotplug",
+    "Companion drag/chat/animated owner acceptance"
+  ]
+}

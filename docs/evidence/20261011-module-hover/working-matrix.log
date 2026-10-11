@@ -1,0 +1,249 @@
+  INFO: Launching config: "/tmp/alis-companion-hover-t1fd5rdt/shell.qml"
+  INFO: Shell ID: "c9037fffe622ae4ba98a3a6d4d518fc8" Path ID "c9037fffe622ae4ba98a3a6d4d518fc8"
+  INFO: Saving logs to "/tmp/alis-companion-hover-t1fd5rdt/runtime/quickshell/by-id/qvd3vm0rmt/log.qslog"
+  WARN: $HYPRLAND_INSTANCE_SIGNATURE is unset. Cannot connect to hyprland.
+  INFO qml: CompositorService: Detected Niri with socket: /run/user/1000/niri.wayland-2.157936.sock
+ ERROR quickshell.service.pipewire.loop: Failed to connect pipewire context. Errno: 112
+  INFO: Configuration Loaded
+  WARN scene: QML FileView at @services/GameMode.qml[330:5]: Read of /tmp/alis-companion-hover-t1fd5rdt/state/quickshell/user/gamemode_active failed: File does not exist.
+  WARN scene: QML FileView at @services/GameMode.qml[309:5]: Read of /tmp/alis-companion-hover-t1fd5rdt/state/quickshell/user/gamemode_active failed: File does not exist.
+  WARN scene: QML FileView at @services/Notifications.qml[760:5]: Read of /tmp/alis-companion-hover-t1fd5rdt/state/quickshell/user/notifications.json failed: File does not exist.
+ DEBUG qml: [Notifications] File not found, creating new file.
+  WARN scene: QML FileView at @services/Events.qml[62:5]: Read of /tmp/alis-companion-hover-t1fd5rdt/state/quickshell/user/events.json failed: File does not exist.
+ DEBUG qml: [Events] File not found, creating new file.
+  WARN scene: QML FileView at @modules/common/Persistent.qml[60:5]: Read of /tmp/alis-companion-hover-t1fd5rdt/state/quickshell/states.json failed: File does not exist.
+ DEBUG qml: Failed to load persistent states file: 2
+ DEBUG qml: [Persistent] File not found, creating new file.
+  WARN quickshell.io.fileview: got operation finished from dropped operation qs::io::FileViewOperation(0x7fe6b4f3c580)
+  WARN scene: QML FileView at @services/GameMode.qml[309:5]: Read of /tmp/alis-companion-hover-t1fd5rdt/state/quickshell/user/gamemode_active failed: File does not exist.
+  INFO qml: NiriService: Loaded 1 outputs
+  INFO qml: COMPANION_PHASE_START top disabled
+  INFO qml: COMPANION_HOVER_STATE top disabled {"layer":3,"focus":0,"package":"d80553ac7718b6c01f62d34877a511502d520db3-working","status":null}
+  INFO qml: COMPANION_HOVER_ENTER top disabled clock {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START top disabled clock 1791731196221 {"surface":{"x":53.5,"y":-50,"width":637,"height":384},"content":{"x":67.5,"y":62,"width":609,"height":258},"input":{"x":53.5,"y":48,"width":637,"height":286,"left":53.5,"right":690.5,"top":48,"bottom":334}}
+  INFO qml: COMPANION_BRIDGE_FOUND top disabled clock 1791731196221 [372,54]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE clock actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START top disabled clock 1791731197046
+  INFO qml: COMPANION_EXIT_END top disabled clock 1791731197510
+  INFO qml: COMPANION_HOVER_ENTER top disabled weather {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START top disabled weather 1791731198494 {"surface":{"x":628,"y":-50,"width":418,"height":426},"content":{"x":642,"y":62,"width":390,"height":300},"input":{"x":628,"y":48,"width":418,"height":328,"left":628,"right":1046,"top":48,"bottom":376}}
+  INFO qml: COMPANION_BRIDGE_FOUND top disabled weather 1791731198494 [837,54]
+ DEBUG qml: [ShellUpdates] Loading repo path from version.json...
+ DEBUG qml: [ShellUpdates] No repo_path in version.json, searching for repository...
+ DEBUG qml: [ShellUpdates] Repository not found, using config dir: /tmp/alis-companion-hover-t1fd5rdt/.
+ DEBUG qml: [ShellUpdates] Update feature will not be available
+ DEBUG qml: [ShellUpdates] Git available: false
+  INFO qml: COMPANION_EXIT_START top disabled weather 1791731199317
+  INFO qml: COMPANION_EXIT_END top disabled weather 1791731199781
+  INFO qml: COMPANION_HOVER_ENTER top disabled media {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START top disabled media 1791731200764 {"surface":{"x":1098,"y":-50,"width":408,"height":306.6739867327599},"content":{"x":1112,"y":62,"width":380,"height":180.6739867327599},"input":{"x":1098,"y":48,"width":408,"height":208.6739867327599,"left":1098,"right":1506,"top":48,"bottom":256.6739867327599}}
+  INFO qml: COMPANION_BRIDGE_FOUND top disabled media 1791731200764 [1302,54]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE media actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START top disabled media 1791731201588
+  INFO qml: COMPANION_EXIT_END top disabled media 1791731202052
+  INFO qml: COMPANION_PHASE_START top present
+  INFO qml: COMPANION_HOVER_STATE top present {"layer":3,"focus":0,"package":"d80553ac7718b6c01f62d34877a511502d520db3-working","status":{"output":"winit","presented":true,"occluded":false,"permission":true,"active":true,"field":{"ready":true,"framePresented":true,"diagnostic":"","records":0,"capacity":40},"scene":{"valid":true,"width":1860,"height":1102,"hostWidth":112,"hostHeight":98,"insets":{"top":48,"right":16,"bottom":16,"left":16},"records":[{"edge":"top","along":305.5,"span":133},{"edge":"top","along":804,"span":66},{"edge":"top","along":1250,"span":104}],"blockers":[{"x":305.5,"y":0,"width":133,"height":48},{"x":804,"y":0,"width":66,"height":48},{"x":1250,"y":0,"width":104,"height":48}],"surfaces":[]},"presence":{"qualified":true,"portalActive":false,"portalProgress":0,"visitActive":true,"traveling":false,"mode":"fly","dragging":false,"arc":0,"requestedReveal":1,"renderedReveal":1,"placement":{"qualified":true,"x":1104.1882577640936,"y":988,"edge":"bottom","kind":"edge","key":"bottom","grounded":true,"support":{"key":"bottom","edge":"bottom","nx":0,"ny":-1,"axis":"x","coordinate":1086,"y":1086,"from":18,"to":1842},"contact":{"x":1160.1882577640936,"y":1086,"nx":0,"ny":-1,"scale":1,"span":78.39999999999999,"sourceEdge":"bottom","sourceAlong":1160.1882577640936,"key":"bottom"}}},"curiosity":{"enabled":false,"stage":"","owned":false,"feature":""},"turns":{"enabled":false,"active":false,"paired":false,"incoming":""},"actor":{"character":"aqua","visible":true,"inputReady":true,"moving":false,"walking":false,"rolling":false,"flying":false,"presentation":1,"opacity":1,"x":1104.1882577640936,"y":988}}}
+  INFO qml: COMPANION_HOVER_ENTER top present clock {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START top present clock 1791731207334 {"surface":{"x":53.5,"y":-50,"width":637,"height":384},"content":{"x":67.5,"y":62,"width":609,"height":258},"input":{"x":53.5,"y":48,"width":637,"height":286,"left":53.5,"right":690.5,"top":48,"bottom":334}}
+  INFO qml: COMPANION_BRIDGE_FOUND top present clock 1791731207334 [372,54]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE clock actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START top present clock 1791731208157
+  INFO qml: COMPANION_EXIT_END top present clock 1791731208622
+  INFO qml: COMPANION_HOVER_ENTER top present weather {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START top present weather 1791731209612 {"surface":{"x":628,"y":-50,"width":418,"height":426},"content":{"x":642,"y":62,"width":390,"height":300},"input":{"x":628,"y":48,"width":418,"height":328,"left":628,"right":1046,"top":48,"bottom":376}}
+  INFO qml: COMPANION_BRIDGE_FOUND top present weather 1791731209612 [837,54]
+  INFO qml: COMPANION_EXIT_START top present weather 1791731210437
+  INFO qml: COMPANION_EXIT_END top present weather 1791731210901
+  INFO qml: COMPANION_HOVER_ENTER top present media {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START top present media 1791731211899 {"surface":{"x":1098,"y":-50,"width":408,"height":280},"content":{"x":1112,"y":62,"width":380,"height":154},"input":{"x":1098,"y":48,"width":408,"height":182,"left":1098,"right":1506,"top":48,"bottom":230}}
+  INFO qml: COMPANION_BRIDGE_FOUND top present media 1791731211899 [1302,54]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE media actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START top present media 1791731212723
+  INFO qml: COMPANION_EXIT_END top present media 1791731213188
+  INFO qml: COMPANION_PHASE_START top absent
+  INFO qml: COMPANION_HOVER_STATE top absent {"layer":3,"focus":0,"package":"d80553ac7718b6c01f62d34877a511502d520db3-working","status":{"output":"winit","presented":true,"occluded":false,"permission":true,"active":true,"field":{"ready":true,"framePresented":true,"diagnostic":"","records":0,"capacity":40},"scene":{"valid":true,"width":1860,"height":1102,"hostWidth":112,"hostHeight":98,"insets":{"top":48,"right":16,"bottom":16,"left":16},"records":[{"edge":"top","along":305.5,"span":133},{"edge":"top","along":804,"span":66},{"edge":"top","along":1250,"span":104}],"blockers":[{"x":305.5,"y":0,"width":133,"height":48},{"x":804,"y":0,"width":66,"height":48},{"x":1250,"y":0,"width":104,"height":48}],"surfaces":[]},"presence":{"qualified":true,"portalActive":false,"portalProgress":0,"visitActive":false,"traveling":false,"mode":"fly","dragging":false,"arc":0,"requestedReveal":0,"renderedReveal":0,"placement":{"qualified":true,"x":1104.1882577640936,"y":988,"edge":"bottom","kind":"edge","key":"bottom","grounded":true,"support":{"key":"bottom","edge":"bottom","nx":0,"ny":-1,"axis":"x","coordinate":1086,"y":1086,"from":18,"to":1842},"contact":{"x":1160.1882577640936,"y":1086,"nx":0,"ny":-1,"scale":1,"span":78.39999999999999,"sourceEdge":"bottom","sourceAlong":1160.1882577640936,"key":"bottom"},"freeInterval":[92,1768]}},"curiosity":{"enabled":false,"stage":"","owned":false,"feature":""},"turns":{"enabled":false,"active":false,"paired":false,"incoming":""},"actor":{"character":"aqua","visible":false,"inputReady":false,"moving":false,"walking":false,"rolling":false,"flying":false,"presentation":0,"opacity":1,"x":1104.1882577640936,"y":988}}}
+  INFO qml: COMPANION_HOVER_ENTER top absent clock {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START top absent clock 1791731218415 {"surface":{"x":53.5,"y":-50,"width":637,"height":384},"content":{"x":67.5,"y":62,"width":609,"height":258},"input":{"x":53.5,"y":48,"width":637,"height":286,"left":53.5,"right":690.5,"top":48,"bottom":334}}
+  INFO qml: COMPANION_BRIDGE_FOUND top absent clock 1791731218416 [372,54]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE clock actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START top absent clock 1791731219240
+  INFO qml: COMPANION_EXIT_END top absent clock 1791731219704
+  INFO qml: COMPANION_HOVER_ENTER top absent weather {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START top absent weather 1791731220694 {"surface":{"x":628,"y":-50,"width":418,"height":426},"content":{"x":642,"y":62,"width":390,"height":300},"input":{"x":628,"y":48,"width":418,"height":328,"left":628,"right":1046,"top":48,"bottom":376}}
+  INFO qml: COMPANION_BRIDGE_FOUND top absent weather 1791731220694 [837,54]
+  INFO qml: COMPANION_EXIT_START top absent weather 1791731221517
+  INFO qml: COMPANION_EXIT_END top absent weather 1791731221982
+  INFO qml: COMPANION_HOVER_ENTER top absent media {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START top absent media 1791731222975 {"surface":{"x":1098,"y":-50,"width":408,"height":280},"content":{"x":1112,"y":62,"width":380,"height":154},"input":{"x":1098,"y":48,"width":408,"height":182,"left":1098,"right":1506,"top":48,"bottom":230}}
+  INFO qml: COMPANION_BRIDGE_FOUND top absent media 1791731222975 [1302,54]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE media actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START top absent media 1791731223800
+  INFO qml: COMPANION_EXIT_END top absent media 1791731224264
+  INFO qml: COMPANION_PHASE_START bottom disabled
+  INFO qml: COMPANION_HOVER_STATE bottom disabled {"layer":3,"focus":0,"package":"d80553ac7718b6c01f62d34877a511502d520db3-working","status":null}
+  INFO qml: COMPANION_HOVER_ENTER bottom disabled clock {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START bottom disabled clock 1791731226195 {"surface":{"x":53.5,"y":768,"width":637,"height":384},"content":{"x":67.5,"y":782,"width":609,"height":258},"input":{"x":53.5,"y":768,"width":637,"height":286,"left":53.5,"right":690.5,"top":768,"bottom":1054}}
+  INFO qml: COMPANION_BRIDGE_FOUND bottom disabled clock 1791731226196 [372,1048]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE clock actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START bottom disabled clock 1791731227019
+  INFO qml: COMPANION_EXIT_END bottom disabled clock 1791731227482
+  INFO qml: COMPANION_HOVER_ENTER bottom disabled weather {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START bottom disabled weather 1791731228466 {"surface":{"x":628,"y":726,"width":418,"height":426},"content":{"x":642,"y":740,"width":390,"height":300},"input":{"x":628,"y":726,"width":418,"height":328,"left":628,"right":1046,"top":726,"bottom":1054}}
+  INFO qml: COMPANION_BRIDGE_FOUND bottom disabled weather 1791731228466 [837,1048]
+  INFO qml: COMPANION_EXIT_START bottom disabled weather 1791731229289
+  INFO qml: COMPANION_EXIT_END bottom disabled weather 1791731229753
+  INFO qml: COMPANION_HOVER_ENTER bottom disabled media {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START bottom disabled media 1791731230739 {"surface":{"x":1098,"y":872,"width":408,"height":280},"content":{"x":1112,"y":886,"width":380,"height":154},"input":{"x":1098,"y":872,"width":408,"height":182,"left":1098,"right":1506,"top":872,"bottom":1054}}
+  INFO qml: COMPANION_BRIDGE_FOUND bottom disabled media 1791731230739 [1302,1048]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE media actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START bottom disabled media 1791731231564
+  INFO qml: COMPANION_EXIT_END bottom disabled media 1791731232028
+  INFO qml: COMPANION_PHASE_START bottom present
+  INFO qml: COMPANION_HOVER_STATE bottom present {"layer":3,"focus":0,"package":"d80553ac7718b6c01f62d34877a511502d520db3-working","status":{"output":"winit","presented":true,"occluded":false,"permission":true,"active":true,"field":{"ready":true,"framePresented":true,"diagnostic":"","records":0,"capacity":40},"scene":{"valid":true,"width":1860,"height":1102,"hostWidth":112,"hostHeight":98,"insets":{"top":16,"right":16,"bottom":48,"left":16},"records":[{"edge":"bottom","along":305.5,"span":133},{"edge":"bottom","along":804,"span":66},{"edge":"bottom","along":1250,"span":104}],"blockers":[{"x":305.5,"y":1054,"width":133,"height":48},{"x":804,"y":1054,"width":66,"height":48},{"x":1250,"y":1054,"width":104,"height":48}],"surfaces":[]},"presence":{"qualified":true,"portalActive":false,"portalProgress":0,"visitActive":true,"traveling":false,"mode":"fly","dragging":false,"arc":0,"requestedReveal":1,"renderedReveal":1,"placement":{"qualified":true,"x":1576.4887755233794,"y":956,"edge":"bottom","kind":"edge","key":"bottom","grounded":true,"support":{"key":"bottom","edge":"bottom","nx":0,"ny":-1,"axis":"x","coordinate":1054,"y":1054,"from":18,"to":1842},"contact":{"x":1632.4887755233794,"y":1054,"nx":0,"ny":-1,"scale":1,"span":78.39999999999999,"sourceEdge":"bottom","sourceAlong":1632.4887755233794,"key":"bottom"}}},"curiosity":{"enabled":false,"stage":"","owned":false,"feature":""},"turns":{"enabled":false,"active":false,"paired":false,"incoming":""},"actor":{"character":"aqua","visible":true,"inputReady":true,"moving":false,"walking":false,"rolling":false,"flying":false,"presentation":1,"opacity":1,"x":1576.4887755233794,"y":956}}}
+  INFO qml: COMPANION_HOVER_ENTER bottom present clock {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START bottom present clock 1791731236919 {"surface":{"x":53.5,"y":768,"width":637,"height":384},"content":{"x":67.5,"y":782,"width":609,"height":258},"input":{"x":53.5,"y":768,"width":637,"height":286,"left":53.5,"right":690.5,"top":768,"bottom":1054}}
+  INFO qml: COMPANION_BRIDGE_FOUND bottom present clock 1791731236919 [372,1048]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE clock actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START bottom present clock 1791731237743
+  INFO qml: COMPANION_EXIT_END bottom present clock 1791731238207
+  INFO qml: COMPANION_HOVER_ENTER bottom present weather {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START bottom present weather 1791731239197 {"surface":{"x":628,"y":726,"width":418,"height":426},"content":{"x":642,"y":740,"width":390,"height":300},"input":{"x":628,"y":726,"width":418,"height":328,"left":628,"right":1046,"top":726,"bottom":1054}}
+  INFO qml: COMPANION_BRIDGE_FOUND bottom present weather 1791731239197 [837,1048]
+  INFO qml: COMPANION_EXIT_START bottom present weather 1791731240020
+  INFO qml: COMPANION_EXIT_END bottom present weather 1791731240485
+  INFO qml: COMPANION_HOVER_ENTER bottom present media {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START bottom present media 1791731241476 {"surface":{"x":1098,"y":872,"width":408,"height":280},"content":{"x":1112,"y":886,"width":380,"height":154},"input":{"x":1098,"y":872,"width":408,"height":182,"left":1098,"right":1506,"top":872,"bottom":1054}}
+  INFO qml: COMPANION_BRIDGE_FOUND bottom present media 1791731241476 [1302,1048]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE media actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START bottom present media 1791731242300
+  INFO qml: COMPANION_EXIT_END bottom present media 1791731242765
+  INFO qml: COMPANION_PHASE_START bottom absent
+  INFO qml: COMPANION_HOVER_STATE bottom absent {"layer":3,"focus":0,"package":"d80553ac7718b6c01f62d34877a511502d520db3-working","status":{"output":"winit","presented":true,"occluded":false,"permission":true,"active":true,"field":{"ready":true,"framePresented":true,"diagnostic":"","records":0,"capacity":40},"scene":{"valid":true,"width":1860,"height":1102,"hostWidth":112,"hostHeight":98,"insets":{"top":16,"right":16,"bottom":48,"left":16},"records":[{"edge":"bottom","along":305.5,"span":133},{"edge":"bottom","along":804,"span":66},{"edge":"bottom","along":1250,"span":104}],"blockers":[{"x":305.5,"y":1054,"width":133,"height":48},{"x":804,"y":1054,"width":66,"height":48},{"x":1250,"y":1054,"width":104,"height":48}],"surfaces":[]},"presence":{"qualified":true,"portalActive":false,"portalProgress":0,"visitActive":false,"traveling":false,"mode":"fly","dragging":false,"arc":0,"requestedReveal":0,"renderedReveal":0,"placement":{"qualified":true,"x":1591.4007755233795,"y":956,"edge":"bottom","kind":"edge","key":"bottom","grounded":true,"support":{"key":"bottom","edge":"bottom","nx":0,"ny":-1,"axis":"x","coordinate":1054,"y":1054,"from":18,"to":1842},"contact":{"x":1647.4007755233795,"y":1054,"nx":0,"ny":-1,"scale":1,"span":78.39999999999999,"sourceEdge":"bottom","sourceAlong":1647.4007755233795,"key":"bottom"},"freeInterval":[1413,1768]}},"curiosity":{"enabled":false,"stage":"","owned":false,"feature":""},"turns":{"enabled":false,"active":false,"paired":false,"incoming":""},"actor":{"character":"aqua","visible":false,"inputReady":false,"moving":false,"walking":false,"rolling":false,"flying":false,"presentation":0,"opacity":1,"x":1591.4007755233795,"y":956}}}
+  INFO qml: COMPANION_HOVER_ENTER bottom absent clock {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START bottom absent clock 1791731247987 {"surface":{"x":53.5,"y":768,"width":637,"height":384},"content":{"x":67.5,"y":782,"width":609,"height":258},"input":{"x":53.5,"y":768,"width":637,"height":286,"left":53.5,"right":690.5,"top":768,"bottom":1054}}
+  INFO qml: COMPANION_BRIDGE_FOUND bottom absent clock 1791731247987 [372,1048]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE clock actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START bottom absent clock 1791731248810
+  INFO qml: COMPANION_EXIT_END bottom absent clock 1791731249274
+  INFO qml: COMPANION_HOVER_ENTER bottom absent weather {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START bottom absent weather 1791731250264 {"surface":{"x":628,"y":726,"width":418,"height":426},"content":{"x":642,"y":740,"width":390,"height":300},"input":{"x":628,"y":726,"width":418,"height":328,"left":628,"right":1046,"top":726,"bottom":1054}}
+  INFO qml: COMPANION_BRIDGE_FOUND bottom absent weather 1791731250264 [837,1048]
+  INFO qml: COMPANION_EXIT_START bottom absent weather 1791731251087
+  INFO qml: COMPANION_EXIT_END bottom absent weather 1791731251552
+  INFO qml: COMPANION_HOVER_ENTER bottom absent media {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START bottom absent media 1791731252545 {"surface":{"x":1098,"y":872,"width":408,"height":280},"content":{"x":1112,"y":886,"width":380,"height":154},"input":{"x":1098,"y":872,"width":408,"height":182,"left":1098,"right":1506,"top":872,"bottom":1054}}
+  INFO qml: COMPANION_BRIDGE_FOUND bottom absent media 1791731252545 [1302,1048]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE media actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START bottom absent media 1791731253370
+  INFO qml: COMPANION_EXIT_END bottom absent media 1791731253833
+  INFO qml: COMPANION_PHASE_START left disabled
+  INFO qml: COMPANION_HOVER_STATE left disabled {"layer":3,"focus":0,"package":"d80553ac7718b6c01f62d34877a511502d520db3-working","status":null}
+  INFO qml: COMPANION_HOVER_ENTER left disabled clock {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START left disabled clock 1791731255916 {"surface":{"x":-50,"y":77.4,"width":735,"height":286},"content":{"x":62,"y":91.4,"width":609,"height":258},"input":{"x":48,"y":77.4,"width":637,"height":286,"left":48,"right":685,"top":77.4,"bottom":363.4}}
+  INFO qml: COMPANION_BRIDGE_FOUND left disabled clock 1791731255917 [54,220]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE clock actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START left disabled clock 1791731256740
+  INFO qml: COMPANION_EXIT_END left disabled clock 1791731257204
+  INFO qml: COMPANION_HOVER_ENTER left disabled weather {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START left disabled weather 1791731258187 {"surface":{"x":-50,"y":331.90000000000003,"width":516,"height":328},"content":{"x":62,"y":345.90000000000003,"width":390,"height":300},"input":{"x":48,"y":331.90000000000003,"width":418,"height":328.00000000000006,"left":48,"right":466,"top":331.90000000000003,"bottom":659.9000000000001}}
+  INFO qml: COMPANION_BRIDGE_FOUND left disabled weather 1791731258187 [54,495]
+  INFO qml: COMPANION_EXIT_START left disabled weather 1791731259011
+  INFO qml: COMPANION_EXIT_END left disabled weather 1791731259476
+  INFO qml: COMPANION_HOVER_ENTER left disabled media {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START left disabled media 1791731260460 {"surface":{"x":-50,"y":680.4,"width":506,"height":182},"content":{"x":62,"y":694.4,"width":380,"height":154},"input":{"x":48,"y":680.4,"width":408,"height":182,"left":48,"right":456,"top":680.4,"bottom":862.4}}
+  INFO qml: COMPANION_BRIDGE_FOUND left disabled media 1791731260460 [54,771]
+  INFO qml: COMPANION_EXIT_START left disabled media 1791731261285
+  INFO qml: COMPANION_EXIT_END left disabled media 1791731261943
+  INFO qml: COMPANION_PHASE_START left present
+  INFO qml: COMPANION_HOVER_STATE left present {"layer":3,"focus":0,"package":"d80553ac7718b6c01f62d34877a511502d520db3-working","status":{"output":"winit","presented":true,"occluded":false,"permission":true,"active":true,"field":{"ready":true,"framePresented":true,"diagnostic":"","records":0,"capacity":40},"scene":{"valid":true,"width":1860,"height":1102,"hostWidth":112,"hostHeight":98,"insets":{"top":16,"right":16,"bottom":16,"left":48},"records":[{"edge":"left","along":199.4,"span":42},{"edge":"left","along":478.90000000000003,"span":34},{"edge":"left","along":761.4,"span":20}],"blockers":[{"x":0,"y":199.4,"width":48,"height":42},{"x":0,"y":478.90000000000003,"width":48,"height":34},{"x":0,"y":761.4,"width":48,"height":20}],"surfaces":[]},"presence":{"qualified":true,"portalActive":false,"portalProgress":0,"visitActive":true,"traveling":false,"mode":"fly","dragging":false,"arc":0,"requestedReveal":1,"renderedReveal":1,"placement":{"qualified":true,"x":779.2648646663874,"y":16,"edge":"top","kind":"edge","key":"top","grounded":true,"support":{"key":"top","edge":"top","nx":0,"ny":1,"axis":"x","coordinate":16,"y":16,"from":50,"to":1842},"contact":{"x":835.2648646663874,"y":16,"nx":0,"ny":1,"scale":1,"span":78.39999999999999,"sourceEdge":"top","sourceAlong":835.2648646663874,"key":"top"}}},"curiosity":{"enabled":false,"stage":"","owned":false,"feature":""},"turns":{"enabled":false,"active":false,"paired":false,"incoming":""},"actor":{"character":"aqua","visible":true,"inputReady":true,"moving":false,"walking":false,"rolling":false,"flying":false,"presentation":1,"opacity":1,"x":779.2648646663874,"y":16}}}
+  INFO qml: COMPANION_HOVER_ENTER left present clock {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START left present clock 1791731266074 {"surface":{"x":-50,"y":77.4,"width":735,"height":286},"content":{"x":62,"y":91.4,"width":609,"height":258},"input":{"x":48,"y":77.4,"width":637,"height":286,"left":48,"right":685,"top":77.4,"bottom":363.4}}
+  INFO qml: COMPANION_BRIDGE_FOUND left present clock 1791731266074 [54,220]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE clock actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START left present clock 1791731266899
+  INFO qml: COMPANION_EXIT_END left present clock 1791731267363
+  INFO qml: COMPANION_HOVER_ENTER left present weather {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START left present weather 1791731268351 {"surface":{"x":-50,"y":331.90000000000003,"width":516,"height":328},"content":{"x":62,"y":345.90000000000003,"width":390,"height":300},"input":{"x":48,"y":331.90000000000003,"width":418,"height":328.00000000000006,"left":48,"right":466,"top":331.90000000000003,"bottom":659.9000000000001}}
+  INFO qml: COMPANION_BRIDGE_FOUND left present weather 1791731268352 [54,495]
+  INFO qml: COMPANION_EXIT_START left present weather 1791731269175
+  INFO qml: COMPANION_EXIT_END left present weather 1791731269639
+  INFO qml: COMPANION_HOVER_ENTER left present media {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START left present media 1791731270628 {"surface":{"x":-50,"y":680.4,"width":506,"height":182},"content":{"x":62,"y":694.4,"width":380,"height":154},"input":{"x":48,"y":680.4,"width":408,"height":182,"left":48,"right":456,"top":680.4,"bottom":862.4}}
+  INFO qml: COMPANION_BRIDGE_FOUND left present media 1791731270629 [54,771]
+  INFO qml: COMPANION_EXIT_START left present media 1791731271454
+  INFO qml: COMPANION_EXIT_END left present media 1791731272114
+  INFO qml: COMPANION_PHASE_START left absent
+  INFO qml: COMPANION_HOVER_STATE left absent {"layer":3,"focus":0,"package":"d80553ac7718b6c01f62d34877a511502d520db3-working","status":{"output":"winit","presented":true,"occluded":false,"permission":true,"active":true,"field":{"ready":true,"framePresented":true,"diagnostic":"","records":0,"capacity":40},"scene":{"valid":true,"width":1860,"height":1102,"hostWidth":112,"hostHeight":98,"insets":{"top":16,"right":16,"bottom":16,"left":48},"records":[{"edge":"left","along":199.4,"span":42},{"edge":"left","along":478.90000000000003,"span":34},{"edge":"left","along":761.4,"span":20}],"blockers":[{"x":0,"y":199.4,"width":48,"height":42},{"x":0,"y":478.90000000000003,"width":48,"height":34},{"x":0,"y":761.4,"width":48,"height":20}],"surfaces":[]},"presence":{"qualified":true,"portalActive":false,"portalProgress":0,"visitActive":false,"traveling":false,"mode":"fly","dragging":false,"arc":0,"requestedReveal":0,"renderedReveal":0,"placement":{"qualified":true,"x":779.2648646663874,"y":16,"edge":"top","kind":"edge","key":"top","grounded":true,"support":{"key":"top","edge":"top","nx":0,"ny":1,"axis":"x","coordinate":16,"y":16,"from":50,"to":1842},"contact":{"x":835.2648646663874,"y":16,"nx":0,"ny":1,"scale":1,"span":78.39999999999999,"sourceEdge":"top","sourceAlong":835.2648646663874,"key":"top"},"freeInterval":[124,1768]}},"curiosity":{"enabled":false,"stage":"","owned":false,"feature":""},"turns":{"enabled":false,"active":false,"paired":false,"incoming":""},"actor":{"character":"aqua","visible":false,"inputReady":false,"moving":false,"walking":false,"rolling":false,"flying":false,"presentation":0,"opacity":1,"x":779.2648646663874,"y":16}}}
+  INFO qml: COMPANION_HOVER_ENTER left absent clock {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START left absent clock 1791731275337 {"surface":{"x":-50,"y":77.4,"width":735,"height":286},"content":{"x":62,"y":91.4,"width":609,"height":258},"input":{"x":48,"y":77.4,"width":637,"height":286,"left":48,"right":685,"top":77.4,"bottom":363.4}}
+  INFO qml: COMPANION_BRIDGE_FOUND left absent clock 1791731275337 [54,220]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE clock actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START left absent clock 1791731276160
+  INFO qml: COMPANION_EXIT_END left absent clock 1791731276623
+  INFO qml: COMPANION_HOVER_ENTER left absent weather {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START left absent weather 1791731277613 {"surface":{"x":-50,"y":331.90000000000003,"width":516,"height":328},"content":{"x":62,"y":345.90000000000003,"width":390,"height":300},"input":{"x":48,"y":331.90000000000003,"width":418,"height":328.00000000000006,"left":48,"right":466,"top":331.90000000000003,"bottom":659.9000000000001}}
+  INFO qml: COMPANION_BRIDGE_FOUND left absent weather 1791731277613 [54,495]
+  INFO qml: COMPANION_EXIT_START left absent weather 1791731278436
+  INFO qml: COMPANION_EXIT_END left absent weather 1791731278900
+  INFO qml: COMPANION_HOVER_ENTER left absent media {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START left absent media 1791731279892 {"surface":{"x":-50,"y":680.4,"width":506,"height":182},"content":{"x":62,"y":694.4,"width":380,"height":154},"input":{"x":48,"y":680.4,"width":408,"height":182,"left":48,"right":456,"top":680.4,"bottom":862.4}}
+  INFO qml: COMPANION_BRIDGE_FOUND left absent media 1791731279892 [54,771]
+  INFO qml: COMPANION_EXIT_START left absent media 1791731280715
+  INFO qml: COMPANION_EXIT_END left absent media 1791731281373
+  INFO qml: COMPANION_PHASE_START right disabled
+  INFO qml: COMPANION_HOVER_STATE right disabled {"layer":3,"focus":0,"package":"d80553ac7718b6c01f62d34877a511502d520db3-working","status":null}
+  INFO qml: COMPANION_HOVER_ENTER right disabled clock {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START right disabled clock 1791731283373 {"surface":{"x":1175,"y":77.4,"width":735,"height":286},"content":{"x":1189,"y":91.4,"width":609,"height":258},"input":{"x":1175,"y":77.4,"width":637,"height":286,"left":1175,"right":1812,"top":77.4,"bottom":363.4}}
+  INFO qml: COMPANION_BRIDGE_FOUND right disabled clock 1791731283374 [1806,220]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE clock actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START right disabled clock 1791731284196
+  INFO qml: COMPANION_EXIT_END right disabled clock 1791731284660
+  INFO qml: COMPANION_HOVER_ENTER right disabled weather {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START right disabled weather 1791731285645 {"surface":{"x":1394,"y":331.90000000000003,"width":516,"height":328},"content":{"x":1408,"y":345.90000000000003,"width":390,"height":300},"input":{"x":1394,"y":331.90000000000003,"width":418,"height":328.00000000000006,"left":1394,"right":1812,"top":331.90000000000003,"bottom":659.9000000000001}}
+  INFO qml: COMPANION_BRIDGE_FOUND right disabled weather 1791731285645 [1806,495]
+  INFO qml: COMPANION_EXIT_START right disabled weather 1791731286468
+  INFO qml: COMPANION_EXIT_END right disabled weather 1791731286932
+  INFO qml: COMPANION_HOVER_ENTER right disabled media {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START right disabled media 1791731287918 {"surface":{"x":1404,"y":680.4,"width":506,"height":182},"content":{"x":1418,"y":694.4,"width":380,"height":154},"input":{"x":1404,"y":680.4,"width":408,"height":182,"left":1404,"right":1812,"top":680.4,"bottom":862.4}}
+  INFO qml: COMPANION_BRIDGE_FOUND right disabled media 1791731287918 [1806,771]
+  INFO qml: COMPANION_EXIT_START right disabled media 1791731288744
+  INFO qml: COMPANION_EXIT_END right disabled media 1791731289402
+  INFO qml: COMPANION_PHASE_START right present
+  INFO qml: COMPANION_HOVER_STATE right present {"layer":3,"focus":0,"package":"d80553ac7718b6c01f62d34877a511502d520db3-working","status":{"output":"winit","presented":true,"occluded":false,"permission":true,"active":true,"field":{"ready":true,"framePresented":true,"diagnostic":"","records":0,"capacity":40},"scene":{"valid":true,"width":1860,"height":1102,"hostWidth":112,"hostHeight":98,"insets":{"top":16,"right":48,"bottom":16,"left":16},"records":[{"edge":"right","along":199.4,"span":42},{"edge":"right","along":478.90000000000003,"span":34},{"edge":"right","along":761.4,"span":20}],"blockers":[{"x":1812,"y":199.4,"width":48,"height":42},{"x":1812,"y":478.90000000000003,"width":48,"height":34},{"x":1812,"y":761.4,"width":48,"height":20}],"surfaces":[]},"presence":{"qualified":true,"portalActive":false,"portalProgress":0,"visitActive":true,"traveling":false,"mode":"fly","dragging":false,"arc":0,"requestedReveal":1,"renderedReveal":1,"placement":{"qualified":true,"x":16,"y":482.9955588793382,"edge":"left","kind":"edge","key":"left","grounded":true,"support":{"key":"left","edge":"left","nx":1,"ny":0,"axis":"y","coordinate":16,"from":18,"to":1084},"contact":{"x":16,"y":531.9955588793382,"nx":1,"ny":0,"scale":1,"span":68.6,"sourceEdge":"left","sourceAlong":531.9955588793382,"key":"left"}}},"curiosity":{"enabled":false,"stage":"","owned":false,"feature":""},"turns":{"enabled":false,"active":false,"paired":false,"incoming":""},"actor":{"character":"aqua","visible":true,"inputReady":true,"moving":false,"walking":false,"rolling":false,"flying":false,"presentation":1,"opacity":1,"x":16,"y":482.9955588793382}}}
+  INFO qml: COMPANION_HOVER_ENTER right present clock {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START right present clock 1791731293076 {"surface":{"x":1175,"y":77.4,"width":735,"height":286},"content":{"x":1189,"y":91.4,"width":609,"height":258},"input":{"x":1175,"y":77.4,"width":637,"height":286,"left":1175,"right":1812,"top":77.4,"bottom":363.4}}
+  INFO qml: COMPANION_BRIDGE_FOUND right present clock 1791731293076 [1806,220]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE clock actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START right present clock 1791731293899
+  INFO qml: COMPANION_EXIT_END right present clock 1791731294363
+  INFO qml: COMPANION_HOVER_ENTER right present weather {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START right present weather 1791731295353 {"surface":{"x":1394,"y":331.90000000000003,"width":516,"height":328},"content":{"x":1408,"y":345.90000000000003,"width":390,"height":300},"input":{"x":1394,"y":331.90000000000003,"width":418,"height":328.00000000000006,"left":1394,"right":1812,"top":331.90000000000003,"bottom":659.9000000000001}}
+  INFO qml: COMPANION_BRIDGE_FOUND right present weather 1791731295354 [1806,495]
+  INFO qml: COMPANION_EXIT_START right present weather 1791731296177
+  INFO qml: COMPANION_EXIT_END right present weather 1791731296640
+  INFO qml: COMPANION_HOVER_ENTER right present media {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START right present media 1791731297636 {"surface":{"x":1404,"y":680.4,"width":506,"height":182},"content":{"x":1418,"y":694.4,"width":380,"height":154},"input":{"x":1404,"y":680.4,"width":408,"height":182,"left":1404,"right":1812,"top":680.4,"bottom":862.4}}
+  INFO qml: COMPANION_BRIDGE_FOUND right present media 1791731297637 [1806,771]
+  INFO qml: COMPANION_EXIT_START right present media 1791731298461
+  INFO qml: COMPANION_EXIT_END right present media 1791731299119
+  INFO qml: COMPANION_PHASE_START right absent
+  INFO qml: COMPANION_HOVER_STATE right absent {"layer":3,"focus":0,"package":"d80553ac7718b6c01f62d34877a511502d520db3-working","status":{"output":"winit","presented":true,"occluded":false,"permission":true,"active":true,"field":{"ready":true,"framePresented":true,"diagnostic":"","records":0,"capacity":40},"scene":{"valid":true,"width":1860,"height":1102,"hostWidth":112,"hostHeight":98,"insets":{"top":16,"right":48,"bottom":16,"left":16},"records":[{"edge":"right","along":199.4,"span":42},{"edge":"right","along":478.90000000000003,"span":34},{"edge":"right","along":761.4,"span":20}],"blockers":[{"x":1812,"y":199.4,"width":48,"height":42},{"x":1812,"y":478.90000000000003,"width":48,"height":34},{"x":1812,"y":761.4,"width":48,"height":20}],"surfaces":[]},"presence":{"qualified":true,"portalActive":false,"portalProgress":0,"visitActive":false,"traveling":false,"mode":"fly","dragging":false,"arc":0,"requestedReveal":0,"renderedReveal":0,"placement":{"qualified":true,"x":16,"y":482.9955588793382,"edge":"left","kind":"edge","key":"left","grounded":true,"support":{"key":"left","edge":"left","nx":1,"ny":0,"axis":"y","coordinate":16,"from":18,"to":1084},"contact":{"x":16,"y":531.9955588793382,"nx":1,"ny":0,"scale":1,"span":68.6,"sourceEdge":"left","sourceAlong":531.9955588793382,"key":"left"},"freeInterval":[85,1017]}},"curiosity":{"enabled":false,"stage":"","owned":false,"feature":""},"turns":{"enabled":false,"active":false,"paired":false,"incoming":""},"actor":{"character":"aqua","visible":false,"inputReady":false,"moving":false,"walking":false,"rolling":false,"flying":false,"presentation":0,"opacity":1,"x":16,"y":482.9955588793382}}}
+  INFO qml: COMPANION_HOVER_ENTER right absent clock {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START right absent clock 1791731304124 {"surface":{"x":1175,"y":77.4,"width":735,"height":286},"content":{"x":1189,"y":91.4,"width":609,"height":258},"input":{"x":1175,"y":77.4,"width":637,"height":286,"left":1175,"right":1812,"top":77.4,"bottom":363.4}}
+  INFO qml: COMPANION_BRIDGE_FOUND right absent clock 1791731304124 [1806,220]
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE clock actual hover source accepts no LeftButton
+  INFO qml: COMPANION_EXIT_START right absent clock 1791731304949
+  INFO qml: COMPANION_EXIT_END right absent clock 1791731305412
+  INFO qml: COMPANION_HOVER_ENTER right absent weather {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START right absent weather 1791731306403 {"surface":{"x":1394,"y":331.90000000000003,"width":516,"height":328},"content":{"x":1408,"y":345.90000000000003,"width":390,"height":300},"input":{"x":1394,"y":331.90000000000003,"width":418,"height":328.00000000000006,"left":1394,"right":1812,"top":331.90000000000003,"bottom":659.9000000000001}}
+  INFO qml: COMPANION_BRIDGE_FOUND right absent weather 1791731306404 [1806,495]
+  INFO qml: COMPANION_EXIT_START right absent weather 1791731307227
+  INFO qml: COMPANION_EXIT_END right absent weather 1791731307691
+  INFO qml: COMPANION_HOVER_ENTER right absent media {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_BRIDGE_START right absent media 1791731308683 {"surface":{"x":1404,"y":680.4,"width":506,"height":182},"content":{"x":1418,"y":694.4,"width":380,"height":154},"input":{"x":1404,"y":680.4,"width":408,"height":182,"left":1404,"right":1812,"top":680.4,"bottom":862.4}}
+  INFO qml: COMPANION_BRIDGE_FOUND right absent media 1791731308683 [1806,771]
+  INFO qml: COMPANION_EXIT_START right absent media 1791731309506
+  INFO qml: COMPANION_EXIT_END right absent media 1791731310165
+  INFO qml: COMPANION_HOVER_PASS 946 49
+
+processExit=0

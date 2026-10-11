@@ -91,10 +91,11 @@ def main():
         # A per-run isolated user package is essential when validating on a machine
         # where another Hadanion release may already be installed.
         environment["HADANION_TEST_HOST"] = str(work)
+        environment["HADANION_HOVER_HOST_SHA"] = revisions[host]
         base_environment = environment.copy()
         checks += [["node", str(path.relative_to(ROOT))] for path in sorted((ROOT / "scripts").glob("test-*.cjs"))]
         checks += [["python3", "scripts/" + name] for name in (
-            "test-package-lifecycle.py", "test-host-runtime.py", "test-wull-local-mind.py",
+            "test-package-lifecycle.py", "test-host-runtime.py", "test-module-hover-runtime.py", "test-wull-local-mind.py",
             "test-wull-gguf-ui.py", "test-wull-shared-ai-runtime.py", "test-wull-abyss-water.py",
             "test-wull-portal-runtime.py", "test-wull-presence-interaction.py", "test-wull-alive-reactions.py",
             "test-wull-mature-popup.py", "test-companion-airborne-orientation.py",
@@ -147,7 +148,8 @@ def main():
             else:
                 # Native host/immersion fixtures already own private compositors.
                 result = subprocess.run(command, cwd=work, env=base_environment, stdout=subprocess.PIPE,
-                                        stderr=subprocess.STDOUT, text=True, timeout=180)
+                                        stderr=subprocess.STDOUT, text=True,
+                                        timeout=430 if label == "test-module-hover-runtime.py" else 180)
             skipped_check = result.returncode == 77 or result.stdout.lstrip().startswith("SKIP:")
             print(("SKIP " if skipped_check else "PASS " if result.returncode == 0 else "FAIL ") + label, flush=True)
             if skipped_check:

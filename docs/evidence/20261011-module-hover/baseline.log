@@ -1,0 +1,37 @@
+  INFO: Launching config: "/tmp/alis-companion-hover-mq53g2h5/shell.qml"
+  INFO: Shell ID: "4090f6cda3c52c6b83d883dcaaca056b" Path ID "4090f6cda3c52c6b83d883dcaaca056b"
+  INFO: Saving logs to "/tmp/alis-companion-hover-mq53g2h5/runtime/quickshell/by-id/w1k2z6yqmt/log.qslog"
+  WARN: $HYPRLAND_INSTANCE_SIGNATURE is unset. Cannot connect to hyprland.
+  INFO qml: CompositorService: Detected Niri with socket: /run/user/1000/niri.wayland-2.119277.sock
+ ERROR quickshell.service.pipewire.loop: Failed to connect pipewire context. Errno: 112
+  INFO: Configuration Loaded
+  WARN scene: QML FileView at @services/GameMode.qml[309:5]: Read of /tmp/alis-companion-hover-mq53g2h5/state/quickshell/user/gamemode_active failed: File does not exist.
+  WARN scene: QML FileView at @services/GameMode.qml[330:5]: Read of /tmp/alis-companion-hover-mq53g2h5/state/quickshell/user/gamemode_active failed: File does not exist.
+  WARN scene: QML FileView at @services/Notifications.qml[760:5]: Read of /tmp/alis-companion-hover-mq53g2h5/state/quickshell/user/notifications.json failed: File does not exist.
+ DEBUG qml: [Notifications] File not found, creating new file.
+  WARN scene: QML FileView at @services/Events.qml[62:5]: Read of /tmp/alis-companion-hover-mq53g2h5/state/quickshell/user/events.json failed: File does not exist.
+ DEBUG qml: [Events] File not found, creating new file.
+  WARN scene: QML FileView at @modules/common/Persistent.qml[60:5]: Read of /tmp/alis-companion-hover-mq53g2h5/state/quickshell/states.json failed: File does not exist.
+ DEBUG qml: Failed to load persistent states file: 2
+ DEBUG qml: [Persistent] File not found, creating new file.
+  WARN quickshell.io.fileview: got operation finished from dropped operation qs::io::FileViewOperation(0x7f9336d0f9e0)
+  WARN scene: QML FileView at @services/GameMode.qml[309:5]: Read of /tmp/alis-companion-hover-mq53g2h5/state/quickshell/user/gamemode_active failed: File does not exist.
+  INFO qml: NiriService: Loaded 1 outputs
+  INFO qml: COMPANION_HOVER_STATE top disabled {"layer":3,"focus":0,"package":"d80553ac7718b6c01f62d34877a511502d520db3-working","status":null}
+  INFO qml: COMPANION_HOVER_ENTER top disabled clock {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE clock actual hover source accepts no LeftButton
+  INFO qml: COMPANION_HOVER_ENTER top disabled weather {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+ DEBUG qml: [ShellUpdates] Loading repo path from version.json...
+ DEBUG qml: [ShellUpdates] No repo_path in version.json, searching for repository...
+ DEBUG qml: [ShellUpdates] Repository not found, using config dir: /tmp/alis-companion-hover-mq53g2h5/.
+ DEBUG qml: [ShellUpdates] Update feature will not be available
+ DEBUG qml: [ShellUpdates] Git available: false
+  INFO qml: COMPANION_HOVER_ENTER top disabled media {"module":true,"anchor":true,"requested":true,"content":false,"lease":false,"slots":1}
+  INFO qml: COMPANION_CLICK_NOT_APPLICABLE media actual hover source accepts no LeftButton
+  INFO qml: COMPANION_HOVER_STATE top present {"layer":3,"focus":0,"package":"d80553ac7718b6c01f62d34877a511502d520db3-working","status":{"output":"winit","presented":true,"occluded":false,"permission":true,"active":true,"field":{"ready":true,"framePresented":true,"diagnostic":"","records":0,"capacity":40},"scene":{"valid":true,"width":1860,"height":1102,"hostWidth":112,"hostHeight":98,"insets":{"top":48,"right":16,"bottom":16,"left":16},"records":[{"edge":"top","along":305.5,"span":133},{"edge":"top","along":804,"span":66},{"edge":"top","along":1250,"span":104}],"blockers":[{"x":305.5,"y":0,"width":133,"height":48},{"x":804,"y":0,"width":66,"height":48},{"x":1250,"y":0,"width":104,"height":48}],"surfaces":[]},"presence":{"qualified":true,"portalActive":false,"portalProgress":0,"visitActive":true,"traveling":false,"mode":"fly","dragging":false,"arc":0,"requestedReveal":1,"renderedReveal":1,"placement":{"qualified":true,"x":16,"y":814.84,"edge":"left","kind":"edge","key":"left","grounded":true,"support":{"key":"left","edge":"left","nx":1,"ny":0,"axis":"y","coordinate":16,"from":50,"to":1084},"contact":{"x":16,"y":863.84,"nx":1,"ny":0,"scale":1,"span":68.6,"sourceEdge":"left","sourceAlong":863.84,"key":"left"}}},"curiosity":{"enabled":false,"stage":"","owned":false,"feature":""},"turns":{"enabled":false,"active":false,"paired":false,"incoming":""},"actor":{"character":"aqua","visible":true,"inputReady":true,"moving":false,"walking":false,"rolling":false,"flying":false,"presentation":1,"opacity":1,"x":16,"y":814.84}}}
+  INFO qml: COMPANION_HOVER_ENTER top present clock {"module":false,"anchor":false,"requested":false,"content":false,"lease":false,"slots":0}
+ ERROR qml: COMPANION_HOVER_FAIL clock hover did not open with present on top check@qs:@/qs/shell.qml:20
+runChecks@qs:@/qs/shell.qml:79
+expression for onTriggered@qs:@/qs/shell.qml:104
+
+processExit=0

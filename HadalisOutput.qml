@@ -250,6 +250,11 @@ Item {
         anchors.fill: parent
         HoverHandler {
             id: companionPointer
+            objectName: "wullRimPointerObserver"
+            // Observe from the existing host ancestor. A later full-output
+            // sibling steals Qt hover from the bar's MouseAreas even when
+            // this handler is non-blocking. Keep the finite native mask.
+            parent: adapter.overlayParent
             target: null
             blocking: false
             enabled: root.companionHostActive && (session.companionInteractive || companionCuriosity.busy)
@@ -405,5 +410,10 @@ Item {
     Region { id:obsidianRegion;item:cloudActions.visible ? cloudActions.obsidianTarget : emptyInput }
     Region { id:aiRegion;item:cloudActions.visible ? cloudActions.aiTarget : emptyInput }
     function yieldToUser(): void {companionCuriosity.yieldToUser()}
-    Component.onDestruction: companionCuriosity.interrupt()
+    Component.onDestruction: {
+        companionCuriosity.interrupt()
+        // Return QObject ownership before Loader destroys this output.
+        companionPointer.enabled = false
+        companionPointer.parent = root
+    }
 }
