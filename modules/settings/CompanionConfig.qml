@@ -420,7 +420,6 @@ ContentPage {
                 color:Appearance.colors.colSubtext
             }
             RowLayout {
-                DialogButton {buttonText:Translation.tr("AI settings");onClicked:SettingsPageRegistry.navigateToKey("ai")}
                 DialogButton {buttonText:Translation.tr("Open chat");enabled:root.preferences.enabled;onClicked:WullMind.openChat()}
                 DialogButton {buttonText:Translation.tr("Clear conversation");onClicked:WullMind.clearConversation()}
             }

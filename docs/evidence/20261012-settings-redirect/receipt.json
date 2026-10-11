@@ -1,0 +1,18 @@
+{
+  "host_task": "SET-R01 (Alis sole board)",
+  "base_source_sha": "0f81bf31cf1de66ed5ecced37ddfd0ce86443913",
+  "candidate_qml_sha256": "42698f24715bf71bfc626249cd1810440acb18aec35e50cb46d212172e8ea904",
+  "host_base_sha": "2dbb678a9ab28fdcd2e8bbfa3d0b224e3b1e28dd",
+  "host_state": "working tree Settings redirect removal; source-only qualification",
+  "integration_sha": "7c3623da5cf8741a0b82cb4d3d8054017dfa99d0",
+  "selected_check": "test-wull-companion-settings.py",
+  "result": "PASS",
+  "passed": 1,
+  "failed": 0,
+  "skipped": 0,
+  "exit_code": 0,
+  "installed_changed": false,
+  "actor_ai_journal_enabled": false,
+  "g0_replayed": false,
+  "recorded_at": "2026-10-11T17:12:19.282556+00:00"
+}
