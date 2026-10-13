@@ -50,12 +50,15 @@ def main():
         "retired Mak1zu roadmap returned to active docs"
     source = (ROOT / VISUAL).read_text(encoding="utf-8")
     ai = (ROOT / AI).read_text(encoding="utf-8")
-    assert len(source.splitlines()) < 300, "visual TODO became a historical log again"
-    assert len(ai.splitlines()) < 300, "AI TODO became a historical log again"
-    assert source.count("## P0") >= 2
-    assert "G0" in source and "G1" in source and "OPEN" in source
-    assert "Mochi" in source and "Mak1zu" in ai
-    assert not any(header in source or header in ai for header in LEGACY_HEADERS)
+    for name, text in ((str(VISUAL), source), (str(AI), ai)):
+        assert "github.com/llocphann/Alis/issues" in text, (
+            name + ": tasks must link directly to GitHub Issues"
+        )
+        assert len(text.splitlines()) < 30, name + ": old task log reappeared"
+        assert not re.search(r"(?m)^\\s*- \\[[ xX]\\] \\*\\*[A-Z]+-[FRI]\\d{2}", text), (
+            name + ": no active Markdown task checklists"
+        )
+        assert not any(header in text for header in LEGACY_HEADERS)
     for rel in ACTIVE:
         file = ROOT / rel
         assert file.is_file(), "missing active documentation: " + rel
@@ -78,7 +81,7 @@ def main():
     for rel in (str(VISUAL), str(AI)):
         source = (ROOT / rel).read_text(encoding="utf-8")
         assert "git clone" not in source or "Hadanion" in source
-    print("HADANION_ACTIVE_DOC_GOVERNANCE_PASS (2 active TODOs; 3 immutable archives; "
+    print("HADANION_DOC_GOVERNANCE_PASS (2 GitHub Issue redirects; 3 immutable archives; "
           + str(len(ACTIVE)) + " checked entrypoints)")
 
 
