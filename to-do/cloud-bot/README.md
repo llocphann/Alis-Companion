@@ -1,31 +1,10 @@
-# Companion source work — Alis central queue
+# Companion Local/Cloud task workflow
 
-Task intake, triage, priority, status, release gates and archives for
-**Alis-Companion** are maintained exclusively in
-[the Alis dev task index](https://github.com/llocphann/Alis/blob/dev/to-do/README.md).
-No standalone Companion task backlog is active.
+**[Alis GitHub Issues](https://github.com/llocphann/Alis/issues?q=is%3Aissue+is%3Aopen) is the only active task tracker.** No Markdown to-do files are written.
 
-This repository owns the actor/animation/renderer, Companion chat/client,
-optional package and their tests. Alis owns generic AI/host/compositor
-interfaces. Implementation proceeds against an Alis task ID, recording
-compatible host SHA and Companion source SHA; avoid duplicate IPC/actor/
-model/movement ownership. Report commands, exit status, PASS/FAIL/SKIP,
-logs/evidence, blocked permission/hardware prerequisites and next step
-to the **Alis task**, not here. Keep feature-disabled state unless the
-user explicitly permits enablement.
+1. Search open and closed Issues first; update/reopen the matching stable task code or create one only for a new outcome.
+2. Keep **Goal**, important **Constraints** and **Done when** concise. Link to pinned evidence rather than copying raw logs.
+3. Record a meaningful milestone directly in that Issue, including real Alis `dev` and Companion `main` SHA/test outcome.
+4. Leave bot-finished tasks open until explicit Owner verification; report failed, skipped and native/consent gates independently.
 
-Safety gates preserved from the earlier source workflow:
-- No privileged installer, unexpected data capture, vault access, model
-  download, background inference, agent hook or desktop sensor without
-  specific user authorization.
-- Only use exact-SHA, private/owned native Wayland/Qt/GPU tests; a mock,
-  stale CI pass, Blender preview or inconclusive shader A/A is not
-  visual/performance/real-model acceptance.
-- Never weaken strict RGBA, skip required checks as PASS, rerun an
-  indeterminate state-changing action or change quality to fake gains.
-- Keep one visual actor/clock/host owner and preserve pointer and model
-  lifecycle when Companion is disabled. Alis stable is untouched.
-
-The prior full [local execution contract and priority table](https://github.com/llocphann/Alis-Companion/blob/732136ef65bb3c84d9339207210c955759a85b76/to-do/cloud-bot/README.md)
-is archived by the immutable Git revision and can be consulted for
-historical evidence only, not as a separate work queue.
+Source, GPU/Qt tests and historical archives stay here. Preserve optional-disabled behavior, original shader fidelity, privacy and real consent requirements. Follow [Alis AGENTS.md](https://github.com/llocphann/Alis/blob/dev/AGENTS.md).
