@@ -1,6 +1,6 @@
 # Retired Companion work logs — frozen evidence
 
-These documents are **not active roadmaps**. Current work is managed only through [Visual/Behavior TODO](../cloud-bot/ABYSS_WATER_DROPLET_COMPANION.md) and [Local AI TODO](../cloud-bot/WULL_LOCAL_AI.md). Older Hadalis `dev` paths, exact-SHA local receipts, untested experiments and historical PASS/FAIL counts must not drive new tasks or be relabeled as current Hadanion validation.
+These documents are **not active roadmaps**. Current work is managed only through [Alis GitHub Issues](https://github.com/llocphann/Alis/issues?q=is%3Aissue+is%3Aopen). The former visual and AI pages are redirects. Older Hadalis `dev` paths, exact-SHA local receipts, untested experiments and historical PASS/FAIL counts must not drive new tasks or be relabeled as current Hadanion validation.
 
 | Immutable archived source | Snapshot identity | Why retired |
 | --- | --- | --- |
