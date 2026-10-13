@@ -55,9 +55,10 @@ def main():
             name + ": tasks must link directly to GitHub Issues"
         )
         assert len(text.splitlines()) < 30, name + ": old task log reappeared"
-        assert not re.search(r"(?m)^\\s*- \\[[ xX]\\] \\*\\*[A-Z]+-[FRI]\\d{2}", text), (
-            name + ": no active Markdown task checklists"
-        )
+        assert not any(
+            line.lstrip().startswith(("- [ ] **", "- [x] **", "- [X] **"))
+            for line in text.splitlines()
+        ), name + ": no active Markdown task checklists"
         assert not any(header in text for header in LEGACY_HEADERS)
     for rel in ACTIVE:
         file = ROOT / rel
