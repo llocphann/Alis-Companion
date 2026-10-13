@@ -1,12 +1,5 @@
-# Companion visuals and renderer — tasks managed in Alis
+# Companion visual work — GitHub Issues
 
-The visual, animation, G0/G1, event arbitration, 3D cowork laptop,
-four-rim and native acceptance tasks are now in the
-[Alis dev Issues](https://github.com/llocphann/Alis/blob/dev/to-do/cloud-bot/ISSUES.md),
-[Rework](https://github.com/llocphann/Alis/blob/dev/to-do/cloud-bot/REWORK_OPTIMIZATION.md) and
-[New features](https://github.com/llocphann/Alis/blob/dev/to-do/cloud-bot/NEW_FEATURES.md).
+Active rendering, actor, G0/G1, cowork and native acceptance tasks are tracked **only in [Alis GitHub Issues](https://github.com/llocphann/Alis/issues?q=is%3Aissue+is%3Aopen)** using their stable codes. Implementation remains in Alis-Companion `main`.
 
-Implementation/tests remain in Alis-Companion main. For exact historical
-status, source evidence and source-specific receipt references use the
-[frozen pre-centralization visual checklist](https://github.com/llocphann/Alis-Companion/blob/732136ef65bb3c84d9339207210c955759a85b76/to-do/cloud-bot/ABYSS_WATER_DROPLET_COMPANION.md).
-This page is a compatibility pointer, **not an active task list**.
+[Historical visual tasks and evidence](https://github.com/llocphann/Alis-Companion/blob/732136ef65bb3c84d9339207210c955759a85b76/to-do/cloud-bot/ABYSS_WATER_DROPLET_COMPANION.md) are source-pinned. This page is a redirect, not a task list.
