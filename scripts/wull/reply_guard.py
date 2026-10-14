@@ -8,7 +8,8 @@ import re
 _SENTINEL = re.compile(
     r"</?\s*(?:think(?:ing)?|analysis|tool(?:_call|_result)?|function_call|system|assistant|developer)\b"
     r"|<[|｜]|\[\s*/?\s*INST\s*\]|<<\s*/?\s*SYS\s*>>"
-    r"|</?\s*(?:start_of_turn|end_of_turn|bos|eos)\s*>", re.IGNORECASE,
+    r"|</?\s*(?:start_of_turn|end_of_turn|bos|eos)\s*>"
+    r"|\[\[\s*Function\s*:", re.IGNORECASE,
 )
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 EXPRESSIONS = frozenset(("idle", "happy", "excited", "thinking", "working",
@@ -22,9 +23,11 @@ class UnsafeReply(ValueError):
 def public_text(value):
     if not isinstance(value, str):
         raise UnsafeReply("invalid_text")
-    if _SENTINEL.search(value):
+    # Inspect all normalized bytes before truncation can hide an envelope.
+    candidate = _CONTROL.sub("", value)
+    if _SENTINEL.search(candidate):
         raise UnsafeReply("internal_protocol")
-    text = _CONTROL.sub("", value).strip()[:420]
+    text = candidate.strip()[:420]
     if not text:
         raise UnsafeReply("empty_text")
     return text

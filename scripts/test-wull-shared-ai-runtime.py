@@ -22,8 +22,19 @@ class Handler(BaseHTTPRequestHandler):
         content={
             '/extra':json.dumps({'text':'Not public','tool_calls':[{'name':'open_file'}]}),
             '/tokens':json.dumps({'text':'<|channel|>analysis secret','expression':'happy'}),
+            '/controltag':json.dumps({'text':'Hello <thi\x01nk>fixture internal</thi\x01nk>','expression':'happy'}),
             '/malformed':'{"text":"unfinished"',
         }.get(self.path,json.dumps({'text':'Fixture hello','expression':'happy'}))
+        if self.path=="/eof-tool":
+            # Normal prose followed by an unfinished tool stream exercises the
+            # host strategy's EOF flush, without invoking or authorizing a tool.
+            events=[{"choices":[{"delta":{"content":"Hello, friend."}}]},
+                    {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"fixture-call",
+                     "type":"function","function":{"name":"run_shell_command",
+                     "arguments":json.dumps({"command":"fixture must never run"})}}]}}]}]
+            try:self.wfile.write("".join("data: "+json.dumps(event)+"\n\n" for event in events).encode())
+            except (BrokenPipeError,ConnectionResetError):pass
+            return
         payload={"error":{"message":"fixture rate limit"}} if failure else {
             "choices":[{"delta":{"content":content},"finish_reason":"stop"}]}
         try:self.wfile.write(("data: "+json.dumps(payload)+"\n\ndata: [DONE]\n\n").encode())
@@ -36,7 +47,7 @@ try:
     folder=Path(name)
     for entry in ["modules","services","GlobalStates.qml","qmldir","assets","scripts","defaults","translations","optional"]:
         (folder/entry).symlink_to(ROOT/entry)
-    config=folder/"config/illogical-impulse";config.mkdir(parents=True)
+    config=folder/"config/alis";config.mkdir(parents=True)
     shutil.copy(ROOT/"defaults/config.json",config/"config.json")
     (folder/"shell.qml").write_text(r'''
 pragma ComponentBehavior: Bound
@@ -53,7 +64,7 @@ ShellRoot {
  property int step:0
  property int ticks:0
  property var mainIDs:[]
- property var invalidModels:["fixture-extra","fixture-tokens","fixture-malformed"]
+ property var invalidModels:["fixture-extra","fixture-tokens","fixture-malformed","fixture-controltag","fixture-eof-tool"]
  property int invalidIndex:0
  property string previousText:""
  property int assistantCount:0
@@ -248,7 +259,8 @@ ShellRoot {
  Timer {
   interval:100;running:true;repeat:true
   onTriggered:{
-   if(++root.ticks>160){root.check(false,"requests did not settle");return}
+   if(++root.ticks>160){root.check(false,"requests did not settle "+JSON.stringify({step:root.step,
+       configReady:Config.ready,packageDiagnostic:Hadanion.diagnostic}));return}
    if(!Config.ready || !Hadanion.available)return
    if(root.step===0){
     if(!root.cadenceStarted){
@@ -271,6 +283,7 @@ ShellRoot {
     root.add("fixture-main","/ok");root.add("fixture-wull","/ok")
     root.add("fixture-failure","/failure");root.add("fixture-slow","/slow")
     root.add("fixture-extra","/extra");root.add("fixture-tokens","/tokens");root.add("fixture-malformed","/malformed")
+    root.add("fixture-controltag","/controltag");root.add("fixture-eof-tool","/eof-tool")
     root.add("fixture-cloud","/cloud");Ai.models["fixture-cloud"].local=false
     root.add("fixture-spoof","/spoof");Ai.models["fixture-spoof"].endpoint="http://localhost@cloud.invalid/v1"
     Ai.modelList=Object.keys(Ai.models)
@@ -369,7 +382,7 @@ ShellRoot {
     headers=[headers for path,row,headers in requests if path=="/ok"]
     assert headers[0].get("Authorization")=="Bearer fixture-credential"
     assert "Authorization" not in headers[1], "previous provider credential survived a keyless switch"
-    assert len([row for path,row,headers in requests if path in ('/extra','/tokens','/malformed')])==3
+    assert len([row for path,row,headers in requests if path in ('/extra','/tokens','/malformed','/controltag','/eof-tool')])==5
     assert not any(path in ('/cloud','/spoof') for path,row,headers in requests), 'blocked or revoked request reached transport'
     with sqlite3.connect(Path(env['XDG_STATE_HOME'])/'inir/wull/chat.sqlite3') as db:
         rows=db.execute('SELECT role,content FROM messages ORDER BY id').fetchall()

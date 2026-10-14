@@ -7,13 +7,17 @@ var expressions = ["idle", "happy", "excited", "thinking", "working",
                    "surprised", "sleepy", "sad", "alert"]
 var internalTag = /<\/?\s*(think(?:ing)?|analysis|tool(?:_call|_result)?|function_call|system|assistant|developer)\b/i
 var protocolToken = /<[|｜]|\[\s*\/?\s*INST\s*\]|<<\s*\/?\s*SYS\s*>>|<\/?\s*(start_of_turn|end_of_turn|bos|eos)\s*>/i
+var functionEnvelope = /\[\[\s*Function\s*:/i
 var controlBytes = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g
 
 function normalizeText(text, expression) {
     if (typeof text !== "string") return {ok:false,reason:"invalid_text"}
-    if (internalTag.test(text) || protocolToken.test(text))
+    // Control removal can reveal a protocol marker. Inspect the complete
+    // candidate before the public-text limit can hide a trailing envelope.
+    const candidate = text.replace(controlBytes,"")
+    if (internalTag.test(candidate) || protocolToken.test(candidate) || functionEnvelope.test(candidate))
         return {ok:false,reason:"internal_protocol"}
-    const value = text.replace(controlBytes,"").trim().slice(0,420)
+    const value = candidate.trim().slice(0,420)
     if (!value) return {ok:false,reason:"empty_text"}
     const semantic = expressions.indexOf(expression) >= 0 ? expression : "idle"
     return {ok:true,text:value,expression:semantic}

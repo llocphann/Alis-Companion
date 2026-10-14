@@ -2,6 +2,8 @@
 """Offline cross-route public output guard check; no model or private history."""
 import importlib.util
 from pathlib import Path
+import json
+import subprocess
 
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location("guard_local", ROOT/"scripts/wull/reply_guard.py")
@@ -37,4 +39,63 @@ for malformed in ([], None, 'plain text', {'text':123}, {'text':'hi','tool_calls
     else:
         raise AssertionError('invalid response envelope was accepted')
 # Actual helper parsing and SQLite no-write behavior live in test-wull-local-mind.py.
-print("HADANION_LOCAL_REPLY_GUARD_OFFLINE_PASS")
+
+unsafe_replies=[
+    'Hello, friend.\n\n[[ Function: run_shell_command({\n  "command": "private fixture"\n}) ]]\n',
+    "Hello [[ fUnCtIoN : open_file({}) ]]",
+    "Hello [[ Function:",
+    "x"*421+" [[ Function: open_file({}) ]]",
+    "x"*421+" <thi\x01nk>private fixture</thi\x01nk>",
+]
+removed_controls=[chr(code) for code in range(32) if code not in (9,10,13)]+[chr(127)]
+for control in removed_controls:
+    unsafe_replies.extend(("Hello <thi"+control+"nk>private fixture</thi"+control+"nk>",
+                           "Hello <"+control+"|channel|>analysis private fixture",
+                           "Hello [[ Fun"+control+"ction: open_file({}) ]]"))
+violations=[]
+for index,reply in enumerate(unsafe_replies):
+    for route,call in (("text",lambda:mod.public_text(reply)),
+                       ("envelope",lambda:mod.public_reply({'text':reply,'expression':'happy'}))):
+        try:
+            call()
+        except mod.UnsafeReply:
+            pass
+        else:
+            violations.append((index,route))
+assert not violations, ("public reply guard accepted "+str(len(violations))
+                        +" function/protocol checks; examples="+repr(violations[:5]))
+
+benign_replies=[
+    ("Hello, friend.","Hello, friend."),
+    ("The function: greet() makes me smile.","The function: greet() makes me smile."),
+    ("Use [[brackets]] for a little note.","Use [[brackets]] for a little note."),
+    ("  Hello\x01!\n","Hello!"),
+    ("Hello\tfriend\nA little splash. 🌊","Hello\tfriend\nA little splash. 🌊"),
+    ("x"*500,"x"*420),
+]
+for reply,text in benign_replies:
+    assert mod.public_text(reply)==text
+    assert mod.public_reply({'text':reply,'expression':'happy'})=={'text':text,'expression':'happy'}
+
+# Exercise both implementations over the same bytes and compare public output.
+# This is a model-free guard check; the process reads only these owned sources.
+fixtures=unsafe_replies+[reply for reply,_ in benign_replies]
+javascript=r'''
+const fs=require("node:fs"),vm=require("node:vm"),context=vm.createContext({});
+vm.runInContext(fs.readFileSync(process.argv[1],"utf8").replace(/^\.pragma library\s*/,""),context);
+const fixtures=JSON.parse(fs.readFileSync(0,"utf8"));
+process.stdout.write(JSON.stringify(fixtures.map(text=>context.normalizeText(text,"happy"))));
+'''
+result=subprocess.run(["node","-e",javascript,str(ROOT/"services/WullReplyGuard.js")],
+                      input=json.dumps(fixtures),text=True,capture_output=True,check=True)
+js_results=json.loads(result.stdout)
+python_results=[]
+for reply in fixtures:
+    try:
+        python_results.append({'ok':True,**mod.public_reply({'text':reply,'expression':'happy'})})
+    except mod.UnsafeReply as exc:
+        python_results.append({'ok':False,'reason':str(exc)})
+assert js_results==python_results, "JS/Python public reply fixtures disagree"
+print(f"HADANION_LOCAL_REPLY_GUARD_OFFLINE_PASS unsafeReplies={len(unsafe_replies)} "
+      f"rejectionChecks={len(unsafe_replies)*2} benignReplies={len(benign_replies)} "
+      f"crossRouteFixtures={len(fixtures)}")
