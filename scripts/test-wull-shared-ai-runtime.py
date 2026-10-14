@@ -68,6 +68,77 @@ ShellRoot {
    local:true,requires_key:false,provider_id:"fixture",api_format:"openai",
    capabilities:{chat:"supported",reasoning:"supported"}})
  }
+ function helperContext(marker): var {
+  return {date:WullMind.today(),mood:"",energy:"",journalPath:"",schedule:[],marker:marker}
+ }
+ function checkHelperReplies(): bool {
+  // Completion injection only: no helper process, provider or vault is used.
+  const state=Persistent.states.wullCheckIn
+  const saved={history:WullMind.history,journal:WullMind.journal,date:state.date,
+   mood:state.mood,energy:state.energy,loaded:WullMind.historyLoaded,
+   more:WullMind.historyHasMore,loading:WullMind.historyLoadingOlder,
+   stage:WullMind.checkInStage,checkDate:WullMind.checkInDate,text:WullMind.text,
+   lastContext:WullMind.lastContext,lastAttempt:WullMind.lastContextAttempt}
+  const userText="Explain <tool_call> literally.\nKeep my exact text."
+  const held=[{id:7,role:"user",content:userText,createdMs:1,model:"fixture"}]
+  const context=root.helperContext("held")
+  const invalid=["null","[]","0","\"reply\"","{",
+   JSON.stringify({ok:"false",result:root.helperContext("bad")}),
+   JSON.stringify({ok:1,result:root.helperContext("bad")}),
+   JSON.stringify({ok:true,result:null}),JSON.stringify({ok:true,result:[]}),
+   JSON.stringify({ok:true,result:{}})]
+  const badResults={
+   context:[Object.assign({},context,{schedule:"oops"}),
+    Object.assign({},context,{schedule:[null]}),Object.assign({},context,{mood:{private:"bytes"}})],
+   history:[{messages:"oops",hasMore:false},{messages:[null],hasMore:false},
+    {messages:[Object.assign({},held[0],{content:{private:"bytes"}})],hasMore:false}],
+   history_append:[{userMessageId:0,assistantMessageId:1},
+    {userMessageId:7,assistantMessageId:7},{userMessageId:"7",assistantMessageId:8}],
+   history_clear:[{cleared:false},{cleared:"true"}],
+   check_in:[{saved:"true",field:"mood",value:"good",date:WullMind.today(),journalPath:"/fixture/journal.md"}]
+  }
+  for(const action of Object.keys(badResults)){
+   const cases=invalid.concat(badResults[action].map(result=>JSON.stringify({ok:true,result:result})))
+   for(const raw of cases){
+    WullMind.history=held.slice();WullMind.journal=context
+    WullMind.historyLoadingOlder=true;WullMind.historyClearPending=action==="history_clear"
+    WullMind.checkInStage="mood";WullMind.checkInDate=WullMind.today()
+    state.date=WullMind.today();state.mood="";state.energy=""
+    WullMind.errorMessage=""
+    const serial=++WullMind.epoch
+    WullMind.pending={serial:serial,action:action,automatic:false,
+     request:{clientKey:"fixture",field:"mood",value:"good",date:WullMind.today()}}
+    WullMind.busy=true
+    try {WullMind.completed(raw,0,serial)}
+    catch(e){return root.check(false,"malformed helper threw for "+action)}
+    if(!root.check(!WullMind.busy && !WullMind.pending && WullMind.errorMessage.length>0
+       && JSON.stringify(WullMind.history)===JSON.stringify(held)
+       && JSON.stringify(WullMind.journal)===JSON.stringify(context)
+       && state.mood==="" && state.energy==="" && WullMind.checkInStage==="mood",
+       "malformed helper changed data for "+action))return false
+    if(!root.check(action!=="history" || !WullMind.historyLoadingOlder,
+       "malformed history left pagination busy"))return false
+    if(!root.check(action!=="history_clear" || !WullMind.historyClearPending,
+       "malformed clear left deletion pending"))return false
+   }
+  }
+  // A valid page must still recover, preserving literal user content.
+  const serial=++WullMind.epoch
+  WullMind.pending={serial:serial,action:"history",automatic:false,request:{beforeId:0}}
+  WullMind.busy=true
+  WullMind.completed(JSON.stringify({ok:true,result:{messages:held,hasMore:false}}),0,serial)
+  if(!root.check(WullMind.history[0]?.content===userText && !WullMind.busy
+      && WullMind.historyLoaded && !WullMind.historyLoadingOlder,
+      "valid history did not recover after malformed helpers"))return false
+  WullMind.history=saved.history;WullMind.journal=saved.journal
+  state.date=saved.date;state.mood=saved.mood;state.energy=saved.energy
+  WullMind.historyLoaded=saved.loaded;WullMind.historyHasMore=saved.more
+  WullMind.historyLoadingOlder=saved.loading;WullMind.historyClearPending=false
+  WullMind.checkInStage=saved.stage;WullMind.checkInDate=saved.checkDate;WullMind.text=saved.text
+  WullMind.lastContext=saved.lastContext;WullMind.lastContextAttempt=saved.lastAttempt
+  WullMind.errorMessage=""
+  return true
+ }
  function checkAutomaticCompletion(): bool {
   // Synthetic helper completion only: no vault, model, notification or timer
   // is invoked. The startup gate keeps deferred automatic offers dormant.
@@ -80,7 +151,7 @@ ShellRoot {
    WullMind.journal=({schedule:[],marker:"before"})
    WullMind.pending={serial:serial,action:"context",request:{},automatic:true}
    WullMind.busy=true
-   WullMind.completed(JSON.stringify({ok:true,result:{schedule:[],marker:cadence}}),0,serial)
+   WullMind.completed(JSON.stringify({ok:true,result:root.helperContext(cadence)}),0,serial)
    if(!root.check(!WullMind.busy && !WullMind.pending && WullMind.journal.marker===cadence,
        "automatic helper discarded enabled cadence "+cadence))return false
   }
@@ -92,7 +163,7 @@ ShellRoot {
    WullMind.journal=({schedule:[],marker:"held"})
    WullMind.pending={serial:serial,action:"context",request:{},automatic:true}
    WullMind.busy=true
-   WullMind.completed(JSON.stringify({ok:true,result:{schedule:[],marker:"late"}}),0,serial)
+   WullMind.completed(JSON.stringify({ok:true,result:root.helperContext("late")}),0,serial)
    if(!root.check(!WullMind.busy && !WullMind.pending && WullMind.journal.marker==="held",
        "automatic helper bypassed "+gate+" gate"))return false
   }
@@ -103,7 +174,7 @@ ShellRoot {
   const serial=++WullMind.epoch
   WullMind.pending={serial:serial,action:"context",request:{},automatic:false}
   WullMind.busy=true
-  WullMind.completed(JSON.stringify({ok:true,result:{schedule:[],marker:"explicit"}}),0,serial)
+  WullMind.completed(JSON.stringify({ok:true,result:root.helperContext("explicit")}),0,serial)
   if(!root.check(WullMind.journal.marker==="explicit","explicit context request used automatic gates"))return false
   // Cadence revocation invalidates the original epoch before a late response.
   WullMind.contextOpen=false;WullMind.hostIdle=true
@@ -120,7 +191,7 @@ ShellRoot {
    Qt.callLater(()=>{
     if(!root.check(WullMind.epoch>revoked && !WullMind.busy && !WullMind.pending,
         "cadence revocation did not cancel the pending automatic request"))return
-    WullMind.completed(JSON.stringify({ok:true,result:{schedule:[],marker:"revoked"}}),0,revoked)
+    WullMind.completed(JSON.stringify({ok:true,result:root.helperContext("revoked")}),0,revoked)
     if(!root.check(WullMind.epoch>revoked && !WullMind.busy && !WullMind.pending
         && WullMind.journal.marker==="explicit","late helper survived cadence revocation "+
         JSON.stringify({epoch:WullMind.epoch,revoked:revoked,busy:WullMind.busy,
@@ -182,6 +253,7 @@ ShellRoot {
    if(root.step===0){
     if(!root.cadenceStarted){
      root.cadenceStarted=true
+     if(!root.checkHelperReplies())return
      if(!root.checkJournalReceipts())return
      if(!root.checkAutomaticCompletion())return
      return
@@ -271,7 +343,7 @@ ShellRoot {
     Config.setNestedValue("abyss.companionMind.localOnly",true)
     if(!root.check(!WullMind.busy && !WullMind.aiSession.busy && !WullMind.history.some(entry=>entry.content==="Queued cloud fixture"),"revoking cloud opt-in did not cancel the queued request"))return
     Config.setNestedValue("abyss.companionMind.model","")
-    console.info("WULL_SHARED_AI_PASS catalog request history-isolation persistence HTTP-error cancel retry model-follow output-rejection recovery localDefault cloudBlock spoofBlock localAutoFallback consentRevoke automaticCadences automaticGates cadenceRevocation");Qt.quit()
+    console.info("WULL_SHARED_AI_PASS catalog request history-isolation persistence HTTP-error cancel retry model-follow output-rejection recovery localDefault cloudBlock spoofBlock localAutoFallback consentRevoke automaticCadences automaticGates cadenceRevocation malformedHelperRejection helperRecovery");Qt.quit()
    }
   }
  }

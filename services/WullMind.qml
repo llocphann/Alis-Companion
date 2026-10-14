@@ -7,6 +7,7 @@ import Quickshell.Wayland
 import qs.services
 import qs.modules.common
 import "WullReplyGuard.js" as WullReplyGuard
+import "WullHelperReplyGuard.js" as WullHelperReplyGuard
 import "WullPersona.js" as WullPersona
 import "WullModelPolicy.js" as ModelPolicy
 
@@ -387,16 +388,14 @@ Singleton {
     function completed(raw, exitCode, serial = epoch): void {
         const job=pending
         if (!job || job.serial!==epoch || serial!==job.serial) return
+        const envelope=WullHelperReplyGuard.parse(job.action,raw,exitCode)
         pending=null;busy=false;deadline.stop()
         if (job.automatic && (!hostVisible || !hostIdle || conversationOpen || contextOpen || !proactiveIdleEnabled)) {
             if (connectionStatus==="generating") connectionStatus="disconnected"
             return
         }
-        let envelope
-        try {if(raw.length>32768 || exitCode!==0) throw new Error();envelope=JSON.parse(raw)}
-        catch(e) {envelope={ok:false,error:{message:"The local helper did not return a valid reply."}}}
         if (!envelope.ok) {
-            errorMessage=String(envelope.error?.message ?? "Local model is unavailable.")
+            errorMessage=envelope.error.message
             if (job.action==="history") {
                 historyLoaded=true;historyHasMore=false;historyLoadingOlder=false
                 return
@@ -412,8 +411,9 @@ Singleton {
             if (job.action==="probe" || job.action==="chat") connectionStatus="error"
             if (job.action==="check_in") say("I couldn't save that to your journal. "+errorMessage)
             if (job.action==="chat" && !job.automatic) {
-                const failure="My local model couldn't answer just now. We can try again in a little bit."
                 resolvePendingUser(0,true)
+                if (envelope.malformed) return
+                const failure="My local model couldn't answer just now. We can try again in a little bit."
                 history=history.concat([{id:0,role:"assistant",content:failure,ephemeral:true}]).slice(-2000)
                 say(failure,"built-in")
             }
@@ -519,11 +519,7 @@ Singleton {
             root.errorMessage="Companion chat history could not be cleared."
         }
         onExited:(code,status)=>{
-            let cleared=false
-            try {
-                const envelope=JSON.parse(String(historyClearReply.text ?? ""))
-                cleared=code===0 && envelope.ok===true && envelope.result?.cleared===true
-            } catch(e) {}
+            const cleared=WullHelperReplyGuard.parse("history_clear",String(historyClearReply.text ?? ""),code).ok
             startObserved=false
             root.historyClearPending=false
             if(!cleared)root.errorMessage="Companion chat history could not be cleared."
