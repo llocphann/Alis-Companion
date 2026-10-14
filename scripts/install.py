@@ -26,8 +26,11 @@ def assemble(source, target, binary, sha):
         shutil.copy2(source / name, path)
     native = target / "native/bin"
     native.mkdir(parents=True)
-    shutil.copy2(binary, native / "inir-companiond")
-    (native / "inir-companiond").chmod(0o755)
+    executable = native / "alis-companiond"
+    shutil.copy2(binary, executable)
+    executable.chmod(0o755)
+    # Preserve the legacy native entrypoint within the same immutable release.
+    os.link(executable, native / "inir-companiond")
     manifest = json.loads((target / "manifest.json").read_text())
     manifest["sourceSha"] = sha
     files = {}

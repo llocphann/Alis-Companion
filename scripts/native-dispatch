@@ -3,4 +3,4 @@ set -euo pipefail
 hadanion_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ "${1:-}" != companion ]]; then echo 'Hadanion dispatcher accepts only companion' >&2; exit 64; fi
 shift
-exec "$hadanion_root/native/bin/inir-companiond" "$@"
+exec "$hadanion_root/native/bin/alis-companiond" "$@"

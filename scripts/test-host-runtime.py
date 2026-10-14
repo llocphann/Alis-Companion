@@ -142,7 +142,7 @@ ShellRoot {
                             command = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")[0]
                         except OSError:
                             continue
-                        if command.endswith(b"/inir-companiond"):
+                        if command.endswith((b"/alis-companiond", b"/inir-companiond")):
                             live.add(pid)
                     native_pids.update(live)
                     peak = max(peak, len(live))
