@@ -36,7 +36,7 @@ assert.ok(perimeter.includes("ModuleLayout.clearanceInsets(nativeInsets,bar.visi
 for (const contract of [
     "Layout.resolve(", "Layout.seed(zones,edge,width,height)",
     "Layout.geometry(placements,width,height,layoutOptions,Appearance.fontSizeScale)",
-    "Layout.localSurfaces(layoutRecords,width,height,layoutOptions,Appearance.fontSizeScale,AbyssStyle.barThickness)"
+    "Layout.localSurfaces(renderedRecords.concat(capacityNotices),width,height,layoutOptions,Appearance.fontSizeScale,AbyssStyle.barThickness)"
 ]) assert.ok(barQml.includes(contract), contract);
 assert.equal(config.abyss.companion.enabled, false);
 

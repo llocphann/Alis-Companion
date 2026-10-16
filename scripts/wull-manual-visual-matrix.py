@@ -68,9 +68,11 @@ def staged(root):
     xdg = root / "xdg"
     for name in ("runtime", "config", "data", "cache", "state"):
         (xdg / name).mkdir(parents=True, mode=0o700)
-    config = xdg / "config" / "illogical-impulse"
+    config = xdg / "config" / "alis"
     config.mkdir(mode=0o700)
     shutil.copyfile(ROOT / "defaults/config.json", config / "config.json")
+    # Existing private fixture consumers keep their legacy configuration alias.
+    (xdg / "config" / "illogical-impulse").symlink_to("alis", target_is_directory=True)
     return shell, xdg
 
 

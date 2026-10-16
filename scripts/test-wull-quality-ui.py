@@ -115,7 +115,7 @@ with tempfile.TemporaryDirectory(prefix="hadanion-quality-ui-") as temporary:
     qml = QML.replace("OPTIONAL_SETTINGS", (ROOT / "optional/hadanion/modules/settings").as_uri())
     qml = qml.replace("OPTIONAL_BODY", (ROOT / "optional/hadanion/modules/abyss/companion").as_uri())
     (shell / "shell.qml").write_text(qml)
-    config = private / "config/illogical-impulse"
+    config = private / "config/alis"
     config.mkdir(parents=True)
     options = json.loads((ROOT / "defaults/config.json").read_text())
     options["abyss"]["companion"]["enabled"] = False
