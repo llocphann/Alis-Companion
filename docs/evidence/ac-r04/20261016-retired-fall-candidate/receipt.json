@@ -1,0 +1,30 @@
+{
+  "schema": "alis.companion-candidate.v1",
+  "issue": "https://github.com/llocphann/Alis-Companion/issues/1",
+  "base_sha": "35f59686c46ded8ee21a3459fc4b75dfecf91bf1",
+  "host_sha": "18e4f7cf7e88ddaad33764fbc08d9490836cc746",
+  "status": "PARKED_UNVERIFIED",
+  "production_candidate_applied": false,
+  "patch_sha256": "6431aca16f71044aa388f9aa881c4d849cb73fd7e47ae808ad491b5aaf224f58",
+  "candidate_files_sha256": {
+    "modules/abyss/companion/AbyssCompanion.qml": "3e1c5fe8bb4fb50a175631d872b46fac700ac313d85e0c3aeb45e1df580a73ae",
+    "modules/abyss/companion/CompanionMotion.js": "45cd7e36020efe6d111b0edcc1430d70d5232638e99ce86e6d793b4871a3a84b",
+    "modules/abyss/companion/WullCuriosity.qml": "c125c75a7c061d41db817d45cc109dccd9648c481edc45d1cc94f7688347581e",
+    "modules/abyss/companion/WullPresence.qml": "695a76efae47b252f4011cf2a715dd9302735f0bc10e3fb0ba47eecdfef6df16",
+    "modules/settings/CompanionConfig.qml": "df57dac1eb41407560231dc036ebb6486d77b135791ae32aab54df691b016b8e",
+    "scripts/test-companion-retired-fall.cjs": "964a1b183630471ecc44a106dcc2080d765617133d0d01397cf361b0172fd057"
+  },
+  "test": {
+    "argv": [
+      "node",
+      "scripts/test-companion-retired-fall.cjs"
+    ],
+    "scope": "offline candidate overlay",
+    "exit_code": 1,
+    "status": "FAIL",
+    "category": "Test assumes Aqua has Octo-only sink; native fall/ice fixtures still require revision",
+    "log_sha256": "7241199d0b2516c12bf703da517a46b05b4ce09a65d2597236529300c7e6183c"
+  },
+  "native_gpu": "UNRUN",
+  "owner_acceptance": "UNRUN"
+}
