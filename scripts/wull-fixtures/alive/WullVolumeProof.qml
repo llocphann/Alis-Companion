@@ -6,7 +6,7 @@ import qs.optional.hadanion.modules.abyss.companion
 Window {
     id:root;visible:true;width:360;height:300;color:"#051521"
     property int step:0
-    property var states:[{action:"",phase:0},{action:"buttplant",phase:.6},{action:"faceplant",phase:.6},{action:"ice",phase:.5}]
+    property var states:[{action:"",phase:0},{action:"jump",phase:.4},{action:"fly",phase:.5},{action:"land",phase:.7}]
     function named(item,name) {
         if(item.objectName===name)return item
         for(const child of item.data ?? item.children ?? []){const match=named(child,name);if(match)return match}
@@ -19,7 +19,8 @@ Window {
     TestCase {id:input;when:false;optional:true}
     function save():void {
         const material=named(body,"wullVolumeMaterial"),gait=named(body,"wullLocomotion"),face=named(body,"wullFace")
-        if(!body.materialReady || (root.step>0 && (Math.abs(body.modelPitch)<60 || gait.scaleY<.95))){console.error("WULL_VOLUME=FAIL pose");Qt.quit();return}
+        if(!body.materialReady || !Number.isFinite(body.modelPitch)
+                || (root.step>0 && (gait.clip!==root.states[root.step].action || gait.scaleY<.95))){console.error("WULL_VOLUME=FAIL pose");Qt.quit();return}
         const p=face.mapToItem(body,38,54),r=body.project(0,46.14-54,26)
         if(Math.abs(p.x-38-r.x)>.1 || Math.abs(p.y-46.14+r.y-gait.lift)>.1){console.error("WULL_VOLUME=FAIL face "+JSON.stringify({actual:p,projected:r,pitch:body.modelPitch}));Qt.quit();return}
         material.grabToImage(result=>{

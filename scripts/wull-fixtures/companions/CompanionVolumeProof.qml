@@ -7,7 +7,7 @@ Window {
     id:root;visible:true;width:420;height:360;color:"#061726"
     property int step:0
     property var states:[{action:"",phase:0,quality:"quality"},
-        {action:"buttplant",phase:.6,quality:"quality"},{action:"faceplant",phase:.6,quality:"quality"},
+        {action:"jump",phase:.4,quality:"quality"},{action:"fly",phase:.5,quality:"quality"},
         {action:"",phase:0,quality:"performance"},
         {action:"",phase:0,quality:"quality",amber:true}]
     WaterDropletBody {
@@ -30,7 +30,8 @@ Window {
         if(!body.materialReady || arms.filter(Boolean).length!==((body.octopus || body.tentacleGrip) ? 4 : 0)
                 || named(body,"octoTentacle4") || !!named(body,"wullHand0")===body.octopus
                 || !!named(body,"wullFoot1")===body.octopus
-                || (body.state.action && (Math.abs(body.modelPitch)<60 || gait.scaleY<.95))) {
+                || !Number.isFinite(body.modelPitch)
+                || (body.state.action && (gait.clip!==body.state.action || gait.scaleY<.95))) {
             console.error("COMPANION_VOLUME=FAIL real material/limbs/pose");Qt.quit();return
         }
         const reflection=named(body,"wullFloorReflectionSource")
@@ -66,7 +67,7 @@ Window {
         },Qt.size(256,256))
     }
     function advance():void {
-        if(root.step===root.states.length*2+1){console.log("COMPANION_VOLUME=PASS bothRigs fourPlumpOpaqueTentacles reflection twoTiers themeRetint spatialFalls frontBackGrip");shutdown.start()}
+        if(root.step===root.states.length*2+1){console.log("COMPANION_VOLUME=PASS bothRigs fourPlumpOpaqueTentacles reflection twoTiers themeRetint jumpFlight frontBackGrip");shutdown.start()}
         else {root.step++;delay.start()}
     }
     Timer {interval:800;running:true;onTriggered:root.save()}

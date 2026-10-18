@@ -49,14 +49,16 @@ Item {
     property real travelNormalY: -1
     property real standingAngle: 0
     property string appearClip: "emerge"
+    readonly property string activeAppearClip: curves.clips[appearClip] ? appearClip : "emerge"
     property real appearanceOffsetX: 0
     property real appearanceOffsetY: 0
     readonly property bool appearanceArcActive:
-        !leaving && !peeking && appearClip!=="emerge"
+        !leaving && !peeking && activeAppearClip!=="emerge"
         && presentation<.999
         && Math.hypot(appearanceOffsetX,appearanceOffsetY)>.1
     readonly property real appearanceJourney: appearanceArcActive ? presentation : 1
     property string hideClip: "dive"
+    readonly property string activeHideClip: curves.clips[hideClip] ? hideClip : "dive"
     property string reactionExpression: ""
     readonly property real tangentDirection: travelDirection*Math.cos(standingAngle*Math.PI/180)+travelDirectionY*Math.sin(standingAngle*Math.PI/180)
     property real travelPhase: 0
@@ -66,8 +68,11 @@ Item {
     property real travelToY: 0
     property string gesture: ""
     property real gesturePhase: 1
-    readonly property string presentationAction: presentation<.999 && !peeking ? (leaving ? hideClip : appearClip) : ""
-    readonly property string motionAction: pairedAction || (dragging ? "drag" : moving ? travelMode : gesture || presentationAction)
+    readonly property string presentationAction: presentation<.999 && !peeking ? (leaving ? activeHideClip : activeAppearClip) : ""
+    readonly property string motionAction: {
+        const action=pairedAction || (dragging ? "drag" : moving ? travelMode : gesture || presentationAction)
+        return Motion.retired(action) ? "" : action
+    }
     readonly property string faceExpression: Expressions.resolve(reactionExpression || expression,mood,activity)
     property real travelDirection: 1
     property real travelDirectionY: 0
@@ -116,8 +121,8 @@ Item {
         peeking && emergenceEdge==="top" ? .3 : peeking && emergenceEdge==="bottom" ? -.3 : gazeY,
         faceExpression,moving ? tangentDirection : Math.abs(droplet.viewYaw)>=25 ? droplet.viewYaw : 0)
     readonly property real emergenceNormal: leaving
-        ? curves.sample(hideClip, "normal", 1-presentation)
-        : curves.sample(peeking ? "emerge" : appearClip, "normal", presentation)
+        ? curves.sample(activeHideClip, "normal", 1-presentation)
+        : curves.sample(peeking ? "emerge" : activeAppearClip, "normal", presentation)
     readonly property bool verticalEdge: !upright && (edge === "left" || edge === "right")
     readonly property bool hovered: droplet.hovered
     signal chatRequested()
@@ -148,9 +153,9 @@ Item {
         presentationTween.stop()
         leaving=value<presentation
         if (!motionEnabled || hardResetting) {presentation=value;return}
-        presentationTween.from=value>.99 && presentation<.99 && !leaving && appearClip!=="emerge" ? 0 : presentation
+        presentationTween.from=value>.99 && presentation<.99 && !leaving && activeAppearClip!=="emerge" ? 0 : presentation
         presentationTween.to=value
-        presentationTween.duration=leaving ? curves.clips[hideClip].duration : peeking ? 480 : curves.clips[appearClip].duration
+        presentationTween.duration=leaving ? curves.clips[activeHideClip].duration : peeking ? 480 : curves.clips[activeAppearClip].duration
         presentationTween.start()
     }
     function carryTo(px,py): void {
@@ -200,8 +205,7 @@ Item {
             stopTravel()
             travelFromX=x;travelFromY=y;travelToX=targetX;travelToY=targetY
             travelPhase=0;travelTween.duration=travelDuration
-            travelTween.easing.type=travelMode==="fall" ? Easing.InQuad
-                : travelMode==="fly" ? Easing.InOutSine : Easing.Linear
+            travelTween.easing.type=travelMode==="fly" ? Easing.InOutSine : Easing.Linear
             travelTween.start()
         } else {
             stopTravel()
@@ -325,7 +329,7 @@ Item {
         height: root.activeEmergenceEdge === "left" || root.activeEmergenceEdge === "right"
             ? root.height+margin*2 : root.height+margin
         // Keep the underwater half hidden, but leave the visible half-plane
-        // and tangent direction large enough for faceplant/buttplant/launch
+        // and tangent direction large enough for launch
         // poses and the full water-to-landing arc.
         clip: !root.curvedImmersion && root.presentation < .999 && root.emergenceNormal >= 0
 
@@ -369,7 +373,7 @@ Item {
             flying: root.flying
             rollingAngle:root.rolling ? Travel.rollingAngle(Math.hypot(root.travelToX-root.travelFromX,root.travelToY-root.travelFromY),root.travelPhase,root.tangentDirection,root.scale) : 0
             motionAction: root.motionAction
-            motionProgress: root.pairedProgress>=0 ? root.pairedProgress : root.moving && ["jump","fall","roll"].includes(root.travelMode) ? root.travelPhase
+            motionProgress: root.pairedProgress>=0 ? root.pairedProgress : root.moving && ["jump","roll"].includes(root.travelMode) ? root.travelPhase
                 : root.gesture ? root.gesturePhase : root.presentationAction ? root.leaving ? 1-root.presentation : root.presentation : -1
             grounded: root.surfaceSupported && !root.flying
             dragging: root.dragging

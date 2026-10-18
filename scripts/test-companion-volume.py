@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real GPU cast volumes, preserved round falls and clearer four-arm Octo."""
+"""Real GPU cast volumes, preserved jump/flight silhouettes and four-arm Octo."""
 import os
 from pathlib import Path
 import runpy
@@ -40,11 +40,11 @@ with tempfile.TemporaryDirectory(prefix='companion-volume-') as temporary:
             painted=[(j%w,j//w) for j,a in enumerate(alpha) if a>=128];assert len(painted)>12000
             width=max(x for x,y in painted)-min(x for x,y in painted)+1
             height=max(y for x,y in painted)-min(y for x,y in painted)+1
-            assert .70<width/height<1.45,'fall lost its round 3D silhouette'
+            assert .70<width/height<1.45,'jump/flight lost its round 3D silhouette'
             if actor==1:
                 assert sum(a>=220 for a in alpha)>=len(painted)*.87,'Octo head remains overly faint'
             areas.append(len(painted))
-        assert min(areas[1:3])>=areas[0]*.72,'fall flattened the liquid volume'
+        assert min(areas[1:3])>=areas[0]*.72,'jump/flight flattened the liquid volume'
         assert len(set(raws))==5,'poses, quality tiers or live theme failed to change the material'
         counts.append(areas)
     for index in range(4):
@@ -57,4 +57,4 @@ with tempfile.TemporaryDirectory(prefix='companion-volume-') as temporary:
     changed=sum(gripped[(y*512+x)*4:(y*512+x+1)*4]!=ungripped[(y*512+x)*4:(y*512+x+1)*4]
         for y in range(190,355) for x in range(145,370))
     assert changed>1500,'tentacles failed to wrap across Aqua'
-    print('COMPANION_GPU_VOLUME_PASS Aqua/Octo roundFalls clearOcto opaqueTentacles liveReflection twoTiers themeRetint frontBackGrip changedCore='+str(changed)+' areas='+str(counts))
+    print('COMPANION_GPU_VOLUME_PASS Aqua/Octo jumpFlight clearOcto opaqueTentacles liveReflection twoTiers themeRetint frontBackGrip changedCore='+str(changed)+' areas='+str(counts))

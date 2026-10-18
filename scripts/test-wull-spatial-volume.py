@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Owned GPU volume silhouettes: falling must rotate rather than flatten."""
+"""Owned GPU silhouettes retain volume through jump, flight and landing."""
 import os
 from pathlib import Path
 import runpy
@@ -36,8 +36,8 @@ with tempfile.TemporaryDirectory(prefix='wull-volume-') as temporary:
         painted=[(j%w,j//w) for j,a in enumerate(alpha) if a>=128];assert len(painted)>12000
         width=max(x for x,y in painted)-min(x for x,y in painted)+1
         height=max(y for x,y in painted)-min(y for x,y in painted)+1
-        assert .70<width/height<1.45,'falling liquid lost its round 3D silhouette'
+        assert .70<width/height<1.45,'moving liquid lost its round 3D silhouette'
         areas.append(len(painted))
-    assert min(areas[1:])>=areas[0]*.72,'fall flattened the painted volume'
+    assert min(areas[1:])>=areas[0]*.72,'motion flattened the painted volume'
     assert len(set(raws))==4,'spatial poses did not change material geometry/light'
     print('WULL_SPATIAL_GPU_VOLUME_PASS areas='+str(areas))

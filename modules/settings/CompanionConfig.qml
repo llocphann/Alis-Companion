@@ -54,7 +54,6 @@ ContentPage {
         { displayName: Translation.tr("Fly"), value: "fly" },
         { displayName: Translation.tr("Jump"), value: "jump" },
         { displayName: Translation.tr("Dragged"), value: "drag" },
-        { displayName: Translation.tr("Fall"), value: "fall" },
         { displayName: Translation.tr("Reach"), value: "reach" },
         { displayName: Translation.tr("Inspect"), value: "inspect" },
         { displayName: Translation.tr("Wave"), value: "wave" }
@@ -172,7 +171,7 @@ ContentPage {
                     transformOrigin: Item.Center
                     expression: root.previewExpression
                     motionAction: root.previewMotion
-                    grounded: !["fly","jump","drag","fall"].includes(root.previewMotion)
+                    grounded: !["fly","jump","drag"].includes(root.previewMotion)
                     motionScale: Preferences.motionScale(root.preferences.personality)
                     motionEnabled: root.preferences.animationsEnabled && AbyssStyle.motionEnabled && visible
                     effectsEnabled: root.preferences.effectsEnabled && Appearance.effectsEnabled

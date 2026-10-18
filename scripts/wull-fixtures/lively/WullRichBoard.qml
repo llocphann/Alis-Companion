@@ -16,9 +16,9 @@ Window {
     Rectangle {
         id:board;width:1320;height:870;color:"#071521"
         Text {x:28;y:18;text:"Wull · living water";color:"#bcf4ff";font.pixelSize:26;font.bold:true}
-        Text {x:28;y:56;text:"Jump, tumble, push, sink and balance · two hands, two feet · real runtime material";color:"#83b6ce";font.pixelSize:15}
+        Text {x:28;y:56;text:"Jump, launch, dive and balance · two hands, two feet · real runtime material";color:"#83b6ce";font.pixelSize:15}
         Repeater {
-            model:["riseJump","launch","stuckLaunch","faceplant","diveJump","sink","ice","balance","startle","delight","walk","fly"]
+            model:["riseJump","launch","stuckLaunch","diveJump","balance","startle","delight","walk","fly"]
             Rectangle {
                 id:cell
                 required property string modelData

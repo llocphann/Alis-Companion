@@ -35,6 +35,7 @@ Window {
     }
     AbyssCompanion {
         id:actor;width:112;height:98;managedPlacement:true;upright:true;connectedWater:true;effectsEnabled:false
+        character:Quickshell.env("COMPANION_TEST_CHARACTER")==="octo" ? "octo" : "aqua"
         reveal:presence.renderedReveal;edge:presence.emergenceEdge;emergenceEdge:presence.emergenceEdge
         standingAngle:presence.standingAngle;surfaceSupported:presence.grounded;motionEnabled:root.animate
         appearClip:presence.appearClip;hideClip:presence.hideClip
@@ -55,6 +56,17 @@ Window {
         function runChecks():void {
             try {
                 const body=root.named(actor,"wullLiquidBody"),gait=root.named(actor,"wullLocomotion")
+                root.place(Scene.edgePoint(root.scene,"bottom",.5))
+                check(actor.inputReady,"retired-action fixture is not fully presented")
+                for(const action of ["fall","faceplant","buttplant","fallVanish","ice"]) {
+                    check(!actor.perform(action) && actor.curves.clips[action]===undefined,"retired gesture accepted: "+action)
+                    actor.pairedAction=action;wait(10)
+                    check(actor.motionAction==="" && gait.clip!==action,"paired action revived retired clip: "+action)
+                }
+                actor.pairedAction=""
+                actor.appearClip="faceplant";actor.hideClip="fallVanish";wait(10)
+                check(actor.activeAppearClip==="emerge" && actor.activeHideClip==="dive","legacy transition failed safe fallback")
+                actor.appearClip=Qt.binding(()=>presence.appearClip);actor.hideClip=Qt.binding(()=>presence.hideClip)
                 for(const edge of ["top","bottom","left","right"]) {
                     const point=Scene.edgePoint(root.scene,edge,.5);root.place(point)
                     check(presence.grounded,"rim not grounded: "+edge)
@@ -79,9 +91,28 @@ Window {
                 root.popup={x:400,y:20,width:360,height:200};wait(100)
                 check(Math.abs(actor.y-222)<.2 && actor.presentation>.99,"popup growth replayed appearance")
                 actor.stopGesture();presence.randomState=2000;presence.gestureFinished("balance");wait(80)
-                check(presence.mode==="fall" && actor.flying,"failed balance did not fall")
-                tryCompare(presence,"traveling",false,presence.duration+500)
-                check(presence.grounded && presence.placement.support.key==="bottom","balance fall did not reach lower edge")
+                check(!presence.traveling && presence.placement.key==="popup" && !actor.flying,"balance still triggered a fall")
+                root.popup=null;wait(80)
+                check(presence.supportRecovery && presence.mode==="fly" && actor.flying && !presence.portalActive,"lost support did not use flight recovery")
+                presence.pause();wait(20)
+                check(presence.traveling,"ordinary pause interrupted support recovery")
+                tryCompare(presence,"traveling",false,presence.duration+700)
+                check(!presence.supportRecovery && presence.grounded && presence.placement.support.key==="bottom","flight recovery did not land")
+                root.place(Scene.annotate(root.scene,{x:550,y:300},"top","drop","drop"))
+                presence.beginDrag();check(presence.dragging,"gentle-release fixture did not begin a drag")
+                presence.endDrag();wait(40)
+                check(presence.supportRecovery && presence.mode==="fly" && actor.flying,"gentle release still fell or remained unsupported")
+                tryCompare(presence,"traveling",false,presence.duration+700)
+                check(presence.grounded && actor.inputReady,"gentle release did not settle on live support")
+                root.place(Scene.annotate(root.scene,{x:550,y:300},"top","drop","drop"))
+                check(presence.recoverSupport(),"motion-cancel fixture could not start recovery")
+                wait(40);root.animate=false;wait(40)
+                check(!presence.traveling && !presence.supportRecovery && !actor.moving,"reduced motion retained recovery travel")
+                root.place(Scene.annotate(root.scene,{x:550,y:300},"top","drop","drop"))
+                check(presence.recoverSupport(),"disable fixture could not start recovery")
+                wait(40);root.allowed=false;wait(40)
+                check(!presence.traveling && !presence.supportRecovery && !actor.moving && !actor.visible,"disable retained recovery or actor")
+                root.allowed=true
                 root.popup=null;root.place(Scene.edgePoint(root.scene,"bottom",.5))
                 const notice=root.named(presence,"wullPointerNoticeDeadline"),noticePoint=presence.position()
                 presence.pointerFresh=false;presence.annoyance=0;presence.nextPointerNotice=0;presence.randomState=15
@@ -138,11 +169,11 @@ Window {
                 check(!presence.visitActive && presence.renderedReveal===0,"popup scene changes bypassed the peek-only break")
                 root.popup=null;root.place(Scene.edgePoint(root.scene,"bottom",.5))
                 presence.hiddenUntil=Date.now()+10000;presence.randomState=2000;presence.retreat();wait(120)
-                check(actor.gesture==="ice" && presence.exitAttempts===1,"icy water did not reject the first dive")
-                tryVerify(()=>body.eyeOpen<.1,1500)
-                check(body.eyeOpen<.1,"icy fall did not close Wull's eyes "+JSON.stringify({gesture:actor.gesture,phase:actor.gesturePhase,eye:body.eyeOpen,exit:presence.exitAttempts}))
-                tryCompare(presence,"traveling",true,2200)
-                check(presence.traveling && presence.retreating && presence.destination.contact.key!==undefined,"icy Wull did not try another water opening")
+                check(actor.gesture!=="ice" && ["dive","diveJump",...(actor.character==="octo" ? ["sink"] : [])].includes(presence.hideClip),"retreat selected a retired or wrong-cast transition")
+                tryCompare(actor,"presentation",0,actor.curves.clips[actor.activeHideClip].duration+700)
+                check(!presence.visitActive && !presence.traveling && presence.renderedReveal===0,"retreat retained a retry or live actor")
+                // These raw authoring assertions retain archival asset coverage;
+                // runtime rejection above proves they are no longer selectable.
                 for(const clip of ["riseJump","launch","stuckJump","stuckLaunch","faceplant","buttplant","diveJump","sink","fallVanish"]) {
                     check(Curves.clips[clip] && Curves.clips[clip].tracks.normal,"missing authored transition "+clip)
                     check(Curves.clips[clip].tracks.eyeOpen.some(k=>k[1]===0),"transition lacks closed-eye pose "+clip)
@@ -164,7 +195,7 @@ Window {
                 root.allowed=false;wait(40)
                 check(!actor.visible && !gait.active && !root.named(presence,"wullPeekDeadline").running && !notice.running
                     && !root.named(presence,"wullFullVisitDeadline").running,"policy hide retained clocks")
-                console.log("WULL_ALIVE=PASS fourRimOrientation rotatedFaceGaze slowerWalk formerWalkRun popupCarry balanceFall widerClick passiveNotice noticeCooldown leaveCancel chatHold startleEvade annoyance shakeBreak peekOnly icyRetry BlenderTransitions")
+                console.log("WULL_ALIVE=PASS "+actor.character+" fourRimOrientation rotatedFaceGaze slowerWalk formerWalkRun popupCarry balanceNoFall supportRecovery gentleRelease recoveryCancel recoveryDisable retiredActions legacyFallback widerClick passiveNotice noticeCooldown leaveCancel chatHold startleEvade annoyance shakeBreak peekOnly finiteRetreat archivalCurves")
             } catch(e) {console.error("WULL_ALIVE=FAIL "+e)}
             shutdown.start()
         }

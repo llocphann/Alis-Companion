@@ -1,6 +1,7 @@
 import QtQuick
 import "WullScene.js" as Scene
 import "WullTravel.js" as Travel
+import "CompanionMotion.js" as Motion
 
 // One controller per existing output window; only the permitted output acts.
 // Native visit/wander events plus one sustained-surface deadline drive choices.
@@ -36,14 +37,13 @@ Item {
     property bool dragging: false
     property bool retreating: false
     property bool releasedFlight: false
+    property bool supportRecovery: false
     readonly property bool surfaceBound: true
     property bool peekIntro: false
     property bool peekOnly: false
     property double fullyPresentSince: 0
     readonly property int minimumFullVisit: 8000
     property double hiddenUntil: 0
-    property int exitAttempts: 0
-    property var iceOpening: null
     property int annoyance: 0
     property double lastDisturbance: 0
     property double lastBalance: 0
@@ -91,7 +91,7 @@ Item {
     property bool surfaceDue: false
     property bool initialized: false
     readonly property bool qualified: Scene.valid(scene) && placement.qualified
-    readonly property bool ballistic: traveling && ["jump","fall"].includes(mode)
+    readonly property bool ballistic: traveling && mode==="jump"
     readonly property bool grounded: !dragging && (portalActive || !traveling || ["walk","run","roll"].includes(mode)) && !!placement.grounded
     readonly property string emergenceEdge: placement.support?.edge ?? placement.edge ?? "top"
     readonly property bool canExplore: permitted && visitActive && requestedReveal>.99
@@ -147,7 +147,7 @@ Item {
         const landing=appearanceLanding(selected)
         if (!landing?.qualified || Scene.distance(selected,landing)<1) return selected
         const roll=random()
-        appearClip=roll<.18 ? "launch" : roll<.32 ? "stuckLaunch" : roll<.46 ? "stuckJump" : roll<.62 ? "faceplant" : roll<.80 ? "buttplant" : "riseJump"
+        appearClip=roll<.25 ? "launch" : roll<.45 ? "stuckLaunch" : roll<.65 ? "stuckJump" : "riseJump"
         appearanceOffsetX=selected.x-landing.x
         appearanceOffsetY=selected.y-landing.y
         return landing
@@ -162,7 +162,7 @@ Item {
             const here=position();targetX=here.x;targetY=here.y
         }
         stopRequested()
-        traveling=false; releasedFlight=false; throwSpeed=0; throwArc=0; waypoints=[]; waypoint=0
+        traveling=false; releasedFlight=false; supportRecovery=false; throwSpeed=0; throwArc=0; waypoints=[]; waypoint=0
     }
     function hideImmediately(): void {
         clearMotion()
@@ -184,7 +184,6 @@ Item {
         const source=selected
         const landing=chooseAppearance(source)
         placement=landing; destination=landing
-        exitAttempts=0;iceOpening=null
         targetX=landing.x; targetY=landing.y
         retreating=false; visitActive=true
         resetRequested(targetX,targetY,source.edge)
@@ -233,7 +232,7 @@ Item {
             if (force || interactionHeld || !motionEnabled || !permitted || requestedReveal<.99) clearMotion()
             return
         }
-        if (!traveling || retreating || (!force && (ballistic || directed || releasedFlight))) return
+        if (!traveling || retreating || (!force && (ballistic || directed || releasedFlight || supportRecovery))) return
         const here=position(), support=Scene.supportAt(scene,here)
         targetX=here.x; targetY=here.y
         clearMotion()
@@ -261,6 +260,7 @@ Item {
         if (revealed) {disturb("emerge",placement);renderedReveal=requestedReveal;scheduleSurface()}
     }
     function moveTo(selected, exit, preferredMode = ""): bool {
+        if (Motion.retired(preferredMode)) return false
         if (handoffActive || portalActive || !permitted || !actor || actor.presentation<.99 || dragging || (peekIntro && !exit)) return false
         const here=Object.assign(position(),{edge:emergenceEdge})
         // Portal openings are travel-only: never replace an appearance, peek,
@@ -275,10 +275,11 @@ Item {
         disturb("depart",Scene.annotate(scene,here,placement.edge,placement.kind,placement.key))
         clearMotion()
         destination=selected; mode=exit ? "fly" : route.mode
-        if (!exit && route.mode==="walk" && ["run","jump","roll"].includes(preferredMode)) {
+        supportRecovery=!exit && preferredMode==="fly"
+        if (supportRecovery) mode="fly"
+        else if (!exit && route.mode==="walk" && ["run","jump","roll"].includes(preferredMode)) {
             if (preferredMode!=="jump" || Scene.clearArc(scene,here,selected,42*scene.scale,placement.support?.nx ?? 0,placement.support?.ny ?? -1)) mode=preferredMode
-        } else if (!exit && preferredMode==="fall" && route.points.length===1
-                && Math.abs(here.x-selected.x)<.1 && selected.y>here.y) mode="fall"
+        }
         retreating=!!exit; waypoints=route.points; waypoint=0
         traveling=true
         advance()
@@ -314,23 +315,20 @@ Item {
         if (waypoint>=waypoints.length) {
             const exiting=retreating
             placement=destination; targetX=placement.x; targetY=placement.y
-            traveling=false; releasedFlight=false; waypoints=[]
+            traveling=false; releasedFlight=false; supportRecovery=false; waypoints=[]
             if (exiting) {
                 handoffRequested()
                 if (handoffActive) return
-                if (motionEnabled && exitAttempts===0 && random()<.14 && actor.perform("ice")) {
-                    exitAttempts=1;iceOpening=placement;setReaction("surprised",2200);return
-                }
                 const exitRoll=random()
-                hideClip=actor.character==="octo" && exitRoll<.40 ? "sink" : exitRoll<.64 ? "fallVanish" : "diveJump"
+                hideClip=actor.character==="octo" && exitRoll<.40 ? "sink" : "diveJump"
                 const n=Scene.normal(placement.edge)
                 if(hideClip==="diveJump" && !Scene.clearArc(scene,placement,placement,.38*Math.max(scene.hostWidth,scene.hostHeight),n.nx,n.ny)) hideClip="dive"
-                if (hideClip==="sink" || hideClip==="fallVanish") setReaction("panicked",hideClip==="sink" ? 5600 : 3100)
+                if (hideClip==="sink") setReaction("panicked",5600)
                 disturb(hideClip==="sink" ? "sink" : "dive",placement)
                 visitActive=false; renderedReveal=0; surfaceDeadline.stop()
             } else {
                 disturb("land",placement)
-                if (placement.grounded && ["fall","jump","fly"].includes(mode) && motionEnabled)
+                if (placement.grounded && ["jump","fly"].includes(mode) && motionEnabled)
                     actor.perform("land")
                 settled()
             }
@@ -341,14 +339,13 @@ Item {
         directionX=next.x-here.x; directionY=next.y-here.y
         const speed=releasedFlight
             ? Math.max(220*scene.scale,Math.min(950*scene.scale,throwSpeed*1000))
-            : (retreating ? 300 : mode==="walk" ? 16 : mode==="run" ? 32 : mode==="roll" ? 46 : 105)*scene.scale
+            : (retreating || supportRecovery ? 300 : mode==="walk" ? 16 : mode==="run" ? 32 : mode==="roll" ? 46 : 105)*scene.scale
         normalX=mode==="jump" ? placement.support?.nx ?? 0 : 0
         normalY=mode==="jump" ? placement.support?.ny ?? -1 : -1
         arc=releasedFlight ? throwArc : mode==="jump" ? 42*scene.scale : mode==="fly" && !retreating
             && Scene.clearArc(scene,here,next,12*scene.scale) ? 12*scene.scale : 0
         duration=releasedFlight ? Math.max(220,Math.min(900,Math.round(Scene.distance(here,next)/speed*1000)))
-            : mode==="jump" ? 950 : mode==="fall"
-            ? Math.max(240,Math.round(Math.sqrt(2*Math.max(0,next.y-here.y)/(1250*scene.scale))*1000))
+            : mode==="jump" ? 950
             : Math.max(180,Math.round(Scene.distance(here,next)/speed*1000))
         targetX=next.x; targetY=next.y
         if (Math.abs(here.x-next.x)<.1 && Math.abs(here.y-next.y)<.1) Qt.callLater(root.arrived)
@@ -367,7 +364,7 @@ Item {
             disturb("dive",placement)
             clearMotion();visitActive=false;renderedReveal=0;surfaceDeadline.stop();return
         }
-        const water=Scene.nearestWater(scene,position(),iceOpening)
+        const water=Scene.nearestWater(scene,position())
         if (!water.qualified || !moveTo(water.placement,true)) hideImmediately()
     }
     function explore(): void {
@@ -375,7 +372,7 @@ Item {
         const here=position(), support=Scene.supportAt(scene,here)
         if (!support) {
             const floor=Scene.landingBelow(scene,here)
-            if (floor.qualified) moveTo(floor,false,"fall")
+            if (floor.qualified) moveTo(floor,false,"fly")
             else {
                 const water=Scene.nearestWater(scene,here)
                 if (water.qualified) moveTo(water.placement,false)
@@ -420,7 +417,7 @@ Item {
             return true
         }
         const floor=Scene.landingBelow(scene,from)
-        if (floor.qualified && moveTo(floor,false,"fall")) return true
+        if (floor.qualified && moveTo(floor,false,"fly")) return true
         const water=Scene.nearestWater(scene,from)
         if (water.qualified && moveTo(water.placement,false)) return true
         hideImmediately()
@@ -566,7 +563,7 @@ Item {
         if (motionEnabled && !placement.grounded) {
             const here=position(), floor=Scene.landingBelow(scene,here)
             releasedFlight=false
-            if (floor.qualified && moveTo(floor,false,"fall")) return
+            if (floor.qualified && moveTo(floor,false,"fly")) return
             const water=Scene.nearestWater(scene,here)
             if (water.qualified && moveTo(water.placement,false)) return
             hideImmediately()
@@ -641,18 +638,7 @@ Item {
         if (actor.perform("balance")) setReaction("surprised",1800)
     }
     function gestureFinished(action): void {
-        if (action==="ice" && retreating && (requestedReveal<=0 || hiddenUntil>Date.now())) {
-            const water=Scene.nearestWater(scene,position(),iceOpening)
-            if (water.qualified && moveTo(water.placement,true)) return
-            hideClip="dive";disturb("dive",placement);visitActive=false;renderedReveal=0;return
-        }
         if (action==="startle" && pendingReaction==="evade") {pendingReaction="";evade()}
-        if (action==="balance" && permitted && !dragging && random()<.18) {
-            const floor=Scene.landingBelow(scene,position())
-            if (floor.qualified && floor.y-position().y>90*scene.scale) {
-                setReaction("panicked",2200);moveTo(floor,false,"fall")
-            }
-        }
     }
     onPermittedChanged: Qt.callLater(root.synchronize)
     onPointerNearbyChanged: root.offerPointerNotice()

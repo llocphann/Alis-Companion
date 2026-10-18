@@ -73,7 +73,7 @@ Item {
         else if (reachedFeature) finish(true,false,true)
     }
     function checkOwnership(): void {
-        // External closure can race the scene update that starts Wull's fall.
+        // External closure can race the scene update that starts support recovery.
         // Losing semantic ownership must not pause/cancel that recovery motion.
         if (owned && (!adapter || !adapter.ownsCompanionFeature(feature))) finish(false,true,true)
     }
