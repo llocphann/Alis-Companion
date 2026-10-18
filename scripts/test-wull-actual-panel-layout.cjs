@@ -24,6 +24,7 @@ const config = JSON.parse(read("defaults/config.json"));
 const perimeter = read("modules/abyss/AbyssPerimeter.qml");
 const barQml = read("modules/abyss/bar/AbyssBar.qml");
 assert.equal(typeof layout.geometry, "function");
+assert.equal(typeof layout.livePlacements, "function");
 assert.equal(typeof layout.clearanceInsets, "function");
 assert.equal(typeof layout.localSurfaces, "function");
 assert.equal(typeof slot.slot, "function");
@@ -32,10 +33,11 @@ assert.equal(typeof host.alongPosition, "function");
 const output = read("optional/hadanion/HadalisOutput.qml");
 assert.ok(output.includes("WullScene.fromParticipants("));
 assert.ok(output.includes("bar.layoutRecords.map(record=>({"));
-assert.ok(perimeter.includes("ModuleLayout.clearanceInsets(nativeInsets,bar.visible ? bar.deformations : [],edge,along,span)"));
+assert.ok(perimeter.replace(/\s+/g, "").includes("ModuleLayout.clearanceInsets(nativeInsets,bar.visible?bar.deformations:[],edge,along,span,ownLauncherKind)"));
 for (const contract of [
     "Layout.resolve(", "Layout.seed(zones,edge,width,height)",
-    "Layout.geometry(placements,width,height,layoutOptions,Appearance.fontSizeScale)",
+    "Layout.livePlacements(",
+    "Layout.geometry(activePlacements,width,height,layoutOptions,Appearance.fontSizeScale)",
     "Layout.localSurfaces(renderedRecords.concat(capacityNotices),width,height,layoutOptions,Appearance.fontSizeScale,AbyssStyle.barThickness)"
 ]) assert.ok(barQml.includes(contract), contract);
 assert.equal(config.abyss.companion.enabled, false);
@@ -57,11 +59,12 @@ function caseFor(edge, height, local) {
         layout.resolve(modules, "synthetic-output", layout.seed(
             geo.barZones(config.bar.verticalLayout, true,
                          config.bar.modules), edge, width, height));
-    const records = layout.geometry(source, width, height, options, 1);
+    const active = layout.livePlacements(source, {}, false);
+    const records = layout.geometry(active, width, height, options, 1);
     const localRecords = layout.localSurfaces(
         records, width, height, options, 1, barHeight);
     const insets = layout.edgeInsetsForModules(
-        source, options, 1, thickness, barHeight, false);
+        active, options, 1, thickness, barHeight, false);
     const span = 112; // actual side companion implicitHeight at scale 1
     const rawDesired = host.alongPosition(height, span, .72);
     const chosen = slot.slot({
