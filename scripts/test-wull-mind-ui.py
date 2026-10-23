@@ -15,11 +15,13 @@ ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('mind_test',ROOT/'scripts/test-wull-local-mind.py')
 fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
 class Handler(fixture.Handler):
+    sharedCalls=[]
     def do_POST(self):
         if self.path=='/failure':
             self.send_response(429);self.end_headers();return
         if self.path!='/v1/chat/completions':return super().do_POST()
         data=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        type(self).sharedCalls.append(data)
         if 'slow' in data['messages'][-1]['content']:time.sleep(.3)
         self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()
         reply={'text':'Splish! Hello from shared AI.','expression':'happy'}
@@ -67,4 +69,9 @@ try:
         print(next(line for line in log.splitlines() if 'WULL_MIND=PASS' in line))
         saved=journal.read_text()
         assert 'mood: good\n' in saved and 'energy: high\n' in saved and 'private: preserved\n' in saved
+        dialogue=[row for row in Handler.sharedCalls if row['messages'][-1]['content']=='Dialogue fixture']
+        assert len(dialogue)==1
+        instruction=dialogue[0]['messages'][0]['content']
+        assert 'very concise and direct' in instruction and 'familiar coworker' in instruction
+        assert 'Never pressure the user to return' in instruction and 'infer a bond score' in instruction
 finally:server.shutdown();server.server_close();thread.join(timeout=2)

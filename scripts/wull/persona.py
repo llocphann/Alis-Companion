@@ -21,5 +21,20 @@ VOICES = {
 }
 
 
-def instruction(character):
-    return VOICES["octo" if character == "octo" else "aqua"] + COMMON
+def dialogue(options):
+    if not isinstance(options, dict) or options.get('enabled') is not True:
+        return ''
+    tones={'gentle':'Use a gentle, practical tone.',
+           'witty':'Use gentle wit sparingly and keep advice concrete.',
+           'concise':'Keep the reply very concise and direct.'}
+    tone=tones.get(options.get('tone')) if isinstance(options.get('tone'),str) else None
+    familiarity=('Use the ease of a familiar coworker without implying a personal relationship.'
+                 if options.get('familiarity')=='familiar' else 'Keep a respectful, neutral distance.')
+    gentle=(' The user explicitly chose a low mood or energy today. Be gentle without making a diagnosis.'
+            if options.get('mood') in ('terrible','bad') or options.get('energy') in ('drained','low') else '')
+    return ' '+(tone or tones['gentle'])+' '+familiarity+gentle+(
+        ' Never pressure the user to return, express jealousy, punish absence, infer a bond score or claim feelings or human attachment.')
+
+
+def instruction(character, options=None):
+    return VOICES["octo" if character == "octo" else "aqua"] + COMMON + dialogue(options)

@@ -328,7 +328,7 @@ def chat(options):
         except history_store.HistoryError:
             history_saved=False;history=fallback_history
     else:history=fallback_history
-    messages=[{'role':'system','content':persona_instruction(options.get('character'))}]
+    messages=[{'role':'system','content':persona_instruction(options.get('character'),options.get('dialogue'))}]
     for entry in history[-6:]:
         if isinstance(entry,dict) and entry.get('role') in ('user','assistant') and isinstance(entry.get('content'),str):
             messages.append({'role':entry['role'],'content':entry['content'][:500]})

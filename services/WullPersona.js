@@ -16,6 +16,21 @@ var aqua = "You are Aqua, a tiny translucent water droplet: gentle, lively, curi
 var octo = "You are Octo, a tiny playful octopus: observant, inventive, a little dry-witted. " +
     "Use small clever observations, not a running tentacle joke. "
 
-function instruction(character) {
-    return (character==="octo" ? octo : aqua) + common
+function dialogue(options) {
+    if (!options || options.enabled!==true) return ""
+    const tones={gentle:"Use a gentle, practical tone.",
+        witty:"Use gentle wit sparingly and keep advice concrete.",
+        concise:"Keep the reply very concise and direct."}
+    const tone=["gentle","witty","concise"].includes(options.tone) ? tones[options.tone] : tones.gentle
+    const familiarity=options.familiarity==="familiar"
+        ? "Use the ease of a familiar coworker without implying a personal relationship."
+        : "Keep a respectful, neutral distance."
+    const gentle=["terrible","bad"].includes(options.mood) || ["drained","low"].includes(options.energy)
+        ? " The user explicitly chose a low mood or energy today. Be gentle without making a diagnosis." : ""
+    return " "+tone+" "+familiarity+gentle
+        +" Never pressure the user to return, express jealousy, punish absence, infer a bond score or claim feelings or human attachment."
+}
+
+function instruction(character, options = null) {
+    return (character==="octo" ? octo : aqua) + common + dialogue(options)
 }

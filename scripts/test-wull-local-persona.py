@@ -23,8 +23,8 @@ for label,prompt in (("Aqua",aqua),("Octo",octo)):
     assert "cloud" not in prompt.lower()
 source=(ROOT/"scripts/wull/local_mind.py").read_text(encoding="utf-8")
 assert "from persona import instruction as persona_instruction" in source
-assert "persona_instruction(options.get('character'))" in source
+assert "persona_instruction(options.get('character'),options.get('dialogue'))" in source
 assert "num_ctx':2048" in source or '"num_ctx":2048' in source
 qml=(ROOT/"services/WullMind.qml").read_text(encoding="utf-8")
-assert "WullPersona.instruction(character)+context" in qml
+assert "WullPersona.instruction(character,dialoguePreferences)+context" in qml
 print("HADANION_LOCAL_PERSONA_COMPACT_CONTRACT_PASS")

@@ -253,6 +253,20 @@ Window {
                 tryCompare(WullMind,"busy",false,4000)
                 check(root.named(settings,"wullEnableMemory") && root.named(settings,"wullMemoryDraft")
                     && root.named(settings,"wullReviewMemory") && root.named(settings,"wullForgetAllMemory"),"memory management controls missing")
+                check(!WullMind.dialoguePreferences.enabled,"dialogue personalization defaulted on")
+                Config.setNestedValues({"abyss.companionMind.bondEnabled":true,
+                    "abyss.companionMind.dialogueTone":"concise","abyss.companionMind.familiarity":"familiar"})
+                check(WullMind.dialoguePreferences.enabled && WullMind.sendMessage("Dialogue fixture"),"consented local dialogue rejected")
+                tryCompare(WullMind,"busy",false,6000)
+                check(WullMind.history[WullMind.history.length-1]?.role==="assistant","personalized dialogue failed")
+                check(WullMind.sendMessage("slow dialogue fixture"),"dialogue revocation setup failed")
+                WullMind.resetDialogue()
+                const resetKey=WullMind.dialogueKey
+                tryCompare(WullMind.aiSession,"busy",false,4000)
+                check(!WullMind.dialoguePreferences.enabled && !WullMind.history.some(row=>row.content==="slow dialogue fixture")
+                    && WullMind.userMood==="good" && WullMind.userEnergy==="high" && WullMind.memories.length===0,
+                    "dialogue reset retained a request or changed independent check-in/memory state")
+                check(root.named(settings,"wullDialogueConsent") && root.named(settings,"wullResetDialogue"),"dialogue controls missing")
                 console.log("WULL_MIND=PASS actualProcess sharedModelReadiness EnglishReply hoverCloudActions dailyChoices readOnlyContext borderedCloud noCheckInInput separateQuestions journalWrites stableJournalContext explicitChatFocus modelEffortSelector compactEffortRow activeModelContrast stagedEffortModelPicker enterSend sendOnlyControl persistentHistory reminderSources proactiveCadences scaledTalkCloudAnchor idleChatRelease retainedDraft escapeClose boundedHistory cancel staleReply invalidEndpoint unavailableModel settingsAI noReferenceVault explicitMemory save edit castScope revocation forget managementControls")
             } catch(e) {console.error("WULL_MIND=FAIL "+e+" "+e.stack)}
             shutdown.start()

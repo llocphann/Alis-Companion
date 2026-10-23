@@ -486,6 +486,33 @@ ContentPage {
                 text:Translation.tr("Providers and connections are shared with AI settings.")
                 color:Appearance.colors.colSubtext
             }
+            SettingsSwitch {
+                objectName:"wullDialogueConsent"
+                text:Translation.tr("Personalize local dialogue")
+                description:Translation.tr("Use your chosen tone and today's explicit check-in for local replies. Familiarity is your choice. No relationship score, penalties for absence or pressure to return.")
+                autoToggle:false;checked:WullMind.options.bondEnabled===true
+                enabled:WullMind.options.bondEnabled!==undefined
+                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.bondEnabled",checked)
+            }
+            ChoiceRow {
+                label:Translation.tr("Dialogue tone")
+                options:[{displayName:Translation.tr("Gentle"),value:"gentle"},
+                    {displayName:Translation.tr("Witty"),value:"witty"},{displayName:Translation.tr("Concise"),value:"concise"}]
+                currentValue:WullMind.options.dialogueTone ?? "gentle"
+                onSelected:value=>Config.setNestedValue("abyss.companionMind.dialogueTone",value)
+            }
+            ChoiceRow {
+                label:Translation.tr("Familiarity")
+                options:[{displayName:Translation.tr("Neutral"),value:"neutral"},
+                    {displayName:Translation.tr("Familiar coworker"),value:"familiar"}]
+                currentValue:WullMind.options.familiarity ?? "neutral"
+                onSelected:value=>Config.setNestedValue("abyss.companionMind.familiarity",value)
+            }
+            DialogButton {
+                objectName:"wullResetDialogue"
+                buttonText:Translation.tr("Reset dialogue preferences")
+                onClicked:WullMind.resetDialogue()
+            }
             RowLayout {
                 DialogButton {buttonText:Translation.tr("Open chat");enabled:root.preferences.enabled;onClicked:WullMind.openChat()}
                 DialogButton {buttonText:Translation.tr("Clear conversation");onClicked:WullMind.clearConversation()}
