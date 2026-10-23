@@ -52,6 +52,7 @@ import Quickshell.Io
 import qs.modules.common
 import qs.services
 import qs.services.deferred
+import qs.services.ai
 import "optional/hadanion/services"
 import "optional/hadanion/services/WullReplyGuard.js" as ReplyGuard
 ShellRoot {
