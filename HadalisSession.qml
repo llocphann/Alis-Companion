@@ -3,6 +3,7 @@ import Quickshell
 import qs
 import qs.services
 import qs.modules.common
+import qs.modules.abyss.looks
 import "services"
 import "modules/abyss/companion"
 import "modules/abyss/companion/WullPreferences.js" as WullPreferences
@@ -28,6 +29,13 @@ Item {
     readonly property bool companionEnabled: Config.ready && companionPreferences.enabled
     Binding {target:WullMind;property:"hostVisible";value:root.companionSessionVisible && companionBridge.ready && companionBridge.visibility==="present"}
     Binding {target:WullMind;property:"hostIdle";value:companionBridge.activity==="idle"}
+    Binding {
+        target:WullMind;property:"hostBlocked"
+        value:!root.companionSessionVisible || !root.companionPreferences.animationsEnabled
+            || !AbyssStyle.motionEnabled || Notifications.notificationPolicyActive
+            || GameMode.hasFullscreenOnOutput(root.companionTargetOutput)
+            || root.outputHosts.find(window=>window.outputName===root.companionTargetOutput)?.extension?.ambientBlocked !== false
+    }
     Connections {
         target:WullMind
         function onReactionRequested(expression): void {
@@ -92,6 +100,7 @@ function status(): string {
     Component.onDestruction: {
         WullMind.hostVisible=false
         WullMind.hostIdle=false
+        WullMind.hostBlocked=true
         WullMind.cancel()
         WullMind.dismiss()
         companionBridge.hide()

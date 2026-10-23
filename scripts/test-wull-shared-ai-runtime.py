@@ -88,6 +88,53 @@ ShellRoot {
  function helperContext(marker): var {
   return {date:WullMind.today(),mood:"",energy:"",journalPath:"",schedule:[],marker:marker}
  }
+ function checkLiveOffers(): bool {
+  if(!root.check(!WullMind.proactiveIdleEnabled && !WullMind.todoRemindersEnabled
+      && !WullMind.calendarRemindersEnabled && !WullMind.journalRemindersEnabled
+      && !WullMind.reminderNotificationsEnabled,"new source or proactive consent defaulted on"))return false
+  const state=Persistent.states.wullProactive,now=Date.now(),day=WullMind.today()
+  function reset(): void {
+   for(const key of ["dailyCount","reminder","checkin","playful","unanswered","dismissals","lastNudgeMs"])state[key]=0
+   state.day=day;state.reminderKeys=[]
+  }
+  reset()
+  WullMind.hostVisible=true;WullMind.hostBlocked=false;WullMind.hostIdle=false
+  Config.setNestedValues({"abyss.companionMind.proactiveEnabled":true,
+   "abyss.companionMind.proactive":"often","abyss.companionMind.proactiveQuietEnabled":false,
+   "abyss.companionMind.proactiveDailyCap":2,"abyss.companionMind.proactiveEventCap":2})
+  if(!root.check(!WullMind.sayAutomatic("No source consent","reminder",now,"todo:540"),"unconsented reminder source was used"))return false
+  Config.setNestedValue("abyss.companionMind.todoRemindersEnabled",true)
+  if(!root.check(WullMind.sayAutomatic("Owned reminder one","reminder",now,"todo:540")
+      && state.dailyCount===1 && state.reminder===1 && state.unanswered===1
+      && WullMind.text==="Owned reminder one","consented offer failed to record actual quotas"))return false
+  WullMind.hostBlocked=true
+  if(!root.check(WullMind.text==="" && !WullMind.automaticOffer
+      && !WullMind.sayAutomatic("Blocked","reminder",now+7200000,"todo:541"),"modal/host suppression failed"))return false
+  WullMind.hostBlocked=false
+  TimerService.pomodoroRunning=true;TimerService.pomodoroPaused=false;TimerService.pomodoroBreak=false
+  if(!root.check(WullMind.focusSessionActive && !WullMind.sayAutomatic("Focus blocked","reminder",now+7200000,"todo:541"),"existing Focus session did not suppress offers"))return false
+  TimerService.pomodoroRunning=false
+  const minute=new Date(now).getHours()*60+new Date(now).getMinutes()
+  Config.setNestedValues({"abyss.companionMind.proactiveQuietEnabled":true,
+   "abyss.companionMind.proactiveQuietStart":minute,"abyss.companionMind.proactiveQuietEnd":(minute+1)%1440})
+  if(!root.check(!WullMind.sayAutomatic("Quiet blocked","reminder",now,"todo:541"),"quiet hours ignored"))return false
+  Config.setNestedValue("abyss.companionMind.proactiveQuietEnabled",false)
+  if(!root.check(!WullMind.sayAutomatic("Duplicate","reminder",now+7200000,"todo:540")
+      && WullMind.sayAutomatic("Owned reminder two","reminder",now+7200000,"todo:541")
+      && state.dailyCount===2,"deduplication or second quota receipt failed"))return false
+  WullMind.dismiss()
+  if(!root.check(state.dismissals===1 && !WullMind.sayAutomatic("Over cap","reminder",now+18000000,"todo:542"),"dismissal or daily cap failed"))return false
+  WullMind.acknowledgeAutomatic()
+  if(!root.check(state.unanswered===0 && state.dismissals===0 && state.dailyCount===2
+      && !WullMind.sayAutomatic("Quota remains","reminder",now+18000000,"todo:542"),"interaction reset the quota"))return false
+  reset()
+  if(!root.check(WullMind.sayAutomatic("Revoked","reminder",now,"todo:543"),"revocation setup failed"))return false
+  Config.setNestedValue("abyss.companionMind.proactiveEnabled",false)
+  if(!root.check(!WullMind.proactiveIdleEnabled && WullMind.text==="" && !WullMind.automaticOffer,"revoking consent retained automatic content"))return false
+  Config.setNestedValue("abyss.companionMind.todoRemindersEnabled",false)
+  reset();WullMind.hostVisible=false
+  return true
+ }
  function checkHelperReplies(): bool {
   // Completion injection only: no helper process, provider or vault is used.
   const state=Persistent.states.wullCheckIn
@@ -159,7 +206,9 @@ ShellRoot {
  function checkAutomaticCompletion(): bool {
   // Synthetic helper completion only: no vault, model, notification or timer
   // is invoked. The startup gate keeps deferred automatic offers dormant.
-  Config.setNestedValue("abyss.companionMind.obsidianEnabled",false)
+  Config.setNestedValues({"abyss.companionMind.obsidianEnabled":true,
+   "abyss.companionMind.journalRemindersEnabled":true,"abyss.companionMind.proactiveEnabled":true})
+  WullMind.hostBlocked=false
   WullMind.hostVisible=true;WullMind.hostIdle=true
   WullMind.conversationOpen=false;WullMind.contextOpen=false
   for(const cadence of ["rare","occasional","regular","often"]){
@@ -215,6 +264,7 @@ ShellRoot {
           pending:!!WullMind.pending,marker:WullMind.journal.marker,
           cadence:WullMind.proactive,enabled:WullMind.proactiveIdleEnabled})))return
     WullMind.hostVisible=false;WullMind.hostIdle=false
+    Config.setNestedValue("abyss.companionMind.obsidianEnabled",false)
     WullMind.journal=({schedule:[],mood:"",energy:"",journalPath:""})
     root.cadenceComplete=true
    })
@@ -271,6 +321,7 @@ ShellRoot {
    if(root.step===0){
     if(!root.cadenceStarted){
      root.cadenceStarted=true
+     if(!root.checkLiveOffers())return
      if(!root.checkHelperReplies())return
      if(!root.checkJournalReceipts())return
      if(!root.checkAutomaticCompletion())return
@@ -381,7 +432,7 @@ ShellRoot {
     Config.setNestedValue("abyss.companionMind.localOnly",true)
     if(!root.check(!WullMind.busy && !WullMind.aiSession.busy && !WullMind.history.some(entry=>entry.content==="Queued cloud fixture"),"revoking cloud opt-in did not cancel the queued request"))return
     Config.setNestedValue("abyss.companionMind.model","")
-    console.info("WULL_SHARED_AI_PASS catalog request history-isolation persistence HTTP-error cancel retry model-follow output-rejection recovery localDefault cloudBlock spoofBlock localAutoFallback consentRevoke automaticCadences automaticGates cadenceRevocation malformedHelperRejection helperRecovery sameIdReplacement staleReply responses");Qt.quit()
+    console.info("WULL_SHARED_AI_PASS catalog request history-isolation persistence HTTP-error cancel retry model-follow output-rejection recovery localDefault cloudBlock spoofBlock localAutoFallback consentRevoke automaticCadences automaticGates cadenceRevocation malformedHelperRejection helperRecovery sameIdReplacement staleReply responses proactiveOptIn sourceConsent quietHours focusSuppression quotaReceipt dismissal dailyCap contentRevocation");Qt.quit()
    }
   }
  }

@@ -117,6 +117,7 @@ Item {
                     required property var modelData
                     Layout.fillWidth:true
                     text:String(Math.floor(modelData.start/60)).padStart(2,"0")+":"+String(modelData.start%60).padStart(2,"0")+" · "+modelData.title
+                    textFormat:Text.PlainText
                     elide:Text.ElideRight; font.pixelSize:Appearance.font.pixelSize.small
                 }
             }

@@ -40,10 +40,8 @@ def stage(host, target, integration=None, integration_sha=None):
         (target / "modules/abyss/companion").rmdir()
     (target / "modules/abyss/companion").symlink_to(target / "optional/hadanion/modules/abyss/companion")
     shutil.copy2(ROOT / "services/WullMind.qml", target / "services/WullMind.qml")
-    shutil.copy2(ROOT / "services/WullReplyGuard.js", target / "services/WullReplyGuard.js")
-    shutil.copy2(ROOT / "services/WullHelperReplyGuard.js", target / "services/WullHelperReplyGuard.js")
-    shutil.copy2(ROOT / "services/WullPersona.js", target / "services/WullPersona.js")
-    shutil.copy2(ROOT / "services/WullModelPolicy.js", target / "services/WullModelPolicy.js")
+    for path in (ROOT / "services").glob("*.js"):
+        shutil.copy2(path, target / "services" / path.name)
     for path in (host / "scripts/ai").glob("*.py"):
         shutil.copy2(path, target / "scripts/wull" / path.name)
     if integration:

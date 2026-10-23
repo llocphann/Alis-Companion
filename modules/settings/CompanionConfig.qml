@@ -400,6 +400,14 @@ ContentPage {
                 text:WullMind.localOnly ? "Local only" : "Cloud models allowed"
                 color:Appearance.colors.colSubtext
             }
+            SettingsSwitch {
+                objectName:"wullEnableProactive"
+                text:Translation.tr("Allow proactive check-ins and reminders")
+                description:Translation.tr("Off by default. Pauses during Focus, fullscreen, games, dialogs and quiet hours. Repeatedly ignored offers pause until you interact or the next day.")
+                autoToggle:false;checked:WullMind.options.proactiveEnabled === true
+                enabled:WullMind.options.proactiveEnabled !== undefined
+                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.proactiveEnabled",checked)
+            }
             ChoiceRow {
                 objectName:"wullProactiveFrequency"
                 label:Translation.tr("Check-ins and reminders")
@@ -412,6 +420,61 @@ ContentPage {
                 ]
                 currentValue:WullMind.proactive
                 onSelected:value=>Config.setNestedValue("abyss.companionMind.proactive",value)
+            }
+            ChoiceRow {
+                label:Translation.tr("Daily offer limit")
+                options:[{displayName:"2",value:2},{displayName:"4",value:4},{displayName:"6",value:6},{displayName:"10",value:10}]
+                currentValue:WullMind.options.proactiveDailyCap ?? 6
+                onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveDailyCap",value)
+            }
+            ChoiceRow {
+                label:Translation.tr("Limit for each kind of offer")
+                options:[{displayName:"1",value:1},{displayName:"2",value:2},{displayName:"3",value:3}]
+                currentValue:WullMind.options.proactiveEventCap ?? 3
+                onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveEventCap",value)
+            }
+            SettingsSwitch {
+                text:Translation.tr("Quiet hours")
+                autoToggle:false;checked:WullMind.options.proactiveQuietEnabled !== false
+                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.proactiveQuietEnabled",checked)
+            }
+            ChoiceRow {
+                label:Translation.tr("Quiet hours start")
+                options:[{displayName:"20:00",value:1200},{displayName:"22:00",value:1320},{displayName:"00:00",value:0}]
+                currentValue:WullMind.options.proactiveQuietStart ?? 1320
+                onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveQuietStart",value)
+            }
+            ChoiceRow {
+                label:Translation.tr("Quiet hours end")
+                options:[{displayName:"06:00",value:360},{displayName:"08:00",value:480},{displayName:"10:00",value:600}]
+                currentValue:WullMind.options.proactiveQuietEnd ?? 480
+                onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveQuietEnd",value)
+            }
+            SettingsSwitch {
+                objectName:"wullTodoReminders"
+                text:Translation.tr("Read Todo items for reminders")
+                autoToggle:false;checked:WullMind.todoRemindersEnabled
+                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.todoRemindersEnabled",checked)
+            }
+            SettingsSwitch {
+                objectName:"wullCalendarReminders"
+                text:Translation.tr("Read calendar events for reminders")
+                autoToggle:false;checked:WullMind.calendarRemindersEnabled
+                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.calendarRemindersEnabled",checked)
+            }
+            SettingsSwitch {
+                objectName:"wullJournalReminders"
+                text:Translation.tr("Read today's journal for reminders")
+                autoToggle:false;checked:WullMind.journalRemindersEnabled
+                enabled:WullMind.obsidianEnabled
+                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.journalRemindersEnabled",checked)
+            }
+            SettingsSwitch {
+                objectName:"wullReminderNotifications"
+                text:Translation.tr("Show reminder notifications")
+                description:Translation.tr("Also send consented reminders to the notification center. Off by default.")
+                autoToggle:false;checked:WullMind.reminderNotificationsEnabled
+                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.reminderNotificationsEnabled",checked)
             }
             StyledText {
                 Layout.fillWidth:true;wrapMode:Text.WordWrap

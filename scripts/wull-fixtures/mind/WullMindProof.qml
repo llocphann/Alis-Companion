@@ -48,6 +48,9 @@ Window {
                     && cadences.regular.playfulMs>cadences.often.playfulMs,
                     "proactive cadence profiles are not ordered or manual-safe")
                 const syntheticNow=new Date(2026,9,5,9,0,0)
+                check(WullMind.reminderRows(syntheticNow,[],[]).length===0,"reminder sources default to private")
+                Config.setNestedValues({"abyss.companionMind.todoRemindersEnabled":true,
+                    "abyss.companionMind.calendarRemindersEnabled":true})
                 const reminderRows=WullMind.reminderRows(syntheticNow,
                     [{done:false,sourceDate:"2026-10-05",startTime:"09:05",content:"Todo reminder"}],
                     [{allDay:false,startDate:new Date(2026,9,5,9,7,0),summary:"Agenda reminder"}])

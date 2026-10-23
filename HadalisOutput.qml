@@ -44,6 +44,9 @@ Item {
         && !root.companionOccluded
         && liquid.records.length<=field.capacity
     readonly property bool companionHostActive: root.companionPermission && companionPresence.qualified
+    readonly property bool ambientBlocked: !root.companionHostActive || root.companionOccluded
+        || companionPresence.dragging || companionPresence.traveling || companionPresence.portalActive
+        || companionCuriosity.busy || talkCloud.controlsVisible
     function requestCompanionChat(): void {
         if(!root.companionPermission) return
         companionTurns.cancel()
