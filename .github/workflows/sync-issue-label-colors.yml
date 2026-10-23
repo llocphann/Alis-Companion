@@ -1,0 +1,73 @@
+name: Sync Companion issue-label colors
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sync-issue-label-colors.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sync-colors:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Apply Alis issue-label palette
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from urllib.parse import quote
+          from urllib.request import Request, urlopen
+
+          # These names, exact colors and descriptions mirror llocphann/Alis.
+          # The action only updates label metadata, never issue assignments.
+          palette = {
+              "area:companion": (
+                  "9C36B5", "Companion 3D, AI and visual behavior"
+              ),
+              "complexity:high": (
+                  "7C3AED",
+                  "High-complexity task spanning rendering, lifecycle, performance or architecture"
+              ),
+              "status:blocked": (
+                  "B42318", "Blocked by unmet external or technical gate"
+              ),
+              "status:awaiting-owner": (
+                  "C49B06", "Bot complete, pending owner verification"
+              ),
+          }
+
+          repository = os.environ["GH_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "alis-companion-label-sync",
+          }
+
+          for name, (color, description) in palette.items():
+              url = f"https://api.github.com/repos/{repository}/labels/{quote(name, safe='')}"
+              payload = json.dumps({
+                  "new_name": name,
+                  "color": color,
+                  "description": description,
+              }).encode("utf-8")
+              with urlopen(Request(url, data=payload, headers=headers, method="PATCH"), timeout=20) as reply:
+                  updated = json.load(reply)
+              if (
+                  updated.get("name") != name
+                  or updated.get("color", "").lower() != color.lower()
+                  or updated.get("description") != description
+              ):
+                  raise RuntimeError(f"Label update verification failed: {name}")
+              print(f"Verified {name}: #{color}")
+          PY
