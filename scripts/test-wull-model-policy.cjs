@@ -15,7 +15,18 @@ assert.equal(policy.isLocal({...model("http://127.0.0.1"),local:false}),false);
 assert.equal(policy.isLocal({local:true,api_format:"gguf",gguf_path:"/fixture/model.gguf"}),true);
 assert.equal(policy.isLocal({local:true,api_format:"gguf",gguf_path:"https://cloud/model.gguf"}),false);
 assert.equal(policy.isLocal({...model("http://localhost"),api_format:"unknown"}),false);
+assert.equal(policy.isLocal({...model("http://localhost"),api_format:"openai-response"}),true);
+assert.equal(policy.isLocal({...model("http://localhost"),api_format:"openai-responses"}),false);
 assert.equal(policy.allowed(model("https://cloud.example"),true),false);
 assert.equal(policy.allowed(model("https://cloud.example"),false),true);
 assert.equal(policy.allowed(null,false),false);
-console.log("HADANION_LOCAL_MODEL_POLICY_PASS loopback gguf failClosed explicitCloudOptIn");
+const selected={...model("http://localhost"),provider_id:"fixture",model:"same-id",extraParams:{temperature:.5}};
+const original=policy.identity(selected);
+assert.equal(policy.identity({...selected,name:"new display name"}),original);
+for(const [key,value] of Object.entries({endpoint:"http://localhost:8001",provider_id:"replacement",
+    api_format:"openai-response",model:"other",auth_scheme:"bearer",requires_key:true,key_id:"new-key",
+    local:false,gguf_path:"/new/model.gguf",runtime_path:"/new/runner",max_output_tokens:10,
+    capabilities:{chat:"unsupported"},extraParams:{temperature:.7}}))
+    assert.notEqual(policy.identity({...selected,[key]:value}),original,key);
+assert.equal(policy.identity(null),"");
+console.log("HADANION_LOCAL_MODEL_POLICY_PASS loopback gguf failClosed explicitCloudOptIn responses transportIdentity");

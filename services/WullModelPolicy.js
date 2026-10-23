@@ -5,7 +5,7 @@ function isLocal(model) {
     if (!model || model.local !== true) return false
     if (model.api_format === "gguf")
         return typeof model.gguf_path === "string" && model.gguf_path.startsWith("/")
-    if (!["openai", "openai-responses"].includes(model.api_format)) return false
+    if (!["openai", "openai-response"].includes(model.api_format)) return false
     const match = /^https?:\/\/([^/?#\s\\]+)(?:[/?#]|$)/i.exec(String(model.endpoint ?? ""))
     if (!match) return false
     const authority = /^(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|\[::1\])(?::(\d{1,5}))?$/i.exec(match[1])
@@ -14,3 +14,13 @@ function isLocal(model) {
 }
 
 function allowed(model, localOnly) { return !!model && (!localOnly || isLocal(model)) }
+
+// Snapshot transport identity without credentials. Catalog entries may be
+// replaced or edited in place while retaining the same model ID.
+function identity(model) {
+    if (!model) return ""
+    const fields = ["model", "endpoint", "api_format", "provider_id", "auth_scheme",
+        "requires_key", "key_id", "local", "gguf_path", "runtime_path",
+        "max_output_tokens", "capabilities", "extraParams"]
+    return JSON.stringify(fields.map(key => model[key] ?? null))
+}

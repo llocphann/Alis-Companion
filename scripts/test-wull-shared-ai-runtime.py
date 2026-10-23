@@ -19,6 +19,11 @@ class Handler(BaseHTTPRequestHandler):
         failure=self.path=="/failure"
         self.send_response(429 if failure else 200)
         self.send_header("Content-Type","text/event-stream");self.end_headers()
+        if self.path=="/responses":
+            events=[{'type':'response.output_text.delta','delta':json.dumps({'text':'Responses hello','expression':'happy'})},
+                    {'type':'response.completed'}]
+            self.wfile.write(''.join('data: '+json.dumps(event)+'\n\n' for event in events).encode())
+            return
         content={
             '/extra':json.dumps({'text':'Not public','tool_calls':[{'name':'open_file'}]}),
             '/tokens':json.dumps({'text':'<|channel|>analysis secret','expression':'happy'}),
@@ -68,6 +73,7 @@ ShellRoot {
  property int invalidIndex:0
  property string previousText:""
  property int assistantCount:0
+ property string replacedToken:""
  property bool cadenceStarted:false
  property bool cadenceComplete:false
  function check(ok,message): bool {
@@ -285,6 +291,7 @@ ShellRoot {
     root.add("fixture-extra","/extra");root.add("fixture-tokens","/tokens");root.add("fixture-malformed","/malformed")
     root.add("fixture-controltag","/controltag");root.add("fixture-eof-tool","/eof-tool")
     root.add("fixture-cloud","/cloud");Ai.models["fixture-cloud"].local=false
+    root.add("fixture-responses","/responses");Ai.models["fixture-responses"].api_format="openai-response"
     root.add("fixture-spoof","/spoof");Ai.models["fixture-spoof"].endpoint="http://localhost@cloud.invalid/v1"
     Ai.modelList=Object.keys(Ai.models)
     Ai.models["fixture-wull"].requires_key=true
@@ -350,13 +357,31 @@ ShellRoot {
     if(!root.check(WullMind.history[WullMind.history.length-1]?.content==="Fixture hello"
         && WullMind.history[WullMind.history.length-1]?.persisted
         && Ai.messageIDs.length===root.mainIDs.length,"rejected outputs prevented valid recovery"))return
+    root.previousText=WullMind.text
+    root.assistantCount=WullMind.history.filter(entry=>entry.role==="assistant").length
+    Config.setNestedValue("abyss.companionMind.model","fixture-slow")
+    if(!root.check(WullMind.sendMessage("Reconfigured fixture"),"same-ID replacement request accepted"))return
+    root.replacedToken=String(WullMind.pending.serial)
+    Ai.models["fixture-slow"].endpoint=Quickshell.env("AI_FIXTURE_URL")+"/replacement"
+    root.step=8
+   }else if(root.step===8 && !WullMind.aiSession.busy){
+    WullMind.completeAi(root.replacedToken,JSON.stringify({text:"Stale provider reply",expression:"happy"}),"")
+    if(!root.check(!WullMind.busy && !WullMind.pending && WullMind.text===root.previousText
+        && WullMind.history.filter(entry=>entry.role==="assistant").length===root.assistantCount
+        && !WullMind.history.some(entry=>entry.content==="Reconfigured fixture"),"same-ID provider change retained the old result"))return
+    Config.setNestedValue("abyss.companionMind.model","fixture-responses")
+    if(!root.check(WullMind.available && WullMind.sendMessage("Responses fixture"),"canonical local Responses protocol unavailable"))return
+    root.step=9
+   }else if(root.step===9 && !WullMind.busy){
+    if(!root.check(WullMind.history[WullMind.history.length-1]?.content==="Responses hello"
+        && WullMind.history[WullMind.history.length-1]?.persisted,"Responses reply was not decoded and persisted"))return
     Config.setNestedValue("abyss.companionMind.localOnly",false)
     Config.setNestedValue("abyss.companionMind.model","fixture-cloud")
     if(!root.check(WullMind.selectableModels.some(entry=>entry.name==="fixture-cloud") && WullMind.sendMessage("Queued cloud fixture"),"explicit cloud opt-in is unavailable"))return
     Config.setNestedValue("abyss.companionMind.localOnly",true)
     if(!root.check(!WullMind.busy && !WullMind.aiSession.busy && !WullMind.history.some(entry=>entry.content==="Queued cloud fixture"),"revoking cloud opt-in did not cancel the queued request"))return
     Config.setNestedValue("abyss.companionMind.model","")
-    console.info("WULL_SHARED_AI_PASS catalog request history-isolation persistence HTTP-error cancel retry model-follow output-rejection recovery localDefault cloudBlock spoofBlock localAutoFallback consentRevoke automaticCadences automaticGates cadenceRevocation malformedHelperRejection helperRecovery");Qt.quit()
+    console.info("WULL_SHARED_AI_PASS catalog request history-isolation persistence HTTP-error cancel retry model-follow output-rejection recovery localDefault cloudBlock spoofBlock localAutoFallback consentRevoke automaticCadences automaticGates cadenceRevocation malformedHelperRejection helperRecovery sameIdReplacement staleReply responses");Qt.quit()
    }
   }
  }
@@ -383,11 +408,14 @@ ShellRoot {
     assert headers[0].get("Authorization")=="Bearer fixture-credential"
     assert "Authorization" not in headers[1], "previous provider credential survived a keyless switch"
     assert len([row for path,row,headers in requests if path in ('/extra','/tokens','/malformed','/controltag','/eof-tool')])==5
-    assert not any(path in ('/cloud','/spoof') for path,row,headers in requests), 'blocked or revoked request reached transport'
+    assert not any(path in ('/cloud','/spoof','/replacement') for path,row,headers in requests), 'blocked or revoked request reached transport'
+    responses=[row for path,row,headers in requests if path=='/responses']
+    assert len(responses)==1 and 'input' in responses[0] and 'tools' not in responses[0]
     with sqlite3.connect(Path(env['XDG_STATE_HOME'])/'inir/wull/chat.sqlite3') as db:
         rows=db.execute('SELECT role,content FROM messages ORDER BY id').fetchall()
     assert rows==[('user','Hello fixture'),('assistant','Fixture hello'),
                   ('user','Retry fixture'),('assistant','Fixture hello'),
-                  ('user','Recovery fixture'),('assistant','Fixture hello')], 'rejected output entered persistent history'
+                  ('user','Recovery fixture'),('assistant','Fixture hello'),
+                  ('user','Responses fixture'),('assistant','Responses hello')], 'rejected output entered persistent history'
 finally:
     server.shutdown();server.server_close()

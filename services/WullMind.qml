@@ -18,6 +18,8 @@ Singleton {
     readonly property var options: Config.options?.abyss?.companionMind ?? ({})
     readonly property bool localOnly: options.localOnly !== false
     readonly property bool aiEnabled: ModelPolicy.allowed(Ai.models[model],localOnly) && Ai.modelCanRun(Ai.models[model])
+    readonly property string modelIdentity: ModelPolicy.identity(Ai.models[model])
+    onModelIdentityChanged: if(pending?.action==="ai_chat")cancel()
     readonly property bool talkEnabled: options.talkEnabled ?? true
     readonly property bool obsidianEnabled: options.obsidianEnabled === true
     readonly property string model: {
@@ -243,7 +245,8 @@ Singleton {
             errorMessage=aiSession.error || "Wait for the previous reply to finish."
             return false
         }
-        pending={serial:serial,action:"ai_chat",request:{prompt:prompt,model:model,local:ModelPolicy.isLocal(Ai.models[model])}}
+        pending={serial:serial,action:"ai_chat",request:{prompt:prompt,model:model,
+            identity:modelIdentity,local:ModelPolicy.isLocal(Ai.models[model])}}
         busy=true;errorMessage="";connectionStatus="generating"
         history=history.concat([{id:0,clientId:String(serial)+":user",role:"user",content:prompt,pending:true}]).slice(-2000)
         historyLoaded=true;touchConversation()
@@ -252,6 +255,8 @@ Singleton {
     function completeAi(token, raw, failure): void {
         const job=pending
         if (!job || job.action!=="ai_chat" || String(job.serial)!==token || job.serial!==epoch) return
+        if (!available || job.request.model!==model || job.request.identity!==modelIdentity
+                || (localOnly && job.request.local!==true)) {cancel();return}
         pending=null;busy=false
         if (failure) {
             errorMessage=String(failure);connectionStatus="error"
@@ -271,6 +276,10 @@ Singleton {
     Connections {
         target:root.aiSession
         function onFinished(token,text,error): void {root.completeAi(token,text,error)}
+    }
+    Connections {
+        target:Ai
+        function onApiKeysChanged(): void {if(root.pending?.action==="ai_chat")root.cancel()}
     }
     function today(): string {
         return currentDay
