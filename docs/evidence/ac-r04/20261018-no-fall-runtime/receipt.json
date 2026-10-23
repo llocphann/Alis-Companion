@@ -1,0 +1,261 @@
+{
+  "schema": "alis.companion-validation.v1",
+  "date": "2026-10-18",
+  "issue": "https://github.com/llocphann/Alis-Companion/issues/1",
+  "related_issue": "https://github.com/llocphann/Alis-Companion/issues/3",
+  "implementation_sha": "b85ed28578dd0f0a3ad5bc0033422ef1ff534093",
+  "validated_sha": "ea5967fb48ea2f7a3ae6df6f6751024e25277865",
+  "host_sha": "442f645b02b50e88f1d417d2fc374b45b6ec02ab",
+  "optional_integration_sha": "d03f4b5e6d8dc70bfd062a2e80c2cddf32bc56c4",
+  "source_identity": {
+    "publication": "GitHub connector after Git CLI lacked credentials",
+    "tree_verified_mappings": [
+      {
+        "local_tested_sha": "c7a78998fea7424a597a5acbc483d1ea6d3ad2cf",
+        "published_sha": "b85ed28578dd0f0a3ad5bc0033422ef1ff534093",
+        "identical_tree_sha": "0f073dd731a395842b70185b224add718f21f0ef"
+      },
+      {
+        "local_tested_sha": "d38cdfe08e0f07a78c7a664127a6e7a9bdc453f3",
+        "published_sha": "ea5967fb48ea2f7a3ae6df6f6751024e25277865",
+        "identical_tree_sha": "29f7522140120cdace3847a36b9395aa43d3f6fc"
+      }
+    ],
+    "original_local_commits": "retained in a private verified Git bundle"
+  },
+  "runtime": {
+    "retired_actions": [
+      "fall",
+      "faceplant",
+      "buttplant",
+      "fallVanish",
+      "ice"
+    ],
+    "casts": [
+      "aqua",
+      "octo"
+    ],
+    "support_loss": "existing fly/land recovery; bounded and cancellable",
+    "authored_assets_unchanged": true
+  },
+  "published_selected": {
+    "exit_code": 0,
+    "pass": 13,
+    "fail": 0,
+    "skip": 0,
+    "require_clean": true,
+    "scope": "private Quickshell/Niri fixtures, GPU volume, package lifecycle and QML parsing",
+    "tests": [
+      "test-companion-cast.cjs",
+      "test-companion-retired-fall.cjs",
+      "test-wull-actual-panel-layout.cjs",
+      "test-package-lifecycle.py",
+      "test-host-runtime.py",
+      "test-wull-portal-runtime.py",
+      "test-wull-presence-interaction.py",
+      "test-wull-alive-reactions.py",
+      "test-companion-volume.py",
+      "AbyssCompanion.qml",
+      "WullCuriosity.qml",
+      "WullPresence.qml",
+      "CompanionConfig.qml"
+    ]
+  },
+  "broad_before_contract_repair": {
+    "local_sha": "c7a78998fea7424a597a5acbc483d1ea6d3ad2cf",
+    "exit_code": 1,
+    "pass": 74,
+    "fail": 1,
+    "skip": 0,
+    "failed_checks": [
+      "test-wull-actual-panel-layout.cjs"
+    ],
+    "promoted_to_pass": false
+  },
+  "geometry_contract_repair": {
+    "local_sha": "d38cdfe08e0f07a78c7a664127a6e7a9bdc453f3",
+    "published_sha": "ea5967fb48ea2f7a3ae6df6f6751024e25277865",
+    "exit_code": 0,
+    "cases": 8,
+    "assertions": 96,
+    "only_changed_file": "scripts/test-wull-actual-panel-layout.cjs",
+    "full_suite_at_published_head": "UNRUN"
+  },
+  "extra_spatial_volume": {
+    "source_local_sha": "c7a78998fea7424a597a5acbc483d1ea6d3ad2cf",
+    "exit_code": 0,
+    "scope": "owned private GPU pose/face-projection fixture; not G0 shader qualification"
+  },
+  "host_canonical": {
+    "argv": [
+      "bash",
+      "scripts/validate-maintainer-local.sh",
+      "--current-repo"
+    ],
+    "source_sha": "442f645b02b50e88f1d417d2fc374b45b6ec02ab",
+    "status": "STOPPED",
+    "exit_code": null,
+    "reason": "turn interrupted; original process no longer running and no final summary captured",
+    "completed_checks": 176,
+    "reported_pass": 157,
+    "reported_fail": 19,
+    "reported_skip": 0,
+    "failed_checks": [
+      {
+        "check": 28,
+        "name": "Native Dashboard/Overview content-ready reveal, reversal and warm expiry",
+        "result": "FAIL"
+      },
+      {
+        "check": 31,
+        "name": "Weekly Planner Ctrl/Shift multi-date and compatible Repeat cycles",
+        "result": "FAIL"
+      },
+      {
+        "check": 39,
+        "name": "Independent Agenda and Todo stores with stable Event ID edits",
+        "result": "FAIL"
+      },
+      {
+        "check": 56,
+        "name": "Python regression: scripts/test-abyss-body-reveal-readiness-runtime.py",
+        "result": "FAIL"
+      },
+      {
+        "check": 57,
+        "name": "Python regression: scripts/test-abyss-compact-editor-runtime.py",
+        "result": "FAIL"
+      },
+      {
+        "check": 69,
+        "name": "Python regression: scripts/test-abyss-edge-editor-adaptive-toolbar-contract.py",
+        "result": "FAIL"
+      },
+      {
+        "check": 70,
+        "name": "Python regression: scripts/test-abyss-edge-editor-compact-actions-contract.py",
+        "result": "FAIL"
+      },
+      {
+        "check": 71,
+        "name": "Python regression: scripts/test-abyss-edge-editor-compact-side-contract.py",
+        "result": "FAIL"
+      },
+      {
+        "check": 77,
+        "name": "Python regression: scripts/test-abyss-full-size-modules-runtime.py",
+        "result": "FAIL"
+      },
+      {
+        "check": 82,
+        "name": "Python regression: scripts/test-abyss-input-region-contract.py",
+        "result": "FAIL"
+      },
+      {
+        "check": 86,
+        "name": "Python regression: scripts/test-abyss-launcher-live-editor-contract.py",
+        "result": "FAIL"
+      },
+      {
+        "check": 93,
+        "name": "Python regression: scripts/test-abyss-module-locks-runtime.py",
+        "result": "FAIL"
+      },
+      {
+        "check": 94,
+        "name": "Python regression: scripts/test-abyss-multi-selection-runtime.py",
+        "result": "FAIL"
+      },
+      {
+        "check": 95,
+        "name": "Python regression: scripts/test-abyss-niri-hover-layer-contract.py",
+        "result": "FAIL"
+      },
+      {
+        "check": 101,
+        "name": "Python regression: scripts/test-abyss-panel-material-settings-runtime.py",
+        "result": "FAIL"
+      },
+      {
+        "check": 114,
+        "name": "Python regression: scripts/test-abyss-round0-editor-controls.py",
+        "result": "FAIL"
+      },
+      {
+        "check": 126,
+        "name": "Python regression: scripts/test-abyss-width-affects-modules-runtime.py",
+        "result": "FAIL"
+      },
+      {
+        "check": 153,
+        "name": "Python regression: scripts/test-calendar-weather-composition-contract.py",
+        "result": "FAIL"
+      },
+      {
+        "check": 163,
+        "name": "Python regression: scripts/test-clipboard-watcher-contract.py",
+        "result": "FAIL"
+      }
+    ],
+    "pending_at_interruption": {
+      "check": 177,
+      "name": "scripts/test-dashboard-editor-field-runtime.py"
+    },
+    "remaining_checks": "UNRUN; not counted as passing"
+  },
+  "acceptance": {
+    "installed_owner_desktop": "UNRUN",
+    "physical_pointer_multi_output_lock_suspend": "UNRUN",
+    "companion_G0_G1": "UNRUN",
+    "owner_visual_approval": "UNRUN",
+    "issue_state": "OPEN; source milestone delivered, Awaiting Owner verification and remaining validation gates"
+  },
+  "historical_retired_candidate": "20261016 archived FAIL remains unchanged; not promoted to PASS",
+  "private_logs": [
+    {
+      "name": "retired-fall-baseline.log",
+      "sha256": "695d4ab261763409bbd3e5c3fe5ad5f12da899e4201e557ec0110b58b33eb7f0",
+      "visibility": "private_local"
+    },
+    {
+      "name": "ac-r04-working.log",
+      "sha256": "aa84de5d0616c70851772a01fec2a1edc1ef8f6aa515b10a244fe87af4b6d808",
+      "visibility": "private_local"
+    },
+    {
+      "name": "ac-r04-extended.log",
+      "sha256": "15b977b2a6af6e8aa7c90a35b5deb89e87e7bbaa6453089b731dc5363443a296",
+      "visibility": "private_local"
+    },
+    {
+      "name": "ac-r04-committed-full.log",
+      "sha256": "2f51b78b1dd5d971d3d57c500a30b7209af74fde0b70abd7f34dc82f30f05ed4",
+      "visibility": "private_local"
+    },
+    {
+      "name": "panel-contract-committed.log",
+      "sha256": "2f994f886a31d062f47f2119d7956194803f63bdfffda41feb584db9f7312ad3",
+      "visibility": "private_local"
+    },
+    {
+      "name": "spatial-volume.log",
+      "sha256": "d50e78c4453dba606a7a988d487c97ffe8a3c934b08363015b9e540f8012917e",
+      "visibility": "private_local"
+    },
+    {
+      "name": "published-selected.log",
+      "sha256": "d338e75ac759538781f47b1d574da2ab0da9265bfc20ca2ec71826dd9f0881fb",
+      "visibility": "private_local"
+    },
+    {
+      "name": "host-console-stopped.log",
+      "sha256": "b0011e1a945ffa77be52ac6db0e1fd89ed9e6ede939da32d5d7f3e5e1a445288",
+      "visibility": "private_local"
+    },
+    {
+      "name": "host-canonical-stopped.log",
+      "sha256": "bba8fcfcc3fa9c949b5b7cf54f7785a38e5c0af4d0b32e3aa36d4c48093ce7cd",
+      "visibility": "private_local"
+    }
+  ]
+}
