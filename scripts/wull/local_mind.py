@@ -371,6 +371,8 @@ def chat(options):
 def dispatch(payload):
     if not isinstance(payload,dict):raise MindError('invalid_request','Invalid request')
     action=payload.get('action')
+    if action in ('memory_list','memory_save','memory_forget','memory_forget_all'):
+        return memory_action(action,payload)
     if action=='probe':return probe(payload)
     if action=='context':return context(payload)
     if action=='chat':return chat(payload)
@@ -379,6 +381,31 @@ def dispatch(payload):
     if action=='history_append':return append_chat_history(payload)
     if action=='check_in':return check_in(payload)
     raise MindError('invalid_action','Unsupported companion request')
+
+def memory_action(action, payload):
+    # These actions are called only by the user's management controls; model
+    # output is never interpreted as a helper action or consent receipt.
+    if payload.get('confirmed') is not True:
+        raise MindError('explicit_consent_required','Use the memory controls to confirm this action.')
+    import memory_store
+    try:
+        if action=='memory_list':return {'memories':memory_store.list_all()}
+        if action=='memory_forget':return {'deleted':memory_store.forget_one(payload.get('id'))}
+        if action=='memory_forget_all':return {'deletedCount':memory_store.forget_all()}
+        if payload.get('memoryEnabled') is not True:
+            raise MindError('memory_disabled','Enable memory before saving an entry.')
+        memory_id=payload.get('id',0)
+        if type(memory_id) is not int or memory_id<0:
+            raise MindError('invalid_memory_id','Choose an existing memory to edit.')
+        fields=dict(text=payload.get('text'),scope=payload.get('scope'),consent=True,
+                    expires_ms=payload.get('expiresMs',0))
+        if memory_id:
+            if not memory_store.edit_confirmed(memory_id,**fields):
+                raise MindError('memory_missing','That memory is no longer available. Refresh the list.')
+        else:memory_id=memory_store.remember_confirmed(**fields)
+        return {'saved':True,'id':memory_id}
+    except memory_store.MemoryError as exc:
+        raise MindError('memory_unavailable','Memory could not be updated. Check the entry, quota or storage.') from exc
 
 if __name__=='__main__':
     try:

@@ -1,8 +1,8 @@
-"""DORMANT Hadanion opt-in memory-store prototype (not connected to AI/UI).
+"""Bounded explicit-user Companion memory, independent from chat history.
 
 Stores *explicitly confirmed* short text only, scoped to Aqua/Octo/shared.
 There is no automatic extraction, Obsidian access, prompt injection routing
-or background inference. A future UI must provide inspect/delete consent.
+or background inference. Deletion is logical; backups/external copies remain.
 """
 import os
 from pathlib import Path
@@ -28,8 +28,10 @@ def path():
     return root / "inir/wull/memory.sqlite3"
 
 
-def connect():
+def connect(create=True):
     target = path()
+    if not create and not target.exists() and not target.is_symlink():
+        return None
     try:
         parent = target.parent
         parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -46,12 +48,27 @@ def connect():
         os.chmod(target, 0o600)
         db = sqlite3.connect(target, timeout=1.5)
         db.execute("PRAGMA busy_timeout=1500")
-        db.execute("PRAGMA journal_mode=WAL")
-        db.execute("PRAGMA secure_delete=ON")
         version = db.execute("PRAGMA user_version").fetchone()[0]
         if version not in (0, DB_VERSION):
             db.close()
             raise MemoryError("unknown_schema_version")
+        tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if tables - {"memories"}:
+            db.close()
+            raise MemoryError("unknown_schema_version")
+        if "memories" in tables and [r[1] for r in db.execute("PRAGMA table_info(memories)")] != [
+                "id", "scope", "text", "source", "created_ms", "expires_ms"]:
+            db.close()
+            raise MemoryError("unknown_schema_version")
+        for suffix in ("-wal", "-shm"):
+            sidecar = Path(str(target)+suffix)
+            if sidecar.exists() or sidecar.is_symlink():
+                info = sidecar.lstat()
+                if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+                    db.close()
+                    raise MemoryError("unsafe_database_file")
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA secure_delete=ON")
         db.execute("""CREATE TABLE IF NOT EXISTS memories(
             id INTEGER PRIMARY KEY,
             scope TEXT NOT NULL CHECK(scope IN ('shared','aqua','octo')),
@@ -70,20 +87,31 @@ def connect():
         raise MemoryError("memory_open_failed") from exc
 
 
-def remember_confirmed(text, scope, consent=False, expires_ms=0, now_ms=None):
+def validated(text, scope, consent, expires_ms, now_ms):
     if consent is not True:
         raise MemoryError("explicit_consent_required")
     if scope not in SCOPES or not isinstance(text, str):
         raise MemoryError("invalid_memory_entry")
     value = text.strip()
-    if not value or len(value) > MAX_TEXT or "\x00" in value or "\n" in value:
+    if not value or len(value) > MAX_TEXT or any(ord(c) < 32 or ord(c) == 127 for c in value):
         raise MemoryError("invalid_memory_text")
-    now = int(time.time()*1000) if now_ms is None else int(now_ms)
+    now = int(time.time()*1000) if now_ms is None else now_ms
+    if type(now) is not int or not 0 <= now <= 9007199254740991:
+        raise MemoryError("invalid_clock")
     if type(expires_ms) is not int or expires_ms < 0 or (expires_ms and expires_ms <= now):
         raise MemoryError("invalid_expiry")
+    if expires_ms > 9007199254740991:
+        raise MemoryError("invalid_expiry")
+    return value, now
+
+
+def remember_confirmed(text, scope, consent=False, expires_ms=0, now_ms=None):
+    value, now = validated(text, scope, consent, expires_ms, now_ms)
     db = connect()
     try:
         with db:
+            # Reclaim expired records only during an explicit user mutation.
+            db.execute("DELETE FROM memories WHERE expires_ms>0 AND expires_ms<=?", (now,))
             count = db.execute("SELECT count(*) FROM memories").fetchone()[0]
             if count >= MAX_ITEMS:
                 raise MemoryError("memory_capacity_reached")
@@ -101,7 +129,9 @@ def list_visible(character, now_ms=None, limit=12):
     if character not in ("aqua","octo") or type(limit) is not int or not 1<=limit<=32:
         raise MemoryError("invalid_memory_scope")
     now = int(time.time()*1000) if now_ms is None else int(now_ms)
-    db = connect()
+    db = connect(create=False)
+    if db is None:
+        return []
     try:
         rows = db.execute(
             "SELECT id,scope,text,source,created_ms,expires_ms FROM memories "
@@ -115,10 +145,45 @@ def list_visible(character, now_ms=None, limit=12):
         db.close()
 
 
+def list_all():
+    """Explicit management view includes expired records until reclaimed."""
+    db = connect(create=False)
+    if db is None:
+        return []
+    try:
+        rows = db.execute("SELECT id,scope,text,source,created_ms,expires_ms FROM memories ORDER BY id DESC LIMIT ?",
+                          (MAX_ITEMS,)).fetchall()
+        return [dict(id=r[0],scope=r[1],text=r[2],source=r[3],created_ms=r[4],expires_ms=r[5]) for r in rows]
+    except sqlite3.Error as exc:
+        raise MemoryError("memory_read_failed") from exc
+    finally:
+        db.close()
+
+
+def edit_confirmed(memory_id, text, scope, consent=False, expires_ms=0, now_ms=None):
+    value, _now = validated(text, scope, consent, expires_ms, now_ms)
+    if type(memory_id) is not int or memory_id < 1:
+        raise MemoryError("invalid_memory_id")
+    db = connect(create=False)
+    if db is None:
+        return False
+    try:
+        with db:
+            changed = db.execute("UPDATE memories SET text=?,scope=?,expires_ms=? WHERE id=?",
+                                 (value, scope, expires_ms, memory_id)).rowcount
+        return changed == 1
+    except sqlite3.Error as exc:
+        raise MemoryError("memory_write_failed") from exc
+    finally:
+        db.close()
+
+
 def forget_one(memory_id):
     if type(memory_id) is not int or memory_id < 1:
         raise MemoryError("invalid_memory_id")
-    db = connect()
+    db = connect(create=False)
+    if db is None:
+        return False
     try:
         with db:
             changed = db.execute("DELETE FROM memories WHERE id=?", (memory_id,)).rowcount
@@ -131,7 +196,9 @@ def forget_one(memory_id):
 
 def forget_all():
     """Delete logical records. OS backups/SSD remnants need separate handling."""
-    db = connect()
+    db = connect(create=False)
+    if db is None:
+        return 0
     try:
         with db:
             changed = db.execute("DELETE FROM memories").rowcount

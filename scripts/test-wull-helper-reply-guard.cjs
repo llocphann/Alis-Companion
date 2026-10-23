@@ -82,6 +82,17 @@ assert.equal(reply("probe", {ready:true,endpoint:"http://127.0.0.1:11434",
 invalid("probe", {ready:"true",endpoint:"http://127.0.0.1:11434",models:[]});
 invalid("probe", {ready:true,endpoint:"http://127.0.0.1:11434",models:[null]});
 invalid("unsupported", {});
+const memory={id:1,scope:"shared",text:"Explicit preference",source:"explicit_user",created_ms:1,expires_ms:0};
+assert.equal(reply("memory_list",{memories:[memory]}).ok,true);
+for(const patch of [{id:0},{scope:"cloud"},{text:"line\nline"},{source:"ai_extraction"},{expires_ms:-1}])
+    invalid("memory_list",{memories:[{...memory,...patch}]});
+invalid("memory_list",{memories:Array(129).fill(memory)});
+assert.equal(reply("memory_save",{saved:true,id:1}).ok,true);
+invalid("memory_save",{saved:true,id:0});
+assert.equal(reply("memory_forget",{deleted:false}).ok,true);
+invalid("memory_forget",{deleted:"true"});
+assert.equal(reply("memory_forget_all",{deletedCount:128}).ok,true);
+invalid("memory_forget_all",{deletedCount:-1});
 
 // Invoke the product completion function so rejection also proves state safety.
 const qml = fs.readFileSync(path.join(root, "services/WullMind.qml"), "utf8");

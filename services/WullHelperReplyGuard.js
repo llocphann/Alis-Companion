@@ -67,6 +67,14 @@ function probe(result) {
 
 function validResult(action, result) {
     if (!object(result)) return false
+    if (action === "memory_list") return Array.isArray(result.memories) && result.memories.length<=128
+        && result.memories.every(row=>object(row) && positiveId(row.id)
+            && ["aqua","octo","shared"].includes(row.scope) && string(row.text,320,false)
+            && !/[\u0000-\u001f\u007f]/.test(row.text) && row.source==="explicit_user"
+            && integer(row.created_ms,0,Number.MAX_SAFE_INTEGER) && integer(row.expires_ms,0,Number.MAX_SAFE_INTEGER))
+    if (action === "memory_save") return result.saved===true && positiveId(result.id)
+    if (action === "memory_forget") return typeof result.deleted==="boolean"
+    if (action === "memory_forget_all") return integer(result.deletedCount,0,128)
     if (action === "history") return history(result)
     if (action === "history_append") return positiveId(result.userMessageId)
         && positiveId(result.assistantMessageId) && result.assistantMessageId > result.userMessageId
@@ -81,7 +89,7 @@ function validResult(action, result) {
 function invalid() { return {ok:false, malformed:true, error:{message:invalidMessage}} }
 
 function parse(action, raw, exitCode) {
-    if (typeof raw !== "string" || raw.length > 32768 || exitCode !== 0) return invalid()
+    if (typeof raw !== "string" || raw.length > (action==="memory_list" ? 98304 : 32768) || exitCode !== 0) return invalid()
     let envelope
     try { envelope = JSON.parse(raw) } catch (e) { return invalid() }
     if (!object(envelope) || typeof envelope.ok !== "boolean") return invalid()

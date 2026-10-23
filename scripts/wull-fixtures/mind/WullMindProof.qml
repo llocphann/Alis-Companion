@@ -231,7 +231,29 @@ Window {
                 mouseClick(root.contentItem,20,720);wait(30)
                 check(root.outsideClicks===1,"speech guard blocked clicks outside the cloud")
                 WullMind.dismiss();check(!cloud.visible,"dismiss retained speech input")
-                console.log("WULL_MIND=PASS actualProcess sharedModelReadiness EnglishReply hoverCloudActions dailyChoices readOnlyContext borderedCloud noCheckInInput separateQuestions journalWrites stableJournalContext explicitChatFocus modelEffortSelector compactEffortRow activeModelContrast stagedEffortModelPicker enterSend sendOnlyControl persistentHistory reminderSources proactiveCadences scaledTalkCloudAnchor idleChatRelease retainedDraft escapeClose boundedHistory cancel staleReply invalidEndpoint unavailableModel settingsAI noReferenceVault")
+                check(!WullMind.memoryEnabled,"memory defaulted on")
+                Config.setNestedValue("abyss.companionMind.memoryEnabled",true)
+                tryVerify(()=>WullMind.memoriesLoaded && !WullMind.busy,4000)
+                check(WullMind.memories.length===0,"private memory store did not start empty")
+                check(WullMind.saveMemory("Tea is nice","shared",7),"explicit memory save rejected")
+                tryVerify(()=>WullMind.memoriesLoaded && WullMind.memories.length===1 && !WullMind.busy,4000)
+                const memoryId=WullMind.memories[0].id
+                check(WullMind.memoryContext(Date.now()).includes("Tea is nice"),"shared memory not attached for local model")
+                check(WullMind.saveMemory("Octo prefers tea","octo",30,memoryId),"explicit memory edit rejected")
+                tryVerify(()=>WullMind.memoriesLoaded && WullMind.memories[0]?.scope==="octo" && !WullMind.busy,4000)
+                WullMind.character="aqua"
+                check(WullMind.memoryContext(Date.now()).length===0,"Octo memory leaked to Aqua")
+                WullMind.character="octo"
+                check(WullMind.memoryContext(Date.now())[0]==="Octo prefers tea","cast memory missing")
+                Config.setNestedValue("abyss.companionMind.memoryEnabled",false)
+                check(WullMind.memoryContext(Date.now()).length===0,"memory revocation retained model context")
+                check(WullMind.forgetMemory(memoryId),"forget while disabled rejected")
+                tryVerify(()=>WullMind.memoriesLoaded && WullMind.memories.length===0 && !WullMind.busy,4000)
+                check(WullMind.forgetAllMemories(),"empty forget-all rejected")
+                tryCompare(WullMind,"busy",false,4000)
+                check(root.named(settings,"wullEnableMemory") && root.named(settings,"wullMemoryDraft")
+                    && root.named(settings,"wullReviewMemory") && root.named(settings,"wullForgetAllMemory"),"memory management controls missing")
+                console.log("WULL_MIND=PASS actualProcess sharedModelReadiness EnglishReply hoverCloudActions dailyChoices readOnlyContext borderedCloud noCheckInInput separateQuestions journalWrites stableJournalContext explicitChatFocus modelEffortSelector compactEffortRow activeModelContrast stagedEffortModelPicker enterSend sendOnlyControl persistentHistory reminderSources proactiveCadences scaledTalkCloudAnchor idleChatRelease retainedDraft escapeClose boundedHistory cancel staleReply invalidEndpoint unavailableModel settingsAI noReferenceVault explicitMemory save edit castScope revocation forget managementControls")
             } catch(e) {console.error("WULL_MIND=FAIL "+e+" "+e.stack)}
             shutdown.start()
         }

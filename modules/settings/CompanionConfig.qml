@@ -19,6 +19,11 @@ ContentPage {
     onActiveSectionChanged: if (activeSection === "ai") Ai.ensureInitialized()
     property string previewExpression: "idle"
     property string previewMotion: ""
+    property string memoryDraft: ""
+    property string memoryScope: "shared"
+    property int memoryTtlDays: 7
+    property double memoryEditingId: 0
+    property bool confirmForgetMemories: false
     readonly property var preferences: Preferences.normalize(Config.options?.abyss?.companion)
     readonly property var personalityOptions: [
         { displayName: Translation.tr("Calm"), value: "calm" },
@@ -535,6 +540,104 @@ ContentPage {
             RowLayout {
                 DialogButton {buttonText:Translation.tr("Read today's context");enabled:WullMind.obsidianEnabled && !WullMind.busy;onClicked:WullMind.refreshJournal()}
                 DialogButton {buttonText:Translation.tr("Open journal");enabled:!!WullMind.journal.journalPath;onClicked:WullMind.openJournal()}
+            }
+            SettingsSwitch {
+                objectName:"wullEnableMemory"
+                text:Translation.tr("Use saved memories with local models")
+                description:Translation.tr("Only entries you save here are remembered. No automatic extraction from chat. Turning this off stops use and keeps your records available for review or deletion.")
+                autoToggle:false;checked:WullMind.memoryEnabled
+                enabled:WullMind.options.memoryEnabled !== undefined && !WullMind.busy
+                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.memoryEnabled",checked)
+            }
+            Rectangle {
+                Layout.fillWidth:true
+                implicitHeight:48;radius:10
+                color:Appearance.colors.colLayer1
+                border.width:1;border.color:Qt.alpha(Appearance.colors.colPrimary,memoryInput.activeFocus ? .8 : .3)
+                StyledTextInput {
+                    id:memoryInput
+                    objectName:"wullMemoryDraft"
+                    anchors.fill:parent;anchors.margins:12
+                    enabled:WullMind.memoryEnabled && !WullMind.busy
+                    clip:true;selectByMouse:true;activeFocusOnTab:true
+                    Accessible.name:Translation.tr("An explicit preference to remember")
+                    maximumLength:320;text:root.memoryDraft
+                    onTextEdited:root.memoryDraft=text
+                }
+                StyledText {
+                    anchors.fill:memoryInput;verticalAlignment:Text.AlignVCenter
+                    visible:!memoryInput.text;elide:Text.ElideRight
+                    text:Translation.tr("An explicit preference to remember")
+                    color:Appearance.colors.colSubtext
+                }
+            }
+            ChoiceRow {
+                label:Translation.tr("Remember for")
+                options:[{displayName:"Aqua",value:"aqua"},{displayName:"Octo",value:"octo"},{displayName:Translation.tr("Both"),value:"shared"}]
+                currentValue:root.memoryScope
+                onSelected:value=>root.memoryScope=value
+            }
+            ChoiceRow {
+                label:Translation.tr("Keep memory")
+                options:[{displayName:Translation.tr("7 days"),value:7},{displayName:Translation.tr("30 days"),value:30},{displayName:Translation.tr("Until I forget it"),value:0}]
+                currentValue:root.memoryTtlDays
+                onSelected:value=>root.memoryTtlDays=value
+            }
+            RowLayout {
+                DialogButton {
+                    objectName:"wullSaveMemory"
+                    buttonText:root.memoryEditingId ? Translation.tr("Save memory changes") : Translation.tr("Save memory")
+                    enabled:WullMind.memoryEnabled && !WullMind.busy && root.memoryDraft.trim().length>0
+                    onClicked:if(WullMind.saveMemory(root.memoryDraft,root.memoryScope,root.memoryTtlDays,root.memoryEditingId)) {
+                        root.memoryDraft="";root.memoryEditingId=0
+                    }
+                }
+                DialogButton {
+                    objectName:"wullReviewMemory"
+                    buttonText:Translation.tr("Review saved memories");enabled:!WullMind.busy
+                    onClicked:WullMind.refreshMemory()
+                }
+            }
+            StyledText {
+                Layout.fillWidth:true;wrapMode:Text.WordWrap;textFormat:Text.PlainText
+                text:WullMind.memoryNotice || Translation.tr("Up to 128 entries. Expiry stops use. Forgetting removes logical records; backups, chat and Obsidian copies may remain.")
+                color:Appearance.colors.colSubtext
+            }
+            Repeater {
+                model:WullMind.memories
+                ColumnLayout {
+                    required property var modelData
+                    Layout.fillWidth:true
+                    StyledText {
+                        Layout.fillWidth:true;wrapMode:Text.WordWrap;textFormat:Text.PlainText
+                        text:modelData.scope+" · "+modelData.text
+                    }
+                    StyledText {
+                        Layout.fillWidth:true;textFormat:Text.PlainText;color:Appearance.colors.colSubtext
+                        text:modelData.expires_ms===0 ? Translation.tr("Until forgotten")
+                            : (modelData.expires_ms<=Date.now() ? Translation.tr("Expired") : Translation.tr("Expires"))
+                                +" · "+Qt.formatDateTime(new Date(modelData.expires_ms),"yyyy-MM-dd")
+                    }
+                    RowLayout {
+                        DialogButton {
+                            buttonText:Translation.tr("Edit");enabled:WullMind.memoryEnabled && !WullMind.busy
+                            onClicked:{root.memoryDraft=modelData.text;root.memoryScope=modelData.scope;root.memoryEditingId=modelData.id}
+                        }
+                        DialogButton {
+                            buttonText:Translation.tr("Forget");enabled:!WullMind.busy
+                            onClicked:WullMind.forgetMemory(modelData.id)
+                        }
+                    }
+                }
+            }
+            DialogButton {
+                objectName:"wullForgetAllMemory"
+                buttonText:root.confirmForgetMemories ? Translation.tr("Confirm forgetting all saved memories") : Translation.tr("Forget all saved memories")
+                enabled:!WullMind.busy && WullMind.memories.length>0
+                onClicked:{
+                    if(root.confirmForgetMemories){WullMind.forgetAllMemories();root.confirmForgetMemories=false}
+                    else root.confirmForgetMemories=true
+                }
             }
         }
     }

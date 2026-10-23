@@ -54,6 +54,9 @@ try:
         (folder/entry).symlink_to(ROOT/entry)
     config=folder/"config/alis";config.mkdir(parents=True)
     shutil.copy(ROOT/"defaults/config.json",config/"config.json")
+    curl_home=folder/'curl-home';curl_home.mkdir()
+    (curl_home/'.curlrc').write_text('url = "http://127.0.0.1:'+str(server.server_port)+'/curlrc-leak"\n'
+        'header = "X-Curlrc-Fixture: unwanted"\nlocation\n')
     (folder/"shell.qml").write_text(r'''
 pragma ComponentBehavior: Bound
 import QtQuick
@@ -367,7 +370,9 @@ ShellRoot {
     root.step++
    }else if(root.step===1 && !WullMind.busy){
     if(!root.check(WullMind.history[WullMind.history.length-1]?.content==="Fixture hello"
-        && WullMind.history[WullMind.history.length-1]?.persisted,"shared reply is rendered and persisted"))return
+        && WullMind.history[WullMind.history.length-1]?.persisted,"shared reply is rendered and persisted "+JSON.stringify({
+            status:WullMind.connectionStatus,error:WullMind.errorMessage,rows:WullMind.history.length,
+            pendingAction:WullMind.pending?.action ?? "",model:WullMind.model})))return
     if(!root.check(Ai.currentModelId==="fixture-main" && JSON.stringify(Ai.messageIDs)===JSON.stringify(root.mainIDs)
         && Ai.messageByID[root.mainIDs[0]].rawContent==="Ordinary AI history", "main AI conversation/model stay intact"))return
     Config.setNestedValue("abyss.companionMind.model","fixture-failure")
@@ -426,6 +431,17 @@ ShellRoot {
    }else if(root.step===9 && !WullMind.busy){
     if(!root.check(WullMind.history[WullMind.history.length-1]?.content==="Responses hello"
         && WullMind.history[WullMind.history.length-1]?.persisted,"Responses reply was not decoded and persisted"))return
+    const slow=Ai.models["fixture-slow"]
+    slow.endpoint=Quickshell.env("AI_FIXTURE_URL")+"/slow";slow.requires_key=true;slow.key_id="fixture"
+    Config.setNestedValue("abyss.companionMind.model","fixture-slow")
+    if(!root.check(WullMind.sendMessage("Rotated credential fixture"),"credential rotation setup rejected"))return
+    KeyringStorage.keyringData=({apiKeys:{fixture:"fixture-credential",unrelated:"changed"}})
+    const unchangedIdentity=WullMind.modelIdentity
+    if(!root.check(WullMind.busy,"unrelated credential change cancelled this provider"))return
+    KeyringStorage.keyringData=({apiKeys:{fixture:"rotated-credential"}})
+    const rotatedIdentity=WullMind.modelIdentity
+    if(!root.check(unchangedIdentity!==rotatedIdentity && !WullMind.busy && !WullMind.aiSession.busy
+        && !WullMind.history.some(entry=>entry.content==="Rotated credential fixture"),"active credential replacement retained a queued request"))return
     Config.setNestedValue("abyss.companionMind.localOnly",false)
     Config.setNestedValue("abyss.companionMind.model","fixture-cloud")
     if(!root.check(WullMind.selectableModels.some(entry=>entry.name==="fixture-cloud") && WullMind.sendMessage("Queued cloud fixture"),"explicit cloud opt-in is unavailable"))return
@@ -443,6 +459,7 @@ ShellRoot {
             print("SKIP: Wull shared AI runtime requires a private Niri session")
             raise SystemExit(0)
         env["AI_FIXTURE_URL"]=f"http://127.0.0.1:{server.server_port}"
+        env['CURL_HOME']=str(curl_home)
         env.update(http_proxy="http://127.0.0.1:1",HTTP_PROXY="http://127.0.0.1:1",
                    ALL_PROXY="http://127.0.0.1:1",all_proxy="http://127.0.0.1:1",NO_PROXY="",no_proxy="")
         result=run_qs(folder,env)
@@ -460,6 +477,7 @@ ShellRoot {
     assert "Authorization" not in headers[1], "previous provider credential survived a keyless switch"
     assert len([row for path,row,headers in requests if path in ('/extra','/tokens','/malformed','/controltag','/eof-tool')])==5
     assert not any(path in ('/cloud','/spoof','/replacement') for path,row,headers in requests), 'blocked or revoked request reached transport'
+    assert not any(path=='/curlrc-leak' or 'X-Curlrc-Fixture' in headers for path,row,headers in requests), 'curl defaults modified private transport'
     responses=[row for path,row,headers in requests if path=='/responses']
     assert len(responses)==1 and 'input' in responses[0] and 'tools' not in responses[0]
     with sqlite3.connect(Path(env['XDG_STATE_HOME'])/'inir/wull/chat.sqlite3') as db:
