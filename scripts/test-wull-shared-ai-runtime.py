@@ -95,7 +95,8 @@ ShellRoot {
   if(!root.check(!WullMind.proactiveIdleEnabled && !WullMind.todoRemindersEnabled
       && !WullMind.calendarRemindersEnabled && !WullMind.journalRemindersEnabled
       && !WullMind.reminderNotificationsEnabled,"new source or proactive consent defaulted on"))return false
-  const state=Persistent.states.wullProactive,now=Date.now(),day=WullMind.today()
+  const anchor=new Date();anchor.setHours(12,0,0,0)
+  const state=Persistent.states.wullProactive,now=anchor.getTime(),day=WullMind.today()
   function reset(): void {
    for(const key of ["dailyCount","reminder","checkin","playful","unanswered","dismissals","lastNudgeMs"])state[key]=0
    state.day=day;state.reminderKeys=[]
@@ -320,7 +321,7 @@ ShellRoot {
   onTriggered:{
    if(++root.ticks>160){root.check(false,"requests did not settle "+JSON.stringify({step:root.step,
        configReady:Config.ready,packageDiagnostic:Hadanion.diagnostic}));return}
-   if(!Config.ready || !Hadanion.available)return
+   if(!Config.ready || !Hadanion.available || !Persistent.ready)return
    if(root.step===0){
     if(!root.cadenceStarted){
      root.cadenceStarted=true

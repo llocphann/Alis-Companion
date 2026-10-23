@@ -57,7 +57,8 @@ Singleton {
         often: {checkInMs: 1200000, playfulMs: 600000}
     })
     readonly property bool proactiveIdleEnabled: options.proactiveEnabled === true
-        && proactiveProfiles[proactive] !== undefined && Persistent.states.wullProactive !== undefined
+        && proactiveProfiles[proactive] !== undefined && Persistent.ready
+        && Persistent.states.wullProactive !== undefined
     readonly property bool todoRemindersEnabled: options.todoRemindersEnabled === true
     readonly property bool calendarRemindersEnabled: options.calendarRemindersEnabled === true
     readonly property bool journalRemindersEnabled: obsidianEnabled && options.journalRemindersEnabled === true
