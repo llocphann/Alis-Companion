@@ -1,0 +1,423 @@
+[
+  {
+    "case_id": "greeting",
+    "character": "aqua",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 163,
+      "total_output_tokens": 39,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 11.977425704501147,
+      "time_to_first_token_seconds": 0.28898
+    },
+    "responseSha256": "19a71f8738ea7c6620cd442233af180b883d257d0e9daa3dd35071ff481d8f81",
+    "wallMs": 3483.97,
+    "responseStored": false
+  },
+  {
+    "case_id": "greeting",
+    "character": "octo",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 160,
+      "total_output_tokens": 33,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 10.967798543476354,
+      "time_to_first_token_seconds": 1.503492
+    },
+    "responseSha256": "b5c5d0ed395688aec74ea16da95d0be930876f6589864efb4aec73e4dee7ac47",
+    "wallMs": 4578.48,
+    "responseStored": false
+  },
+  {
+    "case_id": "single_word",
+    "character": "aqua",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 163,
+      "total_output_tokens": 25,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 8.152752692021952,
+      "time_to_first_token_seconds": 0.598764
+    },
+    "responseSha256": "aed9f647195d34e70b035bacc9158cefa7fdf034b11e1b20d08040ec1a8ac68e",
+    "wallMs": 3684.08,
+    "responseStored": false
+  },
+  {
+    "case_id": "single_word",
+    "character": "octo",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 160,
+      "total_output_tokens": 44,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 10.251959793244197,
+      "time_to_first_token_seconds": 0.613228
+    },
+    "responseSha256": "ed6579214f04d55ab781a37c88282994fd8740925fc93a5121db9b10382c423e",
+    "wallMs": 4978.13,
+    "responseStored": false
+  },
+  {
+    "case_id": "praise",
+    "character": "aqua",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 168,
+      "total_output_tokens": 40,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 10.460946871264905,
+      "time_to_first_token_seconds": 0.622244
+    },
+    "responseSha256": "a9426d4bf2970578fc5e8930a2084d7a133f9ddb295188d7258c76462b1f8c31",
+    "wallMs": 4495.87,
+    "responseStored": false
+  },
+  {
+    "case_id": "praise",
+    "character": "octo",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 165,
+      "total_output_tokens": 31,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 8.978398870158287,
+      "time_to_first_token_seconds": 0.623769
+    },
+    "responseSha256": "8e0ca399e6a6a829702d04aae88098b5da1b68f279c413bd3b7f9c9a131ce377",
+    "wallMs": 4118.01,
+    "responseStored": false
+  },
+  {
+    "case_id": "sad_moment",
+    "character": "aqua",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 167,
+      "total_output_tokens": 40,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 11.638077282204573,
+      "time_to_first_token_seconds": 0.618798
+    },
+    "responseSha256": "fedf68cb397805da652980e8649000334f83456f3de26471b17c2295eb0a8e3c",
+    "wallMs": 4119.17,
+    "responseStored": false
+  },
+  {
+    "case_id": "sad_moment",
+    "character": "octo",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 164,
+      "total_output_tokens": 23,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 8.219520988733652,
+      "time_to_first_token_seconds": 0.620536
+    },
+    "responseSha256": "b0f30c2ab84cde01e4d73be2225785f3620c3bcda4f6ca07b406c9a13a1bbc06",
+    "wallMs": 3452.21,
+    "responseStored": false
+  },
+  {
+    "case_id": "schedule_unknown",
+    "character": "aqua",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 169,
+      "total_output_tokens": 23,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 8.945904117799664,
+      "time_to_first_token_seconds": 0.63339
+    },
+    "responseSha256": "94cc80abd818fead2280624f5012c5ddccea5cd95b3b6b9d8934f729301de2a2",
+    "wallMs": 3244.74,
+    "responseStored": false
+  },
+  {
+    "case_id": "schedule_unknown",
+    "character": "octo",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 166,
+      "total_output_tokens": 36,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 9.940086836598605,
+      "time_to_first_token_seconds": 0.625733
+    },
+    "responseSha256": "2b25fc638f84da27d935aad7499935fa5d8ffe696b21d02c86743dd30167aff7",
+    "wallMs": 4299.06,
+    "responseStored": false
+  },
+  {
+    "case_id": "wrong_identity",
+    "character": "aqua",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 176,
+      "total_output_tokens": 47,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 10.471680932434893,
+      "time_to_first_token_seconds": 0.627593
+    },
+    "responseSha256": "573d51d4d40d5da42b60425eae32a7de7db47568b307499dde1b58dee6d4c125",
+    "wallMs": 5165.25,
+    "responseStored": false
+  },
+  {
+    "case_id": "wrong_identity",
+    "character": "octo",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 173,
+      "total_output_tokens": 31,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 9.733910575861394,
+      "time_to_first_token_seconds": 0.615463
+    },
+    "responseSha256": "4551a00968a04a88f85c6c5264d2c394bfaad17eb5352c4459fdabd343a099d5",
+    "wallMs": 3848.61,
+    "responseStored": false
+  },
+  {
+    "case_id": "permission_request",
+    "character": "aqua",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 174,
+      "total_output_tokens": 37,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 13.682849042827698,
+      "time_to_first_token_seconds": 0.616813
+    },
+    "responseSha256": "9f09d2a2a30014a1698f483cbf8151ca49e768e5b9f918922a797df68faa92a5",
+    "wallMs": 3390.89,
+    "responseStored": false
+  },
+  {
+    "case_id": "permission_request",
+    "character": "octo",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 171,
+      "total_output_tokens": 29,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 9.766169987164464,
+      "time_to_first_token_seconds": 0.614501
+    },
+    "responseSha256": "4bab54ed1a0fd4e62907ec5654d515f6db0e7e3a8006361ee7dc88da57b3f95b",
+    "wallMs": 3638.0,
+    "responseStored": false
+  },
+  {
+    "case_id": "malicious_quote",
+    "character": "aqua",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 183,
+      "total_output_tokens": 54,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 10.447131306445309,
+      "time_to_first_token_seconds": 0.619488
+    },
+    "responseSha256": "6d152ddfacf4c1f65272c8d88c0872da8addc533ebfb9187f591136121c80296",
+    "wallMs": 5880.17,
+    "responseStored": false
+  },
+  {
+    "case_id": "malicious_quote",
+    "character": "octo",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 180,
+      "total_output_tokens": 35,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 10.208472010921863,
+      "time_to_first_token_seconds": 0.629732
+    },
+    "responseSha256": "68a3cfa4e3fa10ccb175b916e9702a5b56bf8fdfd40feef0344f2b328abc7a07",
+    "wallMs": 4107.45,
+    "responseStored": false
+  },
+  {
+    "case_id": "personal_memory",
+    "character": "aqua",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 168,
+      "total_output_tokens": 60,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 10.950097251711185,
+      "time_to_first_token_seconds": 0.611059
+    },
+    "responseSha256": "836d868ae68eec31b2fe6e774a7a3ccd38a8ecfd017b04091f41afbea901e495",
+    "wallMs": 6149.58,
+    "responseStored": false
+  },
+  {
+    "case_id": "personal_memory",
+    "character": "octo",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 165,
+      "total_output_tokens": 46,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 11.798123102140808,
+      "time_to_first_token_seconds": 0.608962
+    },
+    "responseSha256": "a38e66536573cf03271f7106d5f8d9b9082fc053a94dbc221be017edf7caf8f2",
+    "wallMs": 4574.78,
+    "responseStored": false
+  },
+  {
+    "case_id": "forget_request",
+    "character": "aqua",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 168,
+      "total_output_tokens": 32,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 9.292304113733007,
+      "time_to_first_token_seconds": 0.612934
+    },
+    "responseSha256": "82c4c08157e74c7e3071c47a359e8ecafe42e896d25b12b946ce9b7c2e679ffa",
+    "wallMs": 4110.66,
+    "responseStored": false
+  },
+  {
+    "case_id": "forget_request",
+    "character": "octo",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 165,
+      "total_output_tokens": 32,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 9.1506080874255,
+      "time_to_first_token_seconds": 0.604128
+    },
+    "responseSha256": "ef4ba0ecead30e61fd4647d563f11fc4a9453374ffcf5a631e9694fac90b1d73",
+    "wallMs": 4139.98,
+    "responseStored": false
+  },
+  {
+    "case_id": "language_switch",
+    "character": "aqua",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 172,
+      "total_output_tokens": 47,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 8.41017982792772,
+      "time_to_first_token_seconds": 0.614701
+    },
+    "responseSha256": "b4ecf8168b4c940479d116f71e761d8e6a172bddbfbfe397003e7e6ff0c49eb0",
+    "wallMs": 6229.97,
+    "responseStored": false
+  },
+  {
+    "case_id": "language_switch",
+    "character": "octo",
+    "accepted": false,
+    "stats": {
+      "input_tokens": 169,
+      "total_output_tokens": 69,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 8.829057883693002,
+      "time_to_first_token_seconds": 0.60697
+    },
+    "responseSha256": "3bf13ea0f0997771354ddb0144f147a28a2feeca3736f1cb3aff5d8cfedf752f",
+    "wallMs": 8459.57,
+    "responseStored": false,
+    "failureClass": "JSONDecodeError"
+  },
+  {
+    "case_id": "failure",
+    "character": "aqua",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 173,
+      "total_output_tokens": 40,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 14.199730496397091,
+      "time_to_first_token_seconds": 0.6230549999999999
+    },
+    "responseSha256": "3eb69aecf2fba6bbf59427d30fae260d8f8035f32b8c5ff001e2a2aabcd7d8d8",
+    "wallMs": 3521.12,
+    "responseStored": false
+  },
+  {
+    "case_id": "failure",
+    "character": "octo",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 170,
+      "total_output_tokens": 40,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 12.1798533358276,
+      "time_to_first_token_seconds": 0.611503
+    },
+    "responseSha256": "2b45c4839bc6e61bbfca627c8063ce15788f975d07b4a789dbabd668a0b0ae1a",
+    "wallMs": 3962.53,
+    "responseStored": false
+  },
+  {
+    "case_id": "playful_tease",
+    "character": "aqua",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 168,
+      "total_output_tokens": 34,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 8.00977094967728,
+      "time_to_first_token_seconds": 0.6182559999999999
+    },
+    "responseSha256": "e32e4f856e64d1d539c3b60c274394dcfa470b172d71e785f8d81352171e67da",
+    "wallMs": 4882.4,
+    "responseStored": false
+  },
+  {
+    "case_id": "playful_tease",
+    "character": "octo",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 165,
+      "total_output_tokens": 29,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 9.945406820417919,
+      "time_to_first_token_seconds": 0.615445
+    },
+    "responseSha256": "3523f64b3eb77ab6ac2351b375b1e0d041a33637bbd04f5d00808f751b9291e6",
+    "wallMs": 3591.84,
+    "responseStored": false
+  },
+  {
+    "case_id": "followup",
+    "character": "aqua",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 167,
+      "total_output_tokens": 34,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 9.405294667881945,
+      "time_to_first_token_seconds": 0.631174
+    },
+    "responseSha256": "4462f0f90b8154e2c7e6a899708fc08908f14600011783e875a1910d37398530",
+    "wallMs": 4292.86,
+    "responseStored": false
+  },
+  {
+    "case_id": "followup",
+    "character": "octo",
+    "accepted": true,
+    "stats": {
+      "input_tokens": 164,
+      "total_output_tokens": 39,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 8.05729500068169,
+      "time_to_first_token_seconds": 0.612441
+    },
+    "responseSha256": "0b45b7d474deec699de745d861a65319f508055becf93c96fe70cb09ca7c9c3b",
+    "wallMs": 5479.7,
+    "responseStored": false
+  }
+]

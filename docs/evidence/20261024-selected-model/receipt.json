@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "scope": "Real selected-model paired voice diagnostic over stateless native LM Studio API; not production AiTextSession qualification",
+  "sources": {
+    "companion": "3541d1f698649615652d6f0680143b9aa0654896",
+    "host": "dcfee949b0da82c170818c3c2622cf0116876363"
+  },
+  "profile": {
+    "identifier": "qwen3.5-4b-mtp",
+    "modelKey": "qwen3.5-4b-mtp",
+    "format": "gguf",
+    "contextLength": 4096,
+    "parallel": 1,
+    "architecture": "qwen35",
+    "quantization": {
+      "name": "Q5_K_XL",
+      "bits": 5
+    }
+  },
+  "artifact": {
+    "sizeBytes": 3304827200,
+    "sha256": "d76bf69a16f1d59f8d6c74a7373c41e43e14dc7ab47901cc2504c7ad647c6ba6"
+  },
+  "matrixSha256": "44558315bef13377de0938ad269d009c727f9a9dfbec97631b09d9750c6f9af7",
+  "reasoning": "off",
+  "temperature": 0.65,
+  "maxOutputTokens": 256,
+  "store": false,
+  "integrations": [],
+  "attempted": 28,
+  "expected": 28,
+  "accepted": 27,
+  "complete": true,
+  "failureClass": null,
+  "elapsedSeconds": 130.93,
+  "reasoningTokens": 0,
+  "allResponsesStateless": true,
+  "sharedSessionQualified": false,
+  "humanVoiceReview": "UNRUN",
+  "coldWarmResourceQualification": false,
+  "ownerAccepted": false,
+  "hostNativeValidationConcurrent": true,
+  "remainingGates": [
+    "One Octo language_switch fenced JSON response was rejected; retain this result",
+    "Production shared-session full paired matrix and human voice review",
+    "Cold/warm TTFT, cancel, disabled baseline and CPU/GPU/PSS/VRAM qualification",
+    "Owner acceptance"
+  ]
+}

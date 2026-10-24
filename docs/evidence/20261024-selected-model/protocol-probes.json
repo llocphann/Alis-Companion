@@ -1,0 +1,89 @@
+{
+  "nativeApi": {
+    "schema": 1,
+    "kind": "Selected-model native API diagnostic; not the production shared AiTextSession transport",
+    "observedUtc": "2026-10-24T06:49:04.579483+00:00",
+    "selectedModel": "lmstudio-qwen3.5-4b-mtp",
+    "verifiedLocal": {
+      "provider": "lmstudio",
+      "model": "qwen3.5-4b-mtp",
+      "format": "gguf",
+      "architecture": "qwen35",
+      "quantization": "Q5_K_XL",
+      "contextTokens": 262144,
+      "fingerprint": "4f5e06c4a1f884bf4a5538374ff3002e2c15a1e43cbd684ea6ce4036bbaa03ce"
+    },
+    "source": "3541d1f698649615652d6f0680143b9aa0654896",
+    "host": "dcfee949b0da82c170818c3c2622cf0116876363",
+    "request": {
+      "syntheticCase": "greeting",
+      "character": "aqua",
+      "reasoning": "off",
+      "store": false,
+      "integrations": [],
+      "maxOutputTokens": 256
+    },
+    "resourceQualification": false,
+    "sharedSessionQualified": false,
+    "ownerQualified": false,
+    "responseSha256": "12bddb5d862032ed22d0114ba61a767759d20d4a7650ce077299d9a81836addd",
+    "outputTypes": [
+      "message"
+    ],
+    "stats": {
+      "input_tokens": 163,
+      "total_output_tokens": 39,
+      "reasoning_output_tokens": 0,
+      "tokens_per_second": 14.37398460092334,
+      "time_to_first_token_seconds": 1.5885319999999998
+    },
+    "accepted": true,
+    "publicTextLength": 88,
+    "expression": "happy",
+    "storedResponseId": false,
+    "wallMs": 4271.58
+  },
+  "responsesApi": {
+    "schema": 1,
+    "kind": "Verified local Responses reasoning-none diagnostic; not a shared-session or resource qualification",
+    "observedUtc": "2026-10-24T06:51:15.000997+00:00",
+    "verifiedLocal": {
+      "provider": "lmstudio",
+      "model": "qwen3.5-4b-mtp",
+      "format": "gguf",
+      "architecture": "qwen35",
+      "quantization": "Q5_K_XL",
+      "contextTokens": 262144,
+      "fingerprint": "4f5e06c4a1f884bf4a5538374ff3002e2c15a1e43cbd684ea6ce4036bbaa03ce"
+    },
+    "request": {
+      "case": "greeting",
+      "reasoning": {
+        "effort": "none"
+      },
+      "store": false,
+      "tools": [],
+      "maxOutputTokens": 256
+    },
+    "responseSha256": "5713d7a674cb36b4a4fb4dbc945c05ab921562a5608cf3b28253c2474c55a2ea",
+    "usage": {
+      "input_tokens": 163,
+      "output_tokens": 30,
+      "total_tokens": 193,
+      "input_tokens_details": {
+        "cached_tokens": 159
+      },
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "status": "completed",
+    "outputTypes": [
+      "message"
+    ],
+    "accepted": true,
+    "publicTextLength": 55,
+    "expression": "happy",
+    "wallMs": 2528.14
+  }
+}
