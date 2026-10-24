@@ -1,0 +1,37 @@
+{
+  "scope": "CFG-I02 ordinary debounced save preserves unknown optional data",
+  "beforeHost": "e1db9a79dc775ff7fad4141830a6a7a94dd568e7",
+  "beforeExitCode": 1,
+  "beforeFailure": "raw save lost optional keys: ordinary debounced edit",
+  "beforeLogSha256": "2026a291a72cc20475563c94337495775485552f5e319405e91b2641fd8180f9",
+  "afterHost": "764496e2ce3ac668bbd859a4e72ee62f4832dc63",
+  "afterRaw": {
+    "step": "config-raw",
+    "exitCode": 0,
+    "elapsedSeconds": 19.01,
+    "sources": {
+      "companion": "5a0fa09a365d847236a8e12e23320b222887d4b4",
+      "host": "764496e2ce3ac668bbd859a4e72ee62f4832dc63",
+      "integration": "192ddf6614b144593bd8d9f0bdb28e4ae4eb41a0"
+    },
+    "installedChanged": false
+  },
+  "afterInFlight": {
+    "step": "config-inflight",
+    "exitCode": 0,
+    "elapsedSeconds": 2.0,
+    "sources": {
+      "companion": "5a0fa09a365d847236a8e12e23320b222887d4b4",
+      "host": "764496e2ce3ac668bbd859a4e72ee62f4832dc63",
+      "integration": "192ddf6614b144593bd8d9f0bdb28e4ae4eb41a0"
+    },
+    "installedChanged": false
+  },
+  "rawStartupRestartProcesses": 16,
+  "overlappingSaveRounds": 4,
+  "rawLogSha256": "90db0361a378a3b06ed9964fbcbda8df054b629c9af223ebd2243914c6847b58",
+  "inFlightLogSha256": "dcfc3e931049128c884c441e5efc7fadff935feadb21b4cbe50eaa064c5627a6",
+  "ownerDataChanged": false,
+  "fullHost": "UNRUN at this source",
+  "installedOwnerVerification": "UNRUN for this new regression"
+}

@@ -1,0 +1,84 @@
+{
+  "sources": {
+    "companion": "5a0fa09a365d847236a8e12e23320b222887d4b4",
+    "host": "764496e2ce3ac668bbd859a4e72ee62f4832dc63",
+    "integration": "192ddf6614b144593bd8d9f0bdb28e4ae4eb41a0"
+  },
+  "baselineCompanion": "b05bfd65e3dcb046f328b77ba9a9a4c9e6b64633",
+  "focusedWorkingSource": {
+    "pass": 10,
+    "fail": 0,
+    "skip": 0,
+    "exitCode": 0,
+    "logSha256": "e108c3e069c28148d6cb2454b1073681f8c63dd876f914a575bfcdea00d77f2c"
+  },
+  "preservedOriginalRuntimeAndAssetHashes": {
+    "modules/abyss/companion/WaterDropletMaterial.frag": "776cbb3ae2dd97c0fc6b493980c14bbcb6ba153ebf348120ecedcb89c8e6db0d",
+    "modules/abyss/companion/WaterDropletMaterial.frag.qsb": "b15d54e8e0e3b54b91986cf5478b4e0f5bd503f1423bfca65c6207320c83d125",
+    "modules/abyss/companion/WullAmbientPolicy.js": "ea2f226291deb89b44a9c55d93eb7f03c806b314e210d26c8b6822b5d36b5c05",
+    "modules/abyss/companion/WullAttention.js": "dd5bd572b0a7854844a7e9fd62aaaeb4a97688bc6aee5a99329f2c78b0f91406",
+    "modules/abyss/companion/WullBehaviorDirector.js": "667e0ca7c9d68898b7df59a75096aed77fbec1544061e82349875478188245d8",
+    "modules/abyss/companion/WullCloudOrbit.js": "0c16cd5c70bd2a5cb2fecf6d3d139bc97a8f5b4d0fbeb5a4fcbba472745ac1f9",
+    "modules/abyss/companion/WullContextProtocol.js": "8c1cf0ce39ea56802e10c97ad0fae993b647505f672db5df4af079733c14ce41",
+    "modules/abyss/companion/WullExpressions.js": "33c790e249ec8e6d916407c64f516ee8fed76c2ea8252da9b782a5bfc06e332f",
+    "modules/abyss/companion/WullHostPolicy.js": "ef8ecee76baa320eb771d22bbc0225decdf8e0416595c07f52e539a4e17060f2",
+    "modules/abyss/companion/WullMotion.qml": "fb1d9d7076a8265bac81f61ac7a231add3e7e7d10b4fc75a3c4f95bcc1cbfb28",
+    "modules/abyss/companion/WullMotionData.js": "e0827b924cef471cefa04115d0870120505e02a53912f1b3f2d1ba7a75146771",
+    "modules/abyss/companion/WullPortals.qml": "5aec6820b8faee37859f7944c64121ce5f5b80efb85520d6bc2454155a202067",
+    "modules/abyss/companion/WullPose.js": "cc10a3b1bdb8440b99efc9c83456d8df76e28c74c6d627e9cc5aea741314c994",
+    "modules/abyss/companion/WullPresence.qml": "e67504289f9c69939004662ccaee466bfc9ea8f7925d575165a6c59b13252fbe",
+    "modules/abyss/companion/WullScene.js": "b86a98ea4c0e3d4defa6c76893f13e571810b53ff971afdb135215fd50a256c1",
+    "modules/abyss/companion/WullSurfacePlacement.js": "a5fbb0d54f83ce99c8feff4f3eba224c7b6222a6bbbb34b95d4f81a906792581",
+    "modules/abyss/companion/WullTravel.js": "3d90a655e93d9ede8fd17673e019e42478ce5acc731dd8021e9e4598035fea3a",
+    "modules/abyss/companion/AbyssCompanion.qml": "43726cd4fc062b3e2cf42966ad8dbf7334ef24904314cf0076a946f42a2d99f2",
+    "modules/abyss/companion/AquaMotionData.js": "3080cc6af0695b2c780df2a40fdead41945b24a2bea0ed79e536a544709e07cd",
+    "modules/abyss/companion/CompanionMotion.js": "5d46331730cabb0d375d242d08a4e1218165916fd89dca0262712dc41267ebf2",
+    "modules/abyss/companion/OctoMotionData.js": "beb68f6254a3bc3dd3d0f1511d61f6ffde88bcec77a9840c4259d13922f7b231",
+    "modules/abyss/companion/OctoRig.js": "99a351d03955471cd95d9960ba44c1b5a59a2ff839d4f58d3dd10cfb938f18d4",
+    "modules/abyss/companion/OctoTentacle.frag": "c1a62458a19ccfcd34138da9397b58bde0225d9fbac8fdccad7a9f4caad13505",
+    "modules/abyss/companion/OctoTentacle.frag.qsb": "9d0c2346a64185d2b1736ebc9b1428f4c51330225db891e009b3380390237663",
+    "modules/abyss/companion/WaterDropletBody.qml": "d4b5d9f1e6e68eb3cb7c872f77d1076528ea861c7a0d3116c2c3c36bb4f6cc39",
+    "modules/abyss/companion/WaterDropletContact.frag": "fd05fa36547d9f5452557df95da641cf135135912d98fffed93f4f1c0290263c",
+    "modules/abyss/companion/WaterDropletContact.frag.qsb": "4eb2f32bd3996b59329556fe7da95ed4fc68da2eed35a78bd3af979610cdd9a8",
+    "assets/companion-authoring.json": "3aca23e4de2f9d655d84df08d9ff129dcf8de81753cb3752680324c5e88acdd3",
+    "assets/aqua/AquaMotion.blend": "1c4d8cff83428c01d3d1b49b748bcf8734e6ea48df32fb76d3944b9f4cfa0575",
+    "assets/cowork/AquaLaptop.blend": "941a838255f621dcd9dca188b9acb5859f8a70ffdbcdc37b95d6cd3676e69d5a",
+    "assets/cowork/AquaLaptopMotion.json": "771dab9fea7ef2686d5f1b5185a7e7a8e9c5f61503d450c973db7cdda5613571",
+    "assets/cowork/authoring.json": "96f21167e33292523325fb3715467c38a48e81660fdf205ac31652080773ac8e",
+    "assets/cowork/CoworkPerformance.js": "ea007f00b65ed0bda4f4dab8b5057ff2bf0b8166a74d6254d35a09b5ac707869",
+    "assets/cowork/OctoLaptop.blend": "7748240a8be15d21d537debec41ac5fca884070aa560fc289f0f973e30ad03d0",
+    "assets/cowork/OctoLaptopMotion.json": "617ee398906e6a04ece600792c0fa1118ca422c5fec2c47dddff10faaf82304c",
+    "assets/octo/OctoMotion.blend": "f3e29e4a40f1d91d93ef4ea92016b7086181bacb7ddfb45a867a8c14a0db811f",
+    "assets/wull/WullMotion.blend": "280e25999296311543ca2abca0b1e2561e481672b3d5cab3510e7df55b0fb318"
+  },
+  "intentionalPreferencePolicyAddition": "pocketEnabled defaults false; older configs remain valid",
+  "configDependency": "config-preservation-receipt.json",
+  "externalWayland": {
+    "status": "FAIL",
+    "versions": {
+      "Qt": "6.12.0",
+      "Niri": "26.04"
+    },
+    "observed": "Actual private seat carries Copy action and finish, metadata saved and original intact; both Python and C++ Qt source return IgnoreAction. Source-side acknowledgement gate remains failed. Root cause not established.",
+    "sourceLanguages": [
+      "PySide6",
+      "C++"
+    ],
+    "protocolTracePrivateSha256": {
+      "source": "2785b1f9195a93fa3aad92069a2c9eeef5abe38854fd75bd4d48d7437eddde6e",
+      "target": "eed39172da7f8b89d2a968803e4dde92daa0594502b823c88e97ad6d437c34ed"
+    },
+    "cxxLogSha256": "9e724d810c8510ac5f93ba4fef9f1780b5a8cbdaedf9953242a94b0937480298"
+  },
+  "initialFullRun": {
+    "status": "STOPPED",
+    "reason": "Quota observation expired before a fresh reading; conservative owned-worker shutdown, not a full result",
+    "job": "STOPPED",
+    "ownedWorkersLiveAtSubsequentCheck": 0
+  },
+  "fullPackageRetry": "RUNNING, separate receipt required",
+  "managedHostPinRemains": "1348e3a277ac96fe0653f41d54f092d08b821a7e",
+  "installedChanged": false,
+  "ownerAcceptance": "UNRUN",
+  "qualification": "Partial implementation milestone, not DONE or Owner-ready"
+}
