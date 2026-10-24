@@ -56,7 +56,7 @@ ShellRoot {
 ''')
  with private_wayland(folder) as env:
   if env is None:print("SKIP: airborne actor test requires private Niri");raise SystemExit(0)
-  cfg=folder/"config/illogical-impulse";cfg.mkdir(parents=True,exist_ok=True)
+  cfg=folder/"config/alis";cfg.mkdir(parents=True,exist_ok=True)
   (cfg/"config.json").write_text((ROOT/"defaults/config.json").read_text())
   env["QSG_RHI_BACKEND"]="opengl"
   result=run_qs(folder,env,25)

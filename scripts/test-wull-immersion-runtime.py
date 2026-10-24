@@ -77,7 +77,7 @@ Window {
 ''')
  with private_wayland(folder) as env:
   if env is None:print('SKIP: native Wull immersion requires private Niri');raise SystemExit(0)
-  conf=folder/'config/illogical-impulse';conf.mkdir(parents=True,exist_ok=True)
+  conf=folder/'config/alis';conf.mkdir(parents=True,exist_ok=True)
   value=json.loads((ROOT/'defaults/config.json').read_text());value['panelFamily']='abyss';(conf/'config.json').write_text(json.dumps(value))
   env['OUT']=str(folder)
   result=run_qs(folder,env,timeout=25);output=result.stdout

@@ -113,7 +113,7 @@ Window {
 ''')
  with private_wayland(folder) as env:
   if env is None:print('SKIP: native Wull portal requires private Niri');raise SystemExit(0)
-  conf=folder/'config/illogical-impulse';conf.mkdir(parents=True,exist_ok=True)
+  conf=folder/'config/alis';conf.mkdir(parents=True,exist_ok=True)
   config=json.loads((ROOT/'defaults/config.json').read_text());config['panelFamily']='abyss';(conf/'config.json').write_text(json.dumps(config))
   result=run_qs(folder,env,timeout=30);output=result.stdout
   if result.returncode or 'WULL_PORTAL_NATIVE_PASS' not in output or any(e in output for e in ['WULL_PORTAL_NATIVE_FAIL','ReferenceError:','TypeError:','Unable to assign','Binding loop','Failed to load configuration']):print(output);raise SystemExit(1)

@@ -70,6 +70,10 @@ ShellRoot {
   }
   function runChecks(){try{
    tryCompare(Config,"ready",true,6000)
+   check(Config.options.abyss.companion.exploreFeatures===false
+      && Config.options.abyss.companion.renderQuality==="performance"
+      && Config.options.abyss.companionMind.talkEnabled===false,
+      "private canonical configuration was not loaded")
    GlobalStates.shellEntryReady=true;GlobalStates.deferredPanelsReady=true;GlobalStates.barOpen=true
    tryVerify(()=>perimeter.outputHosts.length>0,6000)
    const host=perimeter.outputHosts[0]
@@ -178,7 +182,7 @@ ShellRoot {
   assert (release/'HadalisOutput.qml').read_bytes()==(PACKAGE/'HadalisOutput.qml').read_bytes(), 'private package readback mismatch'
   runtime=folder/'runtime';runtime.mkdir(mode=0o700)
   env.update(WAYLAND_DISPLAY=str(Path(env.get('XDG_RUNTIME_DIR',f'/run/user/{os.getuid()}'))/env['WAYLAND_DISPLAY']),XDG_RUNTIME_DIR=str(runtime),QSG_RHI_BACKEND='opengl',ALIS_COMPANION_TEST_SHA=identity)
-  cfg=folder/'config/illogical-impulse/config.json';cfg.parent.mkdir(parents=True,exist_ok=True)
+  cfg=folder/'config/alis/config.json';cfg.parent.mkdir(parents=True,exist_ok=True)
   data=json.loads((ROOT/'defaults/config.json').read_text());data['panelFamily']='abyss';data['enabledPanels']=['abyssPerimeter','abyssBar','abyssPopup']
   data['abyss']['companion'].update(enabled=False,along=.9,exploreFeatures=False,animationsEnabled=True,soundEnabled=False,alternateCompanions=False,renderQuality='performance')
   data['abyss']['companionMind'].update(talkEnabled=False,aiEnabled=False,obsidianEnabled=False,proactive='manual',model='',referenceVault='')
