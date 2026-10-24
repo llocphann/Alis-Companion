@@ -153,6 +153,15 @@ for(const time of [NaN,Infinity,-1])
     assert.equal(api.proposeAiExpression(state,expressionHost,{expression:"happy"},time).accepted,false);
 assert.equal(JSON.stringify(state),beforeProposal,"AI proposal mutated presentation/agent ownership");
 
+const ambientHost={...expressionHost,ambientOptIn:true,idle:true,chatOpen:false};
+assert.deepEqual(plain(api.proposeAmbientExpression(state,ambientHost,{expression:'working'},clock)),
+    {accepted:true,expression:'working',intensity:.25,ttlMs:2000,epoch:state.epoch});
+for(const patch of [{ambientOptIn:false},{idle:false},{chatOpen:true},{visible:false},
+        {manualTravel:true},{portalTravel:true},{modalOpen:true},{dragging:true},{dnd:true},
+        {quiet:true},{locked:true},{fullscreen:true},{gameMode:true},{motionEnabled:false}])
+    assert.equal(api.proposeAmbientExpression(state,{...ambientHost,...patch},{expression:'happy'},clock).accepted,false);
+assert.equal(api.proposeAmbientExpression(state,ambientHost,{expression:'happy',duration:99999},clock).accepted,false);
+
 // No permission grant, local data, process spawning, timers or external services.
 assert.doesNotMatch(code,/\b(?:fetch|XMLHttpRequest|WebSocket|exec|spawn|readFile|Qt\.createQmlObject)\s*\(/);
 assert.doesNotMatch(code,/\b(?:setInterval|setTimeout|import\s+Quickshell)\b/);

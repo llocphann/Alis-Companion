@@ -125,9 +125,26 @@ ShellRoot {
                 local.manualTravel=false
                 const invalid=session.presentAiExpression("fly")
                 const accepted=session.presentAiExpression("happy")
+                const afterAi=session.bridge.outboundSeq
+                const defaultAmbient=session.presentAmbientExpression("working")
+                Config.setNestedValues({"abyss.companion.ambientEnabled":true,
+                    "abyss.companion.ambientFocusEnabled":true})
+                // Synthetic eligibility only, on this fixture's existing
+                // native owner. No live Focus timer or system feed is started.
+                session.mind.hostIdle=true
+                local.manualTravel=true
+                const blockedAmbient=session.presentAmbientExpression("working")
+                local.manualTravel=false
+                const acceptedAmbient=session.presentAmbientExpression("working")
+                const afterAmbient=session.bridge.outboundSeq
+                Config.setNestedValues({"abyss.companion.ambientEnabled":false,
+                    "abyss.companion.ambientFocusEnabled":false})
+                session.mind.hostIdle=Qt.binding(()=>session.bridge.activity==="idle")
                 Hadanion.outputs=originalOutputs
-                if(blocked || invalid || !accepted || session.bridge.outboundSeq!==bridgeSequence+1)
+                if(blocked || invalid || !accepted || afterAi!==bridgeSequence+1)
                     {root.fail("AI Director bypassed travel/vocabulary or lost its bounded native intent");return}
+                if(defaultAmbient || blockedAmbient || !acceptedAmbient || afterAmbient!==afterAi+1)
+                    {root.fail("ambient bypassed consent/travel or lost its bounded native intent");return}
                 const seq=session.contextState.sequence,generation=feed.generation
                 feed.frame(JSON.stringify({version:1,generation:generation,sequence:seq,
                     issuedAtMs:Date.now(),kind:"heartbeat",payload:({})}))
@@ -216,4 +233,4 @@ ShellRoot {
 
 print("PASS: external installed package/session/output/settings without core aliases, default-off, enable/disable/refresh and exactly one reaped native owner")
 if os.environ.get('HADANION_TEST_CONTEXT')=='1':
-    print('COMPANION_CONTEXT_RUNTIME_PASS exactPeer typedFrames replay unknownReject revoke reconnect staleFreshGeneration directorTravelPriority boundedNativeIntent noInference')
+    print('COMPANION_CONTEXT_RUNTIME_PASS exactPeer typedFrames replay unknownReject revoke reconnect staleFreshGeneration directorTravelPriority boundedNativeIntent ambientDefaultOff ambientTravelPriority ambientBoundedNativeIntent noInference')

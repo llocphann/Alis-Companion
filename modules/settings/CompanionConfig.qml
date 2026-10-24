@@ -341,6 +341,37 @@ ContentPage {
                 autoToggle:false;checked:root.preferences.contextAiEnabled
                 onToggledByUser:checked=>root.setPreference("contextAiEnabled",checked)
             }
+            SettingsSwitch {
+                objectName:"companionAmbient"
+                text:Translation.tr("Quiet ambient reactions")
+                description:Translation.tr("Small expressions, at most once every two minutes.")
+                autoToggle:false;checked:root.preferences.ambientEnabled
+                onToggledByUser:checked=>root.setPreference("ambientEnabled",checked)
+            }
+            SettingsSwitch {
+                objectName:"companionAmbientFocus"
+                text:Translation.tr("Follow Focus sessions")
+                description:Translation.tr("Uses the existing Focus timer; stays quiet during work.")
+                enabled:root.preferences.ambientEnabled
+                autoToggle:false;checked:root.preferences.ambientFocusEnabled
+                onToggledByUser:checked=>root.setPreference("ambientFocusEnabled",checked)
+            }
+            SettingsSwitch {
+                objectName:"companionAmbientBattery"
+                text:Translation.tr("React to battery state")
+                description:Translation.tr("Only low battery or charging; no device details.")
+                enabled:root.preferences.ambientEnabled
+                autoToggle:false;checked:root.preferences.ambientBatteryEnabled
+                onToggledByUser:checked=>root.setPreference("ambientBatteryEnabled",checked)
+            }
+            SettingsSwitch {
+                objectName:"companionAmbientMedia"
+                text:Translation.tr("React to playback state")
+                description:Translation.tr("Only playing or paused; no titles, artists or media control.")
+                enabled:root.preferences.ambientEnabled
+                autoToggle:false;checked:root.preferences.ambientMediaEnabled
+                onToggledByUser:checked=>root.setPreference("ambientMediaEnabled",checked)
+            }
         }
     }
 

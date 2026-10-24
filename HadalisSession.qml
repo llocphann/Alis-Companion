@@ -100,19 +100,53 @@ Item {
             root.presentAiExpression(expression)
         }
     }
-    function presentAiExpression(expression): bool {
+    function visualContext(): var {
         const local=root.outputHosts.find(window=>window.outputName===root.companionTargetOutput)?.extension?.directorContext
-        if(!local)return false
-        const context=Object.assign({},local,{
+        if(!local)return null
+        return Object.assign({},local,{
             enabled:root.companionEnabled && local.enabled===true,
             visible:root.companionSessionVisible && companionBridge.visibility==="present",
             locked:GlobalStates.screenLocked,gameMode:Appearance.gameModeMinimal,
             fullscreen:GameMode.hasFullscreenOnOutput(root.companionTargetOutput),
-            dnd:Notifications.notificationPolicyActive,
+            dnd:Notifications.notificationPolicyActive,chatOpen:WullMind.conversationOpen,
+            ambientOptIn:root.companionPreferences.ambientEnabled
+                && (root.companionPreferences.ambientFocusEnabled || root.companionPreferences.ambientBatteryEnabled
+                    || root.companionPreferences.ambientMediaEnabled),idle:WullMind.hostIdle,
             motionEnabled:root.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled})
-        const proposal=Director.proposeAiExpression(contextState.director,context,{expression:expression},Date.now())
+    }
+    function presentAiExpression(expression): bool {
+        const proposal=Director.proposeAiExpression(contextState.director,visualContext(),{expression:expression},Date.now())
         return proposal.accepted && proposal.epoch===contextState.director.epoch
             && companionBridge.sendIntent(proposal.expression,proposal.intensity,proposal.ttlMs)
+    }
+    function presentAmbientExpression(expression): bool {
+        const proposal=Director.proposeAmbientExpression(contextState.director,visualContext(),{expression:expression},Date.now())
+        return proposal.accepted && proposal.epoch===contextState.director.epoch
+            && companionBridge.sendIntent(proposal.expression,proposal.intensity,proposal.ttlMs)
+    }
+    WullAmbientController {
+        id:ambientController
+        objectName:"companionAmbientController"
+        permitted:root.companionEnabled && root.companionPreferences.ambientEnabled
+            && (root.companionPreferences.ambientFocusEnabled || root.companionPreferences.ambientBatteryEnabled
+                || root.companionPreferences.ambientMediaEnabled)
+            && root.companionSessionVisible && !Notifications.notificationPolicyActive
+            && !GameMode.hasFullscreenOnOutput(root.companionTargetOutput)
+            && root.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled
+        consentKey:[root.companionPreferences.ambientFocusEnabled,
+            root.companionPreferences.ambientBatteryEnabled,root.companionPreferences.ambientMediaEnabled].join(":")
+        eligible:Director.proposeAmbientExpression(root.contextState.director,
+            root.visualContext(),{expression:"idle"},Date.now()).accepted
+        focusPhase:permitted && root.companionPreferences.ambientFocusEnabled
+            ? !TimerService.pomodoroRunning ? "off" : TimerService.pomodoroPaused ? "paused"
+                : TimerService.pomodoroBreak ? "break" : "focus" : "unavailable"
+        powerBand:permitted && root.companionPreferences.ambientBatteryEnabled
+            ? !Battery.available ? "unavailable" : !Battery.onBattery ? "charging"
+                : Battery.isLow ? "low" : "normal" : "unavailable"
+        playback:permitted && root.companionPreferences.ambientMediaEnabled
+            ? !MprisController.activePlayer ? "unavailable"
+                : MprisController.activePlayer.isPlaying ? "playing" : "paused" : "unavailable"
+        onReactionRequested:expression=>root.presentAmbientExpression(expression)
     }
     readonly property string companionTargetOutput: GlobalStates.resolveOutputName(
         "", Config.options?.bar?.screenList ?? [])

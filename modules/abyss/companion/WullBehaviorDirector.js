@@ -200,3 +200,13 @@ function proposeAiExpression(s,host,input,nowMs) {
         return {accepted:false,reason:"presentation_owned"}
     return {accepted:true,expression:input.expression,intensity:.5,ttlMs:3000,epoch:s.epoch}
 }
+
+function proposeAmbientExpression(s,host,input,nowMs) {
+    if(!host || host.ambientOptIn!==true || host.idle!==true || host.chatOpen===true)
+        return {accepted:false,reason:"ambient_not_permitted"}
+    const proposal=proposeAiExpression(s,host,input,nowMs)
+    if(!proposal.accepted)return proposal
+    // Every coarse event uses the same small, finite face-only presentation.
+    // No model, source or caller chooses movement, a prop or a timer duration.
+    return {accepted:true,expression:proposal.expression,intensity:.25,ttlMs:2000,epoch:proposal.epoch}
+}
