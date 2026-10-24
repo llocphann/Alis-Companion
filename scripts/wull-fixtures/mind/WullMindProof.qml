@@ -31,6 +31,7 @@ Window {
                 tryCompare(Config,"ready",true,4000)
                 Ai._initialized=true
                 Ai.addModel("tiny:local",{name:"Tiny fixture",model:"tiny:local",local:true,
+                    local_verified:true,local_fingerprint:Quickshell.env("WULL_TEST_LOCAL_FINGERPRINT"),provider_id:"lmstudio",
                     requires_key:false,api_format:"openai",endpoint:Quickshell.env("WULL_TEST_ENDPOINT")+"/v1/chat/completions",
                     capabilities:{chat:"supported",reasoning:"unsupported"}})
                 Ai.modelList=Object.keys(Ai.models);Ai.currentModelId="tiny:local"
@@ -170,6 +171,7 @@ Window {
                 WullMind.clearConversation();WullMind.openChat()
                 check(!WullMind.sendMessage("Hi!") && WullMind.errorMessage.length>0,"unavailable AI pretended inference")
                 Ai.addModel("tiny:local",{name:"Tiny fixture",model:"tiny:local",local:true,
+                    local_verified:true,local_fingerprint:Quickshell.env("WULL_TEST_LOCAL_FINGERPRINT"),provider_id:"lmstudio",
                     requires_key:false,api_format:"openai",endpoint:Quickshell.env("WULL_TEST_ENDPOINT")+"/v1/chat/completions",
                     capabilities:{chat:"supported",reasoning:"unsupported"}})
                 Ai.modelList=Object.keys(Ai.models);Ai.currentModelId="tiny:local"

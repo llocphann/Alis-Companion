@@ -2,7 +2,7 @@
 """Wull uses the real Ai service with a private loopback protocol fixture."""
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import json, os, shutil, sqlite3, subprocess, tempfile, threading, time
+import hashlib, json, os, shutil, sqlite3, subprocess, tempfile, threading, time
 from native_test_session import private_wayland, run_qs
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -10,11 +10,24 @@ if not shutil.which("qs"):
     print("SKIP: Wull shared AI runtime requires Quickshell")
     raise SystemExit(0)
 requests=[]
+model_ids=['main','wull','failure','slow','extra','tokens','malformed','controltag','eof-tool',
+           'cloud','responses','spoof','verified','unverified']
+model_rows=[{'id':'fixture-'+name,'type':'vlm','compatibility_type':'gguf','arch':'fixture',
+            'quantization':'Q4_K_M','state':'loaded','max_context_length':4096} for name in model_ids]
+fingerprints={row['id']:hashlib.sha256(json.dumps({'provider':'lmstudio','model':row['id'],
+    'format':'gguf','architecture':'fixture','quantization':'Q4_K_M','contextTokens':4096},
+    sort_keys=True,separators=(',',':')).encode()).hexdigest() for row in model_rows}
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args): pass
+    def do_GET(self):
+        if self.path!='/api/v0/models':return self.send_error(404)
+        self.send_response(200);self.end_headers()
+        self.wfile.write(json.dumps({'data':model_rows}).encode())
     def do_POST(self):
         data=json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         requests.append((self.path,data,dict(self.headers)))
+        if self.path=='/local-verified':
+            next(row for row in model_rows if row['id']=='fixture-verified')['type']='cloud'
         if self.path=="/slow":time.sleep(.7)
         failure=self.path=="/failure"
         self.send_response(429 if failure else 200)
@@ -79,13 +92,16 @@ ShellRoot {
  property string replacedToken:""
  property bool cadenceStarted:false
  property bool cadenceComplete:false
+ property bool aiConfigured:false
+ property var localFingerprints: LOCAL_FINGERPRINTS
  function check(ok,message): bool {
   if(ok)return true
   console.error("WULL_SHARED_AI_FAIL",message);Qt.quit();return false
  }
  function add(id,path): void {
   Ai.addModel(id,{name:id,model:id,endpoint:Quickshell.env("AI_FIXTURE_URL")+path,
-   local:true,requires_key:false,provider_id:"fixture",api_format:"openai",
+   local:true,local_verified:true,local_fingerprint:root.localFingerprints[id],
+   requires_key:false,provider_id:"lmstudio",api_format:"openai",
    capabilities:{chat:"supported",reasoning:"supported"}})
  }
  function helperContext(marker): var {
@@ -332,6 +348,7 @@ ShellRoot {
      return
     }
     if(!root.cadenceComplete)return
+    if(!root.aiConfigured){
     Ai._initialized=true
     const originalPrompt=Config.options.ai.systemPrompt
     const substitutions=Ai.promptSubstitutions
@@ -348,13 +365,15 @@ ShellRoot {
     root.add("fixture-cloud","/cloud");Ai.models["fixture-cloud"].local=false
     root.add("fixture-responses","/responses");Ai.models["fixture-responses"].api_format="openai-response"
     root.add("fixture-spoof","/spoof");Ai.models["fixture-spoof"].endpoint="http://localhost@cloud.invalid/v1"
+    root.add("fixture-verified","/local-verified")
+    root.add("fixture-unverified","/unverified");Ai.models["fixture-unverified"].local_verified=false
     Ai.modelList=Object.keys(Ai.models)
     Ai.models["fixture-wull"].requires_key=true
     Ai.models["fixture-wull"].key_id="fixture";Ai.models["fixture-wull"].auth_scheme="bearer"
     Ai.currentModelId="fixture-main";Ai.addMessage("Ordinary AI history","user")
     root.mainIDs=Ai.messageIDs.slice()
-    if(!root.check(WullMind.localOnly && !WullMind.selectableModels.some(entry=>["fixture-cloud","fixture-spoof"].includes(entry.name)),"local default lists a remote/spoofed model"))return
-    for(const id of ["fixture-cloud","fixture-spoof"]){
+    if(!root.check(WullMind.localOnly && !WullMind.selectableModels.some(entry=>["fixture-cloud","fixture-spoof","fixture-unverified"].includes(entry.name)),"local default lists a remote/spoofed/unverified model"))return
+    for(const id of ["fixture-cloud","fixture-spoof","fixture-unverified"]){
      Config.setNestedValue("abyss.companionMind.model",id)
      if(!root.check(!WullMind.available && !WullMind.sendMessage("Never send this fixture"),"local-only request accepted a cloud or spoofed model"))return
     }
@@ -365,6 +384,9 @@ ShellRoot {
     Config.setNestedValues({"abyss.companionMind.model":"fixture-wull",
      "abyss.companionMind.endpoint":"http://127.0.0.1:1",
      "abyss.companionMind.thinkingEffort":"high"})
+    root.aiConfigured=true
+    return
+    }
     WullMind.historyLoaded=true;WullMind.openChat()
     if(!root.check(WullMind.selectableModels.some(entry=>entry.name==="fixture-wull"),"Wull exposes the AI catalog"))return
     if(!root.check(WullMind.sendMessage("Hello fixture"),"shared request accepted"))return
@@ -448,13 +470,27 @@ ShellRoot {
     if(!root.check(WullMind.selectableModels.some(entry=>entry.name==="fixture-cloud") && WullMind.sendMessage("Queued cloud fixture"),"explicit cloud opt-in is unavailable"))return
     Config.setNestedValue("abyss.companionMind.localOnly",true)
     if(!root.check(!WullMind.busy && !WullMind.aiSession.busy && !WullMind.history.some(entry=>entry.content==="Queued cloud fixture"),"revoking cloud opt-in did not cancel the queued request"))return
+    Config.setNestedValue("abyss.companionMind.model","fixture-verified")
+    if(!root.check(WullMind.sendMessage("Verified local fixture"),"verified local model did not start"))return
+    root.step=10
+   }else if(root.step===10 && !WullMind.busy){
+    if(!root.check(WullMind.history[WullMind.history.length-1]?.content==="Fixture hello"
+        && WullMind.history[WullMind.history.length-1]?.persisted,"verified local reply was lost"))return
+    root.assistantCount=WullMind.history.filter(entry=>entry.role==="assistant").length
+    if(!root.check(WullMind.sendMessage("Never forward after remote replacement"),"fresh admission fixture did not start"))return
+    root.step=11
+   }else if(root.step===11 && !WullMind.busy){
+    if(!root.check(WullMind.connectionStatus==="error"
+        && WullMind.history.filter(entry=>entry.role==="assistant").length===root.assistantCount
+        && WullMind.history.find(entry=>entry.content==="Never forward after remote replacement")?.failed===true,
+        "remote replacement produced a reply or left an active request"))return
     Config.setNestedValue("abyss.companionMind.model","")
-    console.info("WULL_SHARED_AI_PASS catalog request history-isolation persistence HTTP-error cancel retry model-follow output-rejection recovery localDefault cloudBlock spoofBlock localAutoFallback consentRevoke automaticCadences automaticGates cadenceRevocation malformedHelperRejection helperRecovery sameIdReplacement staleReply responses proactiveOptIn sourceConsent quietHours focusSuppression quotaReceipt dismissal dailyCap contentRevocation");Qt.quit()
+    console.info("WULL_SHARED_AI_PASS catalog request history-isolation persistence HTTP-error cancel retry model-follow output-rejection recovery localDefault cloudBlock spoofBlock unverifiedBlock freshLocalAdmission remoteReplacementBlock localAutoFallback consentRevoke automaticCadences automaticGates cadenceRevocation malformedHelperRejection helperRecovery sameIdReplacement staleReply responses proactiveOptIn sourceConsent quietHours focusSuppression quotaReceipt dismissal dailyCap contentRevocation");Qt.quit()
    }
   }
  }
 }
-''')
+'''.replace('LOCAL_FINGERPRINTS',json.dumps(fingerprints)))
     with private_wayland(folder) as env:
         if env is None:
             print("SKIP: Wull shared AI runtime requires a private Niri session")
@@ -477,7 +513,8 @@ ShellRoot {
     assert headers[0].get("Authorization")=="Bearer fixture-credential"
     assert "Authorization" not in headers[1], "previous provider credential survived a keyless switch"
     assert len([row for path,row,headers in requests if path in ('/extra','/tokens','/malformed','/controltag','/eof-tool')])==5
-    assert not any(path in ('/cloud','/spoof','/replacement') for path,row,headers in requests), 'blocked or revoked request reached transport'
+    assert not any(path in ('/cloud','/spoof','/replacement','/unverified') for path,row,headers in requests), 'blocked or revoked request reached transport'
+    assert len([row for path,row,headers in requests if path=='/local-verified'])==1, 'private input reached remote model replacement'
     assert not any(path=='/curlrc-leak' or 'X-Curlrc-Fixture' in headers for path,row,headers in requests), 'curl defaults modified private transport'
     responses=[row for path,row,headers in requests if path=='/responses']
     assert len(responses)==1 and 'input' in responses[0] and 'tools' not in responses[0]
@@ -486,6 +523,7 @@ ShellRoot {
     assert rows==[('user','Hello fixture'),('assistant','Fixture hello'),
                   ('user','Retry fixture'),('assistant','Fixture hello'),
                   ('user','Recovery fixture'),('assistant','Fixture hello'),
-                  ('user','Responses fixture'),('assistant','Responses hello')], 'rejected output entered persistent history'
+                  ('user','Responses fixture'),('assistant','Responses hello'),
+                  ('user','Verified local fixture'),('assistant','Fixture hello')], 'rejected output entered persistent history'
 finally:
     server.shutdown();server.server_close()

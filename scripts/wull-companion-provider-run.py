@@ -37,7 +37,8 @@ def endpoint(value):
     if parsed.scheme not in ('http','https') or parsed.username or parsed.password or parsed.fragment or parsed.query:
         raise ValueError('loopback_endpoint_required')
     try:
-        if not ipaddress.ip_address(parsed.hostname).is_loopback or not 1 <= (parsed.port or 80) <= 65535:
+        port=parsed.port if parsed.port is not None else (443 if parsed.scheme=='https' else 80)
+        if not ipaddress.ip_address(parsed.hostname).is_loopback or not 1 <= port <= 65535:
             raise ValueError('loopback_endpoint_required')
     except (ValueError,TypeError):
         raise ValueError('loopback_endpoint_required') from None
@@ -139,6 +140,7 @@ def main():
     parser.add_argument('--hadalis-root',type=Path,required=True)
     parser.add_argument('--endpoint',type=endpoint,required=True)
     parser.add_argument('--model',required=True)
+    parser.add_argument('--provider',choices=('lmstudio','ollama'),default='lmstudio')
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args()
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}',args.model):
@@ -147,6 +149,8 @@ def main():
     if output.is_relative_to(ROOT) or output.is_relative_to(host):
         raise ValueError('output_inside_source_repository')
     sources={'companion':identity(ROOT),'host':identity(host)}
+    admission=module('provider_admission',host/'scripts/ai/local_provider.py')
+    verified=admission.verify(args.provider,args.endpoint,args.model)
     fixture=ROOT/'scripts/fixtures/hadanion-voice-scenarios.json'
     cases=json.loads(fixture.read_text())['cases']
     if len(cases)!=14 or len({c['id'] for c in cases})!=14:
@@ -157,7 +161,8 @@ def main():
     validator=module('provider_validation',ROOT/'scripts/validate.py')
     native=module('provider_native',host/'scripts/native_test_session.py')
     descriptor={'name':args.model,'model':args.model,'endpoint':args.endpoint,
-        'local':True,'requires_key':False,'provider_id':'qualification-loopback','api_format':'openai',
+        'local':True,'local_verified':True,'local_fingerprint':verified['fingerprint'],
+        'requires_key':False,'provider_id':args.provider,'api_format':'openai',
         'capabilities':{'chat':'supported','reasoning':'unknown'},'extraParams':{'max_tokens':256}}
     with tempfile.TemporaryDirectory(prefix='companion-provider-') as temporary:
         folder=Path(temporary)
@@ -175,6 +180,7 @@ def main():
             run=native.run_qs(work,env,timeout=620)
         (output/'native.log').write_text(run.stdout)
     report={'schema':1,'sources':sources,'provider':{'model':args.model,'endpoint':args.endpoint,
+        'verifiedLocalMetadata':verified,
         'maxTokens':256,'thinking':'provider default (catalog support unknown)'},
         'fixtureSha256':hashlib.sha256(fixture.read_bytes()).hexdigest(),'exitCode':run.returncode,
         'expected':28,'accepted':0,'complete':False,'tokens':None,'gpuCostQualified':False,

@@ -5,6 +5,8 @@ function isLocal(model) {
     if (!model || model.local !== true) return false
     if (model.api_format === "gguf")
         return typeof model.gguf_path === "string" && model.gguf_path.startsWith("/")
+    if (model.local_verified !== true || !["ollama", "lmstudio"].includes(model.provider_id)
+            || !/^[0-9a-f]{64}$/.test(String(model.local_fingerprint ?? ""))) return false
     if (!["openai", "openai-response"].includes(model.api_format)) return false
     const match = /^https?:\/\/([^/?#\s\\]+)(?:[/?#]|$)/i.exec(String(model.endpoint ?? ""))
     if (!match) return false
@@ -20,7 +22,7 @@ function allowed(model, localOnly) { return !!model && (!localOnly || isLocal(mo
 function identity(model) {
     if (!model) return ""
     const fields = ["model", "endpoint", "api_format", "provider_id", "auth_scheme",
-        "requires_key", "key_id", "local", "gguf_path", "runtime_path",
+        "requires_key", "key_id", "local", "local_verified", "local_fingerprint", "gguf_path", "runtime_path",
         "max_output_tokens", "capabilities", "extraParams"]
     return JSON.stringify(fields.map(key => model[key] ?? null))
 }

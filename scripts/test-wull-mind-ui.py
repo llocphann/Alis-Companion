@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Owned QML + real one-shot helper against a controlled local HTTP fixture."""
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,10 @@ spec=importlib.util.spec_from_file_location('mind_test',ROOT/'scripts/test-wull-
 fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
 class Handler(fixture.Handler):
     sharedCalls=[]
+    def do_GET(self):
+        if self.path!='/api/v0/models':return super().do_GET()
+        self.respond({'data':[{'id':'tiny:local','type':'llm','compatibility_type':'gguf',
+            'arch':'fixture','quantization':'Q4_K_M','state':'loaded','max_context_length':4096}]})
     def do_POST(self):
         if self.path=='/failure':
             self.send_response(429);self.end_headers();return
@@ -53,6 +58,9 @@ try:
         env.update(QT_QUICK_BACKEND='software',QT_QUICK_CONTROLS_STYLE='Basic',QT_QPA_PLATFORMTHEME='generic',
                    QT_NO_XDG_DESKTOP_PORTAL='1',WULL_TEST_ENDPOINT=f'http://127.0.0.1:{server.server_port}')
         env['WULL_TEST_VAULT']=str(private/'vault')
+        env['WULL_TEST_LOCAL_FINGERPRINT']=hashlib.sha256(json.dumps({'provider':'lmstudio',
+            'model':'tiny:local','format':'gguf','architecture':'fixture','quantization':'Q4_K_M',
+            'contextTokens':4096},sort_keys=True,separators=(',',':')).encode()).hexdigest()
         env['INIR_WULL_HISTORY_DB']=str(private/'wull-history.sqlite3')
         env['INIR_GGUF_ROOTS']='[]'
         with (private/'test.log').open('w') as output:
