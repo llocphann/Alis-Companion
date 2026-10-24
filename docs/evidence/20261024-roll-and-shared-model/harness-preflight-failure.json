@@ -1,0 +1,14 @@
+{
+  "sources": {
+    "companion": "5ebb7b3aa9ce3a189778e223b86d09abf3a22b32",
+    "host": "23fbc243c40a5c1d0b7455cfb4439d4f8442b33a"
+  },
+  "attempted": 0,
+  "expected": 28,
+  "accepted": 0,
+  "complete": false,
+  "processExitCode": 255,
+  "elapsedSeconds": 0.97,
+  "failureClass": "private_harness_QML_placeholder_syntax",
+  "modelInferenceQualified": false
+}

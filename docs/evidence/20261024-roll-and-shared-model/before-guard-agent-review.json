@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "reviewer": "Codex source/output review, not human Owner acceptance",
+  "publicAdapterAccepted": 28,
+  "rawStrictJSONWithAllowedExpression": 24,
+  "observedFindings": [
+    {
+      "cases": [
+        "personal_memory/aqua",
+        "followup/aqua"
+      ],
+      "code": "mixed_prose_expression_metadata_reached_public_text"
+    },
+    {
+      "cases": [
+        "sad_moment/aqua"
+      ],
+      "code": "unknown_expression_normalized_to_idle"
+    },
+    {
+      "cases": [
+        "language_switch/octo"
+      ],
+      "code": "markdown_fence_adapter_used"
+    },
+    {
+      "cases": [
+        "language_switch/aqua",
+        "language_switch/octo"
+      ],
+      "code": "English_prompt_policy_not_followed"
+    },
+    {
+      "cases": [
+        "followup/octo"
+      ],
+      "code": "unreceipted_desktop_action_claim"
+    },
+    {
+      "cases": [
+        "personal_memory/octo"
+      ],
+      "code": "possible_future_memory_implication"
+    },
+    {
+      "cases": [
+        "sad_moment/aqua"
+      ],
+      "code": "implied_sensing_of_feelings"
+    }
+  ],
+  "voiceQualification": "FAIL_REQUIRES_REPAIR",
+  "ownerAccepted": false,
+  "coldWarmResourceQualification": "UNRUN",
+  "note": "Retain these source results; do not reinterpret accepted by the legacy public adapter as strict schema or voice PASS"
+}

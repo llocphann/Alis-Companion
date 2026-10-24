@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "status": "OFFLINE_FORMAT_METRICS_ONLY",
+  "source_fixture_sha256": "7d0403ec68332daa84c8d50dc5e8296303b35fd39d6f62c5f3da0cd6b15bb03d",
+  "scope": "Provided/consent-cleared fixtures only. Not a model test or a proof of voice quality.",
+  "characters": {
+    "aqua": {
+      "responses": 14,
+      "schema_valid": 11,
+      "empty_or_over_420_chars": 0,
+      "control_character_cases": 0,
+      "internal_protocol_cases": 0,
+      "unsupported_action_claim_cases": 0,
+      "support_bot_phrase_cases": 0,
+      "wrong_character_claim_cases": 0,
+      "question_ending_cases": 2,
+      "invalid_expression_cases": 1,
+      "word_length_median_lower": 16,
+      "largest_identical_three_word_opener_count": 2
+    },
+    "octo": {
+      "responses": 14,
+      "schema_valid": 13,
+      "empty_or_over_420_chars": 0,
+      "control_character_cases": 0,
+      "internal_protocol_cases": 0,
+      "unsupported_action_claim_cases": 0,
+      "support_bot_phrase_cases": 0,
+      "wrong_character_claim_cases": 0,
+      "question_ending_cases": 1,
+      "invalid_expression_cases": 0,
+      "word_length_median_lower": 17,
+      "largest_identical_three_word_opener_count": 1
+    }
+  },
+  "human_review": "REQUIRED",
+  "model_invocations": 0,
+  "secret_or_chat_history_access": false,
+  "comparable_case_ids": true
+}

@@ -1,0 +1,15 @@
+{
+  "sources": {
+    "companion": "038fa98a74321592205df7251e01779c39764c94",
+    "host": "b39ac963801fd9121bbaca4b05c02772b1c38d3b",
+    "integration": "192ddf6614b144593bd8d9f0bdb28e4ae4eb41a0"
+  },
+  "step": "package",
+  "exitCode": 1,
+  "elapsedSeconds": 349.42,
+  "candidateOverridesManagedPin": true,
+  "passCount": 82,
+  "failCount": 1,
+  "skipCount": 0,
+  "failedCheck": "test-module-hover-runtime.py: reverse connector transfer lost popup, right/present/weather"
+}

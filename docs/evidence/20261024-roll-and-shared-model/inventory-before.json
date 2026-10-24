@@ -1,0 +1,2316 @@
+{
+  "schema": 1,
+  "source": "9b30f7a415c2cca766f2296a92ebd48f49dce718",
+  "observedUtc": "2026-10-24T11:20:27.736Z",
+  "scope": "Before AC-R05 changes: authored channel keys and current runtime route inventory; not installed Owner acceptance",
+  "casts": [
+    {
+      "cast": "aqua",
+      "file": "modules/abyss/companion/AquaMotionData.js",
+      "sha256": "3080cc6af0695b2c780df2a40fdead41945b24a2bea0ed79e536a544709e07cd",
+      "clips": [
+        {
+          "clip": "balance",
+          "durationMs": 1800,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.1500000070642542,
+                "milliseconds": 270,
+                "degrees": -10
+              },
+              {
+                "phase": 0.32000001271565753,
+                "milliseconds": 576,
+                "degrees": 12
+              },
+              {
+                "phase": 0.5,
+                "milliseconds": 900,
+                "degrees": -8
+              },
+              {
+                "phase": 0.6800000226056134,
+                "milliseconds": 1224,
+                "degrees": 7
+              },
+              {
+                "phase": 0.8500000282570168,
+                "milliseconds": 1530,
+                "degrees": -3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1800,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "buttplant",
+          "durationMs": 2900,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.3200000017538838,
+                "milliseconds": 928,
+                "degrees": -6
+              },
+              {
+                "phase": 0.5700000017538838,
+                "milliseconds": 1653,
+                "degrees": -12
+              },
+              {
+                "phase": 0.7600000315699084,
+                "milliseconds": 2204,
+                "degrees": -12
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2900,
+                "degrees": 0
+              }
+            ],
+            "pitch": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.3200000017538838,
+                "milliseconds": 928,
+                "degrees": -28
+              },
+              {
+                "phase": 0.5700000017538838,
+                "milliseconds": 1653,
+                "degrees": -68
+              },
+              {
+                "phase": 0.7600000315699084,
+                "milliseconds": 2204,
+                "degrees": -68
+              },
+              {
+                "phase": 0.900000035077676,
+                "milliseconds": 2610,
+                "degrees": -12
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2900,
+                "degrees": 0
+              }
+            ],
+            "yaw": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.3200000017538838,
+                "milliseconds": 928,
+                "degrees": -12
+              },
+              {
+                "phase": 0.5700000017538838,
+                "milliseconds": 1653,
+                "degrees": -22
+              },
+              {
+                "phase": 0.7600000315699084,
+                "milliseconds": 2204,
+                "degrees": -22
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2900,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": true
+        },
+        {
+          "clip": "delight",
+          "durationMs": 1600,
+          "channels": {},
+          "retiredBefore": false
+        },
+        {
+          "clip": "dive",
+          "durationMs": 700,
+          "channels": {},
+          "retiredBefore": false
+        },
+        {
+          "clip": "diveJump",
+          "durationMs": 1300,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.23999999119685247,
+                "milliseconds": 312,
+                "degrees": -6
+              },
+              {
+                "phase": 0.40000000978127503,
+                "milliseconds": 520,
+                "degrees": 5
+              },
+              {
+                "phase": 0.599999990218725,
+                "milliseconds": 780,
+                "degrees": -5
+              },
+              {
+                "phase": 0.8000000195625501,
+                "milliseconds": 1040,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1300,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "drag",
+          "durationMs": 1100,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": -4
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 275,
+                "degrees": 0
+              },
+              {
+                "phase": 0.5,
+                "milliseconds": 550,
+                "degrees": 4
+              },
+              {
+                "phase": 0.75,
+                "milliseconds": 825,
+                "degrees": 0
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1100,
+                "degrees": -4
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "emerge",
+          "durationMs": 900,
+          "channels": {},
+          "retiredBefore": false
+        },
+        {
+          "clip": "faceplant",
+          "durationMs": 2600,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.34999999021872497,
+                "milliseconds": 910,
+                "degrees": 4
+              },
+              {
+                "phase": 0.530000001956255,
+                "milliseconds": 1378,
+                "degrees": 8
+              },
+              {
+                "phase": 0.719999998043745,
+                "milliseconds": 1872,
+                "degrees": 8
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2600,
+                "degrees": 0
+              }
+            ],
+            "pitch": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.34999999021872497,
+                "milliseconds": 910,
+                "degrees": 12
+              },
+              {
+                "phase": 0.530000001956255,
+                "milliseconds": 1378,
+                "degrees": 78
+              },
+              {
+                "phase": 0.719999998043745,
+                "milliseconds": 1872,
+                "degrees": 78
+              },
+              {
+                "phase": 0.8500000391251001,
+                "milliseconds": 2210,
+                "degrees": 15
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2600,
+                "degrees": 0
+              }
+            ],
+            "yaw": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.34999999021872497,
+                "milliseconds": 910,
+                "degrees": -8
+              },
+              {
+                "phase": 0.530000001956255,
+                "milliseconds": 1378,
+                "degrees": -12
+              },
+              {
+                "phase": 0.719999998043745,
+                "milliseconds": 1872,
+                "degrees": -12
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2600,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": true
+        },
+        {
+          "clip": "fall",
+          "durationMs": 1100,
+          "channels": {
+            "pitch": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 275,
+                "degrees": 18
+              },
+              {
+                "phase": 0.7200000069358132,
+                "milliseconds": 792,
+                "degrees": -12
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1100,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": true
+        },
+        {
+          "clip": "fallVanish",
+          "durationMs": 3100,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.320000002461095,
+                "milliseconds": 992,
+                "degrees": -6
+              },
+              {
+                "phase": 0.5699999819519699,
+                "milliseconds": 1767,
+                "degrees": -12
+              },
+              {
+                "phase": 0.76000000328146,
+                "milliseconds": 2356,
+                "degrees": -12
+              },
+              {
+                "phase": 1,
+                "milliseconds": 3100,
+                "degrees": 0
+              }
+            ],
+            "pitch": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.320000002461095,
+                "milliseconds": 992,
+                "degrees": -28
+              },
+              {
+                "phase": 0.5699999819519699,
+                "milliseconds": 1767,
+                "degrees": -68
+              },
+              {
+                "phase": 0.76000000328146,
+                "milliseconds": 2356,
+                "degrees": -68
+              },
+              {
+                "phase": 0.8999999671853999,
+                "milliseconds": 2790,
+                "degrees": -12
+              },
+              {
+                "phase": 1,
+                "milliseconds": 3100,
+                "degrees": 0
+              }
+            ],
+            "yaw": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.320000002461095,
+                "milliseconds": 992,
+                "degrees": -12
+              },
+              {
+                "phase": 0.5699999819519699,
+                "milliseconds": 1767,
+                "degrees": -22
+              },
+              {
+                "phase": 0.76000000328146,
+                "milliseconds": 2356,
+                "degrees": -22
+              },
+              {
+                "phase": 1,
+                "milliseconds": 3100,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": true
+        },
+        {
+          "clip": "float",
+          "durationMs": 1800,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": -1.100000023841858
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 450,
+                "degrees": 0
+              },
+              {
+                "phase": 0.5,
+                "milliseconds": 900,
+                "degrees": 1.100000023841858
+              },
+              {
+                "phase": 0.75,
+                "milliseconds": 1350,
+                "degrees": 0
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1800,
+                "degrees": -1.100000023841858
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "fly",
+          "durationMs": 800,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": -2.5
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 200,
+                "degrees": 1
+              },
+              {
+                "phase": 0.5,
+                "milliseconds": 400,
+                "degrees": 2.5
+              },
+              {
+                "phase": 0.75,
+                "milliseconds": 600,
+                "degrees": -1
+              },
+              {
+                "phase": 1,
+                "milliseconds": 800,
+                "degrees": -2.5
+              }
+            ],
+            "pitch": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": -5
+              },
+              {
+                "phase": 0.22000000874201456,
+                "milliseconds": 176,
+                "degrees": 6
+              },
+              {
+                "phase": 0.549999992052714,
+                "milliseconds": 440,
+                "degrees": -3
+              },
+              {
+                "phase": 0.75,
+                "milliseconds": 600,
+                "degrees": -7
+              },
+              {
+                "phase": 1,
+                "milliseconds": 800,
+                "degrees": -5
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "hop",
+          "durationMs": 650,
+          "channels": {},
+          "retiredBefore": false
+        },
+        {
+          "clip": "ice",
+          "durationMs": 2400,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.18000000052981907,
+                "milliseconds": 432,
+                "degrees": -4
+              },
+              {
+                "phase": 0.3999999894036187,
+                "milliseconds": 960,
+                "degrees": -10
+              },
+              {
+                "phase": 0.7200000021192763,
+                "milliseconds": 1728,
+                "degrees": -10
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2400,
+                "degrees": 0
+              }
+            ],
+            "pitch": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.18000000052981907,
+                "milliseconds": 432,
+                "degrees": -12
+              },
+              {
+                "phase": 0.3999999894036187,
+                "milliseconds": 960,
+                "degrees": -65
+              },
+              {
+                "phase": 0.7200000021192763,
+                "milliseconds": 1728,
+                "degrees": -65
+              },
+              {
+                "phase": 0.9000000423855252,
+                "milliseconds": 2160,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2400,
+                "degrees": 0
+              }
+            ],
+            "yaw": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.18000000052981907,
+                "milliseconds": 432,
+                "degrees": 8
+              },
+              {
+                "phase": 0.3999999894036187,
+                "milliseconds": 960,
+                "degrees": 20
+              },
+              {
+                "phase": 0.7200000021192763,
+                "milliseconds": 1728,
+                "degrees": 20
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2400,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": true
+        },
+        {
+          "clip": "inspect",
+          "durationMs": 1500,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 375,
+                "degrees": -5
+              },
+              {
+                "phase": 0.5,
+                "milliseconds": 750,
+                "degrees": 2
+              },
+              {
+                "phase": 0.75,
+                "milliseconds": 1125,
+                "degrees": 5
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1500,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "jump",
+          "durationMs": 950,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 238,
+                "degrees": -4
+              },
+              {
+                "phase": 0.6200000026769805,
+                "milliseconds": 589,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 950,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "land",
+          "durationMs": 500,
+          "channels": {},
+          "retiredBefore": false
+        },
+        {
+          "clip": "launch",
+          "durationMs": 2150,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.23999999290288881,
+                "milliseconds": 516,
+                "degrees": -6
+              },
+              {
+                "phase": 0.39999998817148136,
+                "milliseconds": 860,
+                "degrees": 5
+              },
+              {
+                "phase": 0.6000000118285187,
+                "milliseconds": 1290,
+                "degrees": -5
+              },
+              {
+                "phase": 0.7999999763429627,
+                "milliseconds": 1720,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2150,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "orbit",
+          "durationMs": 24000,
+          "channels": {},
+          "retiredBefore": false
+        },
+        {
+          "clip": "press",
+          "durationMs": 800,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.34999998410542804,
+                "milliseconds": 280,
+                "degrees": 3
+              },
+              {
+                "phase": 0.7200000286102295,
+                "milliseconds": 576,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 800,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "pulled",
+          "durationMs": 5600,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.19999999091738746,
+                "milliseconds": 1120,
+                "degrees": -12
+              },
+              {
+                "phase": 0.44999999091738746,
+                "milliseconds": 2520,
+                "degrees": 14
+              },
+              {
+                "phase": 0.6999999909173875,
+                "milliseconds": 3920,
+                "degrees": -9
+              },
+              {
+                "phase": 1,
+                "milliseconds": 5600,
+                "degrees": 0
+              }
+            ],
+            "pitch": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.17999999863760813,
+                "milliseconds": 1008,
+                "degrees": 14
+              },
+              {
+                "phase": 0.34999999545869376,
+                "milliseconds": 1960,
+                "degrees": -12
+              },
+              {
+                "phase": 0.6499999818347749,
+                "milliseconds": 3640,
+                "degrees": 22
+              },
+              {
+                "phase": 0.8500000181652251,
+                "milliseconds": 4760,
+                "degrees": -8
+              },
+              {
+                "phase": 1,
+                "milliseconds": 5600,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "push",
+          "durationMs": 5600,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.19999999091738746,
+                "milliseconds": 1120,
+                "degrees": 8
+              },
+              {
+                "phase": 0.3999999818347749,
+                "milliseconds": 2240,
+                "degrees": 12
+              },
+              {
+                "phase": 0.6999999909173875,
+                "milliseconds": 3920,
+                "degrees": 5
+              },
+              {
+                "phase": 1,
+                "milliseconds": 5600,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "reach",
+          "durationMs": 1000,
+          "channels": {},
+          "retiredBefore": false
+        },
+        {
+          "clip": "riseJump",
+          "durationMs": 1850,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.23999999450133727,
+                "milliseconds": 444,
+                "degrees": -6
+              },
+              {
+                "phase": 0.40000001374665684,
+                "milliseconds": 740,
+                "degrees": 5
+              },
+              {
+                "phase": 0.5999999862533432,
+                "milliseconds": 1110,
+                "degrees": -5
+              },
+              {
+                "phase": 0.8000000274933137,
+                "milliseconds": 1480,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1850,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "run",
+          "durationMs": 1300,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": -3
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 325,
+                "degrees": 0
+              },
+              {
+                "phase": 0.5,
+                "milliseconds": 650,
+                "degrees": 3
+              },
+              {
+                "phase": 0.75,
+                "milliseconds": 975,
+                "degrees": 0
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1300,
+                "degrees": -3
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "startle",
+          "durationMs": 850,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.18000000598383883,
+                "milliseconds": 153,
+                "degrees": -8
+              },
+              {
+                "phase": 0.5,
+                "milliseconds": 425,
+                "degrees": 4
+              },
+              {
+                "phase": 1,
+                "milliseconds": 850,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "stuckJump",
+          "durationMs": 3100,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.23999999671854,
+                "milliseconds": 744,
+                "degrees": -6
+              },
+              {
+                "phase": 0.40000000820365006,
+                "milliseconds": 1240,
+                "degrees": 5
+              },
+              {
+                "phase": 0.59999999179635,
+                "milliseconds": 1860,
+                "degrees": -5
+              },
+              {
+                "phase": 0.8000000164073001,
+                "milliseconds": 2480,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 3100,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "stuckLaunch",
+          "durationMs": 3400,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.23999999551212087,
+                "milliseconds": 816,
+                "degrees": -6
+              },
+              {
+                "phase": 0.39999999252020146,
+                "milliseconds": 1360,
+                "degrees": 5
+              },
+              {
+                "phase": 0.6000000074797985,
+                "milliseconds": 2040,
+                "degrees": -5
+              },
+              {
+                "phase": 0.7999999850404029,
+                "milliseconds": 2720,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 3400,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "walk",
+          "durationMs": 2000,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": -2
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 500,
+                "degrees": 0
+              },
+              {
+                "phase": 0.5,
+                "milliseconds": 1000,
+                "degrees": 2
+              },
+              {
+                "phase": 0.75,
+                "milliseconds": 1500,
+                "degrees": 0
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2000,
+                "degrees": -2
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "wave",
+          "durationMs": 1300,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.20000000489063752,
+                "milliseconds": 260,
+                "degrees": -2
+              },
+              {
+                "phase": 0.8000000195625501,
+                "milliseconds": 1040,
+                "degrees": -2
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1300,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        }
+      ]
+    },
+    {
+      "cast": "octo",
+      "file": "modules/abyss/companion/OctoMotionData.js",
+      "sha256": "beb68f6254a3bc3dd3d0f1511d61f6ffde88bcec77a9840c4259d13922f7b231",
+      "clips": [
+        {
+          "clip": "balance",
+          "durationMs": 1800,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.1500000070642542,
+                "milliseconds": 270,
+                "degrees": -10
+              },
+              {
+                "phase": 0.32000001271565753,
+                "milliseconds": 576,
+                "degrees": 12
+              },
+              {
+                "phase": 0.5,
+                "milliseconds": 900,
+                "degrees": -8
+              },
+              {
+                "phase": 0.6800000226056134,
+                "milliseconds": 1224,
+                "degrees": 7
+              },
+              {
+                "phase": 0.8500000282570168,
+                "milliseconds": 1530,
+                "degrees": -3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1800,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "buttplant",
+          "durationMs": 2900,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.3200000017538838,
+                "milliseconds": 928,
+                "degrees": -6
+              },
+              {
+                "phase": 0.5700000017538838,
+                "milliseconds": 1653,
+                "degrees": -12
+              },
+              {
+                "phase": 0.7600000315699084,
+                "milliseconds": 2204,
+                "degrees": -12
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2900,
+                "degrees": 0
+              }
+            ],
+            "pitch": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.3200000017538838,
+                "milliseconds": 928,
+                "degrees": -28
+              },
+              {
+                "phase": 0.5700000017538838,
+                "milliseconds": 1653,
+                "degrees": -68
+              },
+              {
+                "phase": 0.7600000315699084,
+                "milliseconds": 2204,
+                "degrees": -68
+              },
+              {
+                "phase": 0.900000035077676,
+                "milliseconds": 2610,
+                "degrees": -12
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2900,
+                "degrees": 0
+              }
+            ],
+            "yaw": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.3200000017538838,
+                "milliseconds": 928,
+                "degrees": -12
+              },
+              {
+                "phase": 0.5700000017538838,
+                "milliseconds": 1653,
+                "degrees": -22
+              },
+              {
+                "phase": 0.7600000315699084,
+                "milliseconds": 2204,
+                "degrees": -22
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2900,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": true
+        },
+        {
+          "clip": "delight",
+          "durationMs": 1600,
+          "channels": {},
+          "retiredBefore": false
+        },
+        {
+          "clip": "dive",
+          "durationMs": 700,
+          "channels": {},
+          "retiredBefore": false
+        },
+        {
+          "clip": "diveJump",
+          "durationMs": 1300,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.23999999119685247,
+                "milliseconds": 312,
+                "degrees": -6
+              },
+              {
+                "phase": 0.40000000978127503,
+                "milliseconds": 520,
+                "degrees": 5
+              },
+              {
+                "phase": 0.599999990218725,
+                "milliseconds": 780,
+                "degrees": -5
+              },
+              {
+                "phase": 0.8000000195625501,
+                "milliseconds": 1040,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1300,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "drag",
+          "durationMs": 1100,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": -4
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 275,
+                "degrees": 0
+              },
+              {
+                "phase": 0.5,
+                "milliseconds": 550,
+                "degrees": 4
+              },
+              {
+                "phase": 0.75,
+                "milliseconds": 825,
+                "degrees": 0
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1100,
+                "degrees": -4
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "emerge",
+          "durationMs": 900,
+          "channels": {},
+          "retiredBefore": false
+        },
+        {
+          "clip": "faceplant",
+          "durationMs": 2600,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.34999999021872497,
+                "milliseconds": 910,
+                "degrees": 4
+              },
+              {
+                "phase": 0.530000001956255,
+                "milliseconds": 1378,
+                "degrees": 8
+              },
+              {
+                "phase": 0.719999998043745,
+                "milliseconds": 1872,
+                "degrees": 8
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2600,
+                "degrees": 0
+              }
+            ],
+            "pitch": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.34999999021872497,
+                "milliseconds": 910,
+                "degrees": 12
+              },
+              {
+                "phase": 0.530000001956255,
+                "milliseconds": 1378,
+                "degrees": 78
+              },
+              {
+                "phase": 0.719999998043745,
+                "milliseconds": 1872,
+                "degrees": 78
+              },
+              {
+                "phase": 0.8500000391251001,
+                "milliseconds": 2210,
+                "degrees": 15
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2600,
+                "degrees": 0
+              }
+            ],
+            "yaw": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.34999999021872497,
+                "milliseconds": 910,
+                "degrees": -8
+              },
+              {
+                "phase": 0.530000001956255,
+                "milliseconds": 1378,
+                "degrees": -12
+              },
+              {
+                "phase": 0.719999998043745,
+                "milliseconds": 1872,
+                "degrees": -12
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2600,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": true
+        },
+        {
+          "clip": "fall",
+          "durationMs": 1100,
+          "channels": {
+            "pitch": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 275,
+                "degrees": 18
+              },
+              {
+                "phase": 0.7200000069358132,
+                "milliseconds": 792,
+                "degrees": -12
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1100,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": true
+        },
+        {
+          "clip": "fallVanish",
+          "durationMs": 3100,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.320000002461095,
+                "milliseconds": 992,
+                "degrees": -6
+              },
+              {
+                "phase": 0.5699999819519699,
+                "milliseconds": 1767,
+                "degrees": -12
+              },
+              {
+                "phase": 0.76000000328146,
+                "milliseconds": 2356,
+                "degrees": -12
+              },
+              {
+                "phase": 1,
+                "milliseconds": 3100,
+                "degrees": 0
+              }
+            ],
+            "pitch": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.320000002461095,
+                "milliseconds": 992,
+                "degrees": -28
+              },
+              {
+                "phase": 0.5699999819519699,
+                "milliseconds": 1767,
+                "degrees": -68
+              },
+              {
+                "phase": 0.76000000328146,
+                "milliseconds": 2356,
+                "degrees": -68
+              },
+              {
+                "phase": 0.8999999671853999,
+                "milliseconds": 2790,
+                "degrees": -12
+              },
+              {
+                "phase": 1,
+                "milliseconds": 3100,
+                "degrees": 0
+              }
+            ],
+            "yaw": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.320000002461095,
+                "milliseconds": 992,
+                "degrees": -12
+              },
+              {
+                "phase": 0.5699999819519699,
+                "milliseconds": 1767,
+                "degrees": -22
+              },
+              {
+                "phase": 0.76000000328146,
+                "milliseconds": 2356,
+                "degrees": -22
+              },
+              {
+                "phase": 1,
+                "milliseconds": 3100,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": true
+        },
+        {
+          "clip": "float",
+          "durationMs": 1800,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": -1.100000023841858
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 450,
+                "degrees": 0
+              },
+              {
+                "phase": 0.5,
+                "milliseconds": 900,
+                "degrees": 1.100000023841858
+              },
+              {
+                "phase": 0.75,
+                "milliseconds": 1350,
+                "degrees": 0
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1800,
+                "degrees": -1.100000023841858
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "fly",
+          "durationMs": 800,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": -2.5
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 200,
+                "degrees": 1
+              },
+              {
+                "phase": 0.5,
+                "milliseconds": 400,
+                "degrees": 2.5
+              },
+              {
+                "phase": 0.75,
+                "milliseconds": 600,
+                "degrees": -1
+              },
+              {
+                "phase": 1,
+                "milliseconds": 800,
+                "degrees": -2.5
+              }
+            ],
+            "pitch": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": -5
+              },
+              {
+                "phase": 0.22000000874201456,
+                "milliseconds": 176,
+                "degrees": 6
+              },
+              {
+                "phase": 0.549999992052714,
+                "milliseconds": 440,
+                "degrees": -3
+              },
+              {
+                "phase": 0.75,
+                "milliseconds": 600,
+                "degrees": -7
+              },
+              {
+                "phase": 1,
+                "milliseconds": 800,
+                "degrees": -5
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "hop",
+          "durationMs": 650,
+          "channels": {},
+          "retiredBefore": false
+        },
+        {
+          "clip": "ice",
+          "durationMs": 2400,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.18000000052981907,
+                "milliseconds": 432,
+                "degrees": -4
+              },
+              {
+                "phase": 0.3999999894036187,
+                "milliseconds": 960,
+                "degrees": -10
+              },
+              {
+                "phase": 0.7200000021192763,
+                "milliseconds": 1728,
+                "degrees": -10
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2400,
+                "degrees": 0
+              }
+            ],
+            "pitch": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.18000000052981907,
+                "milliseconds": 432,
+                "degrees": -12
+              },
+              {
+                "phase": 0.3999999894036187,
+                "milliseconds": 960,
+                "degrees": -65
+              },
+              {
+                "phase": 0.7200000021192763,
+                "milliseconds": 1728,
+                "degrees": -65
+              },
+              {
+                "phase": 0.9000000423855252,
+                "milliseconds": 2160,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2400,
+                "degrees": 0
+              }
+            ],
+            "yaw": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.18000000052981907,
+                "milliseconds": 432,
+                "degrees": 8
+              },
+              {
+                "phase": 0.3999999894036187,
+                "milliseconds": 960,
+                "degrees": 20
+              },
+              {
+                "phase": 0.7200000021192763,
+                "milliseconds": 1728,
+                "degrees": 20
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2400,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": true
+        },
+        {
+          "clip": "inspect",
+          "durationMs": 1500,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 375,
+                "degrees": -5
+              },
+              {
+                "phase": 0.5,
+                "milliseconds": 750,
+                "degrees": 2
+              },
+              {
+                "phase": 0.75,
+                "milliseconds": 1125,
+                "degrees": 5
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1500,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "jump",
+          "durationMs": 950,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 238,
+                "degrees": -4
+              },
+              {
+                "phase": 0.6200000026769805,
+                "milliseconds": 589,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 950,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "land",
+          "durationMs": 500,
+          "channels": {},
+          "retiredBefore": false
+        },
+        {
+          "clip": "launch",
+          "durationMs": 2150,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.23999999290288881,
+                "milliseconds": 516,
+                "degrees": -6
+              },
+              {
+                "phase": 0.39999998817148136,
+                "milliseconds": 860,
+                "degrees": 5
+              },
+              {
+                "phase": 0.6000000118285187,
+                "milliseconds": 1290,
+                "degrees": -5
+              },
+              {
+                "phase": 0.7999999763429627,
+                "milliseconds": 1720,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2150,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "orbit",
+          "durationMs": 24000,
+          "channels": {},
+          "retiredBefore": false
+        },
+        {
+          "clip": "press",
+          "durationMs": 800,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.34999998410542804,
+                "milliseconds": 280,
+                "degrees": 3
+              },
+              {
+                "phase": 0.7200000286102295,
+                "milliseconds": 576,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 800,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "pull",
+          "durationMs": 5600,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 1400,
+                "degrees": -8
+              },
+              {
+                "phase": 0.6000000181652251,
+                "milliseconds": 3360,
+                "degrees": 4
+              },
+              {
+                "phase": 1,
+                "milliseconds": 5600,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "reach",
+          "durationMs": 1000,
+          "channels": {},
+          "retiredBefore": false
+        },
+        {
+          "clip": "riseJump",
+          "durationMs": 1850,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.23999999450133727,
+                "milliseconds": 444,
+                "degrees": -6
+              },
+              {
+                "phase": 0.40000001374665684,
+                "milliseconds": 740,
+                "degrees": 5
+              },
+              {
+                "phase": 0.5999999862533432,
+                "milliseconds": 1110,
+                "degrees": -5
+              },
+              {
+                "phase": 0.8000000274933137,
+                "milliseconds": 1480,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1850,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "run",
+          "durationMs": 1300,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": -3
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 325,
+                "degrees": 0
+              },
+              {
+                "phase": 0.5,
+                "milliseconds": 650,
+                "degrees": 3
+              },
+              {
+                "phase": 0.75,
+                "milliseconds": 975,
+                "degrees": 0
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1300,
+                "degrees": -3
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "sink",
+          "durationMs": 5600,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.2399999981834775,
+                "milliseconds": 1344,
+                "degrees": -6
+              },
+              {
+                "phase": 0.3999999818347749,
+                "milliseconds": 2240,
+                "degrees": 5
+              },
+              {
+                "phase": 0.6000000181652251,
+                "milliseconds": 3360,
+                "degrees": -5
+              },
+              {
+                "phase": 0.7999999636695498,
+                "milliseconds": 4480,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 5600,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "startle",
+          "durationMs": 850,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.18000000598383883,
+                "milliseconds": 153,
+                "degrees": -8
+              },
+              {
+                "phase": 0.5,
+                "milliseconds": 425,
+                "degrees": 4
+              },
+              {
+                "phase": 1,
+                "milliseconds": 850,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "stuckJump",
+          "durationMs": 3100,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.23999999671854,
+                "milliseconds": 744,
+                "degrees": -6
+              },
+              {
+                "phase": 0.40000000820365006,
+                "milliseconds": 1240,
+                "degrees": 5
+              },
+              {
+                "phase": 0.59999999179635,
+                "milliseconds": 1860,
+                "degrees": -5
+              },
+              {
+                "phase": 0.8000000164073001,
+                "milliseconds": 2480,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 3100,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "stuckLaunch",
+          "durationMs": 3400,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.23999999551212087,
+                "milliseconds": 816,
+                "degrees": -6
+              },
+              {
+                "phase": 0.39999999252020146,
+                "milliseconds": 1360,
+                "degrees": 5
+              },
+              {
+                "phase": 0.6000000074797985,
+                "milliseconds": 2040,
+                "degrees": -5
+              },
+              {
+                "phase": 0.7999999850404029,
+                "milliseconds": 2720,
+                "degrees": 3
+              },
+              {
+                "phase": 1,
+                "milliseconds": 3400,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "walk",
+          "durationMs": 2000,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": -2
+              },
+              {
+                "phase": 0.25,
+                "milliseconds": 500,
+                "degrees": 0
+              },
+              {
+                "phase": 0.5,
+                "milliseconds": 1000,
+                "degrees": 2
+              },
+              {
+                "phase": 0.75,
+                "milliseconds": 1500,
+                "degrees": 0
+              },
+              {
+                "phase": 1,
+                "milliseconds": 2000,
+                "degrees": -2
+              }
+            ]
+          },
+          "retiredBefore": false
+        },
+        {
+          "clip": "wave",
+          "durationMs": 1300,
+          "channels": {
+            "roll": [
+              {
+                "phase": 0,
+                "milliseconds": 0,
+                "degrees": 0
+              },
+              {
+                "phase": 0.20000000489063752,
+                "milliseconds": 260,
+                "degrees": -2
+              },
+              {
+                "phase": 0.8000000195625501,
+                "milliseconds": 1040,
+                "degrees": -2
+              },
+              {
+                "phase": 1,
+                "milliseconds": 1300,
+                "degrees": 0
+              }
+            ]
+          },
+          "retiredBefore": false
+        }
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "caller": "WullPresence.explore",
+      "trigger": "grounded distance >=35*scale and random gait <.18",
+      "action": "roll",
+      "reachability": "automatic movement"
+    },
+    {
+      "caller": "WullPresence.moveTo",
+      "trigger": "preferredMode=roll on supported route",
+      "action": "roll",
+      "reachability": "manual or legacy movement"
+    },
+    {
+      "caller": "AbyssCompanion",
+      "trigger": "moving + surfaceSupported + travelMode=roll",
+      "action": "WullTravel.rollingAngle",
+      "reachability": "direct actor travel mode and Presence routes"
+    },
+    {
+      "caller": "WullTravel.rollingAngle",
+      "trigger": "any finite positive distance/scale",
+      "formula": "360*max(1,ceil(distance/(2*pi*32*scale)))*phase*sign",
+      "phaseDegrees": [
+        [
+          0,
+          0
+        ],
+        [
+          0.25,
+          90
+        ],
+        [
+          0.5,
+          180
+        ],
+        [
+          0.75,
+          270
+        ],
+        [
+          1,
+          360
+        ]
+      ],
+      "reachability": "one or more entire body turns; torso/limbs/face/shader pose"
+    },
+    {
+      "caller": "WaterDropletBody.modelRoll",
+      "trigger": "gait.roll + writable rollingAngle",
+      "reachability": "all body pose consumers"
+    },
+    {
+      "caller": "CompanionMotion / WullMotion / AbyssCompanion.perform, pairedAction, activeAppearClip, activeHideClip",
+      "trigger": "retired fall filters but no roll retirement",
+      "reachability": "no authored action named roll currently; literal/manual requests examined"
+    },
+    {
+      "caller": "WullPresence.chooseAppearance / advance / beginTurn / support recovery",
+      "trigger": "entry/exit/composite/drag/release and cast handoff",
+      "reachability": "stable launch, diveJump, sink, pulled, fly/land, edge support frame"
+    },
+    {
+      "caller": "WullPortals",
+      "trigger": "portal reveal/opening",
+      "reachability": "effect curl rotates; actor stays in support frame, hidden handover; retain effect"
+    }
+  ]
+}

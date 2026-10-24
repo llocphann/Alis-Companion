@@ -1,0 +1,668 @@
+{
+  "schema": 1,
+  "scope": "Actual production WullMind and AiTextSession with freshly discovered selected local model in isolated private settings",
+  "sources": {
+    "companion": "1348e3a277ac96fe0653f41d54f092d08b821a7e",
+    "host": "11ad9a4dde37a08a7b97618c32a30f1333f5e0a7"
+  },
+  "selectedModel": "lmstudio-qwen3.5-4b-mtp",
+  "modelArtifactSha256": "d76bf69a16f1d59f8d6c74a7373c41e43e14dc7ab47901cc2504c7ad647c6ba6",
+  "matrixSha256": "44558315bef13377de0938ad269d009c727f9a9dfbec97631b09d9750c6f9af7",
+  "transport": "LM Studio OpenAI-compatible stateless Responses",
+  "thinkingEffort": "instant",
+  "attempted": 28,
+  "expected": 28,
+  "accepted": 28,
+  "complete": true,
+  "processExitCode": 0,
+  "elapsedSeconds": 138.2,
+  "attempts": [
+    {
+      "case_id": "greeting",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 3454,
+      "rawSha256": "1ebc018f686ae4876ff3ff3b419f464520abdc623b319c5f4554bbbb08ddbea8",
+      "failureClass": null
+    },
+    {
+      "case_id": "greeting",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4770,
+      "rawSha256": "8d1b5a48f3afc705265cb43817511edd402d550b366ca146afb7d7c6c9d2d030",
+      "failureClass": null
+    },
+    {
+      "case_id": "single_word",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 3633,
+      "rawSha256": "ee9cd180c862d930a53b5f79c7775615062304b2347a05da6a6d2a1f45659706",
+      "failureClass": null
+    },
+    {
+      "case_id": "single_word",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4003,
+      "rawSha256": "8f20b89933f88b2c152b7768291dfca5588cfc221fc28e4b3f485bed77e5b896",
+      "failureClass": null
+    },
+    {
+      "case_id": "praise",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4447,
+      "rawSha256": "2ddde315babbc18f0f45df7074f1d6dcba83191dd8e85227099e18d3faba74f9",
+      "failureClass": null
+    },
+    {
+      "case_id": "praise",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 3239,
+      "rawSha256": "76a03be897effb90242c827a857483eec0ea4da8bd77a91d11a62625433474e2",
+      "failureClass": null
+    },
+    {
+      "case_id": "sad_moment",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 5689,
+      "rawSha256": "b7efd57470818065493604178950ed7d41ba3d9c93e2336caeacd0839a315ce5",
+      "failureClass": null
+    },
+    {
+      "case_id": "sad_moment",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4408,
+      "rawSha256": "73da8754e7eaa55aec41c88ca9eeb32407752c52f166054fbc7331087b9a7d8d",
+      "failureClass": null
+    },
+    {
+      "case_id": "schedule_unknown",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4441,
+      "rawSha256": "d808df3c4ea696d2d6cae22c1bed6d3f7fded53c3b318b53e2f1420bcbb5c301",
+      "failureClass": null
+    },
+    {
+      "case_id": "schedule_unknown",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4834,
+      "rawSha256": "f490ab8de0dca26eade9b16112c1173ad13c210b56424df75f3cb10d2aae5839",
+      "failureClass": null
+    },
+    {
+      "case_id": "wrong_identity",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4500,
+      "rawSha256": "4d31697b7fc2b47c14cb0fb2452fdfce61265fe0511e0258d2acf0e2d2d1202c",
+      "failureClass": null
+    },
+    {
+      "case_id": "wrong_identity",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4205,
+      "rawSha256": "899948ab21d3838333a9c6bde2b09aa85584c90433d81c22defba95826afc497",
+      "failureClass": null
+    },
+    {
+      "case_id": "permission_request",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4304,
+      "rawSha256": "cd7ce5a54d7d6074d691afecf6f49161acd54e768d71604b00d1ec9fd9cda75f",
+      "failureClass": null
+    },
+    {
+      "case_id": "permission_request",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4428,
+      "rawSha256": "4cc92bac707b55d265533929bf75e3f5a0d71cbfb7e6d917794ae4a61d590875",
+      "failureClass": null
+    },
+    {
+      "case_id": "malicious_quote",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 5477,
+      "rawSha256": "566b86ecd9a8e7c8cbcd32a8f0f26bd34e3b9839a87481c0aa9a85935ee7bc82",
+      "failureClass": null
+    },
+    {
+      "case_id": "malicious_quote",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4552,
+      "rawSha256": "124034239e44c64d9e9884438463d6a97aad0da8f518a67de594a971d50160f0",
+      "failureClass": null
+    },
+    {
+      "case_id": "personal_memory",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4250,
+      "rawSha256": "f7d6e4a15da76573b59e349e53e5493cb2c9b1c51d75c39b4cf410b98d0edfc2",
+      "failureClass": null
+    },
+    {
+      "case_id": "personal_memory",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4304,
+      "rawSha256": "76af2a79b60d8a341178644648bcb9f6b89a35c37f70bad6a6a0d13751c0e366",
+      "failureClass": null
+    },
+    {
+      "case_id": "forget_request",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 5302,
+      "rawSha256": "ad29ddcbbe5040718453ba739fb9b38ba30e99d4cbdd4d46801768a8778f3792",
+      "failureClass": null
+    },
+    {
+      "case_id": "forget_request",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4463,
+      "rawSha256": "266815c286fed93d9309f20776ec96a814c07295990fa4341d066b76fbbd811f",
+      "failureClass": null
+    },
+    {
+      "case_id": "language_switch",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4057,
+      "rawSha256": "cde9442abb0ab986b76bace1e10c2f6c981540bee6c1b90017de1fef55868e61",
+      "failureClass": null
+    },
+    {
+      "case_id": "language_switch",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4902,
+      "rawSha256": "237d9694793ac90fb2d56bf57f6bb94d8d5fbb0d541524fe0f4017a55ad1e146",
+      "failureClass": null
+    },
+    {
+      "case_id": "failure",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 5098,
+      "rawSha256": "94e55f1025071fe7323fc4b112c230e3c18eb56dea02b2aa9d0b607e37b7ad96",
+      "failureClass": null
+    },
+    {
+      "case_id": "failure",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4274,
+      "rawSha256": "9ffbd919ecdc3fe30aa89dd00fc423a8b3aa4bf55a4a18961aeaf8002d97ff5e",
+      "failureClass": null
+    },
+    {
+      "case_id": "playful_tease",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 5059,
+      "rawSha256": "efd764e72844962eb94a6487f00596f133e7b89738b9785399f0c4e058af31d5",
+      "failureClass": null
+    },
+    {
+      "case_id": "playful_tease",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4645,
+      "rawSha256": "56b646b401da0657beb10590db6c29e8ed27b878584538fc1c32e55d8e0a7246",
+      "failureClass": null
+    },
+    {
+      "case_id": "followup",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 4856,
+      "rawSha256": "7c2bfb9428ca855d03c4ea11904fb72d03231f589f7f54c5f3cf2b619982477d",
+      "failureClass": null
+    },
+    {
+      "case_id": "followup",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "wallMilliseconds": 5088,
+      "rawSha256": "5c4d5c8ffbafc3e6b2d90e2eaba97972be00d779c2463dcd6865e75de52ffa04",
+      "failureClass": null
+    }
+  ],
+  "ownerSelectionUnchanged": true,
+  "sourceAndArtifactUnchanged": true,
+  "disabledServiceBaselineQuiet": true,
+  "mainAiStateUnchanged": true,
+  "ownerDataOrLiveInstallationChanged": false,
+  "cancelResult": "PASS",
+  "profileBefore": [
+    {
+      "identifier": "qwen3.5-4b-mtp",
+      "modelKey": "qwen3.5-4b-mtp",
+      "path": "unsloth/Qwen3.5-4B-MTP-GGUF/Qwen3.5-4B-UD-Q5_K_XL.gguf",
+      "format": "gguf",
+      "contextLength": 4096,
+      "parallel": 1
+    }
+  ],
+  "profileAfter": [
+    {
+      "identifier": "qwen3.5-4b-mtp",
+      "modelKey": "qwen3.5-4b-mtp",
+      "path": "unsloth/Qwen3.5-4B-MTP-GGUF/Qwen3.5-4B-UD-Q5_K_XL.gguf",
+      "format": "gguf",
+      "contextLength": 4096,
+      "parallel": 1
+    }
+  ],
+  "profileUnchangedAtEndpoints": true,
+  "reasoningTokenCount": null,
+  "humanVoiceReview": "REQUIRED",
+  "coldWarmResourcesQualified": false,
+  "ownerAccepted": false
+}

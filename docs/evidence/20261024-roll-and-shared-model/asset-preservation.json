@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "beforeSource": "9b30f7a415c2cca766f2296a92ebd48f49dce718",
+  "checked": 29,
+  "changedRuntimePolicies": [
+    "modules/abyss/companion/CompanionMotion.js",
+    "modules/abyss/companion/WullTravel.js"
+  ],
+  "retainedAuthoredMotionAndAssetsUnchanged": true,
+  "scope": "Byte hashes of tracked authored blends, generated curves, shaders and JS files; only the two listed runtime policies changed"
+}

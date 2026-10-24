@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "hostFix": "23fbc243c40a5c1d0b7455cfb4439d4f8442b33a",
+  "selectedModel": "lmstudio-qwen3.5-4b-mtp",
+  "localWeightsVerified": true,
+  "weightMetadataFingerprint": "4f5e06c4a1f884bf4a5538374ff3002e2c15a1e43cbd684ea6ce4036bbaa03ce",
+  "reasoning": "unknown",
+  "reasoningOff": "supported",
+  "reasoningOffSource": "positively matched /api/v1/models off option; fresh verification before each Instant prompt",
+  "nativeAllowedOptions": [
+    "off",
+    "on"
+  ],
+  "nativeDefault": "on",
+  "reference": "https://lmstudio.ai/docs/developer/rest/list",
+  "fixtureChecks": {
+    "test-ai-reasoning.cjs": "PASS",
+    "test-ai-local-provider.py": "PASS"
+  },
+  "privateSharedUiChecks": {
+    "companion": "5ebb7b3aa9ce3a189778e223b86d09abf3a22b32",
+    "host": "23fbc243c40a5c1d0b7455cfb4439d4f8442b33a",
+    "passCount": 4,
+    "failCount": 0,
+    "skipCount": 0,
+    "exitCode": 0
+  },
+  "ownerDataOrLiveInstallationChanged": false,
+  "limitations": "Metadata trusts the selected local server. Curated metadata fingerprint is not a hash of weights; the separate model diagnostic pins the primary GGUF artifact, not projection files. API capability and Owner acceptance are separate."
+}

@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "reviewer": "Codex output review, not human Owner acceptance",
+  "publicAdapterAccepted": 28,
+  "rawStrictJSONWithAllowedExpression": 27,
+  "observedFindings": [
+    {
+      "cases": [
+        "sad_moment/aqua",
+        "praise/aqua"
+      ],
+      "code": "implied_emotions_or_sensing"
+    },
+    {
+      "cases": [
+        "wrong_identity/octo"
+      ],
+      "code": "tentacleless_identity_contradicts_actor"
+    },
+    {
+      "cases": [
+        "forget_request/aqua",
+        "forget_request/octo"
+      ],
+      "code": "misleading_forget_semantics"
+    },
+    {
+      "cases": [
+        "language_switch/aqua",
+        "language_switch/octo"
+      ],
+      "code": "English_prompt_policy_not_followed"
+    },
+    {
+      "cases": [
+        "playful_tease/octo"
+      ],
+      "code": "implementation_JSON_wording_in_public_reply"
+    }
+  ],
+  "voiceQualification": "FAIL_REQUIRES_REPAIR",
+  "cancelResult": "PASS owned client transport reaped; no late assistant history",
+  "coldWarmResourceQualification": "UNRUN",
+  "ownerAccepted": false,
+  "note": "No model or guard oracle was relaxed; all 14 paired cases were run again after a committed prompt/guard change. No per-case cherry-picked retry."
+}
