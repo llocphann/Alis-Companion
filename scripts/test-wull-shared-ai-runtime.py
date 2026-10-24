@@ -20,6 +20,12 @@ fingerprints={row['id']:hashlib.sha256(json.dumps({'provider':'lmstudio','model'
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args): pass
     def do_GET(self):
+        if self.path=='/api/v1/models':
+            self.send_response(200);self.end_headers()
+            self.wfile.write(json.dumps({'models':[{'key':'fixture-instant','type':'llm','format':'gguf',
+                'architecture':'fixture','quantization':{'name':'Q4_K_M'},'max_context_length':4096,
+                'capabilities':{'reasoning':{'allowed_options':['off','on'],'default':'on'}}}]}).encode())
+            return
         if self.path!='/api/v0/models':return self.send_error(404)
         self.send_response(200);self.end_headers()
         self.wfile.write(json.dumps({'data':model_rows}).encode())
@@ -102,7 +108,7 @@ ShellRoot {
   Ai.addModel(id,{name:id,model:id,endpoint:Quickshell.env("AI_FIXTURE_URL")+path,
    local:true,local_verified:true,local_fingerprint:root.localFingerprints[id],
    requires_key:false,provider_id:"lmstudio",api_format:"openai",
-   capabilities:{chat:"supported",reasoning:"supported"}})
+   capabilities:{chat:"supported",reasoning:"supported",reasoningOff:id==="fixture-instant" ? "supported" : "unknown"}})
  }
  function helperContext(marker): var {
   return {date:WullMind.today(),mood:"",energy:"",journalPath:"",schedule:[],marker:marker}
