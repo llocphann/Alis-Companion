@@ -8,6 +8,7 @@ import "services"
 import "modules/abyss/companion"
 import "modules/abyss/companion/WullPreferences.js" as WullPreferences
 import "modules/abyss/companion/WullContextProtocol.js" as ContextProtocol
+import "modules/abyss/companion/WullBehaviorDirector.js" as Director
 
 Item {
     id: root
@@ -96,9 +97,22 @@ Item {
     Connections {
         target:WullMind
         function onReactionRequested(expression): void {
-            if(root.companionSessionVisible && companionBridge.visibility==="present")
-                companionBridge.sendIntent(expression,.5,3000)
+            root.presentAiExpression(expression)
         }
+    }
+    function presentAiExpression(expression): bool {
+        const local=root.outputHosts.find(window=>window.outputName===root.companionTargetOutput)?.extension?.directorContext
+        if(!local)return false
+        const context=Object.assign({},local,{
+            enabled:root.companionEnabled && local.enabled===true,
+            visible:root.companionSessionVisible && companionBridge.visibility==="present",
+            locked:GlobalStates.screenLocked,gameMode:Appearance.gameModeMinimal,
+            fullscreen:GameMode.hasFullscreenOnOutput(root.companionTargetOutput),
+            dnd:Notifications.notificationPolicyActive,
+            motionEnabled:root.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled})
+        const proposal=Director.proposeAiExpression(contextState.director,context,{expression:expression},Date.now())
+        return proposal.accepted && proposal.epoch===contextState.director.epoch
+            && companionBridge.sendIntent(proposal.expression,proposal.intensity,proposal.ttlMs)
     }
     readonly property string companionTargetOutput: GlobalStates.resolveOutputName(
         "", Config.options?.bar?.screenList ?? [])

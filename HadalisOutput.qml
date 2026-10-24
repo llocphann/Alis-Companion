@@ -47,6 +47,10 @@ Item {
     readonly property bool ambientBlocked: !root.companionHostActive || root.companionOccluded
         || companionPresence.dragging || companionPresence.traveling || companionPresence.portalActive
         || companionCuriosity.busy || talkCloud.controlsVisible
+    readonly property var directorContext: ({enabled:root.companionHostActive,
+        dragging:companionPresence.dragging,manualTravel:companionPresence.traveling,
+        portalTravel:companionPresence.portalActive,
+        modalOpen:root.companionOccluded || companionCuriosity.busy})
     function requestCompanionChat(): void {
         if(!root.companionPermission) return
         companionTurns.cancel()

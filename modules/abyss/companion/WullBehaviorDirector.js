@@ -182,3 +182,21 @@ function pollNeedsInput(s,host,nowMs) {
     }
     return {eligible:false,reason:"no_confirmed_wait"}
 }
+
+// Explicit chat can propose a face while its conversation is open. All
+// placement, travel, Popup, portal and animation ownership stays with the
+// existing presentation controllers. No model-selected duration or geometry.
+function proposeAiExpression(s,host,input,nowMs) {
+    const expressions=["idle","happy","excited","thinking","working","surprised","sleepy","sad","alert"]
+    if(!finiteTime(nowMs) || !s || !Number.isSafeInteger(s.epoch)
+            || !input || typeof input!=="object" || Array.isArray(input)
+            || Object.keys(input).length!==1 || typeof input.expression!=="string"
+            || !expressions.includes(input.expression))
+        return {accepted:false,reason:"invalid_proposal"}
+    if(!host || host.enabled!==true || host.visible!==true || host.motionEnabled!==true
+            || host.locked===true || host.fullscreen===true || host.gameMode===true
+            || host.dragging===true || host.manualTravel===true || host.portalTravel===true
+            || host.modalOpen===true || host.dnd===true || host.quiet===true)
+        return {accepted:false,reason:"presentation_owned"}
+    return {accepted:true,expression:input.expression,intensity:.5,ttlMs:3000,epoch:s.epoch}
+}

@@ -134,6 +134,25 @@ clock+=api.STALE_MS+20;
 assert.equal(ctx(state).mode,"idle");
 assert.equal(Object.keys(state.sessions).length,0);
 
+// AI is a bounded expression proposal, including during an explicit chat.
+// Neither model JSON nor a late response can acquire movement or modal state.
+const expressionHost={...host,motionEnabled:true,chatOpen:true};
+const beforeProposal=JSON.stringify(state);
+for(const expression of ["idle","happy","excited","thinking","working","surprised","sleepy","sad","alert"]){
+    const result=plain(api.proposeAiExpression(state,expressionHost,{expression},clock));
+    assert.deepEqual(result,{accepted:true,expression,intensity:.5,ttlMs:3000,epoch:state.epoch});
+}
+for(const payload of [null,[],{},"happy",{expression:"fly"},{expression:"angry"},
+    {expression:"happy",x:1},{expression:"happy",popup:"open"},
+    {expression:"happy",ttlMs:900000},{expression:"happy",text:"private reply"}])
+    assert.equal(api.proposeAiExpression(state,expressionHost,payload,clock).accepted,false);
+for(const patch of [{enabled:false},{visible:false},{locked:true},{fullscreen:true},{gameMode:true},
+    {dragging:true},{manualTravel:true},{portalTravel:true},{modalOpen:true},{dnd:true},{quiet:true},{motionEnabled:false}])
+    assert.equal(api.proposeAiExpression(state,{...expressionHost,...patch},{expression:"happy"},clock).accepted,false);
+for(const time of [NaN,Infinity,-1])
+    assert.equal(api.proposeAiExpression(state,expressionHost,{expression:"happy"},time).accepted,false);
+assert.equal(JSON.stringify(state),beforeProposal,"AI proposal mutated presentation/agent ownership");
+
 // No permission grant, local data, process spawning, timers or external services.
 assert.doesNotMatch(code,/\b(?:fetch|XMLHttpRequest|WebSocket|exec|spawn|readFile|Qt\.createQmlObject)\s*\(/);
 assert.doesNotMatch(code,/\b(?:setInterval|setTimeout|import\s+Quickshell)\b/);

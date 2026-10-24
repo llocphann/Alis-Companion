@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory(prefix="hadanion-host-") as temporary:
     release.parent.mkdir(parents=True)
     shutil.copytree(ROOT / "optional/hadanion", release)
     (release.parent.parent / "current").symlink_to("releases/fixture")
-    config = private / "config/illogical-impulse"
+    config = private / "config/alis"
     config.mkdir(parents=True)
     options = json.loads((ROOT / "defaults/config.json").read_text())
     options["panelFamily"] = "abyss"
@@ -116,6 +116,18 @@ ShellRoot {
                 feed.aiBusy=true;feed.synchronizeAgent()
                 if(Object.keys(session.contextState.director.sessions).length!==1)
                     {root.fail("typed AI context was not received");return}
+                // Supply only an owned synthetic host permission descriptor;
+                // no extra actor/window, model, coordinates or Popup is used.
+                const originalOutputs=Hadanion.outputs,bridgeSequence=session.bridge.outboundSeq
+                const local={enabled:true,dragging:false,manualTravel:true,portalTravel:false,modalOpen:false}
+                Hadanion.outputs=[{outputName:session.companionTargetOutput,extension:{directorContext:local}}]
+                const blocked=session.presentAiExpression("happy")
+                local.manualTravel=false
+                const invalid=session.presentAiExpression("fly")
+                const accepted=session.presentAiExpression("happy")
+                Hadanion.outputs=originalOutputs
+                if(blocked || invalid || !accepted || session.bridge.outboundSeq!==bridgeSequence+1)
+                    {root.fail("AI Director bypassed travel/vocabulary or lost its bounded native intent");return}
                 const seq=session.contextState.sequence,generation=feed.generation
                 feed.frame(JSON.stringify({version:1,generation:generation,sequence:seq,
                     issuedAtMs:Date.now(),kind:"heartbeat",payload:({})}))
@@ -142,7 +154,7 @@ ShellRoot {
                     {root.fail("expired connection reused generation");return}
                 Config.setNestedValues({"abyss.companion.contextEnabled":false,
                     "abyss.companion.contextAiEnabled":false,"abyss.companion.enabled":false})
-                console.log("COMPANION_CONTEXT_RUNTIME_PASS exactPeer authenticatedObject typedFrames replay unknownReject revocation freshGeneration noInference")
+                console.log("COMPANION_CONTEXT_RUNTIME_PASS exactPeer authenticatedObject typedFrames replay unknownReject revocation freshGeneration directorTravelPriority boundedNativeIntent noInference")
                 root.step=2
             } else if (root.step===2 && !Hadanion.session && !surface.extension) {
                 if (surface.inputRegions.length || surface.editing || surface.curiosityOwned || surface.waterLink)
@@ -204,4 +216,4 @@ ShellRoot {
 
 print("PASS: external installed package/session/output/settings without core aliases, default-off, enable/disable/refresh and exactly one reaped native owner")
 if os.environ.get('HADANION_TEST_CONTEXT')=='1':
-    print('COMPANION_CONTEXT_RUNTIME_PASS exactPeer typedFrames replay unknownReject revoke reconnect staleFreshGeneration noInference')
+    print('COMPANION_CONTEXT_RUNTIME_PASS exactPeer typedFrames replay unknownReject revoke reconnect staleFreshGeneration directorTravelPriority boundedNativeIntent noInference')
