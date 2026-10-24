@@ -7,6 +7,7 @@ import qs.modules.abyss.looks
 import "services"
 import "modules/abyss/companion"
 import "modules/abyss/companion/WullPreferences.js" as WullPreferences
+import "modules/abyss/companion/WullContextProtocol.js" as ContextProtocol
 
 Item {
     id: root
@@ -14,6 +15,62 @@ Item {
     readonly property var outputHosts: host.outputs
     readonly property var mind: WullMind
     readonly property var bridge: companionBridge
+    property var contextState:ContextProtocol.newState()
+    property var contextConnection:null
+    property bool contextConnected:false
+    property var contextIntent:({mode:"idle",reason:"disabled",expression:"idle",epoch:0})
+    readonly property var contextFeed:host?.contextApiVersion===1 ? host.contextSource : null
+    function disconnectContext(): void {
+        contextSettle.stop()
+        ContextProtocol.configure(contextState,false,"",Date.now())
+        contextConnection=null;contextConnected=false;evaluateContext()
+    }
+    function connectContext(): void {
+        if(!contextFeed || host.session!==root){disconnectContext();return}
+        if(contextConnected && contextConnection===contextFeed && contextState.enabled)return
+        const source=contextFeed,binding=source.bind(root)
+        if(!binding || binding.version!==1
+                || !ContextProtocol.configure(contextState,true,binding.generation,Date.now()).accepted){disconnectContext();return}
+        contextConnection=source;contextConnected=true
+        if(!source.activate(root,binding.generation))disconnectContext()
+    }
+    function evaluateContext(): void {
+        contextIntent=ContextProtocol.observe(contextState,{
+            enabled:companionEnabled,visible:companionSessionVisible,
+            optedIn:contextConnected,locked:GlobalStates.screenLocked,
+            fullscreen:GameMode.hasFullscreenOnOutput(companionTargetOutput),
+            gameMode:Appearance.gameModeMinimal,chatOpen:WullMind.conversationOpen,
+            modalOpen:WullMind.hostBlocked,dnd:Notifications.notificationPolicyActive,
+            quiet:!AbyssStyle.motionEnabled || companionPreferences?.animationsEnabled!==true,
+            idle:WullMind.hostIdle},Date.now())
+        if(!contextState.enabled)contextConnected=false
+    }
+    onContextFeedChanged: {disconnectContext();contextConnect.restart()}
+    Connections {
+        target:root.contextFeed
+        ignoreUnknownSignals:true
+        function onFrame(packet): void {
+            const trusted=root.contextConnected && root.contextConnection===root.contextFeed
+                && root.host.session===root
+            const accepted=ContextProtocol.accept(root.contextState,packet,trusted,Date.now())
+            if(accepted.accepted){root.evaluateContext();contextSettle.restart()}
+            else if(!root.contextState.enabled){
+                root.disconnectContext()
+                if(root.contextFeed && root.host.session===root)contextReconnect.restart()
+            }
+        }
+        function onRevoked(): void {root.disconnectContext()}
+    }
+    // Re-evaluate the Director's existing focus-settle deadline; this is not a
+    // Focus session clock and never loads a model or starts a second actor.
+    Timer {id:contextSettle;interval:750;onTriggered:root.evaluateContext()}
+    Timer {id:contextConnect;interval:1;onTriggered:root.connectContext()}
+    Timer {id:contextReconnect;interval:1000;onTriggered:root.connectContext()}
+    Connections {
+        target:root.host
+        ignoreUnknownSignals:true
+        function onSessionChanged(): void {contextConnect.restart()}
+    }
     readonly property var companionOptions: Config.options?.abyss?.companion
     readonly property var companionPreferences: WullPreferences.normalize(companionOptions)
     readonly property string selectedCompanion: companionPreferences.character
@@ -87,6 +144,8 @@ function status(): string {
     for (let i=0;i<root.outputHosts.length;i++)
         outputs.push(root.outputHosts[i].companionStatus())
     return JSON.stringify({enabled:root.companionEnabled,
+        context:{connected:root.contextConnected,mode:root.contextIntent.mode,
+            reason:root.contextIntent.reason,epoch:root.contextIntent.epoch},
         sessionVisible:root.companionSessionVisible,
         targetOutput:root.companionTargetOutput,
         backend:{ready:companionBridge.ready,
@@ -96,8 +155,9 @@ function status(): string {
             restartAttempts:companionBridge.restartAttempts},outputs:outputs})
 }
 
-    Component.onCompleted: root.syncCompanionVisibility()
+    Component.onCompleted: {root.syncCompanionVisibility();contextConnect.start()}
     Component.onDestruction: {
+        root.disconnectContext()
         WullMind.hostVisible=false
         WullMind.hostIdle=false
         WullMind.hostBlocked=true

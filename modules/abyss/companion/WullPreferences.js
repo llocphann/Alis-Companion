@@ -9,6 +9,7 @@ var qualities = ["performance", "quality", "detailed"]
 function defaults() {
     return {
         enabled: false, character: "aqua", alternateCompanions: false,
+        contextEnabled:false,contextFocusEnabled:false,contextAiEnabled:false,
         output: "", edge: "auto", along: 0.72, size: 1,
         interactive: true, soundEnabled: false, personality: "balanced",
         appearanceFrequency: "always", animationsEnabled: true,
@@ -25,7 +26,7 @@ function bounded(value, fallback, minimum, maximum) {
 function normalize(options) {
     const source = options ?? {}
     const result = defaults()
-    for (const key of ["enabled", "alternateCompanions", "interactive", "soundEnabled", "animationsEnabled", "effectsEnabled", "hideInFullscreen", "exploreFeatures", "autoQuality"])
+    for (const key of ["enabled", "alternateCompanions", "interactive", "soundEnabled", "animationsEnabled", "effectsEnabled", "hideInFullscreen", "exploreFeatures", "autoQuality", "contextEnabled", "contextFocusEnabled", "contextAiEnabled"])
         if (typeof source[key] === "boolean") result[key] = source[key]
     result.character = source.character === "octo" ? "octo" : "aqua"
     // Older persisted placement values are tolerated but no longer pin Wull.

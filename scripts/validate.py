@@ -94,7 +94,7 @@ def main():
         base_environment = environment.copy()
         checks += [["node", str(path.relative_to(ROOT))] for path in sorted((ROOT / "scripts").glob("test-*.cjs"))]
         checks += [["python3", "scripts/" + name] for name in (
-            "test-package-lifecycle.py", "test-host-runtime.py", "test-module-hover-runtime.py", "test-wull-local-mind.py",
+            "test-package-lifecycle.py", "test-host-runtime.py", "test-wull-context-runtime.py", "test-module-hover-runtime.py", "test-wull-local-mind.py",
             "test-wull-gguf-ui.py", "test-wull-shared-ai-runtime.py", "test-wull-abyss-water.py",
             "test-wull-portal-runtime.py", "test-wull-presence-interaction.py", "test-wull-alive-reactions.py",
             "test-wull-mature-popup.py", "test-companion-airborne-orientation.py",
@@ -132,7 +132,14 @@ def main():
                 session_root.mkdir()
                 # Fresh private windows prevent parent-compositor occlusion and
                 # pointer/focus interference with another running Qt validator.
-                with native_session.private_wayland(session_root) as native_environment:
+                # These two proofs depend on real rendered frames and an
+                # animation-driven hide deadline. An occluded nested output
+                # may suspend that clock. Focus only this owned compositor;
+                # the helper restores a known previous target unless the
+                # Owner changed focus in the meantime. Pixel/input oracles
+                # and deadlines remain unchanged.
+                with native_session.private_wayland(session_root, capture_focus=label in {
+                        "test-companion-volume.py", "test-wull-cloud-orbit.py"}) as native_environment:
                     run_environment = base_environment.copy()
                     if native_environment:
                         for key in ("WAYLAND_DISPLAY", "NIRI_SOCKET", "QT_QPA_PLATFORM",

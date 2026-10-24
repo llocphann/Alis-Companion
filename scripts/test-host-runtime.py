@@ -65,6 +65,7 @@ ShellRoot {
     property int ticks: 0
     property var preferencesSnapshot: Config.options
     property int step: 0
+    property string oldContextGeneration:""
     property var optionalHost: Hadanion
     property var stubHost: ({width:900,height:650,outputName:"fixture",presented:true,
         editorOpen:false,overviewDragging:false,dockHovered:false,
@@ -101,7 +102,48 @@ ShellRoot {
                         || surface.inputRegions.length!==5)
                     {root.fail("output contract");return}
                 console.log("HADANION_NATIVE_READY")
+                if(Quickshell.env("HADANION_TEST_CONTEXT")==="1") {
+                    if(Hadanion.contextApiVersion!==1 || Hadanion.contextSource!==null
+                            || Hadanion.session.contextConnected){root.fail("context not supported or default-off");return}
+                    Config.setNestedValues({"abyss.companion.contextEnabled":true,
+                        "abyss.companion.contextAiEnabled":true})
+                    root.step=10;return
+                }
                 Config.setNestedValue("abyss.companion.enabled",false);root.step=2
+            } else if(root.step===10 && Hadanion.session?.contextConnected) {
+                const feed=Hadanion.contextSource,session=Hadanion.session
+                if(!feed || !feed.active || feed.bind(root)!==null){root.fail("foreign context peer accepted");return}
+                feed.aiBusy=true;feed.synchronizeAgent()
+                if(Object.keys(session.contextState.director.sessions).length!==1)
+                    {root.fail("typed AI context was not received");return}
+                const seq=session.contextState.sequence,generation=feed.generation
+                feed.frame(JSON.stringify({version:1,generation:generation,sequence:seq,
+                    issuedAtMs:Date.now(),kind:"heartbeat",payload:({})}))
+                feed.frame(JSON.stringify({version:1,generation:generation,sequence:seq+1,
+                    issuedAtMs:Date.now(),kind:"heartbeat",payload:({prompt:"synthetic private sentinel"})}))
+                if(session.contextState.sequence!==seq){root.fail("replay or unknown data consumed sequence");return}
+                root.oldContextGeneration=generation
+                Config.setNestedValue("abyss.companion.contextEnabled",false);root.step=11
+            } else if(root.step===11 && !Hadanion.session?.contextConnected && Hadanion.contextSource===null) {
+                if(Hadanion.session.contextState.enabled
+                        || Object.keys(Hadanion.session.contextState.director.sessions).length)
+                    {root.fail("revocation retained context");return}
+                Config.setNestedValue("abyss.companion.contextEnabled",true);root.step=12
+            } else if(root.step===12 && Hadanion.session?.contextConnected) {
+                if(Hadanion.contextSource.generation===root.oldContextGeneration)
+                    {root.fail("reconnect reused generation");return}
+                root.oldContextGeneration=Hadanion.contextSource.generation
+                Hadanion.session.contextState.lastReceivedMs=Date.now()-15001
+                Hadanion.contextSource.send("heartbeat",({}))
+                if(Hadanion.session.contextConnected){root.fail("stale context remained live");return}
+                root.step=13
+            } else if(root.step===13 && Hadanion.session?.contextConnected) {
+                if(Hadanion.contextSource.generation===root.oldContextGeneration)
+                    {root.fail("expired connection reused generation");return}
+                Config.setNestedValues({"abyss.companion.contextEnabled":false,
+                    "abyss.companion.contextAiEnabled":false,"abyss.companion.enabled":false})
+                console.log("COMPANION_CONTEXT_RUNTIME_PASS exactPeer authenticatedObject typedFrames replay unknownReject revocation freshGeneration noInference")
+                root.step=2
             } else if (root.step===2 && !Hadanion.session && !surface.extension) {
                 if (surface.inputRegions.length || surface.editing || surface.curiosityOwned || surface.waterLink)
                     {root.fail("disabled output retains interaction");return}
@@ -155,7 +197,11 @@ ShellRoot {
         text = log.read_text()
         errors = ("ReferenceError:", "TypeError:", "Unable to assign", "Binding loop", "Failed to load configuration", "is not a type")
         assert process.returncode == 0 and "HADANION_RUNTIME=PASS" in text and not any(e in text for e in errors), text[-16000:]
+        if os.environ.get('HADANION_TEST_CONTEXT')=='1':
+            assert 'COMPANION_CONTEXT_RUNTIME_PASS' in text,text[-16000:]
         assert peak == 1 and native_pids, f"one native owner expected: peak={peak}"
         assert all(not Path(f"/proc/{pid}").exists() for pid in native_pids), "a native process survived unload"
 
 print("PASS: external installed package/session/output/settings without core aliases, default-off, enable/disable/refresh and exactly one reaped native owner")
+if os.environ.get('HADANION_TEST_CONTEXT')=='1':
+    print('COMPANION_CONTEXT_RUNTIME_PASS exactPeer typedFrames replay unknownReject revoke reconnect staleFreshGeneration noInference')

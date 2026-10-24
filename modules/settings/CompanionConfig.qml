@@ -318,6 +318,29 @@ ContentPage {
                 checked: root.preferences.animationsEnabled
                 onToggledByUser: checked => root.setPreference("animationsEnabled", checked)
             }
+            SettingsSwitch {
+                objectName:"companionContext"
+                text:Translation.tr("Share coarse activity with Companion")
+                description:Translation.tr("Off by default. Shares only the categories and states you choose below. Stops while locked, fullscreen or Do Not Disturb.")
+                autoToggle:false;checked:root.preferences.contextEnabled
+                onToggledByUser:checked=>root.setPreference("contextEnabled",checked)
+            }
+            SettingsSwitch {
+                objectName:"companionContextFocus"
+                text:Translation.tr("Share the focused app category")
+                description:Translation.tr("Only terminal, editor or other. Window titles, files and app content stay private.")
+                enabled:root.preferences.contextEnabled
+                autoToggle:false;checked:root.preferences.contextFocusEnabled
+                onToggledByUser:checked=>root.setPreference("contextFocusEnabled",checked)
+            }
+            SettingsSwitch {
+                objectName:"companionContextAi"
+                text:Translation.tr("Share Alis AI activity")
+                description:Translation.tr("Only working, waiting for approval and finished. No prompts, replies, tools or permission grants.")
+                enabled:root.preferences.contextEnabled
+                autoToggle:false;checked:root.preferences.contextAiEnabled
+                onToggledByUser:checked=>root.setPreference("contextAiEnabled",checked)
+            }
         }
     }
 
