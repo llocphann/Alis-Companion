@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "scope": "Committed source package qualification; installed desktop and Owner acceptance remain separate",
+  "sources": {
+    "companion": {
+      "sha": "eb93656e4063a17f36e939d0bb7b28cc33f87629"
+    },
+    "integration": {
+      "sha": "192ddf6614b144593bd8d9f0bdb28e4ae4eb41a0"
+    },
+    "host": {
+      "sha": "081ce4ae439015e79dc22be3dcff8a6f7142ff25"
+    }
+  },
+  "sourceTreesCleanAfterRun": {
+    "companion": true,
+    "integration": true,
+    "host": true
+  },
+  "packageBuild": {
+    "exitCode": 0,
+    "elapsedSeconds": 7.12
+  },
+  "wholePackage": {
+    "pass": 79,
+    "fail": 0,
+    "skip": 0,
+    "exitCode": 0,
+    "elapsedSeconds": 341.61,
+    "logSha256": "c6f9375fd04b0f351f84ed931cac3075fa339ba3a8382103311df7e34b650085"
+  },
+  "hostCanonical": {
+    "source": "081ce4ae439015e79dc22be3dcff8a6f7142ff25",
+    "pass": 478,
+    "fail": 47,
+    "skip": 2,
+    "exitCode": 1,
+    "elapsedSeconds": 2219.15,
+    "integrationSource": "a42cba235699ad3735dccfcb218c1f68758f718d",
+    "integrationPublication": "Local committed dependency; not claimed published",
+    "logSha256": "6e5db0154dd50e2d314631766ce088fc359d9ec38a7a1a7660269d52c8d8e9a3"
+  },
+  "qualifiedFeatureScopes": [
+    "AC-F01 semantic bridge exact-peer authentication, consent, typed frames, replay/revoke/reconnect/stale generation",
+    "AC-F09 bounded native expression under existing Director; travel suppression and payload refusal",
+    "AC-F05",
+    "AC-F06",
+    "AC-F07",
+    "AC-F08"
+  ],
+  "gates": {
+    "installedPackageAcceptance": false,
+    "physicalDesktopAcceptance": false,
+    "ownerAcceptance": false,
+    "originalG0Qualified": false,
+    "G1Qualified": false,
+    "realModelVoiceQualified": false
+  },
+  "ownerReportedRegression": {
+    "issue": "https://github.com/llocphann/Alis-Companion/issues/1",
+    "status": "Owner FAIL remains active; the package suite did not cover fall-like segments inside entry/exit composite clips",
+    "notOverriddenBySuitePass": true
+  }
+}

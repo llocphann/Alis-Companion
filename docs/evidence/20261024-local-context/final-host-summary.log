@@ -1,0 +1,52 @@
+[28] Native Dashboard/Overview content-ready reveal, reversal and warm expiry FAIL
+[65] Python regression: scripts/test-abyss-body-reveal-readiness-runtime.py FAIL
+[66] Python regression: scripts/test-abyss-compact-editor-runtime.py FAIL
+[96] Python regression: scripts/test-abyss-launcher-live-editor-contract.py FAIL
+[104] Python regression: scripts/test-abyss-multi-selection-runtime.py FAIL
+[125] Python regression: scripts/test-abyss-round0-editor-controls.py FAIL
+[138] Python regression: scripts/test-abyss-width-affects-modules-runtime.py FAIL
+[150] Python regression: scripts/test-bar-cava-profile-runtime.py FAIL
+[166] Python regression: scripts/test-calendar-weather-composition-contract.py FAIL
+[196] Python regression: scripts/test-dashboard-freeform-contract.py FAIL
+[202] Python regression: scripts/test-dashboard-music-runtime.py FAIL
+[204] Python regression: scripts/test-dashboard-notes-markdown-contract.py FAIL
+[205] Python regression: scripts/test-dashboard-notes-markdown-runtime.py FAIL
+[207] Python regression: scripts/test-dashboard-page-request-runtime.py FAIL
+[213] Python regression: scripts/test-dashboard-tab-reorder-runtime.py FAIL
+[217] Python regression: scripts/test-dashboard-workspace.py     FAIL
+[221] Python regression: scripts/test-desktop-context-menu-native.py FAIL
+[222] Python regression: scripts/test-desktop-widget-editor-coordinates.py FAIL
+[225] Python regression: scripts/test-dock-abyss-hover-orientation-contract.py FAIL
+[252] Python regression: scripts/test-light-mode-upstream-contract.py FAIL
+[254] Python regression: scripts/test-local-ai-gguf-runtime.py   FAIL
+[255] Python regression: scripts/test-local-model-folder.py      FAIL
+[265] Python regression: scripts/test-material-only-global-style-contract.py FAIL
+[274] Python regression: scripts/test-notification-center-bottom-right-contract.py FAIL
+[282] Python regression: scripts/test-owner-ui-regressions-contract.py FAIL
+[300] Python regression: scripts/test-recording-abyss-runtime.py FAIL
+[316] Python regression: scripts/test-screenshot-pointer-runtime.py FAIL
+[319] Python regression: scripts/test-settings-concise-copy-surface.py FAIL
+[327] Python regression: scripts/test-settings-task-tabs-runtime.py FAIL
+[330] Python regression: scripts/test-shell-surface-contracts.py FAIL
+[344] Python regression: scripts/test-theme-seed-cache.py        FAIL
+[360] Python regression: scripts/test-wallpaper-carousel-runtime.py FAIL
+[361] Python regression: scripts/test-wallpaper-color-preview-runtime.py FAIL
+[367] Python regression: scripts/test-wallpaper-preview-palette-cache.py FAIL
+[377] Python regression: scripts/test-weekly-planner-expanded-event-editor-contract.py FAIL
+[399] shell regression: scripts/test-abyss-editor-runtime.sh     FAIL
+[402] shell regression: scripts/test-abyss-network-popups.sh     FAIL
+[408] shell regression: scripts/test-abyss-shared-content.sh     FAIL
+[411] shell regression: scripts/test-abyss-utilities-popup.sh    FAIL
+[426] shell regression: scripts/test-brand-canonical-contracts.sh FAIL
+[466] shell regression: scripts/test-local-distribution.sh       FAIL
+[469] shell regression: scripts/test-local-required-contracts.sh FAIL
+[483] shell regression: scripts/test-packaging-contract.sh       FAIL
+[484] shell regression: scripts/test-panel-style-adapter.sh      FAIL
+[511] shell regression: scripts/test-update-lifecycle.sh         FAIL
+[522] shell regression: scripts/test-window-preview-lifecycle.sh FAIL
+[523] Make contract: prefix/path relocation                      FAIL
+Alis validation: FAIL
+SHA: 081ce4ae439015e79dc22be3dcff8a6f7142ff25
+Passed: 478
+Failed: 47
+Skipped: 2
