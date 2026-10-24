@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Owned native portal handover, invalidation and grounded roll contracts."""
+"""Owned native portal handover, invalidation and retired-roll migration."""
 import json,tempfile
 from pathlib import Path
 from native_test_session import private_wayland,run_qs
@@ -98,14 +98,20 @@ Window {
    check(!presence.portalActive && presence.mode==="jump" && actor.moving,"explicit jump was replaced by portal")
    tryCompare(presence,"traveling",false,presence.duration+700)
    check(presence.grounded && Scene.distance(presence.position(),dest)<.2,"physical jump did not land")
-   source=put(.3);dest=Scene.annotate(root.scene,{x:source.x+70,y:source.y},"bottom","edge","bottom")
-   check(presence.moveTo(dest,false,"roll"),"grounded roll rejected")
-   wait(350)
-   const body=find(actor,"wullLiquidBody")
-   check(actor.rolling && !actor.flying && presence.grounded && Math.abs(body.rollingAngle)>20,"roll did not rotate the native body on its surface")
-   tryCompare(presence,"traveling",false,presence.duration+700)
-   check(!actor.rolling && body.rollingAngle===0 && actor.inputReady && Scene.distance(presence.position(),dest)<.2,"roll did not finish upright at destination")
-   console.info("WULL_PORTAL_NATIVE_PASS hidden-handover travel-only retreat-not-portal explicit-move-not-portal destination-invalidation bounded-lifetime motion-cancel interaction-cancel cast-cancel retired-route-rejection support-recovery physical-jump grounded-roll")
+   for(const cast of ["aqua","octo"]) {
+    actor.character=cast
+    source=put(.3);dest=Scene.annotate(root.scene,{x:source.x+70,y:source.y},"bottom","edge","bottom")
+    check(presence.moveTo(dest,false,"roll"),"legacy travel lost its destination")
+    const body=find(actor,"wullLiquidBody")
+    for(let i=0;i<8;i++) {
+     wait(70)
+     check(presence.mode==="run" && actor.walking && !actor.rolling && !actor.flying && presence.grounded,"legacy travel did not become a stable run")
+     check(Math.abs(body.modelRoll)<=3 && body.orientationAngle===0,"legacy travel rotated the body")
+    }
+    tryCompare(presence,"traveling",false,presence.duration+700)
+    check(!actor.rolling && body.rollingAngle===0 && actor.inputReady && Scene.distance(presence.position(),dest)<.2,"legacy travel did not settle upright at destination")
+   }
+   console.info("WULL_PORTAL_NATIVE_PASS hidden-handover travel-only retreat-not-portal explicit-move-not-portal destination-invalidation bounded-lifetime motion-cancel interaction-cancel cast-cancel retired-route-rejection support-recovery physical-jump cast=2 legacy-roll-stable-run")
   }catch(e){console.error("WULL_PORTAL_NATIVE_FAIL",e.message,e.stack)}Qt.quit()}
  }
  Timer {interval:100;running:true;onTriggered:test.runChecks()}

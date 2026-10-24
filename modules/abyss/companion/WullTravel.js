@@ -19,8 +19,7 @@ function opening(progress) {
     return smooth(0,.16,t)*(1-smooth(.84,1,t))
 }
 function rollingAngle(distance, progress, direction, scale) {
-    if (![distance,direction,scale].every(Number.isFinite) || distance<=0 || scale<=0) return 0
-    // Whole rotations end upright, so settling never snaps a half-turned face.
-    const turns=Math.max(1,Math.ceil(distance/(2*Math.PI*32*scale)))
-    return 360*turns*unit(progress)*(direction<0 ? -1 : 1)
+    // Compatibility for old callers. No phase, distance or interrupted travel
+    // may generate a full-body turn; current travel uses a stable Run instead.
+    return 0
 }

@@ -96,12 +96,38 @@ Window {
             actor.presentationManaged=false
             root.place(Scene.edgePoint(root.scene,"bottom",.5))
         }
+        function checkRetiredRoll(body,gait):void {
+            for(const edge of ["top","bottom","left","right"]) {
+                const point=Scene.edgePoint(root.scene,edge,.5)
+                root.place(point)
+                const expected=({top:180,bottom:0,left:90,right:-90})[edge]
+                // A legacy writable input must not bypass the shared pose.
+                body.rollingAngle=720;wait(1)
+                check(Math.abs(body.modelRoll)<=14,"legacy body input revived a full turn")
+                body.rollingAngle=0
+                check(presence.moveTo(Scene.edgePoint(root.scene,edge,.6),false,"roll"),"legacy route lost translation")
+                wait(90)
+                check(presence.mode==="run" && actor.walking && !actor.rolling && !actor.flying,"legacy route was not a stable run")
+                check(Math.abs(body.modelRoll)<=3 && body.orientationAngle===expected,"legacy route rotated off its support")
+                // Direct old actor bindings receive the same migration.
+                actor.travelMode="roll";wait(50)
+                check(actor.effectiveTravelMode==="run" && gait.clip==="run" && !actor.rolling,"direct actor binding revived roll")
+                presence.pause(true);actor.travelMode=Qt.binding(()=>presence.mode)
+                check(!actor.moving && body.orientationAngle===expected,"interrupted run lost its support frame")
+                root.place(point)
+                presence.travelId=1;presence.travelFraction=.9;presence.randomState=2000
+                presence.explore();wait(60)
+                check(presence.traveling && presence.mode==="run" && !actor.rolling,"automatic former-roll branch still rolls")
+                presence.pause(true)
+            }
+            root.place(Scene.edgePoint(root.scene,"bottom",.5))
+        }
         function runChecks():void {
             try {
                 const body=root.named(actor,"wullLiquidBody"),gait=root.named(actor,"wullLocomotion")
                 root.place(Scene.edgePoint(root.scene,"bottom",.5))
                 check(actor.inputReady,"retired-action fixture is not fully presented")
-                for(const action of ["fall","faceplant","buttplant","fallVanish","ice"]) {
+                for(const action of ["fall","faceplant","buttplant","fallVanish","ice","roll"]) {
                     check(!actor.perform(action) && actor.curves.clips[action]===undefined,"retired gesture accepted: "+action)
                     actor.pairedAction=action;wait(10)
                     check(actor.motionAction==="" && gait.clip!==action,"paired action revived retired clip: "+action)
@@ -111,6 +137,10 @@ Window {
                 check(actor.activeAppearClip==="emerge" && actor.activeHideClip==="dive","legacy transition failed safe fallback")
                 actor.appearClip=Qt.binding(()=>presence.appearClip);actor.hideClip=Qt.binding(()=>presence.hideClip)
                 checkPresentations(body,gait)
+                actor.appearClip="roll";actor.hideClip="roll";wait(1)
+                check(actor.activeAppearClip==="emerge" && actor.activeHideClip==="dive","legacy roll transition revived a turn")
+                actor.appearClip=Qt.binding(()=>presence.appearClip);actor.hideClip=Qt.binding(()=>presence.hideClip)
+                checkRetiredRoll(body,gait)
                 for(const edge of ["top","bottom","left","right"]) {
                     const point=Scene.edgePoint(root.scene,edge,.5);root.place(point)
                     check(presence.grounded,"rim not grounded: "+edge)

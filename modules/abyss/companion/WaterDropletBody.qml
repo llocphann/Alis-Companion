@@ -49,8 +49,8 @@ Item {
     property real orientationAngle: 0
     property real viewYaw: -15
     property real viewPitch: 0
-    property real rollingAngle: 0
-    readonly property real modelRoll:gait.roll+rollingAngle
+    property real rollingAngle: 0 // Legacy input retained but no longer controls body pose.
+    readonly property real modelRoll:gait.roll
     readonly property real modelYaw: viewYaw+gait.yaw
     readonly property real modelPitch: viewPitch+gait.pitch
     // These three angles feed five ShaderEffect instances (torso + four

@@ -92,7 +92,7 @@ Item {
     property bool initialized: false
     readonly property bool qualified: Scene.valid(scene) && placement.qualified
     readonly property bool ballistic: traveling && mode==="jump"
-    readonly property bool grounded: !dragging && (portalActive || !traveling || ["walk","run","roll"].includes(mode)) && !!placement.grounded
+    readonly property bool grounded: !dragging && (portalActive || !traveling || ["walk","run"].includes(Motion.travelMode(mode))) && !!placement.grounded
     readonly property string emergenceEdge: placement.support?.edge ?? placement.edge ?? "top"
     readonly property bool canExplore: permitted && visitActive && requestedReveal>.99
         && motionEnabled && !interactionHeld && !handoffActive && !dragging && !retreating && !portalActive && Date.now()>=hiddenUntil
@@ -260,6 +260,7 @@ Item {
         if (revealed) {disturb("emerge",placement);renderedReveal=requestedReveal;scheduleSurface()}
     }
     function moveTo(selected, exit, preferredMode = ""): bool {
+        preferredMode=Motion.travelMode(preferredMode)
         if (Motion.retired(preferredMode)) return false
         if (handoffActive || portalActive || !permitted || !actor || actor.presentation<.99 || dragging || (peekIntro && !exit)) return false
         const here=Object.assign(position(),{edge:emergenceEdge})
@@ -277,7 +278,7 @@ Item {
         destination=selected; mode=exit ? "fly" : route.mode
         supportRecovery=!exit && preferredMode==="fly"
         if (supportRecovery) mode="fly"
-        else if (!exit && route.mode==="walk" && ["run","jump","roll"].includes(preferredMode)) {
+        else if (!exit && route.mode==="walk" && ["run","jump"].includes(preferredMode)) {
             if (preferredMode!=="jump" || Scene.clearArc(scene,here,selected,42*scene.scale,placement.support?.nx ?? 0,placement.support?.ny ?? -1)) mode=preferredMode
         }
         retreating=!!exit; waypoints=route.points; waypoint=0
@@ -339,7 +340,7 @@ Item {
         directionX=next.x-here.x; directionY=next.y-here.y
         const speed=releasedFlight
             ? Math.max(220*scene.scale,Math.min(950*scene.scale,throwSpeed*1000))
-            : (retreating || supportRecovery ? 300 : mode==="walk" ? 16 : mode==="run" ? 32 : mode==="roll" ? 46 : 105)*scene.scale
+            : (retreating || supportRecovery ? 300 : mode==="walk" ? 16 : mode==="run" ? 32 : 105)*scene.scale
         normalX=mode==="jump" ? placement.support?.nx ?? 0 : 0
         normalY=mode==="jump" ? placement.support?.ny ?? -1 : -1
         arc=releasedFlight ? throwArc : mode==="jump" ? 42*scene.scale : mode==="fly" && !retreating
@@ -386,7 +387,7 @@ Item {
             support.edge,placement.kind,placement.key)
         if (selected.qualified && Scene.distance(here,selected)>10*scene.scale) {
             const gait=random(), length=Scene.distance(here,selected)
-            const movement=length>=35*scene.scale && gait<.18 ? "roll"
+            const movement=length>=35*scene.scale && gait<.18 ? "run"
                 : length>=35*scene.scale && length<=160*scene.scale && gait<.35 ? "jump"
                 : personality!=="calm" && gait<(personality==="energetic" ? .78 : .48) ? "run" : "walk"
             moveTo(selected,false,movement)

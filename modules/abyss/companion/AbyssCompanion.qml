@@ -5,7 +5,6 @@ import qs.modules.common
 import "WullExpressions.js" as Expressions
 import "CompanionMotion.js" as Motion
 import "WullAttention.js" as Attention
-import "WullTravel.js" as Travel
 
 Item {
     id: root
@@ -42,6 +41,7 @@ Item {
     property real translucency: 0.16
     property bool travelEnabled: false
     property string travelMode: "walk"
+    readonly property string effectiveTravelMode: Motion.travelMode(travelMode)
     property bool surfaceSupported: true
     property int travelDuration: 1000
     property real travelArc: 0
@@ -70,7 +70,7 @@ Item {
     property real gesturePhase: 1
     readonly property string presentationAction: presentation<.999 && !peeking ? (leaving ? activeHideClip : activeAppearClip) : ""
     readonly property string motionAction: {
-        const action=pairedAction || (dragging ? "drag" : moving ? travelMode : gesture || presentationAction)
+        const action=pairedAction || (dragging ? "drag" : moving ? effectiveTravelMode : gesture || presentationAction)
         return Motion.retired(action) ? "" : action
     }
     readonly property string faceExpression: Expressions.resolve(reactionExpression || expression,mood,activity)
@@ -106,9 +106,9 @@ Item {
     readonly property bool materialReady: droplet.materialReady
     readonly property bool softwareFallback: droplet.softwareFallback
     readonly property bool moving: travelTween.running
-    readonly property bool walking: moving && surfaceSupported && ["walk","run"].includes(travelMode)
-    readonly property bool rolling: moving && surfaceSupported && travelMode==="roll"
-    readonly property bool flying: dragging || (moving && !walking && !rolling)
+    readonly property bool walking: moving && surfaceSupported && ["walk","run"].includes(effectiveTravelMode)
+    readonly property bool rolling: false // Retained diagnostic API; AC-R05 retires whole-body turns.
+    readonly property bool flying: dragging || (moving && !walking)
     readonly property bool gesturing: gestureTween.running
     readonly property real viewCos: Math.cos(standingAngle*Math.PI/180)
     readonly property real viewSin: Math.sin(standingAngle*Math.PI/180)
@@ -142,8 +142,8 @@ Item {
         return true
     }
     function updateTravel(): void {
-        const t=travelMode==="jump" ? curves.sample("jump","journey",travelPhase) : travelPhase
-        const height=travelArc>0 ? curves.sample(travelMode==="jump" ? "jump" : "fly","height",travelPhase)*travelArc : 0
+        const t=effectiveTravelMode==="jump" ? curves.sample("jump","journey",travelPhase) : travelPhase
+        const height=travelArc>0 ? curves.sample(effectiveTravelMode==="jump" ? "jump" : "fly","height",travelPhase)*travelArc : 0
         x=travelFromX+(travelToX-travelFromX)*t
         y=travelFromY+(travelToY-travelFromY)*t+height*travelNormalY
         x+=height*travelNormalX
@@ -190,7 +190,7 @@ Item {
         if (!initialized || !managedPlacement || hardResetting) return
         // Presence adopts the destination only while the portal body is hidden.
         // A caller retaining travelEnabled must not also start a flight tween.
-        if (travelMode==="portal") return
+        if (effectiveTravelMode==="portal") return
         if (Math.abs(x-targetX)<0.01 && Math.abs(y-targetY)<0.01) return
         if (dragging || !motionEnabled || reveal <= 0 || presentation < 0.01) {
             stopTravel()
@@ -205,7 +205,7 @@ Item {
             stopTravel()
             travelFromX=x;travelFromY=y;travelToX=targetX;travelToY=targetY
             travelPhase=0;travelTween.duration=travelDuration
-            travelTween.easing.type=travelMode==="fly" ? Easing.InOutSine : Easing.Linear
+            travelTween.easing.type=effectiveTravelMode==="fly" ? Easing.InOutSine : Easing.Linear
             travelTween.start()
         } else {
             stopTravel()
@@ -371,9 +371,8 @@ Item {
             translucency: root.translucency
             walking: root.walking
             flying: root.flying
-            rollingAngle:root.rolling ? Travel.rollingAngle(Math.hypot(root.travelToX-root.travelFromX,root.travelToY-root.travelFromY),root.travelPhase,root.tangentDirection,root.scale) : 0
             motionAction: root.motionAction
-            motionProgress: root.pairedProgress>=0 ? root.pairedProgress : root.moving && ["jump","roll"].includes(root.travelMode) ? root.travelPhase
+            motionProgress: root.pairedProgress>=0 ? root.pairedProgress : root.moving && root.effectiveTravelMode==="jump" ? root.travelPhase
                 : root.gesture ? root.gesturePhase : root.presentationAction ? root.leaving ? 1-root.presentation : root.presentation : -1
             grounded: root.surfaceSupported && !root.flying
             dragging: root.dragging

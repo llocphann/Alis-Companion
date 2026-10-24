@@ -5,8 +5,11 @@
 // Preserve the public wull IPC/config/history namespace while naming the cast
 // Aqua/Octo. The curves are authored by Blender, not runtime sprite assets.
 function retired(action) {
-    return ["fall", "faceplant", "buttplant", "fallVanish", "ice"].includes(action)
+    return ["fall", "faceplant", "buttplant", "fallVanish", "ice", "roll"].includes(action)
 }
+// Old travel requests still reach their destination using a stable gait.
+// A roll requested as a gesture/paired clip remains retired above.
+function travelMode(mode) { return mode === "roll" ? "run" : mode }
 function runtimeLibrary(authored) {
     const clips = {}
     for (const action of Object.keys(authored.clips))
