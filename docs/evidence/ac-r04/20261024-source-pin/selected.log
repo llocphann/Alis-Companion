@@ -1,0 +1,7 @@
+PASS test-companion-retired-fall.cjs
+COMPANION_RETIRED_FALL_PASS cast=2 preserved_samples=2385 transition_samples=16016 compositePoseBounds stableEndpoints no_asset_mutation
+PASS test-wull-alive-reactions.py
+PASS aqua compositeEntryExitPoses fourEdgeTransitionClocks interruptedPresentation inputEndpoints fourRimOrientation rotatedFaceGaze slowerWalk formerWalkRun popupCarry balanceNoFall supportRecovery gentleRelease recoveryCancel recoveryDisable retiredActions legacyFallback widerClick passiveNotice noticeCooldown leaveCancel chatHold startleEvade annoyance shakeBreak peekOnly finiteRetreat archivalCurves
+PASS octo compositeEntryExitPoses fourEdgeTransitionClocks interruptedPresentation inputEndpoints fourRimOrientation rotatedFaceGaze slowerWalk formerWalkRun popupCarry balanceNoFall supportRecovery gentleRelease recoveryCancel recoveryDisable retiredActions legacyFallback widerClick passiveNotice noticeCooldown leaveCancel chatHold startleEvade annoyance shakeBreak peekOnly finiteRetreat archivalCurves
+WULL_OWNED_ALIVE_REACTIONS_PASS cast=2
+Hadanion checks: 79 PASS / 0 FAIL / 0 SKIP

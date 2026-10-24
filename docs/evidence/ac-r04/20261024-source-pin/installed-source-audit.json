@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "observedUtc": "2026-10-24T06:24:55.664002+00:00",
+  "sourceBase": "0b4de5b578a087bdd42874f0205d940b10526fdd",
+  "installedSource": "cd0604f25e77b16227510cb37410a9c7bf3daa12",
+  "hostPin": "cd0604f25e77b16227510cb37410a9c7bf3daa12",
+  "hostReadOnlyStatus": {
+    "sourceSha": "cd0604f25e77b16227510cb37410a9c7bf3daa12",
+    "available": true,
+    "enabled": false,
+    "sessionVisible": false
+  },
+  "installedMotionHasRetirementFilter": false,
+  "installedPresenceSelectsRetiredEntry": true,
+  "installedPresenceSelectsRetiredExit": true,
+  "files": {
+    "CompanionMotion.js": {
+      "installedSha256": "b7ffe4c0caf6f2d5146917e60763e15c207c9ff2ee056f1e1289d82393010e75",
+      "sourceSha256": "45cd7e36020efe6d111b0edcc1430d70d5232638e99ce86e6d793b4871a3a84b"
+    },
+    "WullPresence.qml": {
+      "installedSha256": "cf6e7c347476351500c6ac2dabce152cbc2dd89b4c081b4130dbb4fdc0c1956a",
+      "sourceSha256": "695a76efae47b252f4011cf2a715dd9302735f0bc10e3fb0ba47eecdfef6df16"
+    },
+    "AbyssCompanion.qml": {
+      "installedSha256": "af0bec8bb49b7ec3493bbba973c09f37cd9ff07c08c42d67adaa0104cd376b23",
+      "sourceSha256": "5e046d9d0d6275e88f604a563391a8b9388de049d6c34a9009829df020b7e1c5"
+    }
+  },
+  "deploymentChanged": false,
+  "ownerFailureStillOpen": true,
+  "observationIsNotHistoricalRuntimeProof": true
+}

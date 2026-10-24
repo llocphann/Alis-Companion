@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "issue": "https://github.com/llocphann/Alis-Companion/issues/1",
+  "sources": {
+    "companion": {
+      "sha": "7487db7347757c76a1faa900a5b5777ea67163f3"
+    },
+    "host": {
+      "sha": "158870737507412a2747ba63ee289661d8b03833"
+    },
+    "integration": {
+      "sha": "192ddf6614b144593bd8d9f0bdb28e4ae4eb41a0"
+    }
+  },
+  "hostSourcePinUpdatedFrom": "cd0604f25e77b16227510cb37410a9c7bf3daa12",
+  "hostSourcePinUpdatedTo": "7487db7347757c76a1faa900a5b5777ea67163f3",
+  "package": {
+    "pass": 79,
+    "fail": 0,
+    "skip": 0,
+    "exitCode": 0,
+    "elapsedSeconds": 348.89,
+    "requireClean": true
+  },
+  "expandedCoverage": {
+    "casts": [
+      "aqua",
+      "octo"
+    ],
+    "edges": [
+      "top",
+      "bottom",
+      "left",
+      "right"
+    ],
+    "retainedTransitionSamples": 16016,
+    "poseOracle": "Retained entry/exit composites stay within pitch 30 deg / roll 20 deg and noncollapsed scale; severe archived seated/prone negative controls exceed 60 deg. This numeric bound is not aesthetic approval.",
+    "realQml": "Production presentation selector, supporting-edge orientation, input/visibility endpoints and interrupted transition samples; original curves/shaders unchanged."
+  },
+  "deployment": {
+    "privatePayloadPrepared": true,
+    "activated": false,
+    "installedChanged": false,
+    "observedInstalledSource": "cd0604f25e77b16227510cb37410a9c7bf3daa12",
+    "liveObservationEnabled": false,
+    "historicalOwnerFailureAttribution": "Current old-source discovery is verified; the exact source at the earlier Owner observation is not established."
+  },
+  "hostCanonical": {
+    "sha": "158870737507412a2747ba63ee289661d8b03833",
+    "status": "RUNNING_AT_RECEIPT_CREATION",
+    "resultNotAssumed": true
+  },
+  "gates": {
+    "ownerResult": "FAIL; remains active until actual installed retest",
+    "awaitingOwnerLabel": false,
+    "physicalDesktopAccepted": false,
+    "originalG0Qualified": false,
+    "G1Qualified": false,
+    "realModelVoiceQualified": false
+  }
+}
