@@ -53,6 +53,49 @@ Window {
     TestCase {
         id:input;when:false;optional:true
         function check(value,message):void {if(!value)throw new Error(message)}
+        function checkPresentations(body,gait):void {
+            const entries=["emerge","launch","stuckLaunch","stuckJump","riseJump"]
+            const exits=["dive","diveJump",actor.character==="octo" ? "sink" : "pulled"]
+            actor.presentationManaged=true
+            for(const edge of ["top","bottom","left","right"]) {
+                root.place(Scene.edgePoint(root.scene,edge,.5))
+                actor.adoptTo(actor.x,actor.y,edge,1)
+                // These are the production presentation and body bindings;
+                // only their existing finite progress clock is sampled here.
+                for(const leaving of [false,true])for(const clip of leaving ? exits : entries) {
+                    if(leaving)actor.hideClip=clip
+                    else actor.appearClip=clip
+                    actor.leaving=leaving
+                    for(const phase of [.02,.12,.18,.3,.4,.55,.65,.77,.86,.94,.98]) {
+                        actor.presentation=leaving ? 1-phase : phase
+                        wait(1)
+                        const label=actor.character+"/"+edge+"/"+clip+"@"+phase
+                        check(actor.motionAction===clip && gait.clip===clip,"wrong composite caller "+label)
+                        check(Math.abs(body.modelPitch)<=30 && Math.abs(body.modelRoll)<=20,"tipping body "+label)
+                        check(body.poseScaleX>=.6 && body.poseScaleY>=.6,"collapsed body "+label)
+                        check(Math.abs(actor.emergenceNormal-actor.curves.sample(clip,"normal",phase))<.00001,
+                            "detached launch/sink clock "+label)
+                        check(!actor.inputReady,"partial transition retained input "+label)
+                        check(body.orientationAngle===({top:180,bottom:0,left:90,right:-90})[edge],
+                            "transition changed supporting edge "+label)
+                    }
+                    actor.presentation=leaving ? 0 : 1
+                    wait(1)
+                    check(leaving ? !actor.visible && !actor.inputReady : actor.inputReady,
+                        "transition endpoint did not release input/visibility "+clip)
+                    // Reverse an interrupted transition through the real
+                    // presentation selector, without creating another actor.
+                    actor.leaving=!leaving;actor.presentation=.47;wait(1)
+                    check(Math.abs(body.modelPitch)<=30 && Math.abs(body.modelRoll)<=20,
+                        "interrupted blend revived tipping pose "+clip)
+                    actor.leaving=leaving
+                }
+            }
+            actor.appearClip=Qt.binding(()=>presence.appearClip)
+            actor.hideClip=Qt.binding(()=>presence.hideClip)
+            actor.presentationManaged=false
+            root.place(Scene.edgePoint(root.scene,"bottom",.5))
+        }
         function runChecks():void {
             try {
                 const body=root.named(actor,"wullLiquidBody"),gait=root.named(actor,"wullLocomotion")
@@ -67,6 +110,7 @@ Window {
                 actor.appearClip="faceplant";actor.hideClip="fallVanish";wait(10)
                 check(actor.activeAppearClip==="emerge" && actor.activeHideClip==="dive","legacy transition failed safe fallback")
                 actor.appearClip=Qt.binding(()=>presence.appearClip);actor.hideClip=Qt.binding(()=>presence.hideClip)
+                checkPresentations(body,gait)
                 for(const edge of ["top","bottom","left","right"]) {
                     const point=Scene.edgePoint(root.scene,edge,.5);root.place(point)
                     check(presence.grounded,"rim not grounded: "+edge)
@@ -195,7 +239,7 @@ Window {
                 root.allowed=false;wait(40)
                 check(!actor.visible && !gait.active && !root.named(presence,"wullPeekDeadline").running && !notice.running
                     && !root.named(presence,"wullFullVisitDeadline").running,"policy hide retained clocks")
-                console.log("WULL_ALIVE=PASS "+actor.character+" fourRimOrientation rotatedFaceGaze slowerWalk formerWalkRun popupCarry balanceNoFall supportRecovery gentleRelease recoveryCancel recoveryDisable retiredActions legacyFallback widerClick passiveNotice noticeCooldown leaveCancel chatHold startleEvade annoyance shakeBreak peekOnly finiteRetreat archivalCurves")
+                console.log("WULL_ALIVE=PASS "+actor.character+" compositeEntryExitPoses fourEdgeTransitionClocks interruptedPresentation inputEndpoints fourRimOrientation rotatedFaceGaze slowerWalk formerWalkRun popupCarry balanceNoFall supportRecovery gentleRelease recoveryCancel recoveryDisable retiredActions legacyFallback widerClick passiveNotice noticeCooldown leaveCancel chatHold startleEvade annoyance shakeBreak peekOnly finiteRetreat archivalCurves")
             } catch(e) {console.error("WULL_ALIVE=FAIL "+e)}
             shutdown.start()
         }
