@@ -50,7 +50,7 @@ Item {
     readonly property var directorContext: ({enabled:root.companionHostActive,
         dragging:companionPresence.dragging,manualTravel:companionPresence.traveling,
         portalTravel:companionPresence.portalActive,
-        modalOpen:root.companionOccluded || companionCuriosity.busy})
+        modalOpen:root.companionOccluded || companionCuriosity.busy || WullPocket.opened || WullPocket.busy})
     function requestCompanionChat(): void {
         if(!root.companionPermission) return
         companionTurns.cancel()
@@ -96,7 +96,7 @@ Item {
                 x:companion.x,y:companion.y}}
     }
     readonly property bool companionHoverHeld: root.companionHostActive
-        && companion.interactive && (companion.hovered || cloudActions.hovered || cloudActions.visible || companion.dragging || talkCloud.controlsVisible || WullMind.conversationOpen)
+        && companion.interactive && (companion.hovered || cloudActions.hovered || cloudActions.visible || companion.dragging || pocketDrop.containsDrag || talkCloud.controlsVisible || WullMind.conversationOpen)
     onCompanionHoverHeldChanged: if (session.companionTargetOutput===host.outputName && companionBridge.ready)
         companionBridge.sendEvent("hover",root.companionHoverHeld)
     WullPresence {
@@ -107,7 +107,7 @@ Item {
         requestedReveal: companionBridge.visibility==="present" ? 1
             : companionBridge.visibility==="peeking" ? .46 : 0
         motionEnabled: session.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled
-        interactionHeld: companionBridge.activity!=="idle" || talkCloud.controlsVisible || WullMind.conversationOpen
+        interactionHeld: companionBridge.activity!=="idle" || pocketDrop.containsDrag || WullPocket.busy || talkCloud.controlsVisible || WullMind.conversationOpen
         pointerFresh: root.companionPointerFresh
         pointerX: root.companionPointerX
         pointerY: root.companionPointerY
@@ -381,6 +381,10 @@ Item {
         outputWidth:host.width;outputHeight:host.height
         allowed:root.companionHostActive && session.companionInteractive
         onControlsVisibleChanged: if (controlsVisible) companionCuriosity.interrupt()
+    }
+    WullPocketDrop {
+        id:pocketDrop;parent:companion;actor:companion
+        allowed:root.companionHostActive && session.companionInteractive && !WullMind.busy
     }
     WullCloudActions {
         parent:adapter.overlayParent

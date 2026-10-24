@@ -85,6 +85,7 @@ Item {
     onSelectedCompanionChanged: Qt.callLater(root.resetCompanionCast)
     onAlternatingCompanionsChanged: if (!alternatingCompanions) Qt.callLater(root.resetCompanionCast)
     readonly property bool companionEnabled: Config.ready && companionPreferences.enabled
+    Binding {target:WullPocket;property:"hostAvailable";value:root.companionSessionVisible && root.companionInteractive}
     Binding {target:WullMind;property:"hostVisible";value:root.companionSessionVisible && companionBridge.ready && companionBridge.visibility==="present"}
     Binding {target:WullMind;property:"hostIdle";value:companionBridge.activity==="idle"}
     Binding {
@@ -205,6 +206,8 @@ function status(): string {
 
     Component.onCompleted: {root.syncCompanionVisibility();contextConnect.start()}
     Component.onDestruction: {
+        WullPocket.hostAvailable=false
+        WullPocket.revoke()
         root.disconnectContext()
         WullMind.hostVisible=false
         WullMind.hostIdle=false

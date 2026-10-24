@@ -1,2 +1,3 @@
 singleton WullMind 1.0 WullMind.qml
+singleton WullPocket 1.0 WullPocket.qml
 WullAmbientController 1.0 WullAmbientController.qml

@@ -326,6 +326,13 @@ ContentPage {
                 onToggledByUser:checked=>root.setPreference("contextEnabled",checked)
             }
             SettingsSwitch {
+                objectName:"companionPocket"
+                text:Translation.tr("Enable Pocket")
+                description:Translation.tr("Save local file names, paths, sizes and dates when you choose or drop files. File contents are never read or sent to AI. Removing a reference keeps the original file.")
+                autoToggle:false;checked:root.preferences.pocketEnabled
+                onToggledByUser:checked=>root.setPreference("pocketEnabled",checked)
+            }
+            SettingsSwitch {
                 objectName:"companionContextFocus"
                 text:Translation.tr("Share the focused app category")
                 description:Translation.tr("Only terminal, editor or other. Window titles, files and app content stay private.")

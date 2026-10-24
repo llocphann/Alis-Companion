@@ -13,5 +13,7 @@ WullPortals 1.0 WullPortals.qml
 WullCuriosity 1.0 WullCuriosity.qml
 WullAbyssLink 1.0 WullAbyssLink.qml
 WullTalkCloud 1.0 WullTalkCloud.qml
+WullPocketDrop 1.0 WullPocketDrop.qml
+WullPocketPane 1.0 WullPocketPane.qml
 WullCloudActions 1.0 WullCloudActions.qml
 WullObsidianIcon 1.0 WullObsidianIcon.qml

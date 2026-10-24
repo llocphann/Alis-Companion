@@ -17,12 +17,14 @@ Item {
     property bool allowed: false
     // 0 = closed, 1 = thinking effort, 2 = model picker.
     property int profileStage: 0
-    readonly property bool editing: visible && WullMind.conversationOpen
-    readonly property bool controlsVisible: visible && (editing || WullMind.contextOpen || WullMind.checkInStage.length>0)
+    readonly property bool pocketOpen: WullPocket.opened && WullPocket.permitted
+    readonly property bool editing: visible && WullMind.conversationOpen && !pocketOpen
+    readonly property bool controlsVisible: visible && (pocketOpen || editing || WullMind.contextOpen || WullMind.checkInStage.length>0)
     readonly property color cloudColor: Qt.alpha(AbyssStyle.surface, .96)
     readonly property color cloudBorderColor: Qt.alpha(AbyssStyle.accent, .48)
     width: Math.min(380, Math.max(220, outputWidth - 32))
-    height: editing ? Math.min(430, Math.max(230, outputHeight - 48)) : content.implicitHeight + 24
+    height: pocketOpen ? Math.min(360,Math.max(220,outputHeight-48))
+        : editing ? Math.min(430, Math.max(230, outputHeight - 48)) : content.implicitHeight + 24
     readonly property real actorVisualScale: Math.max(.1, Number(actor.scale) || 1)
     readonly property real actorVisualWidth: actor.width * actorVisualScale
     readonly property real actorVisualHeight: actor.height * actorVisualScale
@@ -36,7 +38,7 @@ Item {
     y: actorVisualTop - height - anchorGap >= 12
         ? actorVisualTop - height - anchorGap
         : Math.min(outputHeight - height - 12, actorVisualBottom + anchorGap)
-    visible: allowed && actor.visible && actor.inputReady && (WullMind.text.length > 0 || WullMind.conversationOpen || WullMind.contextOpen)
+    visible: allowed && actor.visible && actor.inputReady && (pocketOpen || WullMind.text.length > 0 || WullMind.conversationOpen || WullMind.contextOpen)
     z: 240
     function containsScenePoint(point): bool {
         const local = root.mapFromItem(null, point.x, point.y)
@@ -85,6 +87,7 @@ Item {
 
     ColumnLayout {
         id: content
+        visible:!root.pocketOpen
         x: 12; y: 12; width: parent.width - 24
         height: root.editing ? root.height - 24 : implicitHeight
         spacing: 7
@@ -92,6 +95,11 @@ Item {
             visible: WullMind.contextOpen && !root.editing
             Layout.fillWidth: true
             StyledText { Layout.fillWidth:true; text:Translation.tr("Today"); font.weight:Font.DemiBold }
+            DialogButton {
+                objectName:"wullContextPocket";buttonText:Translation.tr("Pocket")
+                visible:WullPocket.permitted;enabled:WullPocket.canSelect && !WullMind.busy
+                onClicked:root.openPocket()
+            }
             DialogButton { objectName:"wullContextClose"; buttonText:Translation.tr("Close"); onClicked:WullMind.dismiss() }
         }
         StyledText {
@@ -384,6 +392,11 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 6
+                        DialogButton {
+                            objectName:"wullChatPocket";buttonText:Translation.tr("Pocket")
+                            visible:WullPocket.permitted;enabled:WullPocket.canSelect && !WullMind.busy
+                            onClicked:root.openPocket()
+                        }
                         RippleButton {
                             objectName: "wullModelEffort"
                             Layout.preferredWidth: Math.max(68, Math.min(root.width - 90, effortLabel.implicitWidth + 60))
@@ -451,6 +464,19 @@ Item {
                 }
             }
         }
+    }
+    Loader {
+        anchors.fill:parent;anchors.margins:12
+        active:root.pocketOpen
+        sourceComponent:Component {WullPocketPane {}}
+    }
+    function openPocket(): void {
+        if (!WullMind.busy && WullPocket.show()) WullMind.dismiss()
+    }
+    Connections {
+        target:WullMind
+        function onConversationOpenChanged():void {if(WullMind.conversationOpen)WullPocket.close()}
+        function onContextOpenChanged():void {if(WullMind.contextOpen)WullPocket.close()}
     }
     function submit(): void {
         if (WullMind.sendMessage(message.text)) message.text=""
