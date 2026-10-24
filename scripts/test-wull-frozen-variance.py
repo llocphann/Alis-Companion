@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix='frozen-variance-') as temporary:
     path=root/'result.json';path.write_text(json.dumps(receipt))
     result=api.analyze(path);stats=result['cases'][0]['pairs']['cross']
     assert stats=={'changedPixels':4,'alphaChanged':2,'rgbChanged':3,'transparentRgbOnly':1,
-        'visibleRgbOnly':1,'alphaOnly':1,'alphaAndRgb':1,'opaqueChanged':1,'edgeChanged':3,
+        'visibleRgbOnly':1,'alphaOnly':1,'alphaAndRgb':1,'opaqueChanged':1,'nonOpaqueChanged':3,
         'maxDelta':9,'bbox':[0,0,4,1]}
     assert result['sameSourceAndQsb'] and not result['qualifiesOriginalG0'] and not result['capturedNewFrames']
     assert result['totals']['candidateRepeat']['changedPixels']==1
@@ -35,6 +35,7 @@ with tempfile.TemporaryDirectory(prefix='frozen-variance-') as temporary:
         except ValueError:return
         raise AssertionError('unverified frozen input accepted')
     rejected({**receipt,'schema':2})
+    rejected({**receipt,'baseline_qsb_sha256':None,'candidate_qsb_sha256':None})
     forged=copy.deepcopy(receipt);forged['comparison'][0]['baseline_rgba_sha256']='0'*64;rejected(forged)
     forged=copy.deepcopy(receipt);forged['comparison'][0]['changed_pixels']=0;rejected(forged)
     (root/'baseline-0-repeat.png').unlink();rejected(receipt)

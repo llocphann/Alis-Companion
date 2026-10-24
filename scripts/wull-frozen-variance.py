@@ -32,7 +32,7 @@ def pixels(path, expected, pins):
 def compare(left,right,size):
     if len(left)!=len(right) or len(left)!=size[0]*size[1]*4:raise ValueError('size_mismatch')
     result={key:0 for key in ['changedPixels','alphaChanged','rgbChanged','transparentRgbOnly',
-        'visibleRgbOnly','alphaOnly','alphaAndRgb','opaqueChanged','edgeChanged','maxDelta']}
+        'visibleRgbOnly','alphaOnly','alphaAndRgb','opaqueChanged','nonOpaqueChanged','maxDelta']}
     bounds=[size[0],size[1],-1,-1]
     for offset in range(0,len(left),4):
         a,b=left[offset:offset+4],right[offset:offset+4]
@@ -42,8 +42,8 @@ def compare(left,right,size):
         result['transparentRgbOnly']+=rgb and a[3]==b[3]==0
         result['visibleRgbOnly']+=rgb and a[3]==b[3] and a[3]>0
         result['alphaOnly']+=alpha and not rgb;result['alphaAndRgb']+=alpha and rgb
-        result['opaqueChanged']+=a[3]>=250 and b[3]>=250
-        result['edgeChanged']+=not(a[3]>=250 and b[3]>=250)
+        result['opaqueChanged']+=a[3]==b[3]==255
+        result['nonOpaqueChanged']+=not(a[3]==b[3]==255)
         result['maxDelta']=max(result['maxDelta'],*(abs(x-y) for x,y in zip(a,b)))
         bounds=[min(bounds[0],x),min(bounds[1],y),max(bounds[2],x+1),max(bounds[3],y+1)]
     result['bbox']=bounds if result['changedPixels'] else None
@@ -57,6 +57,9 @@ def analyze(receipt):
     rows=source.get('comparison');count=source.get('cases')
     if source.get('schema')!=3 or type(count) is not int or not 1<=count<=64 or not isinstance(rows,list) or len(rows)!=count:
         raise ValueError('frozen_comparison_unavailable')
+    for key in ['baseline_source_sha256','candidate_source_sha256','baseline_qsb_sha256','candidate_qsb_sha256']:
+        if not isinstance(source.get(key),str) or not re.fullmatch('[0-9a-f]{64}',source[key]):
+            raise ValueError('source_pin_missing')
     pins={receipt:digest(raw)};cases=[];seen=set()
     for index,row in enumerate(rows):
         name=row.get('name') if isinstance(row,dict) else None
@@ -82,8 +85,8 @@ def analyze(receipt):
         raise ValueError('frozen_input_changed')
     totals={label:{key:sum(case['pairs'][label][key] for case in cases)
         for key in ['changedPixels','alphaChanged','rgbChanged','transparentRgbOnly','visibleRgbOnly',
-                    'alphaOnly','alphaAndRgb','opaqueChanged','edgeChanged']} for label in ('cross','baselineRepeat','candidateRepeat')}
-    return {'schema':1,'status':'ANALYZED_FROZEN_INPUTS_NOT_A_NEW_G0_RUN',
+                    'alphaOnly','alphaAndRgb','opaqueChanged','nonOpaqueChanged']} for label in ('cross','baselineRepeat','candidateRepeat')}
+    return {'schema':2,'status':'ANALYZED_FROZEN_INPUTS_NOT_A_NEW_G0_RUN',
         'originalStatus':source.get('status'),'receiptSha256':digest(raw),
         'baselineSourceSha256':source.get('baseline_source_sha256'),
         'candidateSourceSha256':source.get('candidate_source_sha256'),
