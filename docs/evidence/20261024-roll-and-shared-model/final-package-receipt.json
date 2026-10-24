@@ -1,0 +1,29 @@
+{
+  "sources": {
+    "companion": "1348e3a277ac96fe0653f41d54f092d08b821a7e",
+    "host": "11ad9a4dde37a08a7b97618c32a30f1333f5e0a7",
+    "integration": "192ddf6614b144593bd8d9f0bdb28e4ae4eb41a0"
+  },
+  "step": "package",
+  "exitCode": 0,
+  "elapsedSeconds": 359.23,
+  "candidateOverridesManagedPin": true,
+  "passCount": 83,
+  "failCount": 0,
+  "skipCount": 0,
+  "allSourceTreesClean": true,
+  "hostPinPromotion": {
+    "schema": 1,
+    "host": "e1db9a79dc775ff7fad4141830a6a7a94dd568e7",
+    "parentAlreadyPublic": "f459d28fe219c62091c9e513c6748c69711bf9b7",
+    "companion": "1348e3a277ac96fe0653f41d54f092d08b821a7e",
+    "pushExitCode": 0,
+    "installedChanged": false
+  },
+  "installedDesktop": "UNRUN",
+  "ownerAcceptance": "UNRUN",
+  "originalG0": "INCONCLUSIVE",
+  "G1": "UNQUALIFIED",
+  "voice": "FAIL; see after-guard-agent-review.json",
+  "fullPromotedHost": "RUNNING; not established by this package result"
+}
