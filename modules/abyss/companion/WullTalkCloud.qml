@@ -259,14 +259,14 @@ Item {
                             Layout.fillWidth: true
                             enableSettingsSearch: false
                             from: 0
-                            to: 3
+                            to: Math.max(1,WullMind.thinkingLevels.length-1)
                             stepSize: 1
                             value: Math.max(0, WullMind.thinkingLevels.findIndex(level => level.value === WullMind.effectiveThinkingEffort))
                             enabled: WullMind.thinkingSupported && !WullMind.busy
                             tooltipContent: WullMind.thinkingEffortLabel
                             onMoved: {
-                                const levels = ["off", "low", "medium", "high"]
-                                WullMind.setThinkingEffort(levels[Math.max(0, Math.min(3, Math.round(value)))])
+                                const levels = WullMind.thinkingLevels
+                                WullMind.setThinkingEffort(levels[Math.max(0, Math.min(levels.length-1, Math.round(value)))].value)
                             }
                         }
                         StyledText {

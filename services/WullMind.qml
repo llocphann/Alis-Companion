@@ -48,8 +48,9 @@ Singleton {
         return Ai.runnableModelList.find(id=>ModelPolicy.allowed(Ai.models[id],localOnly)) ?? ""
     }
     onLocalOnlyChanged: if(localOnly && pending?.action==="ai_chat" && pending.request.local!==true)cancel()
-    readonly property string thinkingEffort: ["off","low","medium","high"].includes(String(options.thinkingEffort ?? "off"))
+    readonly property string thinkingEffort: ["off","instant","low","medium","high"].includes(String(options.thinkingEffort ?? "off"))
         ? String(options.thinkingEffort ?? "off") : "off"
+    onEffectiveThinkingEffortChanged: if(pending?.action==="ai_chat" && pending.request.effort!==effectiveThinkingEffort)cancel()
     readonly property string referenceVault: String(options.referenceVault ?? "")
     readonly property string proactive: {
         const value=String(options.proactive ?? "occasional")
@@ -102,15 +103,19 @@ Singleton {
     readonly property var selectableModels: [{name:"",label:localOnly ? "Automatic local model" : "Use the AI tab model",thinking:false}]
         .concat(Ai.runnableModelList.filter(id=>ModelPolicy.allowed(Ai.models[id],localOnly)).map(id=>({name:id,label:Ai.models[id].name,
             thinking:Ai.supportsThinking(Ai.models[id])})))
+    readonly property bool reasoningSupported:Ai.supportsThinking(Ai.models[model])
+    readonly property bool instantSupported:typeof Ai.supportsInstant==="function" && Ai.supportsInstant(Ai.models[model])
     readonly property var thinkingLevels: [
-        {value:"off",label:Ai.models[model]?.api_format==="gguf" ? "Instant" : "Provider default"},
+        {value:"off",label:Ai.models[model]?.api_format==="gguf" ? "Instant" : "Provider default"}
+    ].concat(instantSupported ? [{value:"instant",label:"Instant"}] : []).concat(reasoningSupported ? [
         {value:"low",label:"Low"},
         {value:"medium",label:"Medium"},
         {value:"high",label:"High"}
-    ]
+    ] : [])
     readonly property var currentModelInfo: selectableModels.find(m=>m.name===model) ?? null
-    readonly property bool thinkingSupported: Ai.supportsThinking(Ai.models[model])
-    readonly property string effectiveThinkingEffort: thinkingSupported ? thinkingEffort : "off"
+    readonly property bool thinkingSupported: reasoningSupported || instantSupported
+    readonly property string effectiveThinkingEffort: thinkingEffort==="instant"
+        ? instantSupported ? "instant" : "off" : reasoningSupported ? thinkingEffort : "off"
     readonly property string thinkingEffortLabel: thinkingLevels.find(e=>e.value===effectiveThinkingEffort)?.label ?? "Provider default"
     readonly property string thinkingEffortShortLabel: thinkingEffortLabel==="Provider default" ? "Default" : thinkingEffortLabel
     readonly property string currentModelLabel: {
@@ -193,8 +198,8 @@ Singleton {
     }
     function setThinkingEffort(value): void {
         const effort=String(value ?? "off")
-        if(!["off","low","medium","high"].includes(effort))return
-        Config.setNestedValue("abyss.companionMind.thinkingEffort",thinkingSupported ? effort : "off")
+        if(!thinkingLevels.some(entry=>entry.value===effort))return
+        Config.setNestedValue("abyss.companionMind.thinkingEffort",effort)
     }
     function refreshJournal(automatic = false): bool {return dispatch("context",null,automatic)}
     function resetDialogue(): void {
@@ -311,7 +316,7 @@ Singleton {
             return false
         }
         pending={serial:serial,action:"ai_chat",request:{prompt:prompt,model:model,
-            identity:modelIdentity,dialogueKey:dialogueKey,local:ModelPolicy.isLocal(Ai.models[model])}}
+            identity:modelIdentity,dialogueKey:dialogueKey,effort:effectiveThinkingEffort,local:ModelPolicy.isLocal(Ai.models[model])}}
         busy=true;errorMessage="";connectionStatus="generating"
         history=history.concat([{id:0,clientId:String(serial)+":user",role:"user",content:prompt,pending:true}]).slice(-2000)
         historyLoaded=true;touchConversation()
@@ -321,6 +326,7 @@ Singleton {
         const job=pending
         if (!job || job.action!=="ai_chat" || String(job.serial)!==token || job.serial!==epoch) return
         if (!available || job.request.model!==model || job.request.identity!==modelIdentity || job.request.dialogueKey!==dialogueKey
+                || job.request.effort!==effectiveThinkingEffort
                 || (localOnly && job.request.local!==true)) {cancel();return}
         pending=null;busy=false
         if (failure) {

@@ -11,7 +11,7 @@ if not shutil.which("qs"):
     raise SystemExit(0)
 requests=[]
 model_ids=['main','wull','failure','slow','extra','tokens','malformed','controltag','eof-tool',
-           'cloud','responses','spoof','verified','unverified']
+           'cloud','responses','spoof','verified','unverified','instant']
 model_rows=[{'id':'fixture-'+name,'type':'vlm','compatibility_type':'gguf','arch':'fixture',
             'quantization':'Q4_K_M','state':'loaded','max_context_length':4096} for name in model_ids]
 fingerprints={row['id']:hashlib.sha256(json.dumps({'provider':'lmstudio','model':row['id'],
@@ -32,7 +32,7 @@ class Handler(BaseHTTPRequestHandler):
         failure=self.path=="/failure"
         self.send_response(429 if failure else 200)
         self.send_header("Content-Type","text/event-stream");self.end_headers()
-        if self.path=="/responses":
+        if self.path in ("/responses","/v1/responses"):
             events=[{'type':'response.output_text.delta','delta':json.dumps({'text':'Responses hello','expression':'happy'})},
                     {'type':'response.completed'}]
             self.wfile.write(''.join('data: '+json.dumps(event)+'\n\n' for event in events).encode())
@@ -484,6 +484,21 @@ ShellRoot {
         && WullMind.history.filter(entry=>entry.role==="assistant").length===root.assistantCount
         && WullMind.history.find(entry=>entry.content==="Never forward after remote replacement")?.failed===true,
         "remote replacement produced a reply or left an active request"))return
+    root.add("fixture-instant","/v1/chat/completions")
+    Ai.models["fixture-instant"].extraParams=({store:true,previous_response_id:"resp-foreign",
+        max_output_tokens:65536,tools:[{type:"mcp",server_url:"https://must-not-contact.invalid"}]})
+    Config.setNestedValue("abyss.companionMind.model","fixture-instant")
+    WullMind.setThinkingEffort("instant")
+    if(!root.check(WullMind.instantSupported && WullMind.effectiveThinkingEffort==="instant"
+        && WullMind.sendMessage("Instant fixture"),"explicit local Instant mode unavailable"))return
+    root.step=12
+   }else if(root.step===12 && !WullMind.busy){
+    if(!root.check(WullMind.history[WullMind.history.length-1]?.content==="Responses hello"
+        && WullMind.aiSession.modelSnapshot.api_format==="openai-response"
+        && Ai.models["fixture-instant"].api_format==="openai"
+        && Ai.models["fixture-instant"].endpoint.endsWith("/v1/chat/completions"),
+        "Instant mode changed the catalog or lost its isolated reply"))return
+    WullMind.setThinkingEffort("off")
     Config.setNestedValue("abyss.companionMind.model","")
     console.info("WULL_SHARED_AI_PASS catalog request history-isolation persistence HTTP-error cancel retry model-follow output-rejection recovery localDefault cloudBlock spoofBlock unverifiedBlock freshLocalAdmission remoteReplacementBlock localAutoFallback consentRevoke automaticCadences automaticGates cadenceRevocation malformedHelperRejection helperRecovery sameIdReplacement staleReply responses proactiveOptIn sourceConsent quietHours focusSuppression quotaReceipt dismissal dailyCap contentRevocation");Qt.quit()
    }
@@ -518,12 +533,18 @@ ShellRoot {
     assert not any(path=='/curlrc-leak' or 'X-Curlrc-Fixture' in headers for path,row,headers in requests), 'curl defaults modified private transport'
     responses=[row for path,row,headers in requests if path=='/responses']
     assert len(responses)==1 and 'input' in responses[0] and 'tools' not in responses[0]
+    instant=[row for path,row,headers in requests if path=='/v1/responses']
+    assert len(instant)==1 and instant[0]['reasoning']=={'effort':'none'}
+    assert instant[0]['store'] is False and instant[0]['max_output_tokens']==256
+    assert 'tools' not in instant[0] and 'previous_response_id' not in instant[0]
+    assert any(row.get('role')=='assistant' for row in instant[0]['input']), 'Instant mode lost assistant history roles'
     with sqlite3.connect(Path(env['XDG_STATE_HOME'])/'inir/wull/chat.sqlite3') as db:
         rows=db.execute('SELECT role,content FROM messages ORDER BY id').fetchall()
     assert rows==[('user','Hello fixture'),('assistant','Fixture hello'),
                   ('user','Retry fixture'),('assistant','Fixture hello'),
                   ('user','Recovery fixture'),('assistant','Fixture hello'),
                   ('user','Responses fixture'),('assistant','Responses hello'),
-                  ('user','Verified local fixture'),('assistant','Fixture hello')], 'rejected output entered persistent history'
+                  ('user','Verified local fixture'),('assistant','Fixture hello'),
+                  ('user','Instant fixture'),('assistant','Responses hello')], 'rejected output entered persistent history'
 finally:
     server.shutdown();server.server_close()
