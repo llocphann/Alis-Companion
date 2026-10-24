@@ -98,7 +98,7 @@ def main():
             "test-wull-gguf-ui.py", "test-wull-shared-ai-runtime.py", "test-wull-abyss-water.py",
             "test-wull-portal-runtime.py", "test-wull-presence-interaction.py", "test-wull-alive-reactions.py",
             "test-wull-mature-popup.py", "test-companion-airborne-orientation.py",
-            "test-companion-volume.py", "test-wull-shader-ab-contract.py",
+            "test-companion-volume.py", "test-wull-frozen-variance.py", "test-wull-shader-ab-contract.py",
             "test-wull-shader-sequence-contract.py", "test-wull-g1-resource-contract.py",
             "test-wull-g1-compare-contract.py", "test-wull-companion-voice-eval.py", "test-wull-reply-guard-local.py",
             "test-wull-memory-store.py", "test-wull-local-persona.py", "test-wull-companion-voice-run.py", "test-wull-companion-settings.py", "test-wull-quality-ui.py", "test-wull-mind-ui.py", "test-wull-journal-ui.py",
