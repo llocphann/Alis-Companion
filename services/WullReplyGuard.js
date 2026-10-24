@@ -9,6 +9,10 @@ var internalTag = /<\/?\s*(think(?:ing)?|analysis|tool(?:_call|_result)?|functio
 var protocolToken = /<[|｜]|\[\s*\/?\s*INST\s*\]|<<\s*\/?\s*SYS\s*>>|<\/?\s*(start_of_turn|end_of_turn|bos|eos)\s*>/i
 var functionEnvelope = /\[\[\s*Function\s*:/i
 var controlBytes = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g
+// Reject mixed prose/metadata and concrete, unreceipted first-person desktop
+// claims. This is a public-text check, never permission to execute an action.
+var mixedMetadata = /\{\s*["']?(?:text|expression|tool_calls|function_call)["']?\s*:|\bexpression\s*:\s*["']?[a-z]+["']?\s*[}.,]?\s*$/i
+var actionClaim = /\bI(?:['’](?:ve|ll|m))?(?:\s+(?:have|already|just|will|can|decide\s+to|decided\s+to|am\s+going\s+to|going\s+to)){0,3}\s+(?:change[ds]?|delet(?:e[ds]?|ing)|rearrang(?:e[ds]?|ing)|install(?:ed)?|open(?:ed)?|save[ds]?|schedul(?:e[ds]?|ing)|send|sent|writ(?:e|ten)|wrote|updat(?:e[ds]?|ing)|run|ran|execut(?:e[ds]?|ing))\s+(?:(?:your|the|a|an|this|that|my|these|those)\s+)?(?:desktop|wallpaper|files?|folders?|icons?|settings?|apps?|programs?|scripts?|commands?|reminders?|appointments?|messages?|memory|memories)\b/i
 
 function normalizeText(text, expression) {
     if (typeof text !== "string") return {ok:false,reason:"invalid_text"}
@@ -17,6 +21,8 @@ function normalizeText(text, expression) {
     const candidate = text.replace(controlBytes,"")
     if (internalTag.test(candidate) || protocolToken.test(candidate) || functionEnvelope.test(candidate))
         return {ok:false,reason:"internal_protocol"}
+    if (mixedMetadata.test(candidate)) return {ok:false,reason:"malformed_structured_output"}
+    if (actionClaim.test(candidate)) return {ok:false,reason:"unverified_action_claim"}
     const value = candidate.trim().slice(0,420)
     if (!value) return {ok:false,reason:"empty_text"}
     const semantic = expressions.indexOf(expression) >= 0 ? expression : "idle"

@@ -134,6 +134,8 @@ class Tests(unittest.TestCase):
             json.dumps(['not a reply']),
             json.dumps({'text':'<|start_header_id|>assistant<|end_header_id|>leak'}),
             json.dumps({'text':'<analysis>internal</analysis>hello'}),
+            json.dumps({'text':'A little note. expression: happy','expression':'happy'}),
+            json.dumps({'text':'I have changed your wallpaper.','expression':'happy'}),
         ]
         with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ,
                 {'INIR_WULL_HISTORY_DB':str(Path(temporary)/'chat.sqlite3')}):

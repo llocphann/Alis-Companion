@@ -41,6 +41,15 @@ for malformed in ([], None, 'plain text', {'text':123}, {'text':'hi','tool_calls
 # Actual helper parsing and SQLite no-write behavior live in test-wull-local-mind.py.
 
 unsafe_replies=[
+    'A little note. {expression: "happy"}',
+    'A little note. expression: happy',
+    'I have changed your wallpaper.',
+    "I'll delete the folder.",
+    'I can open your file.',
+    'I decide to rearrange the desktop icons.',
+    "I've just saved your memory.",
+    'I am going to run the command.',
+    "x"*421+" I just changed your wallpaper.",
     'Hello, friend.\n\n[[ Function: run_shell_command({\n  "command": "private fixture"\n}) ]]\n',
     "Hello [[ fUnCtIoN : open_file({}) ]]",
     "Hello [[ Function:",
@@ -51,7 +60,9 @@ removed_controls=[chr(code) for code in range(32) if code not in (9,10,13)]+[chr
 for control in removed_controls:
     unsafe_replies.extend(("Hello <thi"+control+"nk>private fixture</thi"+control+"nk>",
                            "Hello <"+control+"|channel|>analysis private fixture",
-                           "Hello [[ Fun"+control+"ction: open_file({}) ]]"))
+                           "Hello [[ Fun"+control+"ction: open_file({}) ]]",
+                           "I wi"+control+"ll delete the folder.",
+                           "A little note. expres"+control+"sion: happy"))
 violations=[]
 for index,reply in enumerate(unsafe_replies):
     for route,call in (("text",lambda:mod.public_text(reply)),
@@ -72,6 +83,12 @@ benign_replies=[
     ("  Hello\x01!\n","Hello!"),
     ("Hello\tfriend\nA little splash. 🌊","Hello\tfriend\nA little splash. 🌊"),
     ("x"*500,"x"*420),
+    ("I can't change your wallpaper. You can choose it in Settings.","I can't change your wallpaper. You can choose it in Settings."),
+    ("You can open the file yourself.","You can open the file yourself."),
+    ("I can write a poem about water.","I can write a poem about water."),
+    ("I opened my tentacles wide.","I opened my tentacles wide."),
+    ("The expression happy is a label.","The expression happy is a label."),
+    ("I would not delete your files.","I would not delete your files."),
 ]
 for reply,text in benign_replies:
     assert mod.public_text(reply)==text

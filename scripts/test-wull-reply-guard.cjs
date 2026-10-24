@@ -47,6 +47,15 @@ assert.equal(context.parse(JSON.stringify({text:"I don't have access to that set
 // The generated function envelope and protocol markers must never reach a
 // bubble or persistence, even when control removal reveals their spelling.
 const unsafeReplies = [
+    'A little note. {expression: "happy"}',
+    'A little note. expression: happy',
+    'I have changed your wallpaper.',
+    "I'll delete the folder.",
+    'I can open your file.',
+    'I decide to rearrange the desktop icons.',
+    "I've just saved your memory.",
+    'I am going to run the command.',
+    "x".repeat(421) + " I just changed your wallpaper.",
     'Hello, friend.\n\n[[ Function: run_shell_command({\n  "command": "private fixture"\n}) ]]\n',
     "Hello [[ fUnCtIoN : open_file({}) ]]",
     "Hello [[ Function:",
@@ -59,6 +68,8 @@ for (const code of removedControls) {
     unsafeReplies.push("Hello <thi" + control + "nk>private fixture</thi" + control + "nk>");
     unsafeReplies.push("Hello <" + control + "|channel|>analysis private fixture");
     unsafeReplies.push("Hello [[ Fun" + control + "ction: open_file({}) ]]");
+    unsafeReplies.push("I wi" + control + "ll delete the folder.");
+    unsafeReplies.push("A little note. expres" + control + "sion: happy");
 }
 const violations = [];
 for (const [index, reply] of unsafeReplies.entries()) {
@@ -70,14 +81,21 @@ for (const [index, reply] of unsafeReplies.entries()) {
 }
 assert.equal(violations.length, 0, "public reply guard accepted " + violations.length
     + " function/protocol checks; examples=" + JSON.stringify(violations.slice(0,5)));
-for (const [reply, text] of [
+const benignReplies = [
     ["Hello, friend.", "Hello, friend."],
     ["The function: greet() makes me smile.", "The function: greet() makes me smile."],
     ["Use [[brackets]] for a little note.", "Use [[brackets]] for a little note."],
     ["  Hello\u0001!\n", "Hello!"],
     ["Hello\tfriend\nA little splash. 🌊", "Hello\tfriend\nA little splash. 🌊"],
     ["x".repeat(500), "x".repeat(420)],
-]) {
+    ["I can't change your wallpaper. You can choose it in Settings.", "I can't change your wallpaper. You can choose it in Settings."],
+    ["You can open the file yourself.", "You can open the file yourself."],
+    ["I can write a poem about water.", "I can write a poem about water."],
+    ["I opened my tentacles wide.", "I opened my tentacles wide."],
+    ["The expression happy is a label.", "The expression happy is a label."],
+    ["I would not delete your files.", "I would not delete your files."],
+];
+for (const [reply, text] of benignReplies) {
     assert.equal(context.normalizeText(reply,"happy").text,text);
     assert.equal(context.parse(JSON.stringify({text:reply,expression:"happy"})).text,text);
 }
@@ -88,4 +106,4 @@ assert.match(qml, /WullReplyGuard\.parse\(raw\)/);
 assert.match(qml, /WullReplyGuard\.normalizeText\(result\.text,\s*result\.expression\)/);
 assert.doesNotMatch(qml,/reply=\{text:raw,expression:"idle"\}/);
 console.log("HADANION_QML_REPLY_GUARD_OFFLINE_CONTRACT_PASS unsafeReplies=" + unsafeReplies.length
-    + " rejectionChecks=" + (unsafeReplies.length*3) + " benignReplies=6");
+    + " rejectionChecks=" + (unsafeReplies.length*3) + " benignReplies=" + benignReplies.length);

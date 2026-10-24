@@ -11,7 +11,7 @@ if not shutil.which("qs"):
     raise SystemExit(0)
 requests=[]
 model_ids=['main','wull','failure','slow','extra','tokens','malformed','controltag','eof-tool',
-           'cloud','responses','spoof','verified','unverified','instant']
+           'cloud','responses','spoof','verified','unverified','instant','mixed-meta','action-claim']
 model_rows=[{'id':'fixture-'+name,'type':'vlm','compatibility_type':'gguf','arch':'fixture',
             'quantization':'Q4_K_M','state':'loaded','max_context_length':4096} for name in model_ids]
 fingerprints={row['id']:hashlib.sha256(json.dumps({'provider':'lmstudio','model':row['id'],
@@ -48,6 +48,8 @@ class Handler(BaseHTTPRequestHandler):
             '/tokens':json.dumps({'text':'<|channel|>analysis secret','expression':'happy'}),
             '/controltag':json.dumps({'text':'Hello <thi\x01nk>fixture internal</thi\x01nk>','expression':'happy'}),
             '/malformed':'{"text":"unfinished"',
+            '/mixed-meta':'A little note. {expression: "happy"}',
+            '/action-claim':json.dumps({'text':'I decide to rearrange the desktop icons.','expression':'happy'}),
         }.get(self.path,json.dumps({'text':'Fixture hello','expression':'happy'}))
         if self.path=="/eof-tool":
             # Normal prose followed by an unfinished tool stream exercises the
@@ -91,7 +93,7 @@ ShellRoot {
  property int step:0
  property int ticks:0
  property var mainIDs:[]
- property var invalidModels:["fixture-extra","fixture-tokens","fixture-malformed","fixture-controltag","fixture-eof-tool"]
+ property var invalidModels:["fixture-extra","fixture-tokens","fixture-malformed","fixture-controltag","fixture-eof-tool","fixture-mixed-meta","fixture-action-claim"]
  property int invalidIndex:0
  property string previousText:""
  property int assistantCount:0
@@ -368,6 +370,7 @@ ShellRoot {
     root.add("fixture-failure","/failure");root.add("fixture-slow","/slow")
     root.add("fixture-extra","/extra");root.add("fixture-tokens","/tokens");root.add("fixture-malformed","/malformed")
     root.add("fixture-controltag","/controltag");root.add("fixture-eof-tool","/eof-tool")
+    root.add("fixture-mixed-meta","/mixed-meta");root.add("fixture-action-claim","/action-claim")
     root.add("fixture-cloud","/cloud");Ai.models["fixture-cloud"].local=false
     root.add("fixture-responses","/responses");Ai.models["fixture-responses"].api_format="openai-response"
     root.add("fixture-spoof","/spoof");Ai.models["fixture-spoof"].endpoint="http://localhost@cloud.invalid/v1"
@@ -533,7 +536,7 @@ ShellRoot {
     headers=[headers for path,row,headers in requests if path=="/ok"]
     assert headers[0].get("Authorization")=="Bearer fixture-credential"
     assert "Authorization" not in headers[1], "previous provider credential survived a keyless switch"
-    assert len([row for path,row,headers in requests if path in ('/extra','/tokens','/malformed','/controltag','/eof-tool')])==5
+    assert len([row for path,row,headers in requests if path in ('/extra','/tokens','/malformed','/controltag','/eof-tool','/mixed-meta','/action-claim')])==7
     assert not any(path in ('/cloud','/spoof','/replacement','/unverified') for path,row,headers in requests), 'blocked or revoked request reached transport'
     assert len([row for path,row,headers in requests if path=='/local-verified'])==1, 'private input reached remote model replacement'
     assert not any(path=='/curlrc-leak' or 'X-Curlrc-Fixture' in headers for path,row,headers in requests), 'curl defaults modified private transport'
