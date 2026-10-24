@@ -1,0 +1,31 @@
+{
+  "step": "package",
+  "exitCode": 1,
+  "elapsedSeconds": 367.25,
+  "sources": {
+    "companion": "5a0fa09a365d847236a8e12e23320b222887d4b4",
+    "host": "764496e2ce3ac668bbd859a4e72ee62f4832dc63",
+    "integration": "192ddf6614b144593bd8d9f0bdb28e4ae4eb41a0"
+  },
+  "installedChanged": false,
+  "passCount": 89,
+  "failCount": 1,
+  "skipCount": 0,
+  "candidateOverridesManagedPin": true,
+  "fullGateStatus": "FAIL",
+  "failedChecks": [
+    "test-wull-pocket-wayland.py"
+  ],
+  "allSourceTreesClean": true,
+  "privateLogSha256": "b458fb652d7251ef353ce59e53d5f668e23fc8b09394012435cc8abf33dcc173",
+  "initialStoppedRunsRetained": [
+    "qualification",
+    "qualification-retry"
+  ],
+  "managedHostPinUnchanged": "1348e3a277ac96fe0653f41d54f092d08b821a7e",
+  "candidatePromoted": false,
+  "installedDesktop": "UNRUN",
+  "ownerAcceptance": "UNRUN",
+  "nativeAckBaseline": "minimal-native-drop-receipt.json",
+  "note": "This is a separate completed run after two monitor-stopped attempts; no earlier STOPPED run was upgraded to PASS. Prompt follow-up8b970e9 has separate real-model evidence and is not the source of this package run."
+}
