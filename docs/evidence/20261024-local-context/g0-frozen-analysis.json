@@ -1,0 +1,202 @@
+{
+  "scope": "Offline frozen-input analysis only; altered shader diagnostics cannot qualify the original shader",
+  "analyzerSource": "eb93656e4063a17f36e939d0bb7b28cc33f87629",
+  "runs": [
+    {
+      "schema": 2,
+      "originalStatus": "INCONCLUSIVE_CAPTURE_VARIANCE",
+      "receiptSha256": "f8b6732e01a845b717722cf7ca26c483660a1068f3a64ebf4094fba32a0f7f2c",
+      "baselineSourceSha256": "776cbb3ae2dd97c0fc6b493980c14bbcb6ba153ebf348120ecedcb89c8e6db0d",
+      "candidateSourceSha256": "776cbb3ae2dd97c0fc6b493980c14bbcb6ba153ebf348120ecedcb89c8e6db0d",
+      "sameSourceAndQsb": true,
+      "sourceInputsUnchanged": true,
+      "capturedNewFrames": false,
+      "qualifiesOriginalG0": false,
+      "totals": {
+        "cross": {
+          "changedPixels": 68,
+          "alphaChanged": 18,
+          "rgbChanged": 68,
+          "transparentRgbOnly": 0,
+          "visibleRgbOnly": 50,
+          "alphaOnly": 0,
+          "alphaAndRgb": 18,
+          "opaqueChanged": 0,
+          "nonOpaqueChanged": 68
+        },
+        "baselineRepeat": {
+          "changedPixels": 64,
+          "alphaChanged": 12,
+          "rgbChanged": 64,
+          "transparentRgbOnly": 0,
+          "visibleRgbOnly": 52,
+          "alphaOnly": 0,
+          "alphaAndRgb": 12,
+          "opaqueChanged": 0,
+          "nonOpaqueChanged": 64
+        },
+        "candidateRepeat": {
+          "changedPixels": 61,
+          "alphaChanged": 16,
+          "rgbChanged": 60,
+          "transparentRgbOnly": 0,
+          "visibleRgbOnly": 45,
+          "alphaOnly": 1,
+          "alphaAndRgb": 15,
+          "opaqueChanged": 0,
+          "nonOpaqueChanged": 61
+        }
+      },
+      "label": "original-fixed-warmup",
+      "cases": 15,
+      "inputFiles": 91
+    },
+    {
+      "schema": 2,
+      "originalStatus": "INCONCLUSIVE_CAPTURE_VARIANCE",
+      "receiptSha256": "61d26e01e106de55594623b870ff82720e21e9f7da60467cd9130b5ad3f321f4",
+      "baselineSourceSha256": "776cbb3ae2dd97c0fc6b493980c14bbcb6ba153ebf348120ecedcb89c8e6db0d",
+      "candidateSourceSha256": "776cbb3ae2dd97c0fc6b493980c14bbcb6ba153ebf348120ecedcb89c8e6db0d",
+      "sameSourceAndQsb": true,
+      "sourceInputsUnchanged": true,
+      "capturedNewFrames": false,
+      "qualifiesOriginalG0": false,
+      "totals": {
+        "cross": {
+          "changedPixels": 56,
+          "alphaChanged": 13,
+          "rgbChanged": 55,
+          "transparentRgbOnly": 0,
+          "visibleRgbOnly": 43,
+          "alphaOnly": 1,
+          "alphaAndRgb": 12,
+          "opaqueChanged": 0,
+          "nonOpaqueChanged": 56
+        },
+        "baselineRepeat": {
+          "changedPixels": 59,
+          "alphaChanged": 17,
+          "rgbChanged": 59,
+          "transparentRgbOnly": 0,
+          "visibleRgbOnly": 42,
+          "alphaOnly": 0,
+          "alphaAndRgb": 17,
+          "opaqueChanged": 0,
+          "nonOpaqueChanged": 59
+        },
+        "candidateRepeat": {
+          "changedPixels": 44,
+          "alphaChanged": 9,
+          "rgbChanged": 44,
+          "transparentRgbOnly": 0,
+          "visibleRgbOnly": 35,
+          "alphaOnly": 0,
+          "alphaAndRgb": 9,
+          "opaqueChanged": 0,
+          "nonOpaqueChanged": 44
+        }
+      },
+      "label": "original-warm-readback",
+      "cases": 12,
+      "inputFiles": 49
+    },
+    {
+      "schema": 2,
+      "originalStatus": "PASS_SAME_SOURCE",
+      "receiptSha256": "775f50e5da197437d53333755874a803944c3efb39640928fbe54e6e6495fff1",
+      "baselineSourceSha256": "2d6326af4c5086ac113352fb6d8911fba8e65440ef321e20620373dc68341b3b",
+      "candidateSourceSha256": "2d6326af4c5086ac113352fb6d8911fba8e65440ef321e20620373dc68341b3b",
+      "sameSourceAndQsb": true,
+      "sourceInputsUnchanged": true,
+      "capturedNewFrames": false,
+      "qualifiesOriginalG0": false,
+      "totals": {
+        "cross": {
+          "changedPixels": 0,
+          "alphaChanged": 0,
+          "rgbChanged": 0,
+          "transparentRgbOnly": 0,
+          "visibleRgbOnly": 0,
+          "alphaOnly": 0,
+          "alphaAndRgb": 0,
+          "opaqueChanged": 0,
+          "nonOpaqueChanged": 0
+        },
+        "baselineRepeat": {
+          "changedPixels": 0,
+          "alphaChanged": 0,
+          "rgbChanged": 0,
+          "transparentRgbOnly": 0,
+          "visibleRgbOnly": 0,
+          "alphaOnly": 0,
+          "alphaAndRgb": 0,
+          "opaqueChanged": 0,
+          "nonOpaqueChanged": 0
+        },
+        "candidateRepeat": {
+          "changedPixels": 0,
+          "alphaChanged": 0,
+          "rgbChanged": 0,
+          "transparentRgbOnly": 0,
+          "visibleRgbOnly": 0,
+          "alphaOnly": 0,
+          "alphaAndRgb": 0,
+          "opaqueChanged": 0,
+          "nonOpaqueChanged": 0
+        }
+      },
+      "label": "constant-environment-altered-shader",
+      "cases": 12,
+      "inputFiles": 49
+    },
+    {
+      "schema": 2,
+      "originalStatus": "INCONCLUSIVE_CAPTURE_VARIANCE",
+      "receiptSha256": "e9d453b205bd127542b5d46573f58a0f4019633cc5f89c40c3aaea82c46b501f",
+      "baselineSourceSha256": "f045fc7de5174deca03df5c105b31156af433848b1505088b056eead2b6ced85",
+      "candidateSourceSha256": "f045fc7de5174deca03df5c105b31156af433848b1505088b056eead2b6ced85",
+      "sameSourceAndQsb": true,
+      "sourceInputsUnchanged": true,
+      "capturedNewFrames": false,
+      "qualifiesOriginalG0": false,
+      "totals": {
+        "cross": {
+          "changedPixels": 15696,
+          "alphaChanged": 3,
+          "rgbChanged": 15696,
+          "transparentRgbOnly": 0,
+          "visibleRgbOnly": 15693,
+          "alphaOnly": 0,
+          "alphaAndRgb": 3,
+          "opaqueChanged": 0,
+          "nonOpaqueChanged": 15696
+        },
+        "baselineRepeat": {
+          "changedPixels": 15696,
+          "alphaChanged": 3,
+          "rgbChanged": 15696,
+          "transparentRgbOnly": 0,
+          "visibleRgbOnly": 15693,
+          "alphaOnly": 0,
+          "alphaAndRgb": 3,
+          "opaqueChanged": 0,
+          "nonOpaqueChanged": 15696
+        },
+        "candidateRepeat": {
+          "changedPixels": 0,
+          "alphaChanged": 0,
+          "rgbChanged": 0,
+          "transparentRgbOnly": 0,
+          "visibleRgbOnly": 0,
+          "alphaOnly": 0,
+          "alphaAndRgb": 0,
+          "opaqueChanged": 0,
+          "nonOpaqueChanged": 0
+        }
+      },
+      "label": "derivative-diagnostic-altered-shader",
+      "cases": 12,
+      "inputFiles": 49
+    }
+  ]
+}

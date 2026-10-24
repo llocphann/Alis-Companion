@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "scope": "Feature implementation and isolated qualification evidence; no installed or Owner acceptance",
+  "sources": {
+    "host": {
+      "sha": "081ce4ae439015e79dc22be3dcff8a6f7142ff25"
+    },
+    "companion": {
+      "sha": "5f453521b3d45c30b7e1ae060e1172c2681dd5c5"
+    },
+    "integration": {
+      "sha": "a42cba235699ad3735dccfcb218c1f68758f718d",
+      "publication": "local committed dependency at capture; not claimed published"
+    }
+  },
+  "featureSubset": {
+    "extractedFromWholeRun": true,
+    "checks": [
+      "test-wull-persona.cjs",
+      "test-wull-proactive-policy.cjs",
+      "test-wull-proactive-runtime-policy.cjs",
+      "test-wull-reminder-policy.cjs",
+      "test-wull-local-mind.py",
+      "test-wull-shared-ai-runtime.py",
+      "test-wull-memory-store.py",
+      "test-wull-local-persona.py",
+      "test-wull-mind-ui.py",
+      "test-wull-journal-ui.py",
+      "CompanionConfig.qml",
+      "WullMind.qml"
+    ],
+    "pass": 12,
+    "fail": 0,
+    "skip": 0
+  },
+  "wholePackage": {
+    "pass": 77,
+    "fail": 1,
+    "skip": 0,
+    "exitCode": 1,
+    "failedChecks": [
+      "test-module-hover-runtime.py"
+    ],
+    "sourceUnchanged": true
+  },
+  "hostCanonical": {
+    "source": "081ce4ae439015e79dc22be3dcff8a6f7142ff25",
+    "status": "RUNNING_AT_RECEIPT_CREATION",
+    "resultNotAssumed": true
+  },
+  "gates": {
+    "installedPackageAcceptance": false,
+    "physicalDesktopAcceptance": false,
+    "ownerAcceptance": false,
+    "originalG0Qualified": false,
+    "G1Qualified": false,
+    "realModelVoiceQualified": false
+  },
+  "fixtureFollowup": "Canonical config seeding/readback and Director changes are in eb93656; final qualification is queued separately, not claimed in this receipt."
+}

@@ -1,0 +1,33 @@
+{
+  "scope": "Historical synthetic selected-model run, never a passing qualification",
+  "sourceReceipt": {
+    "schema": 1,
+    "sources": {
+      "companion": "5fa2eb33f91e17578ab59f2a2f7f60a7f07ef397",
+      "host": "ccca68ebfe04ef2a576e8d4b8667265d68c9a0a3"
+    },
+    "provider": {
+      "model": "qwen3.5-4b-mtp",
+      "endpoint": "http://127.0.0.1:1234/v1/chat/completions",
+      "maxTokens": 256,
+      "thinking": "provider default (catalog support unknown)"
+    },
+    "fixtureSha256": "44558315bef13377de0938ad269d009c727f9a9dfbec97631b09d9750c6f9af7",
+    "exitCode": 0,
+    "expected": 28,
+    "accepted": 0,
+    "complete": false,
+    "tokens": null,
+    "gpuCostQualified": false,
+    "ownerVoiceAcceptance": false,
+    "sourceUnchanged": true
+  },
+  "attempted": 27,
+  "accepted": 0,
+  "attemptsSha256": "ceac744d2fe03786d6d8105a405ce5b58f745b8fc3f42c48ecc4ed156d1fee2d",
+  "firstContentSamples": 27,
+  "wallMs": {
+    "min": 18961,
+    "max": 24879
+  }
+}
