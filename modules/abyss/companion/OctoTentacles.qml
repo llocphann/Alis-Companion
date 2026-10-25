@@ -18,9 +18,11 @@ Item {
             required property int modelData
             readonly property int index: modelData
             objectName: "octoTentacle"+index
+            readonly property real coworkReach: index < 2 && root.body.coworkPose ? (root.body.coworkPose["laptopReach" + index] ?? 0) * (index === 0 ? 12 : -12) : 0
+            readonly property real coworkTap: index < 2 && root.body.coworkPose ? (root.body.coworkPose["laptopTap" + index] ?? 0) * -2.2 : 0
             readonly property var curve: root.gripping
                 ? Rig.gripControls(index,root.motion.sample("gripRise"),root.motion.sample("gripWrap"))
-                : Rig.controls(index,root.motion.curl(index),root.motion.sample("tentacle"+index+"Lift"),root.motion.sample("tentacle"+index+"Reach")*root.motion.direction)
+                : Rig.controls(index,root.motion.curl(index),root.motion.sample("tentacle"+index+"Lift")+coworkTap,root.motion.sample("tentacle"+index+"Reach")*root.motion.direction+coworkReach)
             readonly property var points: curve.map(p=>root.body.project(p.x,p.y,p.z))
             readonly property var bounds: {
                 const radius=(Rig.geometry.rootRadius+1)*Math.max(root.body.poseScaleX,root.body.poseScaleY,1/(root.body.poseScaleX*root.body.poseScaleY))

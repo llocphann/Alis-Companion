@@ -15,7 +15,11 @@ if not qs:
 with tempfile.TemporaryDirectory(prefix="hadanion-cowork-qml-") as temporary:
     private = Path(temporary)
     fixture = private / "shell.qml"
-    for name in ("assets/cowork/CoworkPerformance.js", "modules/abyss/companion/WullBehaviorDirector.js"):
+    for name in ("assets/cowork/CoworkPerformance.js",
+                 "modules/abyss/companion/WullBehaviorDirector.js",
+                 "modules/abyss/companion/WullCoworkPerformance.js",
+                 "modules/abyss/companion/WullLaptopProp.qml",
+                 "services/WullCoworkController.qml"):
         destination = private / name
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / name, destination)
@@ -25,9 +29,25 @@ with tempfile.TemporaryDirectory(prefix="hadanion-cowork-qml-") as temporary:
 import Quickshell
 import "CONTROLLER" as Performance
 import "DIRECTOR" as Director
+import "modules/abyss/companion"
+import "services"
 ShellRoot {
     id: root
     property var curves: CURVES
+    property double stamp: 1000
+    QtObject {
+        id: fakeBody
+        function project(x, y, z) { return ({ x: x, y: y, z: z, scale: 1 }) }
+    }
+    WullCoworkController {
+        id: runtimeController
+        clock: () => root.stamp
+    }
+    WullLaptopProp {
+        id: laptopProp
+        body: fakeBody
+        pose: runtimeController.pose
+    }
     function check(ok, reason) { if (!ok) throw new Error(reason) }
     function run() {
         try {
@@ -46,6 +66,38 @@ ShellRoot {
                 const canceled=Performance.update(s,d,host,2460)
                 check(!canceled.active && !canceled.renderProp,"drag did not yield")
                 check(!Performance.complete(s,d,loop.epoch,5000).accepted,"stale callback accepted")
+
+                root.stamp=10000
+                const rd=Director.newState()
+                const rhost={enabled:true,visible:true,optedIn:true,coworkEnabled:true,
+                    grounded:true,motionEnabled:true,character:character}
+                runtimeController.character=character
+                runtimeController.directorState=rd
+                runtimeController.hostContext=rhost
+                Director.acceptAgent(rd,{word:"working",token:"0123456789abcdef"},root.stamp)
+                runtimeController.step()
+                check(runtimeController.phase==="intro" && runtimeController.clip==="laptop_open" && !runtimeController.renderProp,"runtime intro failed")
+                root.stamp+=700
+                runtimeController.step()
+                check(runtimeController.phase==="intro" && runtimeController.renderProp && laptopProp.laptopHinge>0,"runtime opening prop failed")
+                root.stamp+=750
+                runtimeController.step()
+                check(runtimeController.phase==="loop" && runtimeController.clip==="laptop_agent_loop" && runtimeController.renderProp,"runtime agent loop failed")
+                check(runtimeController.triggerCue("alert") && runtimeController.phase==="cue" && runtimeController.clip==="laptop_alert","runtime cue failed")
+                root.stamp+=1200
+                runtimeController.step()
+                check(runtimeController.phase==="loop" && runtimeController.clip==="laptop_agent_loop","runtime cue return failed")
+                Director.acceptAgent(rd,{word:"ended",token:"0123456789abcdef"},root.stamp)
+                runtimeController.step()
+                root.stamp+=500
+                runtimeController.step()
+                check(runtimeController.phase==="loop" && runtimeController.clip==="laptop_pause" && runtimeController.renderProp,"short context loss did not settle in pause")
+                root.stamp+=600
+                runtimeController.step()
+                check(runtimeController.phase==="outro" && runtimeController.clip==="laptop_close","outro close did not start after grace")
+                root.stamp+=1200
+                runtimeController.step()
+                check(runtimeController.phase==="none" && !runtimeController.active && !runtimeController.renderProp,"outro did not finish cleanly")
             }
             console.log("COMPANION_COWORK_QML_PASS pairedImports externalCompletion immediateYield staleEpoch")
             Qt.quit()

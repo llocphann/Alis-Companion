@@ -50,9 +50,11 @@ Item {
     property real viewYaw: -15
     property real viewPitch: 0
     property real rollingAngle: 0 // Legacy input retained but no longer controls body pose.
-    readonly property real modelRoll:gait.roll
-    readonly property real modelYaw: viewYaw+gait.yaw
-    readonly property real modelPitch: viewPitch+gait.pitch
+    property var coworkPose: null
+    property bool coworkPropVisible: false
+    readonly property real modelRoll:gait.roll+(coworkPose?.roll ?? 0)
+    readonly property real modelYaw: viewYaw+gait.yaw+(coworkPose?.yaw ?? 0)
+    readonly property real modelPitch: viewPitch+gait.pitch+(coworkPose?.pitch ?? 0)
     // These three angles feed five ShaderEffect instances (torso + four
     // limbs). Convert each shared pose angle once per pose revision instead of
     // repeating identical degree-to-radian work in every consumer.
@@ -257,8 +259,11 @@ Item {
                 readonly property string zTrack: (hand ? "arm"+index : "foot"+(index-2)) + "Z"
                 readonly property real stepX: gait.footX(xTrack) * (hand ? 1.35 : 1.15)
                 readonly property real stepZ: gait.footZ(zTrack) * (hand ? 1.35 : 1.15)
-                readonly property var spatial: root.project(side*(hand ? 32.5 : 19.5)+stepX,
-                    46.14-(hand ? 52.5 : 77.2)+stepZ,8)
+                readonly property real coworkArmX: hand && root.coworkPose ? (root.coworkPose["arm"+index+"X"] ?? 0)*.45 : 0
+                readonly property real coworkArmY: hand && root.coworkPose ? -(root.coworkPose["arm"+index+"Y"] ?? 0)*.35 : 0
+                readonly property real coworkArmZ: hand && root.coworkPose ? (root.coworkPose["arm"+index+"Z"] ?? 0)*.65 : 0
+                readonly property var spatial: root.project(side*(hand ? 32.5 : 19.5)+stepX+coworkArmX,
+                    46.14-(hand ? 52.5 : 77.2)+stepZ+coworkArmZ,8+coworkArmY)
                 readonly property real depth: spatial.z
                 width: hand ? 16.5 : 19.5
                 height: hand ? 15.5 : 16.5
@@ -446,7 +451,7 @@ Item {
                     cheeksVisible: !root.octopus
                     viewYaw: root.modelYaw
                     accent: root.liquidAccent
-                    eyeOpen: root.eyeOpen
+                    eyeOpen: root.coworkPose?.eyeOpen !== undefined ? root.eyeOpen * root.coworkPose.eyeOpen : root.eyeOpen
                     mouthCurve: root.mouthCurve
                     // Pointer feedback is interpolated locally, never streamed over IPC.
                     // The actor projects observed coordinates into this face's
@@ -487,7 +492,7 @@ Item {
     Loader {
         id: ambientPropLoader
         objectName: "wullAmbientPropLoader"
-        active: root.ambientProp !== "" && !root.walking && !root.flying && !root.dragging && !root.traveling
+        active: root.ambientProp !== "" && !root.coworkPropVisible && !root.walking && !root.flying && !root.dragging && !root.traveling
         z: 3
         sourceComponent: WullAmbientProp {
             body: root
@@ -495,6 +500,19 @@ Item {
             accentColor: root.liquidAccent
             specularColor: root.reflectionColor
             shimmer: root.shimmer
+            lift: gait.lift + root.reactionLift * root.motionAmount
+        }
+    }
+    Loader {
+        id: laptopPropLoader
+        objectName: "wullLaptopPropLoader"
+        active: root.coworkPropVisible && root.coworkPose !== null && !root.walking && !root.flying && !root.dragging && !root.traveling
+        z: 3
+        sourceComponent: WullLaptopProp {
+            body: root
+            pose: root.coworkPose
+            accentColor: root.liquidAccent
+            specularColor: root.reflectionColor
             lift: gait.lift + root.reactionLift * root.motionAmount
         }
     }

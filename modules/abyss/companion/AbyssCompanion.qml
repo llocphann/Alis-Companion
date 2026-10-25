@@ -61,6 +61,8 @@ Item {
     readonly property string activeHideClip: curves.clips[hideClip] ? hideClip : "dive"
     property string reactionExpression: ""
     property string ambientProp: ""
+    property var coworkPose: null
+    property bool coworkPropVisible: false
     readonly property real tangentDirection: travelDirection*Math.cos(standingAngle*Math.PI/180)+travelDirectionY*Math.sin(standingAngle*Math.PI/180)
     property real travelPhase: 0
     property real travelFromX: 0
@@ -380,6 +382,8 @@ Item {
             dragging: root.dragging
             traveling: root.moving || root.portalWalking
             ambientProp: root.presentation > 0.99 && !root.leaving && !root.peeking && !root.moving && !root.portalWalking && !root.dragging ? root.ambientProp : ""
+            coworkPose: root.presentation > 0.99 && !root.leaving && !root.peeking && !root.moving && !root.portalWalking && !root.dragging ? root.coworkPose : null
+            coworkPropVisible: root.presentation > 0.99 && !root.leaving && !root.peeking && !root.moving && !root.portalWalking && !root.dragging && root.coworkPropVisible
             walkingDirection: (root.upright ? root.tangentDirection : root.travelDirection) * (root.upright || root.edge === "top" || root.edge === "left" ? 1 : -1)
             viewYaw: (root.moving || root.portalWalking) ? (root.walking ? root.tangentDirection : root.travelDirection) * (root.walking ? 32 : 20)
                 : root.peeking ? root.emergenceEdge==="left" ? 22 : root.emergenceEdge==="right" ? -22 : 0 : -15

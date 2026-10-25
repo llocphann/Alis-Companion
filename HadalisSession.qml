@@ -45,6 +45,14 @@ Item {
             quiet:!AbyssStyle.motionEnabled || companionPreferences?.animationsEnabled!==true,
             idle:WullMind.hostIdle},Date.now())
         if(!contextState.enabled)contextConnected=false
+        if(coworkController) {
+            coworkController.directorState=contextState.director
+            coworkController.hostContext=coworkHostContext()
+            coworkController.step()
+            if(coworkController.phase==="loop" && coworkController.hostContext
+                    && Director.pollNeedsInput(contextState.director,coworkController.hostContext,Date.now()).eligible)
+                coworkController.triggerCue("alert")
+        }
     }
     onContextFeedChanged: {disconnectContext();contextConnect.restart()}
     Connections {
@@ -54,7 +62,11 @@ Item {
             const trusted=root.contextConnected && root.contextConnection===root.contextFeed
                 && root.host.session===root
             const accepted=ContextProtocol.accept(root.contextState,packet,trusted,Date.now())
-            if(accepted.accepted){root.evaluateContext();contextSettle.restart()}
+            if(accepted.accepted){
+                root.evaluateContext()
+                if(accepted.finishedLong)coworkController.triggerCue("success")
+                contextSettle.restart()
+            }
             else if(!root.contextState.enabled){
                 root.disconnectContext()
                 if(root.contextFeed && root.host.session===root)contextReconnect.restart()
@@ -114,6 +126,31 @@ Item {
                 && (root.companionPreferences.ambientFocusEnabled || root.companionPreferences.ambientBatteryEnabled
                     || root.companionPreferences.ambientMediaEnabled),idle:WullMind.hostIdle,
             motionEnabled:root.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled})
+    }
+    function coworkHostContext(): var {
+        const base=visualContext()
+        if(!base)return null
+        const targetExt=root.outputHosts.find(window=>window.outputName===root.companionTargetOutput)?.extension
+        return Object.assign({},base,{
+            optedIn:root.contextConnected && root.contextState.enabled,
+            coworkEnabled:Boolean(targetExt?.actor) && root.companionEnabled && root.contextConnected
+                && (root.companionPreferences.contextEnabled || root.companionPreferences.contextAiEnabled),
+            grounded:targetExt?.actor ? targetExt.actor.surfaceSupported!==false && !targetExt.actor.flying : false,
+            character:root.companionCharacter,
+            quiet:!base.motionEnabled
+        })
+    }
+    readonly property var cowork: coworkController
+    readonly property var companionCoworkPose: coworkController.pose
+    readonly property bool companionCoworkPropVisible: coworkController.renderProp
+    readonly property string companionCoworkClip: coworkController.clip
+    readonly property string companionCoworkPhase: coworkController.phase
+    WullCoworkController {
+        id:coworkController
+        objectName:"companionCoworkController"
+        character:root.companionCharacter
+        directorState:root.contextState.director
+        hostContext:root.coworkHostContext()
     }
     function presentAiExpression(expression): bool {
         const proposal=Director.proposeAiExpression(contextState.director,visualContext(),{expression:expression},Date.now())

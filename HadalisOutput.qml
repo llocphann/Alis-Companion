@@ -51,6 +51,7 @@ Item {
         dragging:companionPresence.dragging,manualTravel:companionPresence.traveling,
         portalTravel:companionPresence.portalActive,
         modalOpen:root.companionOccluded || companionCuriosity.busy || WullPocket.opened || WullPocket.busy})
+    onDirectorContextChanged: if (session && session.companionTargetOutput===host.outputName) session.evaluateContext()
     function requestCompanionChat(): void {
         if(!root.companionPermission) return
         companionTurns.cancel()
@@ -93,6 +94,7 @@ Item {
             actor:{character:companion.character,visible:companion.visible,inputReady:companion.inputReady,
                 moving:companion.moving,walking:companion.walking,rolling:companion.rolling,flying:companion.flying,
                 presentation:companion.presentation,opacity:companion.opacity,ambientProp:companion.ambientProp,
+                coworkPropVisible:companion.coworkPropVisible,
                 x:companion.x,y:companion.y}}
     }
     readonly property bool companionHoverHeld: root.companionHostActive
@@ -364,6 +366,8 @@ Item {
         mood: companionBridge.mood
         activity: companionBridge.activity
         ambientProp: !root.ambientBlocked && session.companionTargetOutput===host.outputName ? session.companionAmbientProp : ""
+        coworkPose: !root.ambientBlocked && session.companionTargetOutput===host.outputName ? session.companionCoworkPose : null
+        coworkPropVisible: !root.ambientBlocked && session.companionTargetOutput===host.outputName && session.companionCoworkPropVisible
         targetX: companionPresence.targetX+(session.companionScale-1)*implicitWidth/2
         targetY: companionPresence.targetY+(session.companionScale-1)*implicitHeight/2
         onTravelCompleted: companionPresence.arrived()
