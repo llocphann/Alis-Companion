@@ -1,0 +1,146 @@
+{
+  "schema": 1,
+  "scope": "Private component repair qualification; installed platform remains a separate gate",
+  "sources": {
+    "companion": "5cb8ec3f6491c994129e89df0af191b1959c465c",
+    "host": "764496e2ce3ac668bbd859a4e72ee62f4832dc63",
+    "integration": "192ddf6614b144593bd8d9f0bdb28e4ae4eb41a0"
+  },
+  "niri": {
+    "sha": "8ed0da44d974c32c6877d2f4630c314da0717ecb",
+    "smithay": "ff5fa7df392cecfba049ffed55cdaa4e98a8e7ef",
+    "profile": "cargo build --no-default-features --bin niri -j2 on both controls",
+    "baselineBinarySha256": "efd97d4de26cbe59abecf58bedc38cbd0416b8e0a2c61568d78d2b0e0ecd465f",
+    "patchedBinarySha256": "b03ac6f4b313ecada252ea395c1c4ceb012a6cb6825bc540cb55bbf3ffe22792"
+  },
+  "qt": {
+    "sourceTag": "v6.12.0",
+    "archiveCommitPrefix": "fcef5b2",
+    "component": "WaylandClient built against exact installed Qt6.12.0 Core/Gui private ABI; same scaffold before/after",
+    "patch": {
+      "file": "src/plugins/platforms/wayland/qwaylanddatadevice.cpp",
+      "before": "ea73f3fd0fd27f3421c2094f1485571f48c35ff3517df8ef108cb4869fc97f55",
+      "after": "44559fab7ce80fde8c83fe514d952f8b6539afc96f396afede276b07766bc81d",
+      "preservesToplevelDragBranch": true
+    },
+    "baselineLibrarySha256": "a4341dba7fbe64da416816cc861d17aa549c229832e5a35853ec031c676040c6",
+    "patchedLibrarySha256": "53adb1a7c3c4b0664cc591f018d7441c9988c9570950d7910ade4069cd684929",
+    "builtFromSource": true,
+    "preloadPrototypeUsedForPassingRuns": false
+  },
+  "controls": [
+    {
+      "platform": "private unpatched Niri + installed Qt",
+      "originalOracle": "FAIL source Ignore despite wire Copy/finish",
+      "exitCode": 1,
+      "logSha256": "3eae3466697f506ca54c38fde4275d7be26b352881890c69cf3d42f8a1d4d376"
+    },
+    {
+      "platform": "patched private Niri + installed Qt",
+      "originalUnchangedOracle": "PASS C++ and Python",
+      "exitCodes": [
+        0,
+        0
+      ],
+      "receiptSha256": "b14082629468e8de6a61f4805d461ce62d8bfab7e5c746f4eb40467534d58024"
+    },
+    {
+      "platform": "patched private Niri + independently built unpatched Qt",
+      "expandedOracle": "FAIL stationary revocation returns Copy after target cancels; metadata unchanged",
+      "exitCode": 1,
+      "logSha256": "f9d64fd2cf6208113ae1f667b2a867ecd9a369c6479b056ef54acdcb9d319195"
+    },
+    {
+      "platform": "patched private Niri + patched private Qt",
+      "client": "C++",
+      "expandedOracle": "PASS",
+      "exitCode": 0,
+      "logSha256": "e793a4c615136b57a43abaf265845f5cdb1587c0d37b09dc056df29a9d961616"
+    },
+    {
+      "platform": "patched private Niri + patched private Qt",
+      "client": "PySide6",
+      "expandedOracle": "PASS",
+      "exitCode": 0,
+      "logSha256": "e793a4c615136b57a43abaf265845f5cdb1587c0d37b09dc056df29a9d961616"
+    }
+  ],
+  "expandedMatrix": {
+    "dragsPerPassingClient": 13,
+    "casts": [
+      "aqua",
+      "octo"
+    ],
+    "edges": [
+      "top",
+      "bottom",
+      "left",
+      "right"
+    ],
+    "copy": "PASS",
+    "disabled": "PASS",
+    "leaveBeforeRelease": "PASS",
+    "stationaryConsentRevocation": "PASS",
+    "moveOnlyDenied": "PASS",
+    "persistedV1RestartAndRepeatedDeduplication": "PASS",
+    "legacyId27Created43SourcePicker": "PRESERVED",
+    "originalsAndUnrelatedState": "PRESERVED",
+    "schemaMigration": "not needed; v1 retained"
+  },
+  "exactCleanScoped": {
+    "pass": 4,
+    "fail": 0,
+    "skip": 0,
+    "exitCode": 0,
+    "checks": [
+      "pocket policy",
+      "metadata store",
+      "real owned UI",
+      "external C++ Wayland matrix"
+    ],
+    "logSha256": "b6f5e3fd5c5ccd66c028aa7dff150762e165249819bdbec264d3a2ceac88cedf"
+  },
+  "retainedFailures": {
+    "firstPatchedCppMatrix": {
+      "name": "both-repairs-cpp",
+      "exitCode": 1,
+      "seconds": 28.57,
+      "logSha256": "10a76d037b0ca72b3ad95fa9ad2ba18562df84067ce64428163462559c6c6d82",
+      "privateQtLoadedProcessLogs": 6
+    },
+    "description": "A private C++ run timed out reading portal MIME data and failed before Copy. Later unchanged repeat passed. Intermittent host/portal timing remains unqualified; no earlier failure is upgraded to PASS. Other diagnostic/build failures remain private."
+  },
+  "loaderChecks": {
+    "qt-baseline": [
+      {
+        "traceSha256": "c99a0eed4ee7627a18b7a5b259ee3621c07bcbc1f0700380e59c2790160c1d13",
+        "privateQtInitialized": true
+      }
+    ],
+    "both-repairs-cpp-repeat": [
+      {
+        "traceSha256": "b35a6be89a0240c1abc782febe6efb2d872abee61b77317ee59e0d44e1399d73",
+        "privateQtInitialized": true
+      },
+      {
+        "traceSha256": "c640bd52b74c1c8473168a938afb310e6db1a94928cd2f4cea00a1339303d52f",
+        "privateQtInitialized": true
+      }
+    ],
+    "both-repairs-python": []
+  },
+  "fullCanonicalPackage": "RUNNING separately at exact source; no final result asserted",
+  "canonicalHost764": "Historical STOPPED 25 settled PASS /1 FAIL /0 SKIP; see previous-host-quota-stop.json",
+  "installedChangedByThisChat": false,
+  "managedPinChanged": false,
+  "activated": false,
+  "sourcePatchesOnly": true,
+  "unrun": [
+    "full default-feature compositor parity",
+    "full QtBase/docking/toplevel-drag regression",
+    "installed Pocket and physical multi-output acceptance",
+    "GPU/resource qualification",
+    "Owner acceptance"
+  ],
+  "issue15AwaitingOwner": false
+}
