@@ -30,6 +30,11 @@ Singleton {
     property var memories: []
     property bool memoriesLoaded: false
     property string memoryNotice: ""
+    property var toolReceipts: []
+    property var lastToolMetadata: null
+    property var lastToolProposal: null
+    property var lastToolRouting: null
+    property string toolNotice: ""
     readonly property var dialoguePreferences: options.bondEnabled===true && ModelPolicy.isLocal(Ai.models[model])
         ? ({enabled:true,tone:options.dialogueTone ?? "gentle",familiarity:options.familiarity ?? "neutral",
             mood:userMood,energy:userEnergy}) : ({enabled:false})
@@ -174,7 +179,7 @@ Singleton {
     function dispatch(action, extra = null, automatic = false): bool {
         if (busy || draining || worker.running || automatic) return false
         if (["chat","probe"].includes(action)) return false
-        const request=Object.assign(action.startsWith("memory_") ? {action:action} : payload(action),extra ?? {})
+        const request=Object.assign((action.startsWith("memory_") || action.startsWith("tool_")) ? {action:action} : payload(action),extra ?? {})
         const serial=++epoch
         pending={serial:serial,action:action,request:request,automatic:automatic}
         busy=true;errorMessage=""
@@ -221,6 +226,35 @@ Singleton {
         return dispatch("memory_forget",{confirmed:true,id:id})
     }
     function forgetAllMemories(): bool {return dispatch("memory_forget_all",{confirmed:true})}
+    function inspectToolMetadata(kind, target = ""): bool {
+        if(!["host_metadata","repo_metadata","doc_metadata"].includes(kind))return false
+        return dispatch("tool_inspect",{kind:kind,target:target})
+    }
+    function evaluateToolRouting(prompt, docOptIn = false): bool {
+        if(typeof prompt!=="string" || !prompt.trim() || prompt.trim().length>1200)return false
+        return dispatch("tool_route",{prompt:prompt.trim(),localOnly:localOnly,
+            isLocalModel:ModelPolicy.isLocal(Ai.models[model]),docOptIn:docOptIn===true})
+    }
+    function proposePreferenceEdit(field, beforeValue, afterValue): bool {
+        toolNotice=""
+        return dispatch("tool_propose",{field:field,beforeValue:beforeValue,afterValue:afterValue})
+    }
+    function confirmToolProposal(proposalId): bool {
+        if(typeof proposalId!=="string" || !/^prop_[0-9a-f]{16}$/.test(proposalId))return false
+        toolNotice=""
+        return dispatch("tool_confirm",{confirmed:true,proposalId:proposalId})
+    }
+    function cancelToolProposal(proposalId): bool {
+        if(typeof proposalId!=="string" || !/^prop_[0-9a-f]{16}$/.test(proposalId))return false
+        toolNotice=""
+        return dispatch("tool_cancel",{proposalId:proposalId})
+    }
+    function rollbackToolReceipt(receiptId): bool {
+        if(typeof receiptId!=="string" || !/^rcpt_[0-9a-f]{16}$/.test(receiptId))return false
+        toolNotice=""
+        return dispatch("tool_rollback",{confirmed:true,receiptId:receiptId})
+    }
+    function refreshToolReceipts(): bool {return dispatch("tool_receipts",{})}
     function memoryContext(nowMs): var {
         if(!memoryEnabled || !memoriesLoaded || !ModelPolicy.isLocal(Ai.models[model]))return []
         return memories.filter(row=>(row.scope==="shared" || row.scope===character)
@@ -532,6 +566,7 @@ Singleton {
         if (!envelope.ok) {
             errorMessage=envelope.error.message
             if(job.action.startsWith("memory_")) {memoriesLoaded=false;memoryNotice=errorMessage;return}
+            if(job.action.startsWith("tool_")) {toolNotice=errorMessage;return}
             if (job.action==="history") {
                 historyLoaded=true;historyHasMore=false;historyLoadingOlder=false
                 return
@@ -561,6 +596,24 @@ Singleton {
             Qt.callLater(root.refreshMemory)
         } else if (job.action==="memory_forget_all") {
             memories=[];memoriesLoaded=true;memoryNotice="Saved memory records forgotten. External copies and backups remain."
+        } else if (job.action==="tool_inspect") {
+            lastToolMetadata=result
+        } else if (job.action==="tool_route") {
+            lastToolRouting=result
+        } else if (job.action==="tool_propose") {
+            lastToolProposal=result;toolNotice="Proposal ready for confirmation."
+        } else if (job.action==="tool_confirm") {
+            if(!result.idempotent)Config.setNestedValue(result.configPath,result.afterValue)
+            lastToolProposal=null;toolNotice="Preference update applied."
+            Qt.callLater(root.refreshToolReceipts)
+        } else if (job.action==="tool_cancel") {
+            lastToolProposal=null;toolNotice="Proposal cancelled."
+        } else if (job.action==="tool_rollback") {
+            if(!result.idempotent)Config.setNestedValue(result.configPath,result.beforeValue)
+            toolNotice="Preference update rolled back."
+            Qt.callLater(root.refreshToolReceipts)
+        } else if (job.action==="tool_receipts") {
+            toolReceipts=result.receipts
         } else if (job.action==="history_append") {
             const key=String(job.request.clientKey)
             history=history.map(entry=>entry.clientId===key+":user"

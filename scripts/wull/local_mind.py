@@ -375,6 +375,8 @@ def dispatch(payload):
     action=payload.get('action')
     if action in ('memory_list','memory_save','memory_forget','memory_forget_all'):
         return memory_action(action,payload)
+    if action in ('tool_inspect','tool_route','tool_propose','tool_confirm','tool_cancel','tool_rollback','tool_receipts'):
+        return tool_action(action,payload)
     if action=='probe':return probe(payload)
     if action=='context':return context(payload)
     if action=='chat':return chat(payload)
@@ -383,6 +385,21 @@ def dispatch(payload):
     if action=='history_append':return append_chat_history(payload)
     if action=='check_in':return check_in(payload)
     raise MindError('invalid_action','Unsupported companion request')
+
+def tool_action(action, payload):
+    import tool_store
+    companion_root=Path(__file__).resolve().parents[2]
+    try:
+        if action=='tool_inspect':return tool_store.inspect_metadata(payload,companion_root,HOST)
+        if action=='tool_route':return tool_store.evaluate_routing(payload,companion_root)
+        if action=='tool_propose':return tool_store.propose_edit(payload)
+        if action=='tool_confirm':return tool_store.confirm_edit(payload)
+        if action=='tool_cancel':return tool_store.cancel_edit(payload)
+        if action=='tool_rollback':return tool_store.rollback_edit(payload)
+        if action=='tool_receipts':return tool_store.list_receipts()
+    except tool_store.ToolError as exc:
+        raise MindError(exc.code,str(exc)) from exc
+    raise MindError('invalid_action','Unsupported tool action')
 
 def memory_action(action, payload):
     # These actions are called only by the user's management controls; model

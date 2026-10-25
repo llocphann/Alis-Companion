@@ -65,8 +65,63 @@ function probe(result) {
             && integer(row.size, 0, Number.MAX_SAFE_INTEGER) && typeof row.thinking === "boolean")
 }
 
+function validPreferenceValue(field, value) {
+    const allowed = {
+        personality: ["calm", "lively", "shy"],
+        appearanceFrequency: ["rare", "normal", "frequent"],
+        dialogueTone: ["gentle", "playful", "concise"],
+        familiarity: ["reserved", "neutral", "warm"],
+        proactive: ["rare", "occasional", "regular", "often", "manual"],
+        proactiveQuietEnabled: [true, false]
+    }
+    return allowed[field] ? allowed[field].includes(value) : false
+}
+
+function validToolReceipt(row) {
+    return object(row)
+        && typeof row.receiptId === "string" && /^rcpt_[0-9a-f]{16}$/.test(row.receiptId)
+        && typeof row.proposalId === "string" && /^prop_[0-9a-f]{16}$/.test(row.proposalId)
+        && string(row.field, 64, false) && string(row.configPath, 128, false)
+        && validPreferenceValue(row.field, row.beforeValue)
+        && validPreferenceValue(row.field, row.afterValue)
+        && integer(row.appliedAtMs, 0, Number.MAX_SAFE_INTEGER)
+        && typeof row.digest === "string" && /^[0-9a-f]{64}$/.test(row.digest)
+        && typeof row.rolledBack === "boolean"
+}
+
 function validResult(action, result) {
     if (!object(result)) return false
+    if (action === "tool_inspect") return ["host_metadata", "repo_metadata", "doc_metadata"].includes(result.kind)
+        && typeof result.hostAvailable === "boolean"
+        && string(result.packageId, 120, false)
+        && string(result.version, 80, false)
+        && result.localOnlyDefault === true
+        && Array.isArray(result.capabilities) && result.capabilities.length <= 16
+        && result.capabilities.every(v => string(v, 80, false))
+        && Array.isArray(result.headings) && result.headings.length <= 16
+        && result.headings.every(v => string(v, 160, false))
+    if (action === "tool_route") return typeof result.allowed === "boolean"
+        && ["reflex", "brain", "blocked"].includes(result.route)
+        && typeof result.ragUsed === "boolean"
+        && string(result.reason, 80, false)
+        && Array.isArray(result.snippets) && result.snippets.length <= 3
+        && result.snippets.every(v => string(v, 320, false))
+        && integer(result.estimatedTokens, 0, 16384)
+    if (action === "tool_propose") return typeof result.proposalId === "string"
+        && /^prop_[0-9a-f]{16}$/.test(result.proposalId)
+        && string(result.field, 64, false) && string(result.configPath, 128, false)
+        && validPreferenceValue(result.field, result.beforeValue)
+        && validPreferenceValue(result.field, result.afterValue)
+        && integer(result.createdMs, 0, Number.MAX_SAFE_INTEGER)
+        && integer(result.expiresMs, result.createdMs, Number.MAX_SAFE_INTEGER)
+        && result.status === "pending"
+    if (action === "tool_confirm" || action === "tool_rollback")
+        return validToolReceipt(result) && typeof result.idempotent === "boolean"
+    if (action === "tool_cancel") return typeof result.proposalId === "string"
+        && /^prop_[0-9a-f]{16}$/.test(result.proposalId)
+        && result.cancelled === true && result.status === "cancelled"
+    if (action === "tool_receipts") return Array.isArray(result.receipts)
+        && result.receipts.length <= 128 && result.receipts.every(validToolReceipt)
     if (action === "memory_list") return Array.isArray(result.memories) && result.memories.length<=128
         && result.memories.every(row=>object(row) && positiveId(row.id)
             && ["aqua","octo","shared"].includes(row.scope) && string(row.text,320,false)

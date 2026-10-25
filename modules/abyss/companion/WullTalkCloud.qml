@@ -23,8 +23,11 @@ Item {
     readonly property color cloudColor: Qt.alpha(AbyssStyle.surface, .96)
     readonly property color cloudBorderColor: Qt.alpha(AbyssStyle.accent, .48)
     width: Math.min(380, Math.max(220, outputWidth - 32))
+    readonly property real nonEditingContentHeight: WullMind.contextOpen
+        ? content.implicitHeight
+        : speechText.implicitHeight + (WullMind.checkInStage.length > 0 ? content.spacing + 28 : 0)
     height: pocketOpen ? Math.min(360,Math.max(220,outputHeight-48))
-        : editing ? Math.min(430, Math.max(230, outputHeight - 48)) : content.implicitHeight + 24
+        : editing ? Math.min(430, Math.max(230, outputHeight - 48)) : nonEditingContentHeight + 24
     readonly property real actorVisualScale: Math.max(.1, Number(actor.scale) || 1)
     readonly property real actorVisualWidth: actor.width * actorVisualScale
     readonly property real actorVisualHeight: actor.height * actorVisualScale
@@ -59,9 +62,13 @@ Item {
         required property string field
         required property var options
         required property string selectedValue
+        width: content.width
+        height: 28
         Layout.fillWidth: true
         spacing: 3
         GridLayout {
+            width: parent.width
+            height: 28
             Layout.fillWidth: true
             columns: 5
             columnSpacing: 2
@@ -69,7 +76,10 @@ Item {
                 model: choice.options
                 DialogButton {
                     required property var modelData
+                    required property int index
                     objectName: "wull" + choice.field + "-" + modelData.value
+                    x: index * ((choice.width + 2) / 5)
+                    width: (choice.width - 8) / 5
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     implicitHeight: 28
@@ -89,7 +99,7 @@ Item {
         id: content
         visible:!root.pocketOpen
         x: 12; y: 12; width: parent.width - 24
-        height: root.editing ? root.height - 24 : implicitHeight
+        height: root.editing ? root.height - 24 : root.nonEditingContentHeight
         spacing: 7
         RowLayout {
             visible: WullMind.contextOpen && !root.editing
@@ -103,6 +113,8 @@ Item {
             DialogButton { objectName:"wullContextClose"; buttonText:Translation.tr("Close"); onClicked:WullMind.dismiss() }
         }
         StyledText {
+            id: speechText
+            width: content.width
             Layout.fillWidth: true
             visible: !root.editing
             text: WullMind.text
@@ -204,7 +216,11 @@ Item {
             }
         }
         ColumnLayout {
+            id: controlsColumn
             visible: root.controlsVisible
+            width: content.width
+            height: root.editing ? composer.height + (profileBox.visible ? profileBox.height + spacing : 0) : 28
+            y: root.editing ? content.height - height : speechText.implicitHeight + content.spacing
             Layout.fillWidth: true
             spacing: 5
             CheckInRow {
@@ -232,8 +248,11 @@ Item {
                 ]
             }
             Rectangle {
+                id: profileBox
                 objectName: "wullProfilePanel"
                 visible: root.editing && root.profileStage > 0
+                width: content.width
+                height: implicitHeight
                 Layout.fillWidth: true
                 implicitHeight: profilePanel.implicitHeight + 16
                 radius: 14
@@ -355,10 +374,14 @@ Item {
                 }
             }
             Rectangle {
+                id: composer
                 objectName: "wullChatComposer"
                 visible: root.editing
+                y: profileBox.visible ? profileBox.height + controlsColumn.spacing : 0
+                width: content.width
+                height: implicitHeight
                 Layout.fillWidth: true
-                implicitHeight: composerContent.implicitHeight + 8
+                implicitHeight: composerContent.height + 8
                 radius: 18
                 color: Qt.alpha(AbyssStyle.accent, .05)
                 ColumnLayout {
@@ -366,10 +389,14 @@ Item {
                     x: 4
                     y: 4
                     width: parent.width - 8
+                    height: message.implicitHeight + 2 + 36
+                    implicitHeight: height
                     spacing: 2
                     MaterialTextField {
                         id: message
                         objectName: "wullChatInput"
+                        width: parent.width
+                        height: implicitHeight
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
                         maximumLength: 1200
@@ -390,15 +417,21 @@ Item {
                         }
                     }
                     RowLayout {
+                        y: message.height + 2
+                        width: parent.width
+                        height: 36
                         Layout.fillWidth: true
                         spacing: 6
                         DialogButton {
+                            id: pocketBtn
                             objectName:"wullChatPocket";buttonText:Translation.tr("Pocket")
                             visible:WullPocket.permitted;enabled:WullPocket.canSelect && !WullMind.busy
                             onClicked:root.openPocket()
                         }
                         RippleButton {
                             objectName: "wullModelEffort"
+                            x: pocketBtn.visible ? pocketBtn.width + 6 : 0
+                            y: 3
                             Layout.preferredWidth: Math.max(68, Math.min(root.width - 90, effortLabel.implicitWidth + 60))
                             Layout.preferredHeight: 30
                             implicitWidth: Layout.preferredWidth
@@ -446,6 +479,8 @@ Item {
                         Item { Layout.fillWidth: true }
                         RippleButton {
                             objectName: "wullChatSend"
+                            x: parent.width - width
+                            y: 0
                             Layout.preferredWidth: 36
                             Layout.preferredHeight: 36
                             implicitWidth: 36
