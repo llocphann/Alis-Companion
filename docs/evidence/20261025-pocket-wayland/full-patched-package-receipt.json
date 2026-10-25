@@ -1,0 +1,53 @@
+{
+  "step": "package",
+  "exitCode": 0,
+  "elapsedSeconds": 393.71,
+  "sources": {
+    "companion": "5cb8ec3f6491c994129e89df0af191b1959c465c",
+    "host": "764496e2ce3ac668bbd859a4e72ee62f4832dc63",
+    "integration": "192ddf6614b144593bd8d9f0bdb28e4ae4eb41a0"
+  },
+  "installedChanged": false,
+  "platform": "private patched full-default-feature Niri and Qt6.12.0",
+  "hostManagedCompanionPin": "1348e3a277ac96fe0653f41d54f092d08b821a7e",
+  "passCount": 90,
+  "failCount": 0,
+  "skipCount": 0,
+  "candidateOverridesManagedPin": true,
+  "schema": 1,
+  "scope": "All canonical Companion package checks against privately patched full-default-feature Niri and Qt; no installed-desktop acceptance",
+  "command": "python3 scripts/validate.py --hadalis-root EXACT_CORE_764496 --hadalird-root EXACT_INTEGRATION_192ddf --require-clean",
+  "sourceCleanRequired": true,
+  "logSha256": "a2a1c2bdaca50b45922ff55b5ea305aad9818d80d1d3300befbfae3090c95598",
+  "platformControls": "full-default-controls-receipt.json",
+  "before": {
+    "platform": "installed unmodified Niri and Qt",
+    "passCount": 88,
+    "failCount": 2,
+    "skipCount": 0,
+    "exitCode": 1,
+    "receipt": "full-installed-platform-receipt.json"
+  },
+  "hover": {
+    "originalFailRetained": true,
+    "patchedFullRun": "PASS 923 checks / 49 rendered frames",
+    "unchangedFocusedInstalledRun": "PASS 923 checks / 49 rendered frames",
+    "intermittentCauseEstablished": false
+  },
+  "fullHostComparison": "Separate canonical host runs in progress; managed Companion pin remains 1348e3a277ac96fe0653f41d54f092d08b821a7e",
+  "nativeAcceptance": {
+    "liveInstalledPocket": "UNRUN",
+    "dockingToplevel": "UNRUN",
+    "physicalMultiOutput": "UNRUN",
+    "owner": "UNRUN"
+  },
+  "awaitingOwner": false,
+  "earlierInterruptedAttempt": {
+    "status": "STOPPED",
+    "completedUtc": "2026-10-25T03:13:05.990056+00:00",
+    "reason": "quota observation stale; no unattended work",
+    "finalCounts": null,
+    "ownedRemaining": [],
+    "logSha256": "5857e0ba7afa8b9dc67aecd77433da2f36fc7434a11906a3ea47e91a26b86158"
+  }
+}
