@@ -69,8 +69,9 @@ Item {
     property string gesture: ""
     property real gesturePhase: 1
     readonly property string presentationAction: presentation<.999 && !peeking ? (leaving ? activeHideClip : activeAppearClip) : ""
+    readonly property bool portalWalking: effectiveTravelMode==="portal" && surfaceSupported && portalReveal>.01 && presentation>.99 && !dragging && !leaving
     readonly property string motionAction: {
-        const action=pairedAction || (dragging ? "drag" : moving ? effectiveTravelMode : gesture || presentationAction)
+        const action=pairedAction || (dragging ? "drag" : moving ? effectiveTravelMode : portalWalking ? "run" : gesture || presentationAction)
         return Motion.retired(action) ? "" : action
     }
     readonly property string faceExpression: Expressions.resolve(reactionExpression || expression,mood,activity)
@@ -106,20 +107,20 @@ Item {
     readonly property bool materialReady: droplet.materialReady
     readonly property bool softwareFallback: droplet.softwareFallback
     readonly property bool moving: travelTween.running
-    readonly property bool walking: moving && surfaceSupported && ["walk","run"].includes(effectiveTravelMode)
+    readonly property bool walking: (moving && surfaceSupported && ["walk","run"].includes(effectiveTravelMode)) || portalWalking
     readonly property bool rolling: false // Retained diagnostic API; AC-R05 retires whole-body turns.
     readonly property bool flying: dragging || (moving && !walking)
     readonly property bool gesturing: gestureTween.running
     readonly property real viewCos: Math.cos(standingAngle*Math.PI/180)
     readonly property real viewSin: Math.sin(standingAngle*Math.PI/180)
-    readonly property var attention: Attention.resolve(moving || dragging,
+    readonly property var attention: Attention.resolve(moving || portalWalking || dragging,
         travelDirection*viewCos+travelDirectionY*viewSin, -travelDirection*viewSin+travelDirectionY*viewCos,
         pointerFresh || hovered,
         hovered ? droplet.hoverGazeX : pointerX*viewCos+pointerY*viewSin,
         hovered ? droplet.hoverGazeY : -pointerX*viewSin+pointerY*viewCos,
         peeking && emergenceEdge==="left" ? .4 : peeking && emergenceEdge==="right" ? -.4 : gazeX,
         peeking && emergenceEdge==="top" ? .3 : peeking && emergenceEdge==="bottom" ? -.3 : gazeY,
-        faceExpression,moving ? tangentDirection : Math.abs(droplet.viewYaw)>=25 ? droplet.viewYaw : 0)
+        faceExpression,(moving || portalWalking) ? tangentDirection : Math.abs(droplet.viewYaw)>=25 ? droplet.viewYaw : 0)
     readonly property real emergenceNormal: leaving
         ? curves.sample(activeHideClip, "normal", 1-presentation)
         : curves.sample(peeking ? "emerge" : activeAppearClip, "normal", presentation)
@@ -376,9 +377,9 @@ Item {
                 : root.gesture ? root.gesturePhase : root.presentationAction ? root.leaving ? 1-root.presentation : root.presentation : -1
             grounded: root.surfaceSupported && !root.flying
             dragging: root.dragging
-            traveling: root.moving
+            traveling: root.moving || root.portalWalking
             walkingDirection: (root.upright ? root.tangentDirection : root.travelDirection) * (root.upright || root.edge === "top" || root.edge === "left" ? 1 : -1)
-            viewYaw: root.moving ? (root.walking ? root.tangentDirection : root.travelDirection) * (root.walking ? 32 : 20)
+            viewYaw: (root.moving || root.portalWalking) ? (root.walking ? root.tangentDirection : root.travelDirection) * (root.walking ? 32 : 20)
                 : root.peeking ? root.emergenceEdge==="left" ? 22 : root.emergenceEdge==="right" ? -22 : 0 : -15
             effectsEnabled: root.effectsEnabled
             stateSquash: root.motionEnabled ? root.bodySquash : 0

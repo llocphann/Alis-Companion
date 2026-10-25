@@ -12,7 +12,17 @@ function usePortal(from, to, scale) {
 }
 function reveal(progress) {
     const t=unit(progress)
-    return t<.5 ? 1-smooth(.18,.40,t) : smooth(.60,.82,t)
+    return t<.5 ? 1-smooth(.24,.40,t) : smooth(.60,.76,t)
+}
+function approachProgress(progress) {
+    return smooth(.04,.40,unit(progress))
+}
+function exitProgress(progress) {
+    return smooth(.60,.90,unit(progress))
+}
+function portalMoving(progress) {
+    const t=unit(progress)
+    return (t>=.04 && t<.40) || (t>.60 && t<=.90)
 }
 function opening(progress) {
     const t=unit(progress)

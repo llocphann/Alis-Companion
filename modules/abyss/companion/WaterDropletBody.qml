@@ -69,7 +69,9 @@ Item {
     readonly property vector4d smallMaterialRenderingUniform: Qt.vector4d(0, translucency, 0, 0)
     readonly property vector4d limbMotionUniform: Qt.vector4d(shimmer, 0, pulse, effectsEnabled ? 1 : 0)
     readonly property vector4d limbOpticsUniform: Qt.vector4d(modelYawRadians, 3, 0, 0)
-    readonly property vector4d limbPoseUniform: Qt.vector4d(modelPitchRadians, modelRollRadians, 0, 0)
+    readonly property vector4d handPoseUniform: Qt.vector4d(modelPitchRadians, modelRollRadians, 0.04, 0.92)
+    readonly property vector4d footPoseUniform: Qt.vector4d(modelPitchRadians, modelRollRadians, 0.06, 0.72)
+    readonly property vector4d limbPoseUniform: footPoseUniform
     readonly property vector4d dropletMotionUniform: Qt.vector4d(shimmer, 0, pulse, 0)
     readonly property var poseRotation: Pose.rotation(modelYaw,modelPitch,modelRoll)
     readonly property real poseScaleX: gait.scaleX
@@ -214,11 +216,11 @@ Item {
             property color specular: root.reflectionColor
             property vector4d motion: Qt.vector4d(root.shimmer, Math.max(root.ripple, root.reactionRipple), contact.width / material.width, 0)
             property vector4d rendering: Qt.vector4d(root.qualityLevel, 0, 0, 0)
-            readonly property real contactSide: 19
+            readonly property real contactSide: 19.5
             readonly property real contactDepth: 8
             property vector4d feet: Qt.vector4d(
-                (contact.width*.5+root.project(-contactSide+gait.footX("foot0X"),-29.76+gait.footZ("foot0Z"),contactDepth).x)/contact.width,
-                (contact.width*.5+root.project(contactSide+gait.footX("foot1X"),-29.76+gait.footZ("foot1Z"),contactDepth).x)/contact.width,
+                (contact.width*.5+root.project(-contactSide+gait.footX("foot0X")*1.15,-31.06+gait.footZ("foot0Z")*1.15,contactDepth).x)/contact.width,
+                (contact.width*.5+root.project(contactSide+gait.footX("foot1X")*1.15,-31.06+gait.footZ("foot1Z")*1.15,contactDepth).x)/contact.width,
                 1-Math.min(1, gait.footZ("foot0Z")/2), 1-Math.min(1, gait.footZ("foot1Z")/2))
             fragmentShader: Qt.resolvedUrl("WaterDropletContact.frag.qsb")
         }
@@ -252,13 +254,13 @@ Item {
                 readonly property real side: index % 2 === 0 ? -1 : 1
                 readonly property string xTrack: (hand ? "arm"+index : "foot"+(index-2)) + "X"
                 readonly property string zTrack: (hand ? "arm"+index : "foot"+(index-2)) + "Z"
-                readonly property real stepX: gait.footX(xTrack)
-                readonly property real stepZ: gait.footZ(zTrack)
-                readonly property var spatial: root.project(side*(hand ? 34 : 19)+stepX,
-                    46.14-(hand ? 53.3 : 75.9)+stepZ,8)
+                readonly property real stepX: gait.footX(xTrack) * (hand ? 1.35 : 1.15)
+                readonly property real stepZ: gait.footZ(zTrack) * (hand ? 1.35 : 1.15)
+                readonly property var spatial: root.project(side*(hand ? 32.5 : 19.5)+stepX,
+                    46.14-(hand ? 52.5 : 77.2)+stepZ,8)
                 readonly property real depth: spatial.z
-                width: hand ? 10.5 : 14
-                height: width
+                width: hand ? 16.5 : 19.5
+                height: hand ? 15.5 : 16.5
                 x:38+spatial.x-width/2
                 y:46.14-spatial.y-height/2+root.reactionLift*root.motionAmount+gait.lift
                 z: depth >= 0 ? 1 : -1
@@ -270,7 +272,7 @@ Item {
                     property vector4d motion: root.limbMotionUniform
                     property vector4d optics: root.limbOpticsUniform
                     property vector4d rendering: root.smallMaterialRenderingUniform
-                    property vector4d pose: root.limbPoseUniform
+                    property vector4d pose: waterFoot.hand ? root.handPoseUniform : root.footPoseUniform
                     fragmentShader: Qt.resolvedUrl("WaterDropletMaterial.frag.qsb")
                 }
                 Shape {
@@ -288,9 +290,9 @@ Item {
                             GradientStop { position: 0.70; color: root.liquidAccent }
                             GradientStop { position: 1; color: root.reflectionColor }
                         }
-                        startX: 0; startY: waterFoot.height / 2
-                        PathArc { x: waterFoot.width; y: waterFoot.height / 2; radiusX: waterFoot.width / 2; radiusY: waterFoot.height / 2 }
-                        PathArc { x: 0; y: waterFoot.height / 2; radiusX: waterFoot.width / 2; radiusY: waterFoot.height / 2 }
+                        startX: waterFoot.width * 0.05; startY: waterFoot.height * 0.5
+                        PathArc { x: waterFoot.width * 0.95; y: waterFoot.height * 0.5; radiusX: waterFoot.width * 0.45; radiusY: waterFoot.height * (waterFoot.hand ? 0.35 : 0.31) }
+                        PathArc { x: waterFoot.width * 0.05; y: waterFoot.height * 0.5; radiusX: waterFoot.width * 0.45; radiusY: waterFoot.height * (waterFoot.hand ? 0.35 : 0.31) }
                     }
                 }
             }

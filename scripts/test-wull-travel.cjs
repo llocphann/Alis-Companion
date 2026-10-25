@@ -8,6 +8,17 @@ for(const scale of [.5,1,1.25,2,3]) {
  }
 }
 for(const invalid of [NaN,Infinity,-Infinity,undefined])assert(!travel.usePortal({x:invalid,y:0},{x:800,y:0,grounded:true},1));
-for(let i=0;i<=1000;i++) {const t=i/1000;assert(travel.reveal(t)>=0 && travel.reveal(t)<=1);assert(travel.opening(t)>=0 && travel.opening(t)<=1);if(t>=.4 && t<=.6)assert.equal(travel.reveal(t),0);}
+for(let i=0;i<=1000;i++) {
+ const t=i/1000;
+ assert(travel.reveal(t)>=0 && travel.reveal(t)<=1);
+ assert(travel.opening(t)>=0 && travel.opening(t)<=1);
+ assert(travel.approachProgress(t)>=0 && travel.approachProgress(t)<=1);
+ assert(travel.exitProgress(t)>=0 && travel.exitProgress(t)<=1);
+ if(t>=.4 && t<=.6)assert.equal(travel.reveal(t),0);
+ if(t>=.4 && t<.5)assert.equal(travel.approachProgress(t),1);
+ if(t>=.5 && t<=.6)assert.equal(travel.exitProgress(t),0);
+}
 assert.equal(travel.reveal(0),1);assert.equal(travel.reveal(1),1);assert.equal(travel.opening(0),0);assert.equal(travel.opening(1),0);
-console.log('WULL_TRAVEL_PASS finite portal threshold hidden handover bounded lifetime retired rolling generator');
+assert.equal(travel.approachProgress(0),0);assert.equal(travel.exitProgress(1),1);
+assert.equal(travel.portalMoving(.2),true);assert.equal(travel.portalMoving(.5),false);assert.equal(travel.portalMoving(.75),true);
+console.log('WULL_TRAVEL_PASS finite portal threshold approach-exit choreography hidden handover bounded lifetime retired rolling generator');

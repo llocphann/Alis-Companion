@@ -31,9 +31,11 @@ Item {
     property bool portalActive: false
     property real portalProgress: 0
     property bool portalHopped: false
+    property var portalOrigin: null
     property var portalSource: null
     property var portalDestination: null
     readonly property real portalReveal: portalActive ? Travel.reveal(portalProgress) : 1
+    readonly property bool portalMoving: portalActive && Travel.portalMoving(portalProgress)
     property bool dragging: false
     property bool retreating: false
     property bool releasedFlight: false
@@ -159,7 +161,17 @@ Item {
     function clearMotion(): void {
         if (portalActive) {
             portalTween.stop();portalActive=false
-            const here=position();targetX=here.x;targetY=here.y
+            if (mode==="portal") mode="walk"
+            const fallback=!portalHopped && portalOrigin?.qualified && Scene.clearAt(scene,portalOrigin)
+                ? portalOrigin
+                : portalHopped && destination?.qualified && Scene.clearAt(scene,destination)
+                    ? destination : null
+            if (fallback) {
+                placement=fallback;destination=fallback;targetX=fallback.x;targetY=fallback.y
+                if (actor) actor.adoptTo(targetX+(actor.scale-1)*actor.width/2,targetY+(actor.scale-1)*actor.height/2,emergenceEdge,renderedReveal)
+            } else {
+                const here=position();targetX=here.x;targetY=here.y
+            }
         }
         stopRequested()
         traveling=false; releasedFlight=false; supportRecovery=false; throwSpeed=0; throwArc=0; waypoints=[]; waypoint=0
@@ -286,29 +298,99 @@ Item {
         advance()
         return true
     }
+    function portalAnchor(point, preferredDirection, distances, edgeHint, kindHint, keyHint): var {
+        const support=Scene.supportAt(scene,point,edgeHint)
+        if (!support) return null
+        const horizontal=support.axis==="x", extent=horizontal ? scene.hostWidth : scene.hostHeight
+        const start=horizontal ? point.x : point.y
+        const scale=scene?.scale ?? 1
+        const signs=preferredDirection>=0 ? [1,-1] : [-1,1]
+        for (const rawDistance of distances) {
+            const distance=rawDistance*scale
+            for (const sign of signs) {
+                const coord=Scene.clamp(start+sign*distance,support.from,support.to-extent)
+                if (Math.abs(coord-start)<36*scale) continue
+                const next=horizontal ? {x:coord,y:point.y} : {x:point.x,y:coord}
+                if (!Scene.clearSegment(scene,point,next)) continue
+                const candidate=Scene.annotate(scene,next,support.edge,kindHint,keyHint)
+                if (candidate.qualified && candidate.grounded
+                        && candidate.support?.key===support.key
+                        && candidate.support?.edge===support.edge)
+                    return candidate
+            }
+        }
+        return null
+    }
+    function portalSourceValid(): bool {
+        if (!Scene.valid(scene) || !portalOrigin?.qualified || !portalSource?.qualified) return false
+        if (!Scene.clearAt(scene,portalOrigin) || !Scene.clearAt(scene,portalSource)
+                || !Scene.clearSegment(scene,portalOrigin,portalSource)) return false
+        const support=Scene.supportAt(scene,portalSource,portalSource.support?.edge ?? portalSource.edge)
+        return !!support && support.key===portalSource.support?.key && support.edge===portalSource.support?.edge
+    }
     function portalDestinationValid(): bool {
-        if (!Scene.valid(scene) || !portalDestination?.qualified || !Scene.clearAt(scene,portalDestination)) return false
-        const support=Scene.supportAt(scene,portalDestination,portalDestination.support?.edge ?? portalDestination.edge)
-        return !!support && support.key===portalDestination.support?.key && support.edge===portalDestination.support?.edge
+        if (!Scene.valid(scene) || !portalDestination?.qualified || !destination?.qualified) return false
+        if (!Scene.clearAt(scene,portalDestination) || !Scene.clearAt(scene,destination)
+                || !Scene.clearSegment(scene,portalDestination,destination)) return false
+        const exitSupport=Scene.supportAt(scene,portalDestination,portalDestination.support?.edge ?? portalDestination.edge)
+        const landSupport=Scene.supportAt(scene,destination,destination.support?.edge ?? destination.edge)
+        return !!exitSupport && !!landSupport
+            && exitSupport.key===portalDestination.support?.key && exitSupport.edge===portalDestination.support?.edge
+            && landSupport.key===destination.support?.key && landSupport.edge===destination.support?.edge
     }
     function startPortal(here, selected, exit): bool {
         if (!Scene.valid(scene) || !Scene.clearAt(scene,here)) return false
+        const origin=Scene.annotate(scene,here,emergenceEdge,placement.kind,placement.key)
+        if (!origin.qualified || !origin.grounded) return false
         const landing=Scene.annotate(scene,selected,selected.edge,selected.kind,selected.key)
         if (!landing.qualified || !landing.grounded || !Scene.clearAt(scene,landing)) return false
+        const scale=scene?.scale ?? 1
+        const sourceDir=(origin.support?.axis==="x" ? landing.x-origin.x : landing.y-origin.y)>=0 ? 1 : -1
+        const sourceOpen=portalAnchor(origin,sourceDir,[88,72,56,42],origin.edge,origin.kind,origin.key)
+        if (!sourceOpen || Scene.distance(sourceOpen,landing)<120*scale) return false
+        const exitDir=(landing.support?.axis==="x" ? origin.x-landing.x : origin.y-landing.y)>=0 ? 1 : -1
+        const destOpen=portalAnchor(landing,exitDir,[64,48,36],landing.edge,landing.kind,landing.key) ?? landing
         clearMotion()
-        portalSource=Scene.annotate(scene,here,emergenceEdge,placement.kind,placement.key)
-        portalDestination=landing;destination=landing
+        portalOrigin=origin
+        portalSource=sourceOpen
+        portalDestination=destOpen;destination=landing
+        directionX=portalSource.x-portalOrigin.x
+        directionY=portalSource.y-portalOrigin.y
         portalHopped=false;portalProgress=0;retreating=!!exit;mode="portal"
         disturb("depart",portalSource)
         portalActive=true;traveling=true;portalTween.restart()
         return true
     }
     function portalStep(): void {
-        if (!portalActive || portalHopped || portalProgress<.5) return
-        if (!permitted || !motionEnabled || !portalDestinationValid()) {clearMotion();reconcileScene();return}
-        portalHopped=true
-        placement=portalDestination;targetX=placement.x;targetY=placement.y
-        actor.adoptTo(targetX+(actor.scale-1)*actor.width/2,targetY+(actor.scale-1)*actor.height/2,emergenceEdge,renderedReveal)
+        if (!portalActive) return
+        if (!permitted || !motionEnabled) {clearMotion();reconcileScene();return}
+        if (portalProgress<.5) {
+            if (!portalSourceValid() || !portalDestinationValid()) {clearMotion();reconcileScene();return}
+            const t=Travel.approachProgress(portalProgress)
+            const x=portalOrigin.x+(portalSource.x-portalOrigin.x)*t
+            const y=portalOrigin.y+(portalSource.y-portalOrigin.y)*t
+            directionX=portalSource.x-portalOrigin.x
+            directionY=portalSource.y-portalOrigin.y
+            targetX=x;targetY=y
+            if (actor) actor.carryTo(x+(actor.scale-1)*actor.width/2,y+(actor.scale-1)*actor.height/2)
+            return
+        }
+        if (!portalDestinationValid()) {clearMotion();reconcileScene();return}
+        if (!portalHopped) {
+            portalHopped=true
+            placement=portalDestination;targetX=portalDestination.x;targetY=portalDestination.y
+            if (actor) actor.adoptTo(targetX+(actor.scale-1)*actor.width/2,targetY+(actor.scale-1)*actor.height/2,emergenceEdge,renderedReveal)
+        }
+        const t=Travel.exitProgress(portalProgress)
+        const x=portalDestination.x+(destination.x-portalDestination.x)*t
+        const y=portalDestination.y+(destination.y-portalDestination.y)*t
+        if (Math.hypot(destination.x-portalDestination.x,destination.y-portalDestination.y)>.1) {
+            directionX=destination.x-portalDestination.x
+            directionY=destination.y-portalDestination.y
+        }
+        targetX=x;targetY=y
+        if (actor) actor.carryTo(x+(actor.scale-1)*actor.width/2,y+(actor.scale-1)*actor.height/2)
+        if (t>=.999) placement=destination
     }
     onPortalProgressChanged:portalStep()
     function advance(): void {
@@ -428,7 +510,9 @@ Item {
         if (!permitted || !Scene.valid(scene)) {hideImmediately();return}
         if (handoffActive) return
         if (portalActive) {
-            if (!portalDestinationValid() || !Scene.clearAt(scene,position())) {clearMotion();recoverSupport()}
+            if ((!portalHopped && !portalSourceValid()) || !portalDestinationValid() || !Scene.clearAt(scene,position())) {
+                clearMotion();recoverSupport()
+            }
             return
         }
         if (!visitActive && requestedReveal>0 && !retreating) {if(Date.now()>=hiddenUntil)appear();return}
@@ -676,7 +760,7 @@ Item {
         onFinished:{
             root.portalStep()
             if (!root.portalActive) return
-            root.portalActive=false;root.traveling=true;root.waypoints=[];root.waypoint=0
+            root.portalActive=false;root.mode="walk";root.traveling=true;root.waypoints=[];root.waypoint=0
             root.advance()
         }
     }
