@@ -1,0 +1,26 @@
+{
+  "step": "package",
+  "exitCode": 1,
+  "elapsedSeconds": 334.66,
+  "sources": {
+    "companion": "5cb8ec3f6491c994129e89df0af191b1959c465c",
+    "host": "764496e2ce3ac668bbd859a4e72ee62f4832dc63",
+    "integration": "192ddf6614b144593bd8d9f0bdb28e4ae4eb41a0"
+  },
+  "installedChanged": false,
+  "passCount": 88,
+  "failCount": 2,
+  "skipCount": 0,
+  "candidateOverridesManagedPin": true,
+  "fullGateStatus": "FAIL",
+  "failedChecks": [
+    "test-module-hover-runtime.py",
+    "test-wull-pocket-wayland.py"
+  ],
+  "privateLogSha256": "c8bd012962bfaba7b5ffdc874e7b56d5b14e079ccca89bb7a12d2787542c0a0a",
+  "allSourceTreesClean": true,
+  "platform": "Installed Niri26.04/Qt6.12.0; private source/payload, no activation",
+  "candidatePromoted": false,
+  "ownerAcceptance": "UNRUN",
+  "note": "Completed before the quota stop, at 2026-10-25T02:39:15Z. Log-line PASS counts are not the final validator totals. Earlier 89/1/0 belongs to a different source."
+}
