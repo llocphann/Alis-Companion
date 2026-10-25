@@ -4,6 +4,8 @@
 #include <QJsonDocument>
 #include <QMimeData>
 #include <QMouseEvent>
+#include <QTimer>
+#include <QWindow>
 #include <QUrl>
 #include <QWidget>
 #include <iostream>
@@ -25,7 +27,10 @@ class Source : public QWidget {
         for (auto value:QJsonDocument::fromJson(qgetenv("POCKET_SOURCE_URLS")).array())
             urls.append(QUrl(value.toString()));
         mime->setUrls(urls);drag->setMimeData(mime);
-        auto action=drag->exec(Qt::CopyAction|Qt::MoveAction,Qt::MoveAction);
+        auto supported=qgetenv("POCKET_SOURCE_ACTIONS")=="move-only"
+            ? Qt::DropActions(Qt::MoveAction) : Qt::CopyAction|Qt::MoveAction;
+        std::cout<<"POCKET_DRAG_STARTED"<<std::endl;
+        auto action=drag->exec(supported,Qt::MoveAction);
         const char *name=action==Qt::CopyAction?"CopyAction":action==Qt::MoveAction?"MoveAction":"IgnoreAction";
         std::cout<<"{\"result\":\""<<name<<"\"}"<<std::endl;
         drag->deleteLater();
@@ -38,6 +43,12 @@ public:
 };
 int main(int argc,char **argv) {
     QApplication app(argc,argv);Source source;source.showFullScreen();
-    std::cout<<"POCKET_SOURCE_READY"<<std::endl;
+    QTimer ready;
+    QObject::connect(&ready,&QTimer::timeout,[&] {
+        if (source.windowHandle() && source.windowHandle()->isExposed()) {
+            ready.stop();std::cout<<"POCKET_SOURCE_READY"<<std::endl;
+        }
+    });
+    ready.start(25);
     return app.exec();
 }

@@ -3,7 +3,7 @@
 import json
 import os
 import sys
-from PySide6.QtCore import QMimeData, QPoint, Qt, QUrl
+from PySide6.QtCore import QMimeData, Qt, QTimer, QUrl
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -26,12 +26,19 @@ class Source(QWidget):
         mime=QMimeData()
         mime.setUrls([QUrl(url) for url in json.loads(os.environ['POCKET_SOURCE_URLS'])])
         drag.setMimeData(mime)
-        action=drag.exec(Qt.CopyAction|Qt.MoveAction,Qt.MoveAction)
+        supported=(Qt.MoveAction if os.environ.get('POCKET_SOURCE_ACTIONS')=='move-only'
+                   else Qt.CopyAction|Qt.MoveAction)
+        print('POCKET_DRAG_STARTED',flush=True)
+        action=drag.exec(supported,Qt.MoveAction)
         # This is deliberately not a real file manager: even a failed test
         # choosing Move cannot remove an original. The return action is checked.
         print(json.dumps({'result':action.name}),flush=True)
 
 app=QApplication(sys.argv)
 source=Source();source.showFullScreen()
-print('POCKET_SOURCE_READY',flush=True)
+ready=QTimer()
+def exposed():
+    if source.windowHandle() and source.windowHandle().isExposed():
+        ready.stop();print('POCKET_SOURCE_READY',flush=True)
+ready.timeout.connect(exposed);ready.start(25)
 raise SystemExit(app.exec())

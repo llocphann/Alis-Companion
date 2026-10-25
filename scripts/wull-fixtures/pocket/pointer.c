@@ -43,6 +43,7 @@ int main(void) {
         else return 4;
         zwlr_virtual_pointer_v1_frame(pointer);
         if (wl_display_roundtrip(display)<0) return 5;
+        puts("POCKET_POINTER_APPLIED");
     }
     zwlr_virtual_pointer_v1_destroy(pointer);
     zwlr_virtual_pointer_manager_v1_destroy(manager);

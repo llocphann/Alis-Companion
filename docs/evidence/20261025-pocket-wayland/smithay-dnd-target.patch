@@ -1,0 +1,53 @@
+--- a/src/input/dnd/mod.rs
++++ b/src/input/dnd/mod.rs
+@@ -63,6 +63,9 @@
+     ///
+     /// If this returns `None` the source is not managed by smithay (e.g. client_local)
+     fn metadata(&self) -> Option<SourceMetadata>;
++    /// The target accepted a MIME type, or rejected the current offer.
++    /// Sources without MIME feedback may keep the default no-op.
++    fn accepted_mime_type(&self, _mime_type: Option<&str>) {}
+     /// An action was selected by the target
+     fn choose_action(&self, action: DndAction);
+     /// The target requests data to be transferred to the given file descriptor for the given mime-type
+--- a/src/wayland/selection/data_device/source.rs
++++ b/src/wayland/selection/data_device/source.rs
+@@ -124,6 +124,10 @@
+             .map(|data| data.inner.lock().unwrap().clone())
+     }
+ 
++    fn accepted_mime_type(&self, mime_type: Option<&str>) {
++        self.target(mime_type.map(str::to_owned));
++    }
++
+     fn choose_action(&self, action: DndAction) {
+         self.action(action.into());
+     }
+--- a/src/wayland/selection/data_device/mod.rs
++++ b/src/wayland/selection/data_device/mod.rs
+@@ -249,13 +249,10 @@
+     match request {
+         Request::Accept { mime_type, .. } => {
+             if let Some(source) = source.as_ref() {
+-                if let Some(mtype) = mime_type {
+-                    data.accepted = source
+-                        .metadata()
+-                        .is_some_and(|meta| meta.mime_types.contains(&mtype));
+-                } else {
+-                    data.accepted = false;
+-                }
++                data.accepted = mime_type.as_ref().is_some_and(|mtype| {
++                    source.metadata().is_some_and(|meta| meta.mime_types.contains(mtype))
++                });
++                source.accepted_mime_type(mime_type.as_deref().filter(|_| data.accepted));
+             } else if data.finished {
+                 offer.post_error(
+                     wl_data_offer::Error::InvalidFinish,
+@@ -379,6 +376,7 @@
+ impl<S: Source> OfferData for WlOfferData<S> {
+     fn disable(&self) {
+         self.state.lock().unwrap().active = false;
++        self.source.accepted_mime_type(None);
+         self.source.choose_action(DndAction::None);
+         for offer in &self.wl_offers {
+             if let Some(data) = offer

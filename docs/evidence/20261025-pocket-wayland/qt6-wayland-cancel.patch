@@ -1,0 +1,16 @@
+--- a/src/plugins/platforms/wayland/qwaylanddatadevice.cpp
++++ b/src/plugins/platforms/wayland/qwaylanddatadevice.cpp
+@@ -321,7 +321,12 @@
+ #if QT_CONFIG(draganddrop)
+ void QWaylandDataDevice::dragSourceCancelled()
+ {
+-    static_cast<QWaylandDrag *>(QGuiApplicationPrivate::platformIntegration()->drag())->finishDrag();
++    auto *drag = static_cast<QWaylandDrag *>(QGuiApplicationPrivate::platformIntegration()->drag());
++    // A target may reject a drop after dnd_drop_performed, for example when
++    // permission is revoked. Preserve the separate toplevel-drag semantics.
++    if (!m_toplevelDrag)
++        drag->setDropResponse(QPlatformDropQtResponse(false, Qt::IgnoreAction));
++    drag->finishDrag();
+     m_dragSource.reset();
+     if (m_toplevelDrag) {
+         m_toplevelDrag->destroy();

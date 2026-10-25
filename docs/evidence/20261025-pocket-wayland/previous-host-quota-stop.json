@@ -1,0 +1,20 @@
+{
+  "scope": "Owner requested five-hour quota stop",
+  "host": "764496e2ce3ac668bbd859a4e72ee62f4832dc63",
+  "status": "STOPPED",
+  "observedUsedPercent": 96,
+  "thresholdUsedPercent": 95,
+  "previousObservationUsedPercent": 94,
+  "ordinaryWorkStoppedOnFreshObservation": true,
+  "settledPass": 25,
+  "settledFail": 1,
+  "settledSkip": 0,
+  "lastSettledIndex": 26,
+  "fullResult": "NOT_ESTABLISHED; partial counts only",
+  "installedChanged": false,
+  "completedUtc": "2026-10-24T17:12:47.399275+00:00",
+  "ownedWorkersRemaining": 0,
+  "privateReceiptSha256": "53ef64f653daa858d9582b7d6fd26ebcb77c458025f9e6c8b2514794aab466d4",
+  "companionManagedPin": "1348e3a277ac96fe0653f41d54f092d08b821a7e",
+  "note": "Historical stopped run, never upgraded to a full result. Later reruns have separate receipts."
+}
