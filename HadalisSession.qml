@@ -61,6 +61,7 @@ Item {
             readingFocusActive=false
         }
         if(coworkController) {
+            coworkController.character=root.companionCharacter
             coworkController.directorState=contextState.director
             coworkController.hostContext=coworkHostContext()
             coworkController.step()
@@ -68,6 +69,10 @@ Item {
                     && Director.pollNeedsInput(contextState.director,coworkController.hostContext,Date.now()).eligible)
                 coworkController.triggerCue("alert")
         }
+        if(companionSessionVisible && root.previewAmbientProp.length===0
+                && (focusCategory==="editor" || focusCategory==="terminal" || hasAgent || previewLaptopActive)
+                && !coworkController.active && !contextSettle.running)
+            contextSettle.restart()
     }
     onContextFeedChanged: {disconnectContext();contextConnect.restart()}
     Connections {
@@ -105,7 +110,7 @@ Item {
     // Re-evaluate the Director's existing focus-settle deadline; this is not a
     // Focus session clock and never loads a model or starts a second actor.
     Timer {id:contextSettle;interval:750;onTriggered:root.evaluateContext()}
-    Timer {id:readingFocusSettle;interval:1200;onTriggered:{root.readingFocusActive=true;if(root.companionSessionVisible)companionBridge.show()}}
+    Timer {id:readingFocusSettle;interval:450;onTriggered:{root.readingFocusActive=true;if(root.companionSessionVisible)companionBridge.show()}}
     Timer {id:quietIdleSettle;interval:8000;onTriggered:root.quietIdle=true}
     Timer {id:contextConnect;interval:1;onTriggered:root.connectContext()}
     Timer {id:contextReconnect;interval:1000;onTriggered:root.connectContext()}
@@ -122,6 +127,11 @@ Item {
     Connections {
         target:ToplevelManager
         function onActiveToplevelChanged(): void {
+            if(root.previewAmbientProp.length>0 || root.previewLaptopActive) {
+                root.previewAmbientProp=""
+                root.previewLaptopActive=false
+                Director.acceptAgent(root.contextState.director,{word:"ended",token:"fedcba9876543210"},Date.now())
+            }
             if(!root.contextConnected || !root.contextState.enabled
                     || !root.companionPreferences.contextFocusEnabled) return
             const id=String(ToplevelManager.activeToplevel?.appId ?? "").trim().toLowerCase()
@@ -187,7 +197,7 @@ Item {
             dnd:Notifications.notificationPolicyActive,chatOpen:WullMind.conversationOpen,
             ambientOptIn:root.companionPreferences.ambientEnabled
                 && (root.companionPreferences.ambientFocusEnabled || root.companionPreferences.ambientBatteryEnabled
-                    || root.companionPreferences.ambientMediaEnabled),idle:WullMind.hostIdle,
+                    || root.companionPreferences.ambientMediaEnabled),idle:WullMind.hostIdle || root.readingFocusActive || ambientController.activeProp.length>0,
             motionEnabled:root.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled})
     }
     function coworkHostContext(): var {
@@ -197,7 +207,7 @@ Item {
         return Object.assign({},base,{
             idle:false,
             optedIn:(root.contextConnected && root.contextState.enabled) || root.previewLaptopActive,
-            coworkEnabled:Boolean(targetExt?.actor) && root.companionEnabled
+            coworkEnabled:Boolean(targetExt?.actor) && root.companionEnabled && root.previewAmbientProp.length===0
                 && ((root.contextConnected && (root.companionPreferences.contextEnabled || root.companionPreferences.contextAiEnabled))
                     || root.previewLaptopActive),
             grounded:targetExt?.actor ? targetExt.actor.surfaceSupported!==false && !targetExt.actor.flying : false,
@@ -329,12 +339,14 @@ function previewProp(kind): void {
         root.previewLaptopActive=false
         Director.acceptAgent(root.contextState.director,{word:"ended",token:"fedcba9876543210"},Date.now())
         root.previewAmbientProp=mode
+        if (coworkController.active) coworkController.revoke()
         root.evaluateContext()
     } else if (mode==="laptop") {
         root.previewAmbientProp=""
         root.previewLaptopActive=true
         Director.acceptAgent(root.contextState.director,{word:"working",token:"fedcba9876543210"},Date.now())
         root.evaluateContext()
+        contextSettle.restart()
     } else {
         root.previewAmbientProp=""
         root.previewLaptopActive=false

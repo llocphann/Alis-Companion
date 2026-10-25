@@ -54,7 +54,7 @@ Item {
     property bool coworkPropVisible: false
     readonly property real modelRoll:gait.roll+(coworkPose?.roll ?? 0)
     readonly property real modelYaw: viewYaw+gait.yaw+(coworkPose?.yaw ?? 0)
-    readonly property real modelPitch: viewPitch+gait.pitch+(coworkPose?.pitch ?? 0)
+    readonly property real modelPitch: viewPitch+gait.pitch+(coworkPose?.pitch ?? (ambientProp==="book" ? 5 : 0))
     // These three angles feed five ShaderEffect instances (torso + four
     // limbs). Convert each shared pose angle once per pose revision instead of
     // repeating identical degree-to-radian work in every consumer.
@@ -260,9 +260,9 @@ Item {
                 readonly property string zTrack: (hand ? "arm"+index : "foot"+(index-2)) + "Z"
                 readonly property real stepX: gait.footX(xTrack) * (hand ? 1.35 : 1.15)
                 readonly property real stepZ: gait.footZ(zTrack) * (hand ? 1.35 : 1.15)
-                readonly property real coworkArmX: hand && root.coworkPose ? (root.coworkPose["arm"+index+"X"] ?? 0)*.45 : 0
-                readonly property real coworkArmY: hand && root.coworkPose ? -(root.coworkPose["arm"+index+"Y"] ?? 0)*.35 : 0
-                readonly property real coworkArmZ: hand && root.coworkPose ? (root.coworkPose["arm"+index+"Z"] ?? 0)*.65 : 0
+                readonly property real coworkArmX: hand ? (root.coworkPose ? (root.coworkPose["arm"+index+"X"] ?? 0)*.45 : root.ambientProp==="book" ? (index===0 ? 8.5 : -8.5) : root.ambientProp==="coffee" && index===1 ? -7.5 : 0) : 0
+                readonly property real coworkArmY: hand ? (root.coworkPose ? -(root.coworkPose["arm"+index+"Y"] ?? 0)*.35 : (root.ambientProp==="book" || (root.ambientProp==="coffee" && index===1)) ? 10 : 0) : 0
+                readonly property real coworkArmZ: hand ? (root.coworkPose ? (root.coworkPose["arm"+index+"Z"] ?? 0)*.65 : root.ambientProp==="book" ? -6.5 : root.ambientProp==="coffee" && index===1 ? -4.5 : 0) : 0
                 readonly property var spatial: root.project(side*(hand ? 32.5 : 19.5)+stepX+coworkArmX,
                     46.14-(hand ? 52.5 : 77.2)+stepZ+coworkArmZ,8+coworkArmY)
                 readonly property real depth: spatial.z

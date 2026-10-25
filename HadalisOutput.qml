@@ -49,14 +49,17 @@ Item {
         || companionCuriosity.busy || talkCloud.controlsVisible
     readonly property bool companionPerformanceHeld: session.companionTargetOutput===host.outputName
         && (session.cowork?.active===true || (session.companionAmbientProp ?? "").length>0 || WullPocket.opened)
-    onCompanionPerformanceHeldChanged: if (companionPerformanceHeld) root.ensureCompanionPresent()
+    onCompanionPerformanceHeldChanged: if (companionPerformanceHeld) Qt.callLater(() => { if (root.companionPerformanceHeld) root.ensureCompanionPresent() })
     readonly property var directorContext: ({enabled:root.companionHostActive,
         dragging:companionPresence.dragging,manualTravel:companionPresence.traveling,
         portalTravel:companionPresence.portalActive,
-        grounded:companionPresence.grounded && !companion.flying && !companion.relocating,
+        grounded:companionPresence.grounded && !companion.flying && !companion.moving && !companion.relocating && companion.presentation>0.99,
         controlsVisible:talkCloud.controlsVisible,
         modalOpen:root.companionOccluded || companionCuriosity.busy || WullPocket.opened || WullPocket.busy})
-    onDirectorContextChanged: if (session && session.companionTargetOutput===host.outputName) session.evaluateContext()
+    onDirectorContextChanged: if (session && session.companionTargetOutput===host.outputName) {
+        session.evaluateContext()
+        Qt.callLater(session.evaluateContext)
+    }
     function ensureCompanionPresent(): void {
         if(!root.companionPermission) return
         companionTurns.cancel()
@@ -64,6 +67,7 @@ Item {
         companionPresence.hiddenUntil=0
         if(!companionPresence.visitActive || companionPresence.retreating)companionPresence.appear()
         companionPresence.peekOnly=false;companionPresence.peekIntro=false;companionPresence.renderedReveal=1
+        if(companion.presentation<.99 && !companion.leaving)companion.present(1)
     }
     function requestCompanionChat(): void {
         if(!root.companionPermission) return
