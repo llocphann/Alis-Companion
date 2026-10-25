@@ -250,10 +250,11 @@ void main() {
     float cover=1.0-smoothstep(-aa,aa,d);
     vec3 hue=pow(accent.rgb/max(accent.a,0.001),vec3(2.2));
     float halo=exp(-max(d,0.0)*40.0)*(1.0-cover)*0.12*motion.w*(1.0+motion.z);
-    if (cover<0.001 || !hit) {
+    if (d>aa+0.06) {
         fragColor=vec4(pow(hue,vec3(1.0/2.2))*halo,halo)*qt_Opacity;
         return;
     }
+    if (cover<0.001 || !hit) cover=0.0;
     vec3 normal=normalAt(surface);
     if ((optics.y<0.5 || optics.y>3.5) && motion.w>0.5) {
         // A small tangent perturbation bends the reflected light like a
@@ -278,7 +279,7 @@ void main() {
         color+=white*ovalLight(ray,vec3(-0.65,0.85,0.60),vec2(0.50,0.45))*f*230.0;
         color+=white*ovalLight(ray,vec3(0.90,-0.40,0.60),vec2(0.13,0.13))*f*110.0;
         color+=hue*ovalLight(ray,vec3(-0.50,-0.60,0.70),vec2(0.20,0.17))*3.0;
-        fragColor=vec4(film(color)*cover,cover)*qt_Opacity;
+        fragColor=(cover>0.0 ? vec4(film(color)*cover,cover) : vec4(pow(hue,vec3(1.0/2.2))*halo,halo))*qt_Opacity;
         return;
     }
     vec3 internal=refract(incident,normal,1.0/1.333);
