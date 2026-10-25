@@ -24,6 +24,7 @@ ContentPage {
     property int memoryTtlDays: 7
     property double memoryEditingId: 0
     property bool confirmForgetMemories: false
+    readonly property real availableRowWidth: Math.max(0, root.width - 2 * root._horizontalMargin - 48)
     readonly property var preferences: Preferences.normalize(Config.options?.abyss?.companion)
     readonly property var personalityOptions: [
         { displayName: Translation.tr("Calm"), value: "calm" },
@@ -110,6 +111,49 @@ ContentPage {
             settingsSearchDescription: choice.description
             currentIndex: Math.max(0, choice.options.findIndex(o => o.value === choice.currentValue))
             onActivated: index => choice.selected(choice.options[index].value)
+        }
+    }
+
+    component CompactToggle: SettingsSwitch {
+        id: compactToggle
+        property string tooltipText: ""
+        Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        autoToggle: false
+        activeFocusOnTab: true
+        Accessible.description: description.length > 0 ? description : tooltipText
+        StyledToolTip {
+            text: compactToggle.tooltipText.length > 0 ? compactToggle.tooltipText : compactToggle.text
+            extraVisibleCondition: compactToggle.hovered && text.length > 0
+        }
+    }
+
+    component CompactChoice: ColumnLayout {
+        id: compactChoice
+        property string label: ""
+        property string description: ""
+        property var options: []
+        property var currentValue: ""
+        signal selected(var value)
+        Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        spacing: 4
+        StyledText {
+            Layout.fillWidth: true
+            text: compactChoice.label
+            color: Appearance.colors.colSubtext
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            elide: Text.ElideRight
+        }
+        StyledComboBox {
+            objectName: compactChoice.objectName ? compactChoice.objectName + "Control" : ""
+            Layout.fillWidth: true
+            model: compactChoice.options
+            textRole: "displayName"
+            settingsSearchLabel: compactChoice.label
+            settingsSearchDescription: compactChoice.description
+            currentIndex: Math.max(0, compactChoice.options.findIndex(o => o.value === compactChoice.currentValue))
+            onActivated: index => compactChoice.selected(compactChoice.options[index].value)
         }
     }
 
@@ -450,190 +494,275 @@ ContentPage {
         title:Translation.tr("AI")
         icon:"chat"
         SettingsGroup {
-            SettingsSwitch {
-                text:Translation.tr("Talk clouds")
-                autoToggle:false;checked:WullMind.talkEnabled
-                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.talkEnabled",checked)
-            }
-            SettingsSwitch {
-                objectName:"wullAllowCloudModels"
-                text:Translation.tr("Allow cloud models")
-                autoToggle:false;checked:!WullMind.localOnly
-                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.localOnly",!checked)
-            }
-            StyledText {
+            objectName:"wullAiSettingsGroup"
+            GridLayout {
+                objectName:"wullAiPermissionsGrid"
                 Layout.fillWidth:true
-                text:WullMind.localOnly ? "Local only" : "Cloud models allowed"
-                color:Appearance.colors.colSubtext
+                columns:root.availableRowWidth>560 ? 3 : root.availableRowWidth>380 ? 2 : 1
+                columnSpacing:12;rowSpacing:8
+                CompactToggle {
+                    objectName:"wullTalkClouds"
+                    buttonIcon:"chat_bubble"
+                    text:Translation.tr("Talk clouds")
+                    tooltipText:"Show speech bubbles and quick chat above your companion."
+                    checked:WullMind.talkEnabled
+                    onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.talkEnabled",checked)
+                }
+                CompactToggle {
+                    objectName:"wullAllowCloudModels"
+                    buttonIcon:"cloud"
+                    text:Translation.tr("Allow cloud models")
+                    tooltipText:"Off by default. Keep unchecked to restrict Companion strictly to verified local models."
+                    checked:!WullMind.localOnly
+                    onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.localOnly",!checked)
+                }
+                ColumnLayout {
+                    Layout.fillWidth:true;spacing:2
+                    StyledText {
+                        objectName:"wullAiPrivacyStatus"
+                        Layout.fillWidth:true
+                        text:WullMind.localOnly ? "Local only" : "Cloud models allowed"
+                        color:Appearance.colors.colPrimary
+                    }
+                    StyledText {
+                        Layout.fillWidth:true;wrapMode:Text.WordWrap
+                        text:Translation.tr("Providers and connections are shared with AI settings.")
+                        color:Appearance.colors.colSubtext
+                        font.pixelSize:Appearance.font.pixelSize.smaller
+                    }
+                }
             }
-            SettingsSwitch {
-                objectName:"wullEnableProactive"
-                text:Translation.tr("Allow proactive check-ins and reminders")
-                description:Translation.tr("Off by default. Pauses during Focus, fullscreen, games, dialogs and quiet hours. Repeatedly ignored offers pause until you interact or the next day.")
-                autoToggle:false;checked:WullMind.options.proactiveEnabled === true
-                enabled:WullMind.options.proactiveEnabled !== undefined
-                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.proactiveEnabled",checked)
-            }
-            ChoiceRow {
-                objectName:"wullProactiveFrequency"
-                label:Translation.tr("Check-ins and reminders")
-                options:[
-                    {displayName:Translation.tr("Rarely while idle"),value:"rare"},
-                    {displayName:Translation.tr("Occasionally while idle"),value:"occasional"},
-                    {displayName:Translation.tr("Regularly while idle"),value:"regular"},
-                    {displayName:Translation.tr("Often while idle"),value:"often"},
-                    {displayName:Translation.tr("Only when I chat"),value:"manual"}
-                ]
-                currentValue:WullMind.proactive
-                onSelected:value=>Config.setNestedValue("abyss.companionMind.proactive",value)
-            }
-            ChoiceRow {
-                label:Translation.tr("Daily offer limit")
-                options:[{displayName:"2",value:2},{displayName:"4",value:4},{displayName:"6",value:6},{displayName:"10",value:10}]
-                currentValue:WullMind.options.proactiveDailyCap ?? 6
-                onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveDailyCap",value)
-            }
-            ChoiceRow {
-                label:Translation.tr("Limit for each kind of offer")
-                options:[{displayName:"1",value:1},{displayName:"2",value:2},{displayName:"3",value:3}]
-                currentValue:WullMind.options.proactiveEventCap ?? 3
-                onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveEventCap",value)
-            }
-            SettingsSwitch {
-                text:Translation.tr("Quiet hours")
-                autoToggle:false;checked:WullMind.options.proactiveQuietEnabled !== false
-                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.proactiveQuietEnabled",checked)
-            }
-            ChoiceRow {
-                label:Translation.tr("Quiet hours start")
-                options:[{displayName:"20:00",value:1200},{displayName:"22:00",value:1320},{displayName:"00:00",value:0}]
-                currentValue:WullMind.options.proactiveQuietStart ?? 1320
-                onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveQuietStart",value)
-            }
-            ChoiceRow {
-                label:Translation.tr("Quiet hours end")
-                options:[{displayName:"06:00",value:360},{displayName:"08:00",value:480},{displayName:"10:00",value:600}]
-                currentValue:WullMind.options.proactiveQuietEnd ?? 480
-                onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveQuietEnd",value)
-            }
-            SettingsSwitch {
-                objectName:"wullTodoReminders"
-                text:Translation.tr("Read Todo items for reminders")
-                autoToggle:false;checked:WullMind.todoRemindersEnabled
-                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.todoRemindersEnabled",checked)
-            }
-            SettingsSwitch {
-                objectName:"wullCalendarReminders"
-                text:Translation.tr("Read calendar events for reminders")
-                autoToggle:false;checked:WullMind.calendarRemindersEnabled
-                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.calendarRemindersEnabled",checked)
-            }
-            SettingsSwitch {
-                objectName:"wullJournalReminders"
-                text:Translation.tr("Read today's journal for reminders")
-                autoToggle:false;checked:WullMind.journalRemindersEnabled
-                enabled:WullMind.obsidianEnabled
-                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.journalRemindersEnabled",checked)
-            }
-            SettingsSwitch {
-                objectName:"wullReminderNotifications"
-                text:Translation.tr("Show reminder notifications")
-                description:Translation.tr("Also send consented reminders to the notification center. Off by default.")
-                autoToggle:false;checked:WullMind.reminderNotificationsEnabled
-                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.reminderNotificationsEnabled",checked)
-            }
-            StyledText {
-                Layout.fillWidth:true;wrapMode:Text.WordWrap
-                text:Translation.tr("Providers and connections are shared with AI settings.")
-                color:Appearance.colors.colSubtext
-            }
-            SettingsSwitch {
-                objectName:"wullDialogueConsent"
-                text:Translation.tr("Personalize local dialogue")
-                description:Translation.tr("Use your chosen tone and today's explicit check-in for local replies. Familiarity is your choice. No relationship score, penalties for absence or pressure to return.")
-                autoToggle:false;checked:WullMind.options.bondEnabled===true
-                enabled:WullMind.options.bondEnabled!==undefined
-                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.bondEnabled",checked)
-            }
-            ChoiceRow {
-                label:Translation.tr("Dialogue tone")
-                options:[{displayName:Translation.tr("Gentle"),value:"gentle"},
-                    {displayName:Translation.tr("Witty"),value:"witty"},{displayName:Translation.tr("Concise"),value:"concise"}]
-                currentValue:WullMind.options.dialogueTone ?? "gentle"
-                onSelected:value=>Config.setNestedValue("abyss.companionMind.dialogueTone",value)
-            }
-            ChoiceRow {
-                label:Translation.tr("Familiarity")
-                options:[{displayName:Translation.tr("Neutral"),value:"neutral"},
-                    {displayName:Translation.tr("Familiar coworker"),value:"familiar"}]
-                currentValue:WullMind.options.familiarity ?? "neutral"
-                onSelected:value=>Config.setNestedValue("abyss.companionMind.familiarity",value)
-            }
-            DialogButton {
-                objectName:"wullResetDialogue"
-                buttonText:Translation.tr("Reset dialogue preferences")
-                onClicked:WullMind.resetDialogue()
+            GridLayout {
+                objectName:"wullAiModelGrid"
+                Layout.fillWidth:true
+                columns:root.availableRowWidth>520 ? 2 : 1
+                columnSpacing:16;rowSpacing:8
+                ColumnLayout {
+                    Layout.fillWidth:true;spacing:4
+                    StyledText {
+                        Layout.fillWidth:true
+                        text:"Model"
+                        color:Appearance.colors.colSubtext
+                        font.pixelSize:Appearance.font.pixelSize.smaller
+                    }
+                    StyledComboBox {
+                        objectName:"wullCompanionModelSelector"
+                        Layout.fillWidth:true
+                        model:WullMind.selectableModels
+                        textRole:"label"
+                        currentIndex:Math.max(0,WullMind.selectableModels.findIndex(item=>item.name===String(Config.options?.abyss?.companionMind?.model ?? "")))
+                        displayText:currentIndex>=0 ? (WullMind.selectableModels[currentIndex].label ?? WullMind.selectableModels[currentIndex].name) : "Use the AI tab model"
+                        onActivated:index=>{
+                            const item=WullMind.selectableModels[index]
+                            if(item)WullMind.selectModel(item)
+                        }
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth:true;spacing:4
+                    RowLayout {
+                        Layout.fillWidth:true
+                        StyledText {Layout.fillWidth:true;text:"Thinking effort";color:Appearance.colors.colSubtext;font.pixelSize:Appearance.font.pixelSize.smaller}
+                        StyledText {text:WullMind.thinkingEffortLabel;color:Appearance.colors.colPrimary;font.pixelSize:Appearance.font.pixelSize.smaller}
+                    }
+                    StyledSlider {
+                        objectName:"wullCompanionThinkingEffort"
+                        Layout.fillWidth:true
+                        from:0;to:3;stepSize:1
+                        value:Math.max(0,WullMind.thinkingLevels.findIndex(level=>level.value===WullMind.effectiveThinkingEffort))
+                        enabled:WullMind.thinkingSupported && !WullMind.busy
+                        tooltipContent:WullMind.thinkingEffortLabel
+                        onMoved:{
+                            const levels=["off","low","medium","high"]
+                            WullMind.setThinkingEffort(levels[Math.max(0,Math.min(3,Math.round(value)))])
+                        }
+                    }
+                    StyledText {
+                        visible:WullMind.model.length>0 && !WullMind.thinkingSupported
+                        Layout.fillWidth:true;wrapMode:Text.WordWrap
+                        text:Translation.tr("This model uses its provider default. Choose a supported reasoning model to set effort.")
+                        color:Appearance.colors.colSubtext
+                        font.pixelSize:Appearance.font.pixelSize.smaller
+                    }
+                }
             }
             RowLayout {
+                spacing:8
                 DialogButton {buttonText:Translation.tr("Open chat");enabled:root.preferences.enabled;onClicked:WullMind.openChat()}
                 DialogButton {buttonText:Translation.tr("Clear conversation");onClicked:WullMind.clearConversation()}
             }
-            StyledText {
-                Layout.fillWidth:true
-                text:"Model"
-                color:Appearance.colors.colSubtext
+            CompactToggle {
+                objectName:"wullEnableProactive"
+                buttonIcon:"notifications_active"
+                text:Translation.tr("Allow proactive check-ins and reminders")
+                description:Translation.tr("Off by default. Pauses during Focus, fullscreen, games, dialogs and quiet hours. Repeatedly ignored offers pause until you interact or the next day.")
+                checked:WullMind.options.proactiveEnabled === true
+                enabled:WullMind.options.proactiveEnabled !== undefined
+                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.proactiveEnabled",checked)
             }
-            StyledComboBox {
-                objectName:"wullCompanionModelSelector"
+            GridLayout {
+                objectName:"wullProactiveQuotaGrid"
                 Layout.fillWidth:true
-                model:WullMind.selectableModels
-                textRole:"label"
-                currentIndex:Math.max(0,WullMind.selectableModels.findIndex(item=>item.name===String(Config.options?.abyss?.companionMind?.model ?? "")))
-                displayText:currentIndex>=0 ? (WullMind.selectableModels[currentIndex].label ?? WullMind.selectableModels[currentIndex].name) : "Use the AI tab model"
-                onActivated:index=>{
-                    const item=WullMind.selectableModels[index]
-                    if(item)WullMind.selectModel(item)
+                columns:root.availableRowWidth>560 ? 3 : root.availableRowWidth>380 ? 2 : 1
+                columnSpacing:12;rowSpacing:8
+                CompactChoice {
+                    objectName:"wullProactiveFrequency"
+                    label:Translation.tr("Check-ins and reminders")
+                    options:[
+                        {displayName:Translation.tr("Rarely while idle"),value:"rare"},
+                        {displayName:Translation.tr("Occasionally while idle"),value:"occasional"},
+                        {displayName:Translation.tr("Regularly while idle"),value:"regular"},
+                        {displayName:Translation.tr("Often while idle"),value:"often"},
+                        {displayName:Translation.tr("Only when I chat"),value:"manual"}
+                    ]
+                    currentValue:WullMind.proactive
+                    onSelected:value=>Config.setNestedValue("abyss.companionMind.proactive",value)
+                }
+                CompactChoice {
+                    objectName:"wullProactiveDailyCap"
+                    label:Translation.tr("Daily offer limit")
+                    options:[{displayName:"2",value:2},{displayName:"4",value:4},{displayName:"6",value:6},{displayName:"10",value:10}]
+                    currentValue:WullMind.options.proactiveDailyCap ?? 6
+                    onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveDailyCap",value)
+                }
+                CompactChoice {
+                    objectName:"wullProactiveEventCap"
+                    label:Translation.tr("Limit for each kind of offer")
+                    options:[{displayName:"1",value:1},{displayName:"2",value:2},{displayName:"3",value:3}]
+                    currentValue:WullMind.options.proactiveEventCap ?? 3
+                    onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveEventCap",value)
                 }
             }
-            RowLayout {
+            GridLayout {
+                objectName:"wullQuietHoursGrid"
                 Layout.fillWidth:true
-                StyledText {Layout.fillWidth:true;text:"Thinking effort";color:Appearance.colors.colSubtext}
-                StyledText {text:WullMind.thinkingEffortLabel;color:Appearance.colors.colPrimary}
-            }
-            StyledSlider {
-                objectName:"wullCompanionThinkingEffort"
-                Layout.fillWidth:true
-                from:0;to:3;stepSize:1
-                value:Math.max(0,WullMind.thinkingLevels.findIndex(level=>level.value===WullMind.effectiveThinkingEffort))
-                enabled:WullMind.thinkingSupported && !WullMind.busy
-                tooltipContent:WullMind.thinkingEffortLabel
-                onMoved:{
-                    const levels=["off","low","medium","high"]
-                    WullMind.setThinkingEffort(levels[Math.max(0,Math.min(3,Math.round(value)))])
+                columns:root.availableRowWidth>560 ? 3 : root.availableRowWidth>380 ? 2 : 1
+                columnSpacing:12;rowSpacing:8
+                CompactToggle {
+                    objectName:"wullQuietHoursToggle"
+                    buttonIcon:"bedtime"
+                    text:Translation.tr("Quiet hours")
+                    tooltipText:"Pause automatic check-ins and reminders during your quiet hours."
+                    checked:WullMind.options.proactiveQuietEnabled !== false
+                    onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.proactiveQuietEnabled",checked)
+                }
+                CompactChoice {
+                    objectName:"wullQuietHoursStart"
+                    label:Translation.tr("Quiet hours start")
+                    options:[{displayName:"20:00",value:1200},{displayName:"22:00",value:1320},{displayName:"00:00",value:0}]
+                    currentValue:WullMind.options.proactiveQuietStart ?? 1320
+                    onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveQuietStart",value)
+                }
+                CompactChoice {
+                    objectName:"wullQuietHoursEnd"
+                    label:Translation.tr("Quiet hours end")
+                    options:[{displayName:"06:00",value:360},{displayName:"08:00",value:480},{displayName:"10:00",value:600}]
+                    currentValue:WullMind.options.proactiveQuietEnd ?? 480
+                    onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveQuietEnd",value)
                 }
             }
-            StyledText {
-                visible:WullMind.model.length>0 && !WullMind.thinkingSupported
-                Layout.fillWidth:true;wrapMode:Text.WordWrap
-                text:Translation.tr("This model uses its provider default. Choose a supported reasoning model to set effort.")
-                color:Appearance.colors.colSubtext
+            GridLayout {
+                objectName:"wullReminderSourcesGrid"
+                Layout.fillWidth:true
+                columns:root.availableRowWidth>560 ? 3 : root.availableRowWidth>380 ? 2 : 1
+                columnSpacing:12;rowSpacing:8
+                CompactToggle {
+                    objectName:"wullPlannerReminders"
+                    buttonIcon:"event_upcoming"
+                    text:"Read Weekly Planner events for reminders"
+                    tooltipText:"Use scheduled events from your Alis Weekly Planner for proactive reminders. Off by default."
+                    checked:WullMind.plannerRemindersEnabled
+                    onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.calendarRemindersEnabled",checked)
+                    Item { objectName:"wullCalendarReminders"; visible:false }
+                }
+                CompactToggle {
+                    objectName:"wullTodoReminders"
+                    buttonIcon:"checklist"
+                    text:Translation.tr("Read Todo items for reminders")
+                    tooltipText:"Use timed tasks from your Alis Todo list for proactive reminders. Off by default."
+                    checked:WullMind.todoRemindersEnabled
+                    onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.todoRemindersEnabled",checked)
+                }
+                CompactToggle {
+                    objectName:"wullReminderNotifications"
+                    buttonIcon:"notifications"
+                    text:Translation.tr("Show reminder notifications")
+                    tooltipText:Translation.tr("Also send consented reminders to the notification center. Off by default.")
+                    checked:WullMind.reminderNotificationsEnabled
+                    onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.reminderNotificationsEnabled",checked)
+                }
             }
-            SettingsSwitch {
-                text:Translation.tr("Connect Obsidian")
-                autoToggle:false;checked:WullMind.obsidianEnabled
-                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.obsidianEnabled",checked)
+            CompactToggle {
+                objectName:"wullDialogueConsent"
+                buttonIcon:"mood"
+                text:Translation.tr("Personalize local dialogue")
+                description:Translation.tr("Use your chosen tone and today's explicit check-in for local replies. Familiarity is your choice. No relationship score, penalties for absence or pressure to return.")
+                checked:WullMind.options.bondEnabled===true
+                enabled:WullMind.options.bondEnabled!==undefined
+                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.bondEnabled",checked)
             }
-            StyledText {Layout.fillWidth:true;wrapMode:Text.WordWrap
-                text:Translation.tr("Obsidian vault")+": "+(Todo.sharedVaultPath || Translation.tr("Not configured"))}
-            RowLayout {
-                DialogButton {buttonText:Translation.tr("Read today's context");enabled:WullMind.obsidianEnabled && !WullMind.busy;onClicked:WullMind.refreshJournal()}
-                DialogButton {buttonText:Translation.tr("Open journal");enabled:!!WullMind.journal.journalPath;onClicked:WullMind.openJournal()}
+            GridLayout {
+                objectName:"wullDialogueGrid"
+                Layout.fillWidth:true
+                columns:root.availableRowWidth>560 ? 3 : root.availableRowWidth>380 ? 2 : 1
+                columnSpacing:12;rowSpacing:8
+                CompactChoice {
+                    objectName:"wullDialogueTone"
+                    label:Translation.tr("Dialogue tone")
+                    options:[{displayName:Translation.tr("Gentle"),value:"gentle"},
+                        {displayName:Translation.tr("Witty"),value:"witty"},{displayName:Translation.tr("Concise"),value:"concise"}]
+                    currentValue:WullMind.options.dialogueTone ?? "gentle"
+                    onSelected:value=>Config.setNestedValue("abyss.companionMind.dialogueTone",value)
+                }
+                CompactChoice {
+                    objectName:"wullDialogueFamiliarity"
+                    label:Translation.tr("Familiarity")
+                    options:[{displayName:Translation.tr("Neutral"),value:"neutral"},
+                        {displayName:Translation.tr("Familiar coworker"),value:"familiar"}]
+                    currentValue:WullMind.options.familiarity ?? "neutral"
+                    onSelected:value=>Config.setNestedValue("abyss.companionMind.familiarity",value)
+                }
+                DialogButton {
+                    objectName:"wullResetDialogue"
+                    Layout.alignment:Qt.AlignBottom
+                    buttonText:Translation.tr("Reset dialogue preferences")
+                    onClicked:WullMind.resetDialogue()
+                }
             }
-            SettingsSwitch {
+            GridLayout {
+                objectName:"wullObsidianContextGrid"
+                Layout.fillWidth:true
+                columns:root.availableRowWidth>520 ? 2 : 1
+                columnSpacing:16;rowSpacing:8
+                CompactToggle {
+                    objectName:"wullConnectObsidian"
+                    buttonIcon:"menu_book"
+                    text:Translation.tr("Connect Obsidian")
+                    tooltipText:"Share read-only daily mood/energy check-in with your configured Obsidian journal."
+                    checked:WullMind.obsidianEnabled
+                    onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.obsidianEnabled",checked)
+                }
+                ColumnLayout {
+                    Layout.fillWidth:true;spacing:6
+                    StyledText {
+                        Layout.fillWidth:true;wrapMode:Text.WordWrap
+                        text:Translation.tr("Obsidian vault")+": "+(Todo.sharedVaultPath || Translation.tr("Not configured"))
+                        font.pixelSize:Appearance.font.pixelSize.smaller
+                        color:Appearance.colors.colSubtext
+                    }
+                    RowLayout {
+                        spacing:8
+                        DialogButton {buttonText:Translation.tr("Read today's context");enabled:WullMind.obsidianEnabled && !WullMind.busy;onClicked:WullMind.refreshJournal()}
+                        DialogButton {buttonText:Translation.tr("Open journal");enabled:!!WullMind.journal.journalPath;onClicked:WullMind.openJournal()}
+                    }
+                }
+            }
+            CompactToggle {
                 objectName:"wullEnableMemory"
+                buttonIcon:"bookmark"
                 text:Translation.tr("Use saved memories with local models")
                 description:Translation.tr("Only entries you save here are remembered. No automatic extraction from chat. Turning this off stops use and keeps your records available for review or deletion.")
-                autoToggle:false;checked:WullMind.memoryEnabled
+                checked:WullMind.memoryEnabled
                 enabled:WullMind.options.memoryEnabled !== undefined && !WullMind.busy
                 onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.memoryEnabled",checked)
             }
@@ -659,19 +788,28 @@ ContentPage {
                     color:Appearance.colors.colSubtext
                 }
             }
-            ChoiceRow {
-                label:Translation.tr("Remember for")
-                options:[{displayName:"Aqua",value:"aqua"},{displayName:"Octo",value:"octo"},{displayName:Translation.tr("Both"),value:"shared"}]
-                currentValue:root.memoryScope
-                onSelected:value=>root.memoryScope=value
-            }
-            ChoiceRow {
-                label:Translation.tr("Keep memory")
-                options:[{displayName:Translation.tr("7 days"),value:7},{displayName:Translation.tr("30 days"),value:30},{displayName:Translation.tr("Until I forget it"),value:0}]
-                currentValue:root.memoryTtlDays
-                onSelected:value=>root.memoryTtlDays=value
+            GridLayout {
+                objectName:"wullMemoryOptionsGrid"
+                Layout.fillWidth:true
+                columns:root.availableRowWidth>480 ? 2 : 1
+                columnSpacing:12;rowSpacing:8
+                CompactChoice {
+                    objectName:"wullMemoryScope"
+                    label:Translation.tr("Remember for")
+                    options:[{displayName:"Aqua",value:"aqua"},{displayName:"Octo",value:"octo"},{displayName:Translation.tr("Both"),value:"shared"}]
+                    currentValue:root.memoryScope
+                    onSelected:value=>root.memoryScope=value
+                }
+                CompactChoice {
+                    objectName:"wullMemoryTtl"
+                    label:Translation.tr("Keep memory")
+                    options:[{displayName:Translation.tr("7 days"),value:7},{displayName:Translation.tr("30 days"),value:30},{displayName:Translation.tr("Until I forget it"),value:0}]
+                    currentValue:root.memoryTtlDays
+                    onSelected:value=>root.memoryTtlDays=value
+                }
             }
             RowLayout {
+                spacing:8
                 DialogButton {
                     objectName:"wullSaveMemory"
                     buttonText:root.memoryEditingId ? Translation.tr("Save memory changes") : Translation.tr("Save memory")
@@ -684,6 +822,15 @@ ContentPage {
                     objectName:"wullReviewMemory"
                     buttonText:Translation.tr("Review saved memories");enabled:!WullMind.busy
                     onClicked:WullMind.refreshMemory()
+                }
+                DialogButton {
+                    objectName:"wullForgetAllMemory"
+                    buttonText:root.confirmForgetMemories ? Translation.tr("Confirm forgetting all saved memories") : Translation.tr("Forget all saved memories")
+                    enabled:!WullMind.busy && WullMind.memories.length>0
+                    onClicked:{
+                        if(root.confirmForgetMemories){WullMind.forgetAllMemories();root.confirmForgetMemories=false}
+                        else root.confirmForgetMemories=true
+                    }
                 }
             }
             StyledText {
@@ -716,15 +863,6 @@ ContentPage {
                             onClicked:WullMind.forgetMemory(modelData.id)
                         }
                     }
-                }
-            }
-            DialogButton {
-                objectName:"wullForgetAllMemory"
-                buttonText:root.confirmForgetMemories ? Translation.tr("Confirm forgetting all saved memories") : Translation.tr("Forget all saved memories")
-                enabled:!WullMind.busy && WullMind.memories.length>0
-                onClicked:{
-                    if(root.confirmForgetMemories){WullMind.forgetAllMemories();root.confirmForgetMemories=false}
-                    else root.confirmForgetMemories=true
                 }
             }
         }

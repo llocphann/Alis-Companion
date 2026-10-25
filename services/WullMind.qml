@@ -66,13 +66,16 @@ Singleton {
         && proactiveProfiles[proactive] !== undefined && Persistent.ready
         && Persistent.states.wullProactive !== undefined
     readonly property bool todoRemindersEnabled: options.todoRemindersEnabled === true
-    readonly property bool calendarRemindersEnabled: options.calendarRemindersEnabled === true
-    readonly property bool journalRemindersEnabled: obsidianEnabled && options.journalRemindersEnabled === true
+    readonly property bool plannerRemindersEnabled: options.plannerRemindersEnabled === true
+        || options.calendarRemindersEnabled === true
+    readonly property bool calendarRemindersEnabled: plannerRemindersEnabled
+    readonly property bool journalRemindersEnabled: false
     readonly property bool reminderNotificationsEnabled: options.reminderNotificationsEnabled === true
     readonly property bool focusSessionActive: proactiveIdleEnabled && TimerService.pomodoroRunning
         && !TimerService.pomodoroPaused && !TimerService.pomodoroBreak
     property bool hostBlocked: true
     property bool automaticOffer: false
+    property string activeReminderKey: ""
     readonly property int proactiveCheckInInterval: proactiveIdleEnabled ? proactiveProfiles[proactive].checkInMs : 0
     readonly property int proactivePlayfulInterval: proactiveIdleEnabled ? proactiveProfiles[proactive].playfulMs : 0
     readonly property string contextKey: {
@@ -169,9 +172,7 @@ Singleton {
         if (connectionStatus==="generating" || connectionStatus==="connecting") connectionStatus="disconnected"
     }
     function dispatch(action, extra = null, automatic = false): bool {
-        if (busy || draining || worker.running || (automatic && (!hostVisible || conversationOpen || contextOpen))) return false
-        if (automatic && (action!=="context" || !journalRemindersEnabled || !proactiveIdleEnabled
-                || hostBlocked || focusSessionActive)) return false
+        if (busy || draining || worker.running || automatic) return false
         if (["chat","probe"].includes(action)) return false
         const request=Object.assign(action.startsWith("memory_") ? {action:action} : payload(action),extra ?? {})
         const serial=++epoch
@@ -272,7 +273,8 @@ Singleton {
             const state=Persistent.states.wullProactive
             state.dismissals=Math.min(3,state.dismissals+1)
         }
-        automaticOffer=false
+        automaticOffer=false;activeReminderKey=""
+        if (reminderPopup.running) reminderPopup.signal(15)
         contextOpen=false;conversationOpen=false;conversationExpiry.stop();checkInStage="";text="";expiry.stop()
         if(pending?.automatic) cancel()
     }
@@ -405,18 +407,18 @@ Singleton {
         if (journal.journalPath) Quickshell.execDetached(["xdg-open",journal.journalPath])
     }
     function reminderRows(now, todoRows = null, calendarRows = null, automatic = false): var {
-        return ReminderPolicy.collect(now,{todo:todoRemindersEnabled,calendar:calendarRemindersEnabled,
-            journal:automatic ? journalRemindersEnabled : obsidianEnabled},
+        const plannerSource=calendarRows!==null && calendarRows!==undefined ? calendarRows : (Events.ready ? Events.list : [])
+        return ReminderPolicy.collect(now,{todo:todoRemindersEnabled,planner:plannerRemindersEnabled,
+            calendar:calendarRemindersEnabled},
             todoRemindersEnabled ? (todoRows ?? Todo.list) : [],
-            calendarRemindersEnabled ? (calendarRows ?? CalendarSync.getEventsForDate(now)) : [],journal)
+            plannerRemindersEnabled ? plannerSource : [])
     }
     function automaticRequest(event, nowMs, key = ""): var {
         const now=new Date(nowMs)
         return {event:event,nowMs:nowMs,day:ReminderPolicy.day(now),key:key,
             optedIn:proactiveIdleEnabled && (event!=="reminder" ||
                 (key.startsWith("todo:") && todoRemindersEnabled)
-                || (key.startsWith("calendar:") && calendarRemindersEnabled)
-                || (key.startsWith("journal:") && journalRemindersEnabled)),
+                || ((key.startsWith("planner:") || key.startsWith("calendar:")) && plannerRemindersEnabled)),
             manual:proactive==="manual",talkEnabled:talkEnabled,
             visible:hostVisible,blocked:hostBlocked || focusSessionActive,
             chatOpen:conversationOpen,contextOpen:contextOpen,busy:busy || draining,
@@ -431,49 +433,70 @@ Singleton {
             Persistent.states.wullProactive.unanswered=0
             Persistent.states.wullProactive.dismissals=0
         }
-        automaticOffer=false
+        automaticOffer=false;activeReminderKey=""
     }
     function revokeAutomatic(): void {
         if(pending?.automatic)cancel()
-        if(automaticOffer){text="";automaticOffer=false}
+        if(reminderPopup.running)reminderPopup.signal(15)
+        if(automaticOffer){text="";automaticOffer=false;activeReminderKey=""}
+    }
+    function reconcileActiveReminder(nowValue = null, todoRows = null, calendarRows = null): bool {
+        if (Persistent.states.wullProactive && Array.isArray(Persistent.states.wullProactive.reminderKeys)) {
+            const validKeys=Persistent.states.wullProactive.reminderKeys.filter(k=>ProactivePolicy.validReminderKey(k))
+            if (validKeys.length!==Persistent.states.wullProactive.reminderKeys.length)
+                Persistent.states.wullProactive.reminderKeys=validKeys
+        }
+        if (reminded.some(entry=>String(entry).includes(":journal:")))
+            reminded=reminded.filter(entry=>!String(entry).includes(":journal:"))
+        if (!automaticOffer || !activeReminderKey) return true
+        if (activeReminderKey.startsWith("journal:")
+                || (activeReminderKey.startsWith("todo:") && !todoRemindersEnabled)
+                || ((activeReminderKey.startsWith("planner:") || activeReminderKey.startsWith("calendar:")) && !plannerRemindersEnabled)) {
+            revokeAutomatic()
+            return false
+        }
+        const checkNow=nowValue instanceof Date ? nowValue : new Date(nowValue ?? Date.now())
+        const minute=checkNow.getHours()*60+checkNow.getMinutes()
+        const rows=reminderRows(checkNow,todoRows,calendarRows,true)
+        const match=rows.find(row=>row.key===activeReminderKey && row.start>=minute-10 && row.start-minute<=(row.leadMinutes ?? 10))
+        if (!match) {
+            revokeAutomatic()
+            return false
+        }
+        const expected="Psst! "+match.title+" · "+String(Math.floor(match.start/60)).padStart(2,"0")+":"+String(match.start%60).padStart(2,"0")
+        if (source==="schedule" && text!==expected) text=expected
+        return true
     }
     function sayAutomatic(value, event, nowMs, key = "", from = "built-in"): bool {
         const next=ProactivePolicy.record(Persistent.states.wullProactive,automaticRequest(event,nowMs,key))
         if (!next || !String(value).trim()) return false
         for (const field of Object.keys(next)) Persistent.states.wullProactive[field]=next[field]
-        automaticOffer=true
+        automaticOffer=true;activeReminderKey=event==="reminder" ? String(key ?? "") : ""
         say(value,from)
         return true
     }
     function offerAutomatic(): void {
+        reconcileActiveReminder()
         if (!hostVisible || !talkEnabled || !proactiveIdleEnabled
                 || hostBlocked || focusSessionActive || conversationOpen || contextOpen || busy
                 || Date.now()-startedAt<90000 || text) return
         const nowMs=Date.now()
         const policy=ProactivePolicy.decide(Persistent.states.wullProactive,automaticRequest("checkin",nowMs))
-        const canReadReminders=ProactivePolicy.decide(Persistent.states.wullProactive,
-            Object.assign(automaticRequest("reminder",nowMs,"journal:0"),{preview:true})).eligible
-        if (journalRemindersEnabled && canReadReminders
-                && nowMs-lastContext>120000 && nowMs-lastContextAttempt>120000) {
-            lastContextAttempt=nowMs
-            if(refreshJournal(true))return
-        }
         const now=new Date(),minute=now.getHours()*60+now.getMinutes()
         const todayDate=today(),rows=reminderRows(now,null,null,true)
-        const next=rows.find(s=>s.start>=minute-10 && s.start-minute<=10
+        const next=rows.find(s=>s.start>=minute-10 && s.start-minute<=(s.leadMinutes ?? 10)
             && !reminded.includes(todayDate+":"+s.key)
             && ProactivePolicy.decide(Persistent.states.wullProactive,automaticRequest("reminder",nowMs,s.key)).eligible)
         const key=next ? todayDate+":"+next.key : ""
         if (next && !reminded.includes(key)) {
-            reminded=reminded.slice(-31).concat([key])
-            const cheer=next.kind==="calisthenics" ? "Time for calisthenics! Tiny arms cheering for yours."
-                : next.kind==="cardio" ? "Cardio time! You run; I'll provide emotional splashes."
-                : "Psst! "+next.title
+            const cheer="Psst! "+next.title
             if (!sayAutomatic(cheer+" · "+String(Math.floor(next.start/60)).padStart(2,"0")+":"+String(next.start%60).padStart(2,"0"),
                     "reminder",nowMs,next.key,"schedule")) return
+            reminded=reminded.slice(-31).concat([key])
             if (reminderNotificationsEnabled && !reminderPopup.running) {
                 const body=text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-                reminderPopup.command=["notify-send","--app-name="+(character==="octo" ? "Octo" : "Aqua"),"--icon=obsidian","--expire-time=12000","--","Schedule",body]
+                const heading=next.source==="todo" ? "Todo" : "Weekly Planner"
+                reminderPopup.command=["notify-send","--app-name="+(character==="octo" ? "Octo" : "Aqua"),"--icon=x-office-calendar","--expire-time=12000","--",heading,body]
                 reminderPopup.running=true
             }
             reactionRequested("happy")
@@ -500,9 +523,9 @@ Singleton {
         const envelope=WullHelperReplyGuard.parse(job.action,raw,exitCode)
         pending=null;busy=false;deadline.stop()
         if (job.automatic && (!hostVisible || hostBlocked || focusSessionActive || !hostIdle
-                || conversationOpen || contextOpen || !proactiveIdleEnabled || !journalRemindersEnabled
+                || conversationOpen || contextOpen || !proactiveIdleEnabled
                 || !ProactivePolicy.decide(Persistent.states.wullProactive,
-                    Object.assign(automaticRequest("reminder",Date.now(),"journal:0"),{preview:true})).eligible)) {
+                    Object.assign(automaticRequest("checkin",Date.now()),{idle:hostIdle,preview:true})).eligible)) {
             if (connectionStatus==="generating") connectionStatus="disconnected"
             return
         }
@@ -513,10 +536,7 @@ Singleton {
                 historyLoaded=true;historyHasMore=false;historyLoadingOlder=false
                 return
             }
-            if (job.action==="context" && job.automatic) {
-                Qt.callLater(root.offerAutomatic)
-                return
-            }
+            if (job.action==="context" && job.automatic) return
             if (job.action==="history_clear") {
                 historyClearPending=false
                 return
@@ -571,7 +591,6 @@ Singleton {
                 if(contextOpen)say(contextualPhrase())
             }
             if(contextOpen && !checkInComplete)askCheckIn(userMood ? "energy" : "mood")
-            if (job.automatic) Qt.callLater(root.offerAutomatic)
         } else if (job.action==="check_in") {
             if(result?.saved===true && result.field===job.request.field && result.value===job.request.value
                     && checkInChoices(result.field).includes(result.value)
@@ -613,16 +632,23 @@ Singleton {
     onProactiveIdleEnabledChanged: if(!proactiveIdleEnabled)revokeAutomatic()
     onJournalRemindersEnabledChanged: if(!journalRemindersEnabled)revokeAutomatic()
     onTodoRemindersEnabledChanged: if(!todoRemindersEnabled)revokeAutomatic()
+    onPlannerRemindersEnabledChanged: if(!plannerRemindersEnabled)revokeAutomatic()
     onCalendarRemindersEnabledChanged: if(!calendarRemindersEnabled)revokeAutomatic()
     onHostBlockedChanged: if(hostBlocked)revokeAutomatic()
     onFocusSessionActiveChanged: if(focusSessionActive)revokeAutomatic()
     onReminderNotificationsEnabledChanged: if(!reminderNotificationsEnabled && reminderPopup.running)reminderPopup.signal(15)
     onHostVisibleChanged: if (!hostVisible) {if(pending?.automatic || pending?.action==="ai_chat") cancel();if(!conversationOpen){text="";checkInStage="";contextOpen=false}}
     onTalkEnabledChanged: if(!talkEnabled) {cancel();dismiss()}
+    Connections {
+        target:Events
+        function onEventAdded(event): void {root.reconcileActiveReminder()}
+        function onEventUpdated(event): void {root.reconcileActiveReminder()}
+        function onEventRemoved(eventId): void {root.reconcileActiveReminder()}
+    }
     IdleMonitor {id:idleMonitor;enabled:root.hostVisible && root.talkEnabled && root.proactiveIdleEnabled;timeout:60;respectInhibitors:true}
     Timer {interval:60000;repeat:true;running:root.hostVisible && root.talkEnabled
         && root.proactiveIdleEnabled && !root.conversationOpen;onTriggered:root.offerAutomatic()}
-    Timer {id:expiry;repeat:false;onTriggered:if(!root.conversationOpen && !root.contextOpen){root.text="";root.checkInStage=""}}
+    Timer {id:expiry;repeat:false;onTriggered:if(!root.conversationOpen && !root.contextOpen){root.text="";root.checkInStage="";root.activeReminderKey=""}}
     Process { id:reminderPopup }
     Timer {id:conversationExpiry;repeat:false;interval:root.conversationIdleTimeout;onTriggered:root.closeChat()}
     Timer {id:deadline;interval:35000;repeat:false;onTriggered:{root.cancel();root.errorMessage="Local model request timed out.";root.connectionStatus="error"}}

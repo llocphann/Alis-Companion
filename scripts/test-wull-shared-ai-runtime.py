@@ -125,7 +125,7 @@ ShellRoot {
  }
  function checkLiveOffers(): bool {
   if(!root.check(!WullMind.proactiveIdleEnabled && !WullMind.todoRemindersEnabled
-      && !WullMind.calendarRemindersEnabled && !WullMind.journalRemindersEnabled
+      && !WullMind.plannerRemindersEnabled && !WullMind.calendarRemindersEnabled && !WullMind.journalRemindersEnabled
       && !WullMind.reminderNotificationsEnabled,"new source or proactive consent defaulted on"))return false
   const anchor=new Date();anchor.setHours(12,0,0,0)
   const state=Persistent.states.wullProactive,now=anchor.getTime(),day=WullMind.today()
@@ -137,8 +137,15 @@ ShellRoot {
   WullMind.hostVisible=true;WullMind.hostBlocked=false;WullMind.hostIdle=false
   Config.setNestedValues({"abyss.companionMind.proactiveEnabled":true,
    "abyss.companionMind.proactive":"often","abyss.companionMind.proactiveQuietEnabled":false,
-   "abyss.companionMind.proactiveDailyCap":2,"abyss.companionMind.proactiveEventCap":2})
-  if(!root.check(!WullMind.sayAutomatic("No source consent","reminder",now,"todo:540"),"unconsented reminder source was used"))return false
+   "abyss.companionMind.proactiveDailyCap":2,"abyss.companionMind.proactiveEventCap":2,
+   "abyss.companionMind.journalRemindersEnabled":true,"abyss.companionMind.obsidianEnabled":true})
+  if(!root.check(!WullMind.journalRemindersEnabled
+      && !WullMind.sayAutomatic("Obsolete journal source","reminder",now,"journal:540"),
+      "retired journal reminder source was accepted"))return false
+  Config.setNestedValues({"abyss.companionMind.journalRemindersEnabled":false,"abyss.companionMind.obsidianEnabled":false})
+  if(!root.check(!WullMind.sayAutomatic("No source consent","reminder",now,"todo:540")
+      && !WullMind.sayAutomatic("No planner consent","reminder",now,"planner:evt_live:0:720"),
+      "unconsented reminder source was used"))return false
   Config.setNestedValue("abyss.companionMind.todoRemindersEnabled",true)
   if(!root.check(WullMind.sayAutomatic("Owned reminder one","reminder",now,"todo:540")
       && state.dailyCount===1 && state.reminder===1 && state.unanswered===1
@@ -163,6 +170,20 @@ ShellRoot {
   WullMind.acknowledgeAutomatic()
   if(!root.check(state.unanswered===0 && state.dismissals===0 && state.dailyCount===2
       && !WullMind.sayAutomatic("Quota remains","reminder",now+18000000,"todo:542"),"interaction reset the quota"))return false
+  reset()
+  Config.setNestedValue("abyss.companionMind.calendarRemindersEnabled",true)
+  state.reminderKeys=["journal:540"]
+  const eventStart=new Date(anchor.getTime()),eventEnd=new Date(anchor.getTime()+1800000)
+  const liveEvent={id:"evt_live",title:"Weekly Planner Sync",recurrence:"none",
+   occurrences:[{startDate:eventStart.toISOString(),endDate:eventEnd.toISOString(),notified:false}]}
+  if(!root.check(WullMind.sayAutomatic("Psst! Weekly Planner Sync · 12:00","reminder",now,"planner:evt_live:0:720","schedule")
+      && WullMind.activeReminderKey==="planner:evt_live:0:720"
+      && !state.reminderKeys.includes("journal:540")
+      && WullMind.reconcileActiveReminder(anchor,[],[Object.assign({},liveEvent,{title:"Renamed Planner Sync"})])
+      && WullMind.text==="Psst! Renamed Planner Sync · 12:00","live Weekly Planner title reconciliation or legacy journal key purge failed"))return false
+  if(!root.check(!WullMind.reconcileActiveReminder(anchor,[],[])
+      && WullMind.text==="" && !WullMind.automaticOffer && WullMind.activeReminderKey==="","deleting Weekly Planner event retained stale active reminder"))return false
+  Config.setNestedValue("abyss.companionMind.calendarRemindersEnabled",false)
   reset()
   if(!root.check(WullMind.sayAutomatic("Revoked","reminder",now,"todo:543"),"revocation setup failed"))return false
   Config.setNestedValue("abyss.companionMind.proactiveEnabled",false)

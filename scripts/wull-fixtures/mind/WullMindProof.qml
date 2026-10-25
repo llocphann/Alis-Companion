@@ -51,13 +51,21 @@ Window {
                 const syntheticNow=new Date(2026,9,5,9,0,0)
                 check(WullMind.reminderRows(syntheticNow,[],[]).length===0,"reminder sources default to private")
                 Config.setNestedValues({"abyss.companionMind.todoRemindersEnabled":true,
-                    "abyss.companionMind.calendarRemindersEnabled":true})
+                    "abyss.companionMind.calendarRemindersEnabled":true,
+                    "abyss.companionMind.journalRemindersEnabled":true})
+                WullMind.journal=({date:"2026-10-05",schedule:[{start:545,title:"Obsolete Obsidian schedule",kind:"schedule"}],mood:"",energy:"",journalPath:""})
                 const reminderRows=WullMind.reminderRows(syntheticNow,
                     [{done:false,sourceDate:"2026-10-05",startTime:"09:05",content:"Todo reminder"}],
-                    [{allDay:false,startDate:new Date(2026,9,5,9,7,0),summary:"Agenda reminder"}])
-                check(reminderRows.some(row=>row.kind==="task" && row.title==="Todo reminder")
-                    && reminderRows.some(row=>row.kind==="agenda" && row.title==="Agenda reminder"),
-                    "Todo/Agenda reminders incorrectly require Obsidian")
+                    [{id:"evt_planner_1",title:"Agenda reminder",recurrence:"none",
+                      occurrences:[{startDate:new Date(2026,9,5,9,7,0).toISOString(),endDate:new Date(2026,9,5,9,37,0).toISOString(),notified:false}]},
+                     {id:"evt_planner_weekly",title:"Weekly standup",recurrence:"weekly",
+                      occurrences:[{startDate:new Date(2026,8,28,9,9,0).toISOString(),endDate:new Date(2026,8,28,9,39,0).toISOString(),notified:false}]}])
+                check(reminderRows.some(row=>row.kind==="task" && row.title==="Todo reminder" && row.key==="todo:545")
+                    && reminderRows.some(row=>row.kind==="agenda" && row.title==="Agenda reminder" && row.key==="planner:evt_planner_1:0:547")
+                    && reminderRows.some(row=>row.kind==="agenda" && row.title==="Weekly standup" && row.key==="planner:evt_planner_weekly:0:549" && row.recurring===true)
+                    && !reminderRows.some(row=>row.title==="Obsolete Obsidian schedule" || String(row.key).startsWith("journal:")),
+                    "Weekly Planner/Todo reminder collection or Obsidian schedule retirement failed")
+                WullMind.journal=({schedule:[],mood:"",energy:"",journalPath:""})
                 WullMind.hostVisible=true;WullMind.hostIdle=true
                 check(!WullMind.busy && WullMind.history.length===0,"opening Settings started inference")
                 mouseMove(actor,actor.width/2,actor.height/2);wait(100)
@@ -269,7 +277,28 @@ Window {
                     && WullMind.userMood==="good" && WullMind.userEnergy==="high" && WullMind.memories.length===0,
                     "dialogue reset retained a request or changed independent check-in/memory state")
                 check(root.named(settings,"wullDialogueConsent") && root.named(settings,"wullResetDialogue"),"dialogue controls missing")
-                console.log("WULL_MIND=PASS actualProcess sharedModelReadiness EnglishReply hoverCloudActions dailyChoices readOnlyContext borderedCloud noCheckInInput separateQuestions journalWrites stableJournalContext explicitChatFocus modelEffortSelector compactEffortRow activeModelContrast stagedEffortModelPicker enterSend sendOnlyControl persistentHistory reminderSources proactiveCadences scaledTalkCloudAnchor idleChatRelease retainedDraft escapeClose boundedHistory cancel staleReply invalidEndpoint unavailableModel settingsAI noReferenceVault explicitMemory save edit castScope revocation forget managementControls")
+                check(root.named(settings,"wullPlannerReminders") && root.named(settings,"wullCalendarReminders")
+                    && !root.named(settings,"wullJournalReminders"),
+                    "Weekly Planner reminder toggle missing or retired journal reminder toggle remained")
+                const permGrid=root.named(settings,"wullAiPermissionsGrid")
+                const modelGrid=root.named(settings,"wullAiModelGrid")
+                const quotaGrid=root.named(settings,"wullProactiveQuotaGrid")
+                const quietGrid=root.named(settings,"wullQuietHoursGrid")
+                const sourceGrid=root.named(settings,"wullReminderSourcesGrid")
+                const dialogueGrid=root.named(settings,"wullDialogueGrid")
+                const plannerToggle=root.named(settings,"wullPlannerReminders")
+                settings.visible=true;settings.width=800;wait(40)
+                check(!!permGrid && permGrid.columns>=2 && !!modelGrid && modelGrid.columns===2
+                    && !!quotaGrid && quotaGrid.columns>=2 && !!quietGrid && quietGrid.columns>=2
+                    && !!sourceGrid && sourceGrid.columns>=2 && !!dialogueGrid && dialogueGrid.columns>=2
+                    && plannerToggle.buttonIcon==="event_upcoming" && plannerToggle.activeFocusOnTab,
+                    "compact multi-column AI settings layout did not activate at normal width")
+                settings.width=340;wait(40)
+                check(permGrid.columns===1 && modelGrid.columns===1 && quotaGrid.columns===1
+                    && quietGrid.columns===1 && sourceGrid.columns===1 && dialogueGrid.columns===1,
+                    "compact AI settings layout did not collapse cleanly on narrow width")
+                settings.width=800;settings.visible=false
+                console.log("WULL_MIND=PASS actualProcess sharedModelReadiness EnglishReply hoverCloudActions dailyChoices readOnlyContext borderedCloud noCheckInInput separateQuestions journalWrites stableJournalContext explicitChatFocus modelEffortSelector compactEffortRow activeModelContrast stagedEffortModelPicker enterSend sendOnlyControl persistentHistory reminderSources weeklyPlannerEvents noJournalReminders compactAiSettings proactiveCadences scaledTalkCloudAnchor idleChatRelease retainedDraft escapeClose boundedHistory cancel staleReply invalidEndpoint unavailableModel settingsAI noReferenceVault explicitMemory save edit castScope revocation forget managementControls")
             } catch(e) {console.error("WULL_MIND=FAIL "+e+" "+e.stack)}
             shutdown.start()
         }

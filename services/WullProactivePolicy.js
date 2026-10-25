@@ -17,12 +17,17 @@ function quietMinute(current, start, end) {
         : current >= start || current < end
 }
 
+function validReminderKey(key) {
+    return typeof key === "string" && key.length <= 100
+        && /^(?:todo:\d{1,4}|(?:planner|calendar):(?:[A-Za-z0-9_-]{1,32}:\d{1,4}:)?\d{1,4})$/.test(key)
+}
+
 function stateFor(value, day) {
     if (!value || value.day !== day) return fresh(day)
     return {day:day, dailyCount:value.dailyCount, reminder:value.reminder,
         checkin:value.checkin, playful:value.playful, unanswered:value.unanswered,
         dismissals:value.dismissals, lastNudgeMs:value.lastNudgeMs,
-        reminderKeys:Array.from(value.reminderKeys ?? [])}
+        reminderKeys:Array.from(value.reminderKeys ?? []).filter(validReminderKey)}
 }
 
 function decide(value, p) {
@@ -50,8 +55,7 @@ function decide(value, p) {
     if (p.event !== "reminder" && p.idle !== true) return {eligible:false, reason:"not_idle"}
     if (!Number.isSafeInteger(s.lastNudgeMs) || s.lastNudgeMs < 0 || s.lastNudgeMs > p.nowMs)
         return {eligible:false, reason:"invalid_clock"}
-    if (p.event === "reminder" && (typeof p.key !== "string" || p.key.length > 100
-            || !/^(todo|calendar|journal):\d{1,4}$/.test(p.key)
+    if (p.event === "reminder" && (!validReminderKey(p.key)
             || (p.preview !== true && s.reminderKeys.includes(p.key))))
         return {eligible:false, reason:"duplicate_or_invalid_reminder"}
     const backoff = Math.max(Number(p.intervalMs) || 0,
