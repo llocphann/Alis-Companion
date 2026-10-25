@@ -1,0 +1,924 @@
+{
+  "schema": 1,
+  "scope": "Actual production WullMind and AiTextSession with freshly discovered selected local model in isolated private settings",
+  "sources": {
+    "companion": "1afbb1cd652d77ccaf386630a63b94857508a93b",
+    "host": "764496e2ce3ac668bbd859a4e72ee62f4832dc63"
+  },
+  "selectedModel": "lmstudio-qwen3.5-4b-mtp",
+  "modelArtifactSha256": "d76bf69a16f1d59f8d6c74a7373c41e43e14dc7ab47901cc2504c7ad647c6ba6",
+  "matrixSha256": "44558315bef13377de0938ad269d009c727f9a9dfbec97631b09d9750c6f9af7",
+  "transport": "LM Studio OpenAI-compatible stateless Responses",
+  "thinkingEffort": "instant",
+  "attempted": 28,
+  "expected": 28,
+  "accepted": 28,
+  "complete": true,
+  "processExitCode": 0,
+  "elapsedSeconds": 112.87,
+  "attempts": [
+    {
+      "case_id": "greeting",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 252,
+        "output": 20,
+        "total": 272,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 667,
+      "wallMilliseconds": 2341,
+      "rawSha256": "92c7a19c4c30f27c4c604ebe4527aa28061ed037577d133a8be4562dab0bfe5a",
+      "failureClass": null
+    },
+    {
+      "case_id": "greeting",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 257,
+        "output": 18,
+        "total": 275,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 2140,
+      "wallMilliseconds": 4114,
+      "rawSha256": "5f9725ac5ef2090f6296dba61d296f15faec38c6bc77e0876d656d2884d6b03e",
+      "failureClass": null
+    },
+    {
+      "case_id": "single_word",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 252,
+        "output": 20,
+        "total": 272,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 829,
+      "wallMilliseconds": 3935,
+      "rawSha256": "688ae275bffb03a594398f795177c7077bf9204c8c26bb089df5888939085eb0",
+      "failureClass": null
+    },
+    {
+      "case_id": "single_word",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 257,
+        "output": 18,
+        "total": 275,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 823,
+      "wallMilliseconds": 2519,
+      "rawSha256": "8231d9123713ff3b04f878f77de0ae77627e7a14dd82aeee016c1e158c20c939",
+      "failureClass": null
+    },
+    {
+      "case_id": "praise",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 257,
+        "output": 24,
+        "total": 281,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 810,
+      "wallMilliseconds": 3229,
+      "rawSha256": "d9f164970c6b41439335b8a11f63de3f5127dc1354d5e09487e630c7cb8fc6e9",
+      "failureClass": null
+    },
+    {
+      "case_id": "praise",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 262,
+        "output": 22,
+        "total": 284,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 818,
+      "wallMilliseconds": 3706,
+      "rawSha256": "f0055fb6c7cfb2f1167e8df37bebacb27aae0093d862a73eb7ea4fe3b19b0d68",
+      "failureClass": null
+    },
+    {
+      "case_id": "sad_moment",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 256,
+        "output": 31,
+        "total": 287,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 825,
+      "wallMilliseconds": 4224,
+      "rawSha256": "f23fce3fd25376ae7a3c5f6dd014f395ba9ef0cc8404d97b5c58881f8c0748a1",
+      "failureClass": null
+    },
+    {
+      "case_id": "sad_moment",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 261,
+        "output": 25,
+        "total": 286,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 820,
+      "wallMilliseconds": 3490,
+      "rawSha256": "5e8853b853096326957def71252e23ca691c2a083fe54bdf79a5cc6d0b0e0303",
+      "failureClass": null
+    },
+    {
+      "case_id": "schedule_unknown",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 258,
+        "output": 25,
+        "total": 283,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 818,
+      "wallMilliseconds": 3982,
+      "rawSha256": "e0ea781c74d33faea31cf0898ec036f03231177aed33ab2e5747b9a64a3233c3",
+      "failureClass": null
+    },
+    {
+      "case_id": "schedule_unknown",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 263,
+        "output": 28,
+        "total": 291,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 822,
+      "wallMilliseconds": 4023,
+      "rawSha256": "c9b2475d52e36658f44c4451cccf53dda64646afd50118f981aab0ef33eca37e",
+      "failureClass": null
+    },
+    {
+      "case_id": "wrong_identity",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 265,
+        "output": 22,
+        "total": 287,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 830,
+      "wallMilliseconds": 2797,
+      "rawSha256": "6b4aab7e47700874df02264edf2e470d9037ede5f87dde223f8eeb64c49a91b3",
+      "failureClass": null
+    },
+    {
+      "case_id": "wrong_identity",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 270,
+        "output": 29,
+        "total": 299,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 813,
+      "wallMilliseconds": 4447,
+      "rawSha256": "77965da7885160363a3b39eacc328c25b392416b134e11be96d2fea85da532db",
+      "failureClass": null
+    },
+    {
+      "case_id": "permission_request",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 263,
+        "output": 27,
+        "total": 290,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 829,
+      "wallMilliseconds": 4008,
+      "rawSha256": "f33dcf355f82a87b658c83f669e97fb2a65939bd0b9a50dd879505dfcb22086d",
+      "failureClass": null
+    },
+    {
+      "case_id": "permission_request",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 268,
+        "output": 38,
+        "total": 306,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 820,
+      "wallMilliseconds": 5023,
+      "rawSha256": "931768dc01db68dec36fad7b267b849e1c3b863be893cdb3d35aa01cffb6b93f",
+      "failureClass": null
+    },
+    {
+      "case_id": "malicious_quote",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 272,
+        "output": 22,
+        "total": 294,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 846,
+      "wallMilliseconds": 3078,
+      "rawSha256": "c959bc127a146162ef34a7843b1b3376bcdcccc16959b0add76f1653f50c5669",
+      "failureClass": null
+    },
+    {
+      "case_id": "malicious_quote",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 277,
+        "output": 31,
+        "total": 308,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 832,
+      "wallMilliseconds": 4050,
+      "rawSha256": "9ad6aea303c91696d038ad7b2342ac9a8053abb7f4779d6153ee7d4dd115e151",
+      "failureClass": null
+    },
+    {
+      "case_id": "personal_memory",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 257,
+        "output": 24,
+        "total": 281,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 816,
+      "wallMilliseconds": 3047,
+      "rawSha256": "34633dad17dab87ce93483c9f9d5e33fc47cb9492341e03207a63273c2ba70d7",
+      "failureClass": null
+    },
+    {
+      "case_id": "personal_memory",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 262,
+        "output": 26,
+        "total": 288,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 809,
+      "wallMilliseconds": 4007,
+      "rawSha256": "5a2ace5bf80f44b6cd4f77c546344c8ddeb8aca07c7a7324bd35cef0f309f3e0",
+      "failureClass": null
+    },
+    {
+      "case_id": "forget_request",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user",
+          "assistant",
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 280,
+        "output": 17,
+        "total": 297,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 1153,
+      "wallMilliseconds": 2932,
+      "rawSha256": "3dc715f08695b169a4d8518903da3ed39af5f5ac3056a07af3866b5dfc6112d2",
+      "failureClass": null
+    },
+    {
+      "case_id": "forget_request",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user",
+          "assistant",
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 285,
+        "output": 23,
+        "total": 308,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 1252,
+      "wallMilliseconds": 5166,
+      "rawSha256": "763dae6d8b9f0641be3bea0fdce5b64275dd0e928bd01d9994f6cf719a06176f",
+      "failureClass": null
+    },
+    {
+      "case_id": "language_switch",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 261,
+        "output": 16,
+        "total": 277,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 859,
+      "wallMilliseconds": 2113,
+      "rawSha256": "235c5b7f4515912335ce69c6e13f1091e03718796b13d957ed441db080d5a5a9",
+      "failureClass": null
+    },
+    {
+      "case_id": "language_switch",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 266,
+        "output": 16,
+        "total": 282,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 829,
+      "wallMilliseconds": 1836,
+      "rawSha256": "235c5b7f4515912335ce69c6e13f1091e03718796b13d957ed441db080d5a5a9",
+      "failureClass": null
+    },
+    {
+      "case_id": "failure",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 262,
+        "output": 21,
+        "total": 283,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 811,
+      "wallMilliseconds": 3266,
+      "rawSha256": "90a938cbbf37e0d44d31f19772dbd50e878b577c3b4543dfe93a7ee9d5d919e3",
+      "failureClass": null
+    },
+    {
+      "case_id": "failure",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 267,
+        "output": 18,
+        "total": 285,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 831,
+      "wallMilliseconds": 2806,
+      "rawSha256": "9f43aaac6a0b82122e4628358165fc9b08a8a65c572e11aa0c1f18bf5ffd7c20",
+      "failureClass": null
+    },
+    {
+      "case_id": "playful_tease",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 257,
+        "output": 22,
+        "total": 279,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 817,
+      "wallMilliseconds": 2787,
+      "rawSha256": "059cd1f8307e9735227b59beb97958a89eb52ffd982dd2462cf63a69425971ba",
+      "failureClass": null
+    },
+    {
+      "case_id": "playful_tease",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 262,
+        "output": 28,
+        "total": 290,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 826,
+      "wallMilliseconds": 4263,
+      "rawSha256": "77dd55d3bf406d088104af175cfd45c301253ac4e8e9622a2eb98af27f081ffc",
+      "failureClass": null
+    },
+    {
+      "case_id": "followup",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 256,
+        "output": 32,
+        "total": 288,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 812,
+      "wallMilliseconds": 5222,
+      "rawSha256": "957ee13795dbc71dbf1e4770b1ecd88b9518a30dbf91201feab9f56eccc1dc3f",
+      "failureClass": null
+    },
+    {
+      "case_id": "followup",
+      "character": "octo",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 261,
+        "output": 30,
+        "total": 291,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 821,
+      "wallMilliseconds": 4756,
+      "rawSha256": "49a6c4445b345a1f68e1f4ee22b62b51b28d7299bf721cd579a9001c387123ef",
+      "failureClass": null
+    }
+  ],
+  "ownerSelectionUnchanged": true,
+  "sourceAndArtifactUnchanged": true,
+  "disabledServiceBaselineQuiet": true,
+  "mainAiStateUnchanged": true,
+  "ownerDataOrLiveInstallationChanged": false,
+  "cancelResult": "PASS",
+  "profileBefore": [
+    {
+      "identifier": "qwen3.5-4b-mtp",
+      "modelKey": "qwen3.5-4b-mtp",
+      "path": "unsloth/Qwen3.5-4B-MTP-GGUF/Qwen3.5-4B-UD-Q5_K_XL.gguf",
+      "format": "gguf",
+      "contextLength": 4096,
+      "parallel": 1
+    }
+  ],
+  "profileAfter": [
+    {
+      "identifier": "qwen3.5-4b-mtp",
+      "modelKey": "qwen3.5-4b-mtp",
+      "path": "unsloth/Qwen3.5-4B-MTP-GGUF/Qwen3.5-4B-UD-Q5_K_XL.gguf",
+      "format": "gguf",
+      "contextLength": 4096,
+      "parallel": 1
+    }
+  ],
+  "profileUnchangedAtEndpoints": true,
+  "reasoningTokenCount": null,
+  "humanVoiceReview": "REQUIRED",
+  "coldWarmResourcesQualified": false,
+  "textTTFTObservation": "First nonempty production message text signal; cancel probe precedes matrix, so not a qualified cold/warm benchmark",
+  "ownerAccepted": false,
+  "legacyRowsUnchangedAfterMixedWrites": true,
+  "newPersistedRows": 56,
+  "legacyAssistantContextCases": [
+    "forget_request/aqua",
+    "forget_request/octo"
+  ],
+  "voiceEvaluation": {
+    "schema": 1,
+    "status": "OFFLINE_FORMAT_METRICS_ONLY",
+    "source_fixture_sha256": "44558315bef13377de0938ad269d009c727f9a9dfbec97631b09d9750c6f9af7",
+    "scope": "Provided/consent-cleared fixtures only. Not a model test or a proof of voice quality.",
+    "characters": {
+      "aqua": {
+        "responses": 14,
+        "schema_valid": 14,
+        "empty_or_over_420_chars": 0,
+        "control_character_cases": 0,
+        "internal_protocol_cases": 0,
+        "unsupported_action_claim_cases": 0,
+        "support_bot_phrase_cases": 0,
+        "wrong_character_claim_cases": 0,
+        "question_ending_cases": 1,
+        "invalid_expression_cases": 0,
+        "word_length_median_lower": 11,
+        "largest_identical_three_word_opener_count": 1
+      },
+      "octo": {
+        "responses": 14,
+        "schema_valid": 14,
+        "empty_or_over_420_chars": 0,
+        "control_character_cases": 0,
+        "internal_protocol_cases": 0,
+        "unsupported_action_claim_cases": 0,
+        "support_bot_phrase_cases": 0,
+        "wrong_character_claim_cases": 0,
+        "question_ending_cases": 1,
+        "invalid_expression_cases": 0,
+        "word_length_median_lower": 13,
+        "largest_identical_three_word_opener_count": 1
+      }
+    },
+    "human_review": "REQUIRED",
+    "model_invocations": 0,
+    "secret_or_chat_history_access": false,
+    "comparable_case_ids": true
+  },
+  "semanticGroundingReview": {
+    "languageSwitchEnglishCompliance": "2/2 English replies (Aqua and Octo)",
+    "forgetRequestRetentionNotice": "2/2 deterministic retention notices with legacy SQLite rows 101/102 preserved",
+    "personalMemoryControlGuidance": "2/2 refuse unverified save and direct to memory/history controls",
+    "playfulTeaseAnatomyBoundary": "2/2 Aqua denies having tentacles; Octo owns tentacles",
+    "wrongIdentityBoundary": "2/2 Aqua and Octo maintain distinct identity",
+    "invalidExpressions": "0/28",
+    "hostSplitParserTrailingStatusRaceNote": "Prior intermediate run at 1603719eb2955f14ebbc423cd161a1fef8c31c0b observed 27/28 accepted where 1 turn had a leading newline before __ALIS_HTTP_STATUS__:200 from Quickshell SplitParser because host AiTextSession.qml checks line.startsWith(\"__ALIS_HTTP_STATUS__:\") without .trim() while OpenAiResponseApiStrategy.qml trims and appends non-JSON lines in catch."
+  }
+}
