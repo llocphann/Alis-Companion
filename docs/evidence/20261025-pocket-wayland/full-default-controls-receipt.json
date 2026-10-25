@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "scope": "Private full-default-feature platform controls; separate from complete package, installed desktop and Owner acceptance",
+  "sources": {
+    "companion": "5cb8ec3f6491c994129e89df0af191b1959c465c",
+    "host": "764496e2ce3ac668bbd859a4e72ee62f4832dc63",
+    "integration": "192ddf6614b144593bd8d9f0bdb28e4ae4eb41a0",
+    "niri": "8ed0da44d974c32c6877d2f4630c314da0717ecb",
+    "smithay": "ff5fa7df392cecfba049ffed55cdaa4e98a8e7ef",
+    "qt": "v6.12.0"
+  },
+  "build": {
+    "command": "cargo build --locked --bin niri -j2",
+    "profile": "debug, all default features on both controls",
+    "defaultFeatures": ["dbus", "systemd", "xdp-gnome-screencast"],
+    "smithayBinding": "Pinned Smithay source redirected to a private path; no product dependency pin changed",
+    "existingLibclangSha256": "ec520316da3c44ca5829c55d8823cece792f88407321776c193e21c2180fec52",
+    "niriBaselineSha256": "e56ba6912e6407e47ebd79c6e5245f7b2dcefebfcaa8321be3ef605fcb1d909f",
+    "niriPatchedSha256": "81d6a2898df7a9f4a0e91b49531f3c9cb94010c63dfeaeadb9b12d1ba1da948b",
+    "qtPatchedLibrarySha256": "53adb1a7c3c4b0664cc591f018d7441c9988c9570950d7910ade4069cd684929",
+    "qtBuild": "Same source-built Release WaylandClient from component-repair-receipt.json; loader traces retained privately",
+    "packagesInstalled": false,
+    "sessionActivated": false
+  },
+  "controls": [
+    {
+      "platform": "Full-default unpatched private Niri + installed Qt",
+      "exitCode": 1,
+      "elapsedSeconds": 7.28,
+      "outcome": "FAIL original source acknowledgement: Ignore despite Copy/finish on wire",
+      "logSha256": "73b06d4985c4f9ef9597501b35913be4bbeefd89a36dd69590217217b1225531"
+    },
+    {
+      "platform": "Full-default patched private Niri + installed Qt",
+      "exitCode": 1,
+      "elapsedSeconds": 25.97,
+      "outcome": "FAIL stationary consent revocation: source reports Copy after target cancels",
+      "logSha256": "98346ae40d449f9c5f5971626cdfbcaf519d918d36afe3b73ecf6ef019e69291"
+    },
+    {
+      "platform": "Full-default patched private Niri + patched private Qt",
+      "client": "C++",
+      "exitCode": 0,
+      "elapsedSeconds": 27.62,
+      "outcome": "PASS all 13 drag scenarios",
+      "logSha256": "e793a4c615136b57a43abaf265845f5cdb1587c0d37b09dc056df29a9d961616"
+    },
+    {
+      "platform": "Full-default patched private Niri + patched private Qt",
+      "client": "PySide6",
+      "exitCode": 0,
+      "elapsedSeconds": 24.77,
+      "outcome": "PASS all 13 drag scenarios",
+      "logSha256": "e793a4c615136b57a43abaf265845f5cdb1587c0d37b09dc056df29a9d961616"
+    }
+  ],
+  "preservation": {
+    "originalCopyAndIgnoreOracles": "retained",
+    "casts": ["aqua", "octo"],
+    "edges": ["top", "bottom", "left", "right"],
+    "disabledLeaveRevocationMoveOnly": "PASS",
+    "persistedV1RestartAndRepeatedDeduplication": "PASS; ID27/created43/sourcePicker retained",
+    "originalFilesAndUnrelatedState": "preserved",
+    "dataMigration": "not needed; protocol patches do not change Pocket v1 storage",
+    "authoredAssetsAndProductRuntime": "unchanged"
+  },
+  "rejectedBuild": {
+    "baselineAndStaleCandidateSha256": "e56ba6912e6407e47ebd79c6e5245f7b2dcefebfcaa8321be3ef605fcb1d909f",
+    "qualified": false,
+    "reason": "copy2 preserved older source timestamps; Cargo reused baseline binary",
+    "recovery": "Refresh patched source timestamps, rebuild, verify distinct binary hashes, then run all four controls"
+  },
+  "separateGates": {
+    "installedPlatformPackage": "FAIL 88 PASS / 2 FAIL / 0 SKIP; see full-installed-platform-receipt.json",
+    "fullDefaultDesktopServices": "UNRUN",
+    "qtDockingAndToplevelDrags": "UNRUN",
+    "physicalMultiOutputAndResources": "UNRUN",
+    "ownerAcceptance": "UNRUN",
+    "awaitingOwner": false
+  },
+  "installedChanged": false,
+  "managedCompanionPinChanged": false
+}
