@@ -42,4 +42,17 @@ for(let i=0;i<100;i++) {
     if(i===0)assert.equal(result.eligible,true);
     else assert.equal(result.eligible,false,'rapid playback toggles bypassed shared cooldown');
 }
+state=api.newState();observe({focus:'focus',idle:'active',result:'none'});
+now+=api.COOLDOWN_MS;
+assert.deepEqual(observe({focus:'focus',idle:'idle',result:'none'}),{eligible:true,reason:'focus_quiet_thought',expression:'thinking'});
+assert.deepEqual(plain(api.performance('focus_started','focus')),{activity:'reading',prop:'book',gesture:'inspect',expression:'working',ttlMs:3600});
+assert.deepEqual(plain(api.performance('focus_break','break')),{activity:'coffee',prop:'coffee',gesture:'reach',expression:'happy',ttlMs:3600});
+assert.deepEqual(plain(api.performance('focus_quiet_thought','focus')),{activity:'quiet_thought',prop:'book',gesture:'inspect',expression:'thinking',ttlMs:3200});
+assert.deepEqual(plain(api.performance('quiet_thought','off')),{activity:'quiet_thought',prop:'thought',gesture:'inspect',expression:'thinking',ttlMs:2600});
+now+=api.COOLDOWN_MS;
+assert.deepEqual(observe({focus:'off',idle:'idle',result:'success'}),{eligible:true,reason:'result_success',expression:'happy'});
+assert.deepEqual(plain(api.performance('result_success','off')),{activity:'celebrate',prop:'',gesture:'delight',expression:'happy',ttlMs:2400});
+now+=api.COOLDOWN_MS;
+assert.deepEqual(observe({focus:'off',idle:'idle',result:'failure'}),{eligible:true,reason:'result_failure',expression:'alert'});
+assert.deepEqual(plain(api.performance('result_failure','off')),{activity:'alert',prop:'',gesture:'startle',expression:'alert',ttlMs:2000});
 console.log('COMPANION_AMBIENT_POLICY_PASS typedCoarseStates initialQuiet focusPriority cooldown revoke suppressedNoReplay invalidClock noContent noSecondClock');

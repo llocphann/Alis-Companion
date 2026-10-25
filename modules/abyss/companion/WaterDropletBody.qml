@@ -82,6 +82,7 @@ Item {
     property bool grounded: true
     property bool dragging: false
     property bool traveling: false
+    property string ambientProp: ""
     property string motionAction: ""
     property real motionProgress: -1
     property real walkingDirection: 1
@@ -481,6 +482,20 @@ Item {
             x: workingOrbit.width / 2 + (workingOrbit.width / 2 - 3) * Math.cos(root.shimmer * Math.PI * 2) - 1.5
             y: workingOrbit.height / 2 + workingOrbit.height / 2 * Math.sin(root.shimmer * Math.PI * 2) - 1.5
             width: 3; height: 3; radius: 1.5; color: "#d7fbff"
+        }
+    }
+    Loader {
+        id: ambientPropLoader
+        objectName: "wullAmbientPropLoader"
+        active: root.ambientProp !== "" && !root.walking && !root.flying && !root.dragging && !root.traveling
+        z: 3
+        sourceComponent: WullAmbientProp {
+            body: root
+            propKind: root.ambientProp
+            accentColor: root.liquidAccent
+            specularColor: root.reflectionColor
+            shimmer: root.shimmer
+            lift: gait.lift + root.reactionLift * root.motionAmount
         }
     }
     HoverHandler { id: hoverHandler; enabled: root.enabled }

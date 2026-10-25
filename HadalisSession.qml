@@ -125,6 +125,17 @@ Item {
         return proposal.accepted && proposal.epoch===contextState.director.epoch
             && companionBridge.sendIntent(proposal.expression,proposal.intensity,proposal.ttlMs)
     }
+    function presentAmbientPerformance(expression,gesture): void {
+        if(!presentAmbientExpression(expression)) {
+            ambientController.clearPerformance()
+            return
+        }
+        if(!gesture)return
+        const target=root.outputHosts.find(window=>window.outputName===root.companionTargetOutput)?.extension
+        if(target && !target.ambientBlocked)target.actor?.perform(gesture)
+    }
+    readonly property string companionAmbientProp: ambientController.activeProp
+    readonly property string companionAmbientActivity: ambientController.activeActivity
     WullAmbientController {
         id:ambientController
         objectName:"companionAmbientController"
@@ -147,7 +158,12 @@ Item {
         playback:permitted && root.companionPreferences.ambientMediaEnabled
             ? !MprisController.activePlayer ? "unavailable"
                 : MprisController.activePlayer.isPlaying ? "playing" : "paused" : "unavailable"
-        onReactionRequested:expression=>root.presentAmbientExpression(expression)
+        idleState:permitted && root.companionPreferences.ambientFocusEnabled
+            ? (WullMind.hostIdle && (root.contextState.frame?.idle ?? false) ? "idle" : "active") : "unavailable"
+        resultCategory:permitted && root.companionPreferences.ambientFocusEnabled
+            ? (["none","success","failure"].includes(root.contextState.frame?.result ?? "")
+                ? root.contextState.frame.result : "none") : "unavailable"
+        onPerformanceRequested:(expression,gesture)=>root.presentAmbientPerformance(expression,gesture)
     }
     readonly property string companionTargetOutput: GlobalStates.resolveOutputName(
         "", Config.options?.bar?.screenList ?? [])
