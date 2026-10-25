@@ -1,0 +1,237 @@
+{
+  "schema": 1,
+  "observedUtc": "2026-10-25T09:27:34.374841+00:00",
+  "scope": "Paired complete canonical Alis host validation at unchanged committed source with unmodified installed platform versus privately patched full-default-feature platform. This does not replace standalone candidate Companion package validation.",
+  "command": [
+    "bash",
+    "scripts/validate-maintainer-local.sh",
+    "--current-repo"
+  ],
+  "sources": {
+    "companion": "5cb8ec3f6491c994129e89df0af191b1959c465c",
+    "host": "764496e2ce3ac668bbd859a4e72ee62f4832dc63",
+    "integration": "192ddf6614b144593bd8d9f0bdb28e4ae4eb41a0"
+  },
+  "hostManagedCompanionPin": "1348e3a277ac96fe0653f41d54f092d08b821a7e",
+  "hostSuiteOverridesManagedPin": false,
+  "separateEmptyXdgRootsPerRun": true,
+  "validatorOrOraclesChanged": false,
+  "installedChanged": false,
+  "runs": [
+    {
+      "step": "host-baseline",
+      "exitCode": 1,
+      "elapsedSeconds": 2362.88,
+      "sources": {
+        "companion": "5cb8ec3f6491c994129e89df0af191b1959c465c",
+        "host": "764496e2ce3ac668bbd859a4e72ee62f4832dc63",
+        "integration": "192ddf6614b144593bd8d9f0bdb28e4ae4eb41a0"
+      },
+      "installedChanged": false,
+      "platform": "installed unmodified platform",
+      "hostManagedCompanionPin": "1348e3a277ac96fe0653f41d54f092d08b821a7e",
+      "passCount": 503,
+      "failCount": 36,
+      "skipCount": 2,
+      "failedChecks": [
+        "Make contract: prefix/path relocation",
+        "Monitor arrangement fit, zoom and drag-coordinate regression",
+        "Python regression: scripts/test-abyss-launcher-live-editor-contract.py",
+        "Python regression: scripts/test-abyss-multi-selection-runtime.py",
+        "Python regression: scripts/test-abyss-round0-editor-controls.py",
+        "Python regression: scripts/test-abyss-width-affects-modules-runtime.py",
+        "Python regression: scripts/test-calendar-weather-composition-contract.py",
+        "Python regression: scripts/test-dashboard-freeform-contract.py",
+        "Python regression: scripts/test-dashboard-notes-markdown-contract.py",
+        "Python regression: scripts/test-dashboard-notes-markdown-runtime.py",
+        "Python regression: scripts/test-dashboard-workspace.py",
+        "Python regression: scripts/test-desktop-context-menu-native.py",
+        "Python regression: scripts/test-desktop-widget-editor-coordinates.py",
+        "Python regression: scripts/test-dock-abyss-hover-orientation-contract.py",
+        "Python regression: scripts/test-light-mode-upstream-contract.py",
+        "Python regression: scripts/test-local-ai-gguf-runtime.py",
+        "Python regression: scripts/test-local-model-folder.py",
+        "Python regression: scripts/test-material-only-global-style-contract.py",
+        "Python regression: scripts/test-notification-center-bottom-right-contract.py",
+        "Python regression: scripts/test-owner-ui-regressions-contract.py",
+        "Python regression: scripts/test-settings-concise-copy-surface.py",
+        "Python regression: scripts/test-shell-surface-contracts.py",
+        "Python regression: scripts/test-theme-seed-cache.py",
+        "Python regression: scripts/test-wallpaper-carousel-runtime.py",
+        "Python regression: scripts/test-wallpaper-color-preview-runtime.py",
+        "Python regression: scripts/test-wallpaper-preview-palette-cache.py",
+        "shell regression: scripts/test-abyss-editor-runtime.sh",
+        "shell regression: scripts/test-abyss-network-popups.sh",
+        "shell regression: scripts/test-abyss-shared-content.sh",
+        "shell regression: scripts/test-brand-canonical-contracts.sh",
+        "shell regression: scripts/test-local-distribution.sh",
+        "shell regression: scripts/test-local-required-contracts.sh",
+        "shell regression: scripts/test-packaging-contract.sh",
+        "shell regression: scripts/test-panel-style-adapter.sh",
+        "shell regression: scripts/test-update-lifecycle.sh",
+        "shell regression: scripts/test-window-preview-lifecycle.sh"
+      ],
+      "skipReasons": [
+        "QML parser pass: installed qmlformat Qt version could not be determined",
+        "NIX-DEFERRED: scripts/test-nix-module-contract.sh"
+      ],
+      "logs": {
+        ".log": {
+          "sha256": "6bbc9ae59e542f3ea009cb818aa4556033aa1d8b182e3adbff23e2f0a51172ec",
+          "bytes": 40692,
+          "rawLogPrivate": true
+        },
+        "-detail.log": {
+          "sha256": "b514fce22bd72fe13ff05b1f8247c2aab85d162ae276360b57568a7fb56fb2d1",
+          "bytes": 186182,
+          "rawLogPrivate": true
+        }
+      }
+    },
+    {
+      "step": "host-patched",
+      "exitCode": 1,
+      "elapsedSeconds": 2448.27,
+      "sources": {
+        "companion": "5cb8ec3f6491c994129e89df0af191b1959c465c",
+        "host": "764496e2ce3ac668bbd859a4e72ee62f4832dc63",
+        "integration": "192ddf6614b144593bd8d9f0bdb28e4ae4eb41a0"
+      },
+      "installedChanged": false,
+      "platform": "private patched full-default-feature Niri and Qt6.12.0",
+      "hostManagedCompanionPin": "1348e3a277ac96fe0653f41d54f092d08b821a7e",
+      "passCount": 501,
+      "failCount": 38,
+      "skipCount": 2,
+      "failedChecks": [
+        "Make contract: prefix/path relocation",
+        "Monitor arrangement fit, zoom and drag-coordinate regression",
+        "Python regression: scripts/test-abyss-launcher-live-editor-contract.py",
+        "Python regression: scripts/test-abyss-multi-selection-runtime.py",
+        "Python regression: scripts/test-abyss-round0-editor-controls.py",
+        "Python regression: scripts/test-abyss-width-affects-modules-runtime.py",
+        "Python regression: scripts/test-bar-cava-profile-runtime.py",
+        "Python regression: scripts/test-calendar-weather-composition-contract.py",
+        "Python regression: scripts/test-dashboard-editor-field-runtime.py",
+        "Python regression: scripts/test-dashboard-freeform-contract.py",
+        "Python regression: scripts/test-dashboard-notes-markdown-contract.py",
+        "Python regression: scripts/test-dashboard-notes-markdown-runtime.py",
+        "Python regression: scripts/test-dashboard-workspace.py",
+        "Python regression: scripts/test-desktop-widget-editor-coordinates.py",
+        "Python regression: scripts/test-dock-abyss-hover-orientation-contract.py",
+        "Python regression: scripts/test-light-mode-upstream-contract.py",
+        "Python regression: scripts/test-local-ai-gguf-runtime.py",
+        "Python regression: scripts/test-local-model-folder.py",
+        "Python regression: scripts/test-material-only-global-style-contract.py",
+        "Python regression: scripts/test-notification-center-bottom-right-contract.py",
+        "Python regression: scripts/test-owner-ui-regressions-contract.py",
+        "Python regression: scripts/test-settings-concise-copy-surface.py",
+        "Python regression: scripts/test-shell-surface-contracts.py",
+        "Python regression: scripts/test-theme-seed-cache.py",
+        "Python regression: scripts/test-wallpaper-carousel-runtime.py",
+        "Python regression: scripts/test-wallpaper-color-preview-runtime.py",
+        "Python regression: scripts/test-wallpaper-preview-palette-cache.py",
+        "shell regression: scripts/test-abyss-dashboard-editing.sh",
+        "shell regression: scripts/test-abyss-editor-runtime.sh",
+        "shell regression: scripts/test-abyss-network-popups.sh",
+        "shell regression: scripts/test-abyss-shared-content.sh",
+        "shell regression: scripts/test-brand-canonical-contracts.sh",
+        "shell regression: scripts/test-local-distribution.sh",
+        "shell regression: scripts/test-local-required-contracts.sh",
+        "shell regression: scripts/test-packaging-contract.sh",
+        "shell regression: scripts/test-panel-style-adapter.sh",
+        "shell regression: scripts/test-update-lifecycle.sh",
+        "shell regression: scripts/test-window-preview-lifecycle.sh"
+      ],
+      "skipReasons": [
+        "QML parser pass: installed qmlformat Qt version could not be determined",
+        "NIX-DEFERRED: scripts/test-nix-module-contract.sh"
+      ],
+      "logs": {
+        ".log": {
+          "sha256": "1959965c9a246f0bd22deb5aeb2c3d73d85c7ae2cccc9ba6e3700b84dc394e0e",
+          "bytes": 40690,
+          "rawLogPrivate": true
+        },
+        "-detail.log": {
+          "sha256": "bebedeae67ebb194d809d3c8e22254b574079d7c66aa9eb16c9ffee5406bfdb4",
+          "bytes": 201845,
+          "rawLogPrivate": true
+        }
+      }
+    }
+  ],
+  "comparison": {
+    "sameCheckLabels": true,
+    "newFailedChecks": [
+      "Python regression: scripts/test-bar-cava-profile-runtime.py",
+      "Python regression: scripts/test-dashboard-editor-field-runtime.py",
+      "shell regression: scripts/test-abyss-dashboard-editing.sh"
+    ],
+    "baselineFailuresNotRepeated": [
+      "Python regression: scripts/test-desktop-context-menu-native.py"
+    ],
+    "sharedFailedChecks": [
+      "Make contract: prefix/path relocation",
+      "Monitor arrangement fit, zoom and drag-coordinate regression",
+      "Python regression: scripts/test-abyss-launcher-live-editor-contract.py",
+      "Python regression: scripts/test-abyss-multi-selection-runtime.py",
+      "Python regression: scripts/test-abyss-round0-editor-controls.py",
+      "Python regression: scripts/test-abyss-width-affects-modules-runtime.py",
+      "Python regression: scripts/test-calendar-weather-composition-contract.py",
+      "Python regression: scripts/test-dashboard-freeform-contract.py",
+      "Python regression: scripts/test-dashboard-notes-markdown-contract.py",
+      "Python regression: scripts/test-dashboard-notes-markdown-runtime.py",
+      "Python regression: scripts/test-dashboard-workspace.py",
+      "Python regression: scripts/test-desktop-widget-editor-coordinates.py",
+      "Python regression: scripts/test-dock-abyss-hover-orientation-contract.py",
+      "Python regression: scripts/test-light-mode-upstream-contract.py",
+      "Python regression: scripts/test-local-ai-gguf-runtime.py",
+      "Python regression: scripts/test-local-model-folder.py",
+      "Python regression: scripts/test-material-only-global-style-contract.py",
+      "Python regression: scripts/test-notification-center-bottom-right-contract.py",
+      "Python regression: scripts/test-owner-ui-regressions-contract.py",
+      "Python regression: scripts/test-settings-concise-copy-surface.py",
+      "Python regression: scripts/test-shell-surface-contracts.py",
+      "Python regression: scripts/test-theme-seed-cache.py",
+      "Python regression: scripts/test-wallpaper-carousel-runtime.py",
+      "Python regression: scripts/test-wallpaper-color-preview-runtime.py",
+      "Python regression: scripts/test-wallpaper-preview-palette-cache.py",
+      "shell regression: scripts/test-abyss-editor-runtime.sh",
+      "shell regression: scripts/test-abyss-network-popups.sh",
+      "shell regression: scripts/test-abyss-shared-content.sh",
+      "shell regression: scripts/test-brand-canonical-contracts.sh",
+      "shell regression: scripts/test-local-distribution.sh",
+      "shell regression: scripts/test-local-required-contracts.sh",
+      "shell regression: scripts/test-packaging-contract.sh",
+      "shell regression: scripts/test-panel-style-adapter.sh",
+      "shell regression: scripts/test-update-lifecycle.sh",
+      "shell regression: scripts/test-window-preview-lifecycle.sh"
+    ]
+  },
+  "regressionDisposition": "UNRESOLVED: changed failures require unchanged-source matched focused rechecks; full-suite FAIL outcomes remain FAIL.",
+  "sourceCompatibilityQualified": false,
+  "gates": {
+    "standalonePatchedPackage": "Previously recorded 90 PASS / 0 FAIL / 0 SKIP at Companion 5cb8ec3; separate scope, not rerun",
+    "installedUnmodifiedFullPackage": "Previously recorded 88 PASS / 2 FAIL / 0 SKIP; historical failures retained",
+    "fullHost": "FAIL",
+    "installedPlatformReplacement": "UNRUN; private binaries only",
+    "physicalMultiOutputAndDocking": "UNRUN",
+    "ownerVisualInputAcceptance": "UNRUN",
+    "awaitingOwnerEligible": false
+  },
+  "platformArtifacts": {
+    "patchedNiri": {
+      "sha256": "81d6a2898df7a9f4a0e91b49531f3c9cb94010c63dfeaeadb9b12d1ba1da948b",
+      "bytes": 731386112
+    },
+    "patchedQtWaylandClient": {
+      "sha256": "53adb1a7c3c4b0664cc591f018d7441c9988c9570950d7910ade4069cd684929",
+      "bytes": 1835104
+    },
+    "installedNiri": {
+      "sha256": "f09e0b1cb2144794fb615c90e9cdaff6adc0cb6b05347503123bc392aeea66d3",
+      "bytes": 25148776
+    }
+  }
+}
