@@ -1,0 +1,176 @@
+{
+  "schema": 1,
+  "source": "d6e0185ae1cf8da235341700933ded76d14a5262",
+  "scope": "Two identical production Aqua requests, first after natural model unload and existing-weight reload, then repeated; sampled existing server family only",
+  "model": {
+    "artifactSha256": "d76bf69a16f1d59f8d6c74a7373c41e43e14dc7ab47901cc2504c7ad647c6ba6",
+    "quantization": "Q5_K_XL",
+    "contextLength": 4096,
+    "parallel": 1,
+    "requestedEngineFlagsObservedDuringVoiceRun": [
+      {
+        "processName": "llama-server",
+        "allowedFlags": {
+          "--ctx-size": "4096",
+          "--n-gpu-layers": "999999",
+          "--parallel": "1",
+          "--flash-attn": "on"
+        }
+      }
+    ],
+    "actualOffloadedLayers": "UNAVAILABLE",
+    "loadedInstanceConfig": {
+      "context_length": 4096,
+      "eval_batch_size": 2048,
+      "physical_batch_size": 512,
+      "parallel": 1,
+      "flash_attention": true,
+      "context_checkpoints": 32,
+      "reasoning_budget_message": "",
+      "speculative_draft_mtp": true,
+      "speculative_draft_simple": false,
+      "speculative_draft_model": "",
+      "speculative_draft_max_tokens": 3,
+      "speculative_draft_min_tokens": 0,
+      "speculative_draft_min_continue_probability": 0,
+      "offload_kv_cache_to_gpu": true
+    }
+  },
+  "initiallyUnloaded": true,
+  "naturalUnloadWaitSeconds": 0.32,
+  "exclusiveProfileAtStart": true,
+  "exclusiveProfileAtEnd": true,
+  "loadSeconds": 6.01,
+  "requests": [
+    {
+      "case_id": "cold_first_request",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 248,
+        "output": 18,
+        "total": 266,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 2035,
+      "wallMilliseconds": 3345,
+      "rawSha256": "0974b42cec5bd434496288ed9c7aff1e742ad833535ff1f775c48e3fb9377020",
+      "failureClass": null
+    },
+    {
+      "case_id": "warm_repeated_request",
+      "character": "aqua",
+      "accepted": true,
+      "request": {
+        "apiFormat": "openai-response",
+        "reasoning": {
+          "effort": "none"
+        },
+        "store": false,
+        "maxOutputTokens": 256,
+        "hasTools": false,
+        "hasForeignState": false,
+        "roles": [
+          "user"
+        ],
+        "catalogApiFormat": "openai"
+      },
+      "tokenUsage": {
+        "input": 248,
+        "output": 18,
+        "total": 266,
+        "reasoning": 0
+      },
+      "firstTokenMilliseconds": 353,
+      "wallMilliseconds": 1761,
+      "rawSha256": "e8b043ffda48d9258224126b5e77d5fb68b43b4aadc0005ada7f0960607aba9e",
+      "failureClass": null
+    }
+  ],
+  "processExitCode": 0,
+  "sourceAndArtifactUnchanged": true,
+  "profileUnchangedAtEndpoints": true,
+  "osCacheFlushed": false,
+  "sharedServerStopped": false,
+  "modelDownloads": false,
+  "sampleIntervalSeconds": 0.25,
+  "sampledPhases": {
+    "catalog-and-staging": {
+      "samples": 2,
+      "durationSeconds": 0.251,
+      "sampledPeakCpuPercent": 0.0,
+      "sampledPeakRssBytes": 985772032,
+      "sampledPeakPssBytes": 896855040,
+      "sampledPeakAllocatedVramBytes": 5387837440,
+      "sampledPeakResidentVramBytes": 175636480,
+      "sampledPeakAllocatedGttBytes": 48820224,
+      "sampledPeakResidentGttBytes": 5261021184,
+      "sampledPeakKfdVramBytes": null
+    },
+    "disabled-unloaded-baseline": {
+      "samples": 12,
+      "durationSeconds": 2.752,
+      "sampledPeakCpuPercent": 0.0,
+      "sampledPeakRssBytes": 202477568,
+      "sampledPeakPssBytes": 191985664,
+      "sampledPeakAllocatedVramBytes": null,
+      "sampledPeakResidentVramBytes": null,
+      "sampledPeakAllocatedGttBytes": null,
+      "sampledPeakResidentGttBytes": null,
+      "sampledPeakKfdVramBytes": null
+    },
+    "first-and-repeated-production-requests": {
+      "samples": 58,
+      "durationSeconds": 14.255,
+      "sampledPeakCpuPercent": 75.757575455988,
+      "sampledPeakRssBytes": 1134120960,
+      "sampledPeakPssBytes": 1042778112,
+      "sampledPeakAllocatedVramBytes": 5393694720,
+      "sampledPeakResidentVramBytes": 181493760,
+      "sampledPeakAllocatedGttBytes": 108359680,
+      "sampledPeakResidentGttBytes": 5320560640,
+      "sampledPeakKfdVramBytes": null
+    },
+    "load-selected-existing-weights": {
+      "samples": 26,
+      "durationSeconds": 6.297,
+      "sampledPeakCpuPercent": 109.4862604287053,
+      "sampledPeakRssBytes": 3742167040,
+      "sampledPeakPssBytes": 3653937152,
+      "sampledPeakAllocatedVramBytes": 5387837440,
+      "sampledPeakResidentVramBytes": 252030976,
+      "sampledPeakAllocatedGttBytes": 48820224,
+      "sampledPeakResidentGttBytes": 5261021184,
+      "sampledPeakKfdVramBytes": null
+    }
+  },
+  "samplingErrors": [],
+  "allThreadChildCensus": true,
+  "counterSemantics": "Unique device/client IDs; requested DRM total regions versus resident VRAM/GTT are separate. AMDGPU drm-memory is a resident alias, not total allocation. Do not add these categories or PSS to infer physical memory. Unavailable stays null",
+  "counterReference": "https://docs.kernel.org/next/gpu/drm-usage-stats.html",
+  "cpuMethod": "Positive counter deltas for surviving PID/birth identities per interval; one core is 100 percent",
+  "priorMeasurements": "Main-thread-only child census and deprecated drm-memory-vram allocation label were superseded; original raw files are retained. The corrected measurement reports requested totals and resident VRAM/GTT independently.",
+  "limitations": [
+    "One first-after-load and one repeated request; not a multi-run performance qualification",
+    "PSS, requested GPU totals and resident memory regions must not be summed as physical usage",
+    "Sampled peaks may miss shorter peaks; no whole-desktop GPU utilization or Companion graphics G1 claim",
+    "One post-request bookkeeping sample tagged paired-production-voice-matrix is excluded; that final pass did not rerun the 28-case matrix",
+    "Cold means first production inference after weights load; OS caches were not flushed"
+  ],
+  "privateRawMeasurementSha256": "28d86d2b08e53f08c7487c413526eb8ae9225dac14396227d84c0f5000cafc7e",
+  "ownerAccepted": false
+}

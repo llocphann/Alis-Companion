@@ -1,0 +1,14 @@
+{
+  "exitCode": 0,
+  "elapsedSeconds": 394.7,
+  "sources": {
+    "companion": "d6e0185ae1cf8da235341700933ded76d14a5262",
+    "host": "764496e2ce3ac668bbd859a4e72ee62f4832dc63",
+    "integration": "192ddf6614b144593bd8d9f0bdb28e4ae4eb41a0"
+  },
+  "platform": "Private patched full-default Niri and Qt; no installed change",
+  "logSha256": "dc28c3e06c285b66aba5a766f293cde64e93cfca37a416e5e6e9259df30435dc",
+  "passCount": 90,
+  "failCount": 0,
+  "skipCount": 0
+}
