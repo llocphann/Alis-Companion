@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Local-only inference contract and read-only vault context on owned fixtures."""
 from datetime import datetime
+from contextlib import closing
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -165,6 +167,53 @@ class Tests(unittest.TestCase):
             rows=mind.chat_history({'limit':20})['messages']
             self.assertEqual(rows[0]['content'],prompt)
             self.assertEqual(rows[1]['content'],'Hello! '+('x'*413))
+
+    def test_forget_reply_keeps_legacy_transcript_and_explicit_clear_controls(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ,
+                {'INIR_WULL_HISTORY_DB':str(Path(temporary)/'chat.sqlite3')}):
+            target=Path(temporary)/'chat.sqlite3'
+            old=[(101,'user','Keep my original words.',43,'old-model'),
+                 (102,'assistant','I do not retain past messages.',44,'old-model')]
+            with closing(sqlite3.connect(target)) as db:
+                db.execute('CREATE TABLE messages(id INTEGER PRIMARY KEY AUTOINCREMENT, role TEXT NOT NULL, content TEXT NOT NULL, created_ms INTEGER NOT NULL, model TEXT NOT NULL)')
+                db.executemany('INSERT INTO messages VALUES(?,?,?,?,?)',old)
+                db.commit()
+            Handler.content=json.dumps({'text':'Got it, the slate is clean.','expression':'happy'})
+            prompts=['Forget what I said before.','Bạn có thể quên những gì tôi đã nói không?']
+            for character in ['aqua','octo']:
+                for prompt in prompts:
+                    reply=mind.chat({'endpoint':self.base,'model':'tiny:local','character':character,
+                                     'prompt':prompt,'persistHistory':True})
+                    self.assertTrue(reply['historySaved'])
+                    self.assertTrue(reply['text'].startswith('Nothing was deleted.'))
+                    self.assertIn('Clear conversation',reply['text'])
+                    self.assertIn('memory controls',reply['text'])
+                    with closing(sqlite3.connect(target)) as db:
+                        self.assertEqual(db.execute('SELECT * FROM messages WHERE id<=102 ORDER BY id').fetchall(),old)
+                    rows=mind.chat_history({'limit':100})['messages']
+                    self.assertEqual(rows[-2]['content'],prompt)
+                    self.assertEqual(rows[-1]['content'],reply['text'])
+            before=mind.chat_history({'limit':100})['messages']
+            self.assertEqual(len(before),10)
+            self.assertEqual(mind.chat_history({'limit':100})['messages'],before)
+            command=[sys.executable,str(ROOT/'scripts/wull/local_mind.py')]
+            restarted=subprocess.run(command,input=json.dumps({'action':'history','limit':100}),
+                                     text=True,capture_output=True,check=True)
+            self.assertEqual(json.loads(restarted.stdout)['result']['messages'],before)
+            with patch.object(mind.history_store,'append_exchange',side_effect=mind.history_store.HistoryError('fixture-interruption')):
+                reply=mind.chat({'endpoint':self.base,'model':'tiny:local','prompt':prompts[0],'persistHistory':True})
+                self.assertFalse(reply['historySaved'])
+                self.assertTrue(reply['text'].startswith('Nothing was deleted.'))
+            self.assertEqual(mind.chat_history({'limit':100})['messages'],before)
+            # An older shared client cannot write the false success claim either.
+            mind.dispatch({'action':'history_append','prompt':prompts[0],
+                           'reply':'Got it, the slate is clean.','model':'legacy-client'})
+            rows=mind.chat_history({'limit':100})['messages']
+            self.assertEqual(rows[:-2],before)
+            self.assertTrue(rows[-1]['content'].startswith('Nothing was deleted.'))
+            # The explicit, separate clear operation remains available.
+            self.assertTrue(mind.clear_chat_history()['cleared'])
+            self.assertEqual(mind.chat_history({'limit':100})['messages'],[])
     def test_readonly_vault_context(self):
         with tempfile.TemporaryDirectory(prefix='wull-vault-fixture-') as t:
             primary=Path(t)/'Obsidian-Vault';reference=Path(t)/'Abyssal-Vault'

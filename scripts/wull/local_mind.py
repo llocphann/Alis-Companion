@@ -25,7 +25,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 daily=core=None
 from gguf_runtime import complete as gguf_complete,RuntimeErrorLocal
 import history_store
-from reply_guard import public_text, public_reply, UnsafeReply
+from reply_guard import public_text, public_reply, chat_reply, privacy_reply, UnsafeReply
 from persona import instruction as persona_instruction
 
 EXPRESSIONS={'idle','happy','excited','thinking','working','surprised','sleepy','sad','alert'}
@@ -297,6 +297,8 @@ def append_chat_history(options):
         raise MindError('request_too_large','Chat exchange exceeded the history limit')
     try:reply=public_text(reply)
     except UnsafeReply:raise MindError('unsafe_reply','The model returned an invalid reply')
+    notice=privacy_reply(prompt)
+    if notice:reply=notice['text']
     try:
         user_id,assistant_id=history_store.append_exchange(prompt,reply,str(options.get('model',''))[:240])
     except history_store.HistoryError:
@@ -357,7 +359,7 @@ def chat(options):
     if not isinstance(content,str):raise MindError('invalid_response','Local model reply is invalid')
     try:parsed=json.loads(content)
     except ValueError:raise MindError('invalid_response','Local model did not return the requested reply format')
-    try:guarded=public_reply(parsed)
+    try:guarded=chat_reply(parsed,prompt)
     except UnsafeReply:raise MindError('unsafe_reply','Local model returned an invalid reply')
     text=guarded['text'];expression=guarded['expression']
     user_message_id=0;assistant_message_id=0

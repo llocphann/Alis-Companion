@@ -113,6 +113,53 @@ for reply in fixtures:
     except mod.UnsafeReply as exc:
         python_results.append({'ok':False,'reason':str(exc)})
 assert js_results==python_results, "JS/Python public reply fixtures disagree"
+
+# Captured valid-but-false model replies must not claim that a deletion request
+# changed stored data. Negations, quotation analysis and ordinary edits retain
+# the existing response; this is a bounded intent policy, not a language model.
+deletion_prompts=[
+    'Forget what I said before.', 'Please forget my saved memories.',
+    'Can you clear our chat history?', 'Delete all of my previous messages.',
+    'Erase this conversation.', 'Please remove the saved memories.',
+    'Wipe local history.', 'Forget everything.', 'Forget me.',
+    'Xóa lịch sử trò chuyện.', 'Hãy quên những gì tôi đã nói.',
+    'Bạn có thể quên những gì tôi đã nói không?', 'Vui lòng xóa các tin nhắn cũ.',
+    'Xoá bộ nhớ.', 'Quên tất cả.', 'Xoa lich su.', 'Xóa bỏ bộ nhớ.', 'Xóa bỏ lịch sử.',
+]
+ordinary_prompts=[
+    'Hello!', 'Do not forget what I said.', "Don't delete my chat history.",
+    'Đừng quên những gì tôi nói.', 'Explain the phrase "forget my history".',
+    'Please delete the word history from this sentence.', 'Delete the folder.',
+    'Forget the wallpaper idea.', 'Tell me a story about memories.',
+    'Remember my favorite tea.', 'Forget-me-nots are flowers.',
+]
+prompts=deletion_prompts+ordinary_prompts
+javascript=r'''
+const fs=require("node:fs"),vm=require("node:vm"),c=vm.createContext({});
+vm.runInContext(fs.readFileSync(process.argv[1],"utf8").replace(/^\.pragma library\s*/,""),c);
+const prompts=JSON.parse(fs.readFileSync(0,"utf8"));
+process.stdout.write(JSON.stringify(prompts.map(prompt=>({notice:c.privacyReply(prompt),
+ reply:c.forChatRequest(c.parse('{"text":"Got it, the slate is clean.","expression":"happy"}'),prompt),
+ unsafe:c.forChatRequest(c.parse('<tool_call>private</tool_call>'),prompt)}))));
+'''
+response=subprocess.run(['node','-e',javascript,str(ROOT/'services/WullReplyGuard.js')],
+                        input=json.dumps(prompts),text=True,capture_output=True,check=True)
+for index,(prompt,observed) in enumerate(zip(prompts,json.loads(response.stdout))):
+    notice=mod.privacy_reply(prompt)
+    assert bool(notice)==(index<len(deletion_prompts)),prompt
+    assert observed['notice']==({'ok':True,**notice} if notice else None),prompt
+    guarded=mod.chat_reply({'text':'Got it, the slate is clean.','expression':'happy'},prompt)
+    assert observed['reply']=={'ok':True,**guarded},prompt
+    assert observed['unsafe']['ok'] is False,prompt
+    if notice:
+        assert guarded['text'].startswith('Nothing was deleted.')
+        assert 'Clear conversation' in guarded['text'] and 'backups may remain' in guarded['text']
+        assert mod.chat_reply(guarded,prompt)==guarded,'repeated policy application changed output'
+    else:
+        assert guarded=={'text':'Got it, the slate is clean.','expression':'happy'}
+    try:mod.chat_reply({'text':'<tool_call>private</tool_call>'},prompt)
+    except mod.UnsafeReply:pass
+    else:raise AssertionError('privacy notice masked protocol rejection')
 print(f"HADANION_LOCAL_REPLY_GUARD_OFFLINE_PASS unsafeReplies={len(unsafe_replies)} "
       f"rejectionChecks={len(unsafe_replies)*2} benignReplies={len(benign_replies)} "
-      f"crossRouteFixtures={len(fixtures)}")
+      f"crossRouteFixtures={len(fixtures)} privacyPrompts={len(prompts)}")

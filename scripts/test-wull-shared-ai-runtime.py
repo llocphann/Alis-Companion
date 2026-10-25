@@ -11,7 +11,7 @@ if not shutil.which("qs"):
     raise SystemExit(0)
 requests=[]
 model_ids=['main','wull','failure','slow','extra','tokens','malformed','controltag','eof-tool',
-           'cloud','responses','spoof','verified','unverified','instant','mixed-meta','action-claim']
+           'cloud','responses','spoof','verified','unverified','instant','mixed-meta','action-claim','forget-claim']
 model_rows=[{'id':'fixture-'+name,'type':'vlm','compatibility_type':'gguf','arch':'fixture',
             'quantization':'Q4_K_M','state':'loaded','max_context_length':4096} for name in model_ids]
 fingerprints={row['id']:hashlib.sha256(json.dumps({'provider':'lmstudio','model':row['id'],
@@ -50,6 +50,7 @@ class Handler(BaseHTTPRequestHandler):
             '/malformed':'{"text":"unfinished"',
             '/mixed-meta':'A little note. {expression: "happy"}',
             '/action-claim':json.dumps({'text':'I decide to rearrange the desktop icons.','expression':'happy'}),
+            '/forget-claim':json.dumps({'text':'Got it, the slate is clean.','expression':'happy'}),
         }.get(self.path,json.dumps({'text':'Fixture hello','expression':'happy'}))
         if self.path=="/eof-tool":
             # Normal prose followed by an unfinished tool stream exercises the
@@ -97,6 +98,13 @@ ShellRoot {
  property int invalidIndex:0
  property string previousText:""
  property int assistantCount:0
+ property int privacyIndex:0
+ property var privacyRows:[]
+ property string privacyOriginalCharacter:""
+ property var privacyCases:[{character:"aqua",prompt:"Forget what I said before."},
+  {character:"octo",prompt:"Forget what I said before."},
+  {character:"aqua",prompt:"Hãy quên những gì tôi đã nói."},
+  {character:"octo",prompt:"Hãy quên những gì tôi đã nói."}]
  property string replacedToken:""
  property bool cadenceStarted:false
  property bool cadenceComplete:false
@@ -371,6 +379,7 @@ ShellRoot {
     root.add("fixture-extra","/extra");root.add("fixture-tokens","/tokens");root.add("fixture-malformed","/malformed")
     root.add("fixture-controltag","/controltag");root.add("fixture-eof-tool","/eof-tool")
     root.add("fixture-mixed-meta","/mixed-meta");root.add("fixture-action-claim","/action-claim")
+    root.add("fixture-forget-claim","/forget-claim")
     root.add("fixture-cloud","/cloud");Ai.models["fixture-cloud"].local=false
     root.add("fixture-responses","/responses");Ai.models["fixture-responses"].api_format="openai-response"
     root.add("fixture-spoof","/spoof");Ai.models["fixture-spoof"].endpoint="http://localhost@cloud.invalid/v1"
@@ -508,6 +517,26 @@ ShellRoot {
         && Ai.models["fixture-instant"].endpoint.endsWith("/v1/chat/completions"),
         "Instant mode changed the catalog or lost its isolated reply"))return
     WullMind.setThinkingEffort("off")
+    root.privacyOriginalCharacter=WullMind.character
+    root.privacyRows=WullMind.history.slice()
+    Config.setNestedValue("abyss.companionMind.model","fixture-forget-claim")
+    WullMind.character=root.privacyCases[0].character
+    if(!root.check(WullMind.sendMessage(root.privacyCases[0].prompt),"privacy request rejected"))return
+    root.step=13
+   }else if(root.step===13 && !WullMind.busy){
+    const last=WullMind.history[WullMind.history.length-1]
+    if(!root.check(last?.persisted && last.content.startsWith("Nothing was deleted.")
+       && last.content.includes("Clear conversation") && last.content.includes("memory controls")
+       && WullMind.text===last.content
+       && JSON.stringify(WullMind.history.slice(0,-2))===JSON.stringify(root.privacyRows),
+       "privacy reply claimed deletion, lost storage or changed older history"))return
+    if(++root.privacyIndex<root.privacyCases.length){
+     root.privacyRows=WullMind.history.slice()
+     const next=root.privacyCases[root.privacyIndex];WullMind.character=next.character
+     if(!root.check(WullMind.sendMessage(next.prompt),"next privacy request rejected"))return
+     return
+    }
+    WullMind.character=root.privacyOriginalCharacter
     Config.setNestedValue("abyss.companionMind.model","")
     console.info("WULL_SHARED_AI_PASS catalog request history-isolation persistence HTTP-error cancel retry model-follow output-rejection recovery localDefault cloudBlock spoofBlock unverifiedBlock freshLocalAdmission remoteReplacementBlock localAutoFallback consentRevoke automaticCadences automaticGates cadenceRevocation malformedHelperRejection helperRecovery sameIdReplacement staleReply responses proactiveOptIn sourceConsent quietHours focusSuppression quotaReceipt dismissal dailyCap contentRevocation");Qt.quit()
    }
@@ -549,11 +578,19 @@ ShellRoot {
     assert any(row.get('role')=='assistant' for row in instant[0]['input']), 'Instant mode lost assistant history roles'
     with sqlite3.connect(Path(env['XDG_STATE_HOME'])/'inir/wull/chat.sqlite3') as db:
         rows=db.execute('SELECT role,content FROM messages ORDER BY id').fetchall()
-    assert rows==[('user','Hello fixture'),('assistant','Fixture hello'),
+    original_rows=[('user','Hello fixture'),('assistant','Fixture hello'),
                   ('user','Retry fixture'),('assistant','Fixture hello'),
                   ('user','Recovery fixture'),('assistant','Fixture hello'),
                   ('user','Responses fixture'),('assistant','Responses hello'),
                   ('user','Verified local fixture'),('assistant','Fixture hello'),
-                  ('user','Instant fixture'),('assistant','Responses hello')], 'rejected output entered persistent history'
+                  ('user','Instant fixture'),('assistant','Responses hello')]
+    assert rows[:len(original_rows)]==original_rows, 'rejected output entered persistent history'
+    assert len(rows)==len(original_rows)+8
+    expected_prompts=['Forget what I said before.']*2+['Hãy quên những gì tôi đã nói.']*2
+    for index,prompt in enumerate(expected_prompts):
+        assert rows[len(original_rows)+2*index]==('user',prompt)
+        role,text=rows[len(original_rows)+2*index+1]
+        assert role=='assistant' and text.startswith('Nothing was deleted.') and 'Clear conversation' in text
+    assert len([row for path,row,headers in requests if path=='/forget-claim'])==4
 finally:
     server.shutdown();server.server_close()

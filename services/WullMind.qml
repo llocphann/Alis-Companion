@@ -334,7 +334,7 @@ Singleton {
             resolvePendingUser(0,true)
             return
         }
-        const guarded=WullReplyGuard.parse(raw)
+        const guarded=WullReplyGuard.forChatRequest(WullReplyGuard.parse(raw),job.request.prompt)
         if (!guarded.ok) {resolvePendingUser(0,true);errorMessage="The model returned an invalid reply.";connectionStatus="error";return}
         const value=guarded.text
         resolvePendingUser(0,false)
@@ -585,7 +585,8 @@ Singleton {
                 say(errorMessage)
             }
         } else if (job.action==="chat") {
-            const guarded=WullReplyGuard.normalizeText(result.text,result.expression)
+            const guarded=WullReplyGuard.forChatRequest(
+                WullReplyGuard.normalizeText(result.text,result.expression),job.request.prompt)
             if (!guarded.ok) {
                 resolvePendingUser(0,true)
                 errorMessage="The local model returned an invalid reply."

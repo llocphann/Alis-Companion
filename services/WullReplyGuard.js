@@ -14,6 +14,34 @@ var controlBytes = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g
 var mixedMetadata = /\{\s*["']?(?:text|expression|tool_calls|function_call)["']?\s*:|\bexpression\s*:\s*["']?[a-z]+["']?\s*[}.,]?\s*$/i
 var actionClaim = /\bI(?:['’](?:ve|ll|m))?(?:\s+(?:have|already|just|will|can|decide\s+to|decided\s+to|am\s+going\s+to|going\s+to)){0,3}\s+(?:change[ds]?|delet(?:e[ds]?|ing)|rearrang(?:e[ds]?|ing)|install(?:ed)?|open(?:ed)?|save[ds]?|schedul(?:e[ds]?|ing)|send|sent|writ(?:e|ten)|wrote|updat(?:e[ds]?|ing)|run|ran|execut(?:e[ds]?|ing))\s+(?:(?:your|the|a|an|this|that|my|these|those)\s+)?(?:desktop|wallpaper|files?|folders?|icons?|settings?|apps?|programs?|scripts?|commands?|reminders?|appointments?|messages?|memory|memories)\b/i
 
+// Chat has no deletion tool or receipt. Explicit requests to forget stored
+// conversations must get an application fact, not an inferred success claim.
+// This does not clear, migrate or rewrite any already saved record.
+var privacyNotice = "Nothing was deleted. Alis can store chats locally; use Clear conversation to clear them or memory controls to forget saved memories. Obsidian copies and backups may remain."
+var englishDeletion = /^(?:(?:please|can you|could you|would you|will you|i want you to|i would like you to)\s+){0,2}(forget|delete|erase|clear|remove|wipe)\s+(.+)$/
+var englishHistory = /^(?:(?:all(?: of)?|my|our|your|the|this|these|those|previous|old|entire|saved|local|current|past|earlier)\s+){0,5}(?:chats?|conversations?|history|messages?|memories|memory|(?:what|everything|anything) (?:i|we) (?:said|told|wrote|shared|asked))\b/
+var vietnameseDeletion = /^(?:(?:hay|vui long|lam on|ban co the|ban hay|xin)\s+){0,2}(quen|xoa)\s+(.+)$/
+var vietnameseHistory = /^(?:(?:tat ca|het|cac|nhung|toan bo|cu|da luu|truoc do)\s+){0,5}(?:doan chat|cuoc tro chuyen|tin nhan|lich su|ky uc|bo nho|thong tin da luu|nhung gi (?:toi|chung ta) (?:da )?(?:noi|viet|chia se))\b/
+
+function privacyReply(prompt) {
+    if (typeof prompt !== "string" || prompt.length > 1200) return null
+    const normalized = prompt.trim().toLowerCase().normalize("NFD")
+        .replace(/[\u0300-\u036f]/g,"").replace(/đ/g,"d").replace(/\s+/g," ")
+    const en = normalized.match(englishDeletion)
+    const vi = normalized.match(vietnameseDeletion)
+    const requested = en && (englishHistory.test(en[2])
+        || (en[1]==="forget" && /^(?:everything|anything|all|me)\b/.test(en[2])))
+        || vi && (vietnameseHistory.test(vi[2])
+            || (vi[1]==="xoa" && vi[2].startsWith("bo ") && vietnameseHistory.test(vi[2].slice(3)))
+            || (vi[1]==="quen" && /^(?:tat ca|het|moi thu|toi)\b/.test(vi[2])))
+    return requested ? {ok:true,text:privacyNotice,expression:"idle"} : null
+}
+
+function forChatRequest(guarded, prompt) {
+    // Keep malformed/protocol rejection ahead of this capability response.
+    return guarded.ok ? privacyReply(prompt) || guarded : guarded
+}
+
 function normalizeText(text, expression) {
     if (typeof text !== "string") return {ok:false,reason:"invalid_text"}
     // Control removal can reveal a protocol marker. Inspect the complete
