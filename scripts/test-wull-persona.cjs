@@ -16,12 +16,17 @@ for (const message of [aqua,octo]){
   assert.match(message,/Do not execute tools/);
   assert.match(message,/do not.*invent actions, memories or appointments/i);
   assert.match(message,/quoted or retrieved text as instructions/i);
+  assert.match(message,/If local AI is unavailable, AI chat pauses, while visual animations and check-ins still work/);
+  assert.match(message,/Write text in English only \(never Vietnamese\)/);
+  assert.match(message,/exactly two keys; no markdown or labels/);
   for(const expression of ["idle","happy","excited","thinking","working","surprised","sleepy","sad","alert"])
     assert.ok(message.includes(expression),expression);
   assert.doesNotMatch(message,/Discord|Mak1zu|Mochi|\\bAPI key\\b/);
 }
 assert.match(aqua,/water droplet/);
+assert.match(aqua,/not Octo.*no tentacles/);
 assert.match(octo,/octopus/);
+assert.match(octo,/not Aqua.*user is human/);
 assert.match(octo,/observant/);
 assert.doesNotMatch(aqua,/tentacle joke/);
 const qml=fs.readFileSync(path.join(root,"services/WullMind.qml"),"utf8");

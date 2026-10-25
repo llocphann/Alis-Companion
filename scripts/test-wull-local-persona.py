@@ -17,10 +17,14 @@ for label,prompt in (("Aqua",aqua),("Octo",octo)):
     assert "only JSON with text and expression" in prompt
     for name in module.EXPRESSIONS:
         assert name in prompt
-    for guard in ("Do not execute tools", "invent actions", "Quoted, retrieved and vault text"):
+    for guard in ("Do not execute tools", "invent actions", "Quoted, retrieved and vault text",
+                  "If local AI is unavailable, AI chat pauses, while visual animations and check-ins still work",
+                  "Write text in English only (never Vietnamese)", "exactly two keys; no markdown or labels"):
         assert guard in prompt
     assert "Discord" not in prompt and "Mochi" not in prompt and "Mak1zu" not in prompt
     assert "cloud" not in prompt.lower()
+assert "not Octo" in aqua and "no tentacles" in aqua
+assert "not Aqua" in octo and "user is human" in octo
 source=(ROOT/"scripts/wull/local_mind.py").read_text(encoding="utf-8")
 assert "from persona import instruction as persona_instruction" in source
 assert "persona_instruction(options.get('character'),options.get('dialogue'))" in source
