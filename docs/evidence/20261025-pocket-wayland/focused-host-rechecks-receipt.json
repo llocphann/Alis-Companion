@@ -1,0 +1,412 @@
+{
+  "schema": 1,
+  "observedUtc": "2026-10-25T13:36:12.457947+00:00",
+  "scope": "Three matched unchanged-source rechecks per platform for each of the three new complete-host failures; order AB, BA, AB",
+  "hostSha": "764496e2ce3ac668bbd859a4e72ee62f4832dc63",
+  "originalFullHostReceipt": "full-host-platform-receipt.json",
+  "originalFullResultsRemainFail": true,
+  "installedChanged": false,
+  "oraclesChanged": false,
+  "freshXdgForEachInvocation": true,
+  "passCount": 16,
+  "failCount": 2,
+  "skipCount": 0,
+  "steps": [
+    {
+      "step": "pair-1-cava-profile-baseline",
+      "pair": 1,
+      "order": [
+        "baseline",
+        "patched"
+      ],
+      "test": "cava-profile",
+      "platform": "baseline",
+      "exitCode": 0,
+      "elapsedSeconds": 28.02,
+      "logSha256": "ff8a0a1fb7dd5f593605ea04d1b5c7e90b8f0ce6957e886046454c5bde457766",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": true,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "python3",
+        "scripts/test-bar-cava-profile-runtime.py"
+      ]
+    },
+    {
+      "step": "pair-1-cava-profile-patched",
+      "pair": 1,
+      "order": [
+        "baseline",
+        "patched"
+      ],
+      "test": "cava-profile",
+      "platform": "patched",
+      "exitCode": 0,
+      "elapsedSeconds": 27.52,
+      "logSha256": "ff8a0a1fb7dd5f593605ea04d1b5c7e90b8f0ce6957e886046454c5bde457766",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": true,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "python3",
+        "scripts/test-bar-cava-profile-runtime.py"
+      ]
+    },
+    {
+      "step": "pair-1-dashboard-editor-fields-baseline",
+      "pair": 1,
+      "order": [
+        "baseline",
+        "patched"
+      ],
+      "test": "dashboard-editor-fields",
+      "platform": "baseline",
+      "exitCode": 0,
+      "elapsedSeconds": 36.02,
+      "logSha256": "37cec5cbb84ad660a38ed4085cbc4763e134dc378e0429131b4786ed4f4a411b",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": false,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "python3",
+        "scripts/test-dashboard-editor-field-runtime.py"
+      ]
+    },
+    {
+      "step": "pair-1-dashboard-editor-fields-patched",
+      "pair": 1,
+      "order": [
+        "baseline",
+        "patched"
+      ],
+      "test": "dashboard-editor-fields",
+      "platform": "patched",
+      "exitCode": 1,
+      "elapsedSeconds": 80.55,
+      "logSha256": "ed1321b38faf17fe78ab5fa6165c4ea9c9fb25cf29ee8184270b4dcd2e80c2e2",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": false,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "python3",
+        "scripts/test-dashboard-editor-field-runtime.py"
+      ]
+    },
+    {
+      "step": "pair-1-dashboard-editing-baseline",
+      "pair": 1,
+      "order": [
+        "baseline",
+        "patched"
+      ],
+      "test": "dashboard-editing",
+      "platform": "baseline",
+      "exitCode": 0,
+      "elapsedSeconds": 66.54,
+      "logSha256": "5d4be920d807416c5ec32b8514455fa93c0dd3b350078923c21eae216ea6391d",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": false,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "bash",
+        "scripts/test-abyss-dashboard-editing.sh"
+      ]
+    },
+    {
+      "step": "pair-1-dashboard-editing-patched",
+      "pair": 1,
+      "order": [
+        "baseline",
+        "patched"
+      ],
+      "test": "dashboard-editing",
+      "platform": "patched",
+      "exitCode": 0,
+      "elapsedSeconds": 55.03,
+      "logSha256": "e86f607dc4f7a3a4d955f94ffbdaee545d32e4731e18d6ea4d7c98290d991aac",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": false,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "bash",
+        "scripts/test-abyss-dashboard-editing.sh"
+      ]
+    },
+    {
+      "step": "pair-2-cava-profile-patched",
+      "pair": 2,
+      "order": [
+        "patched",
+        "baseline"
+      ],
+      "test": "cava-profile",
+      "platform": "patched",
+      "exitCode": 0,
+      "elapsedSeconds": 28.02,
+      "logSha256": "ff8a0a1fb7dd5f593605ea04d1b5c7e90b8f0ce6957e886046454c5bde457766",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": true,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "python3",
+        "scripts/test-bar-cava-profile-runtime.py"
+      ]
+    },
+    {
+      "step": "pair-2-cava-profile-baseline",
+      "pair": 2,
+      "order": [
+        "patched",
+        "baseline"
+      ],
+      "test": "cava-profile",
+      "platform": "baseline",
+      "exitCode": 0,
+      "elapsedSeconds": 28.02,
+      "logSha256": "ff8a0a1fb7dd5f593605ea04d1b5c7e90b8f0ce6957e886046454c5bde457766",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": true,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "python3",
+        "scripts/test-bar-cava-profile-runtime.py"
+      ]
+    },
+    {
+      "step": "pair-2-dashboard-editor-fields-patched",
+      "pair": 2,
+      "order": [
+        "patched",
+        "baseline"
+      ],
+      "test": "dashboard-editor-fields",
+      "platform": "patched",
+      "exitCode": 0,
+      "elapsedSeconds": 48.53,
+      "logSha256": "500d24697bbb018bcab9c8505a1c31de2567a072459ec659c8a1e58b8dc47457",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": false,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "python3",
+        "scripts/test-dashboard-editor-field-runtime.py"
+      ]
+    },
+    {
+      "step": "pair-2-dashboard-editor-fields-baseline",
+      "pair": 2,
+      "order": [
+        "patched",
+        "baseline"
+      ],
+      "test": "dashboard-editor-fields",
+      "platform": "baseline",
+      "exitCode": 1,
+      "elapsedSeconds": 80.55,
+      "logSha256": "8e8590014c1db6e7d24cec97767b1ab7533d811654d76aaf67e811639477a0d6",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": false,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "python3",
+        "scripts/test-dashboard-editor-field-runtime.py"
+      ]
+    },
+    {
+      "step": "pair-2-dashboard-editing-patched",
+      "pair": 2,
+      "order": [
+        "patched",
+        "baseline"
+      ],
+      "test": "dashboard-editing",
+      "platform": "patched",
+      "exitCode": 0,
+      "elapsedSeconds": 57.54,
+      "logSha256": "259c6e2300ea8a31e9f301aca70dc80f3c4584048504c308a1a006a0230d33d2",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": false,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "bash",
+        "scripts/test-abyss-dashboard-editing.sh"
+      ]
+    },
+    {
+      "step": "pair-2-dashboard-editing-baseline",
+      "pair": 2,
+      "order": [
+        "patched",
+        "baseline"
+      ],
+      "test": "dashboard-editing",
+      "platform": "baseline",
+      "exitCode": 0,
+      "elapsedSeconds": 54.03,
+      "logSha256": "94a016e0c799df747d9a7d50ddc9297a9cdf3c4a28f9915852a992c659345baf",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": false,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "bash",
+        "scripts/test-abyss-dashboard-editing.sh"
+      ]
+    },
+    {
+      "step": "pair-3-cava-profile-baseline",
+      "pair": 3,
+      "order": [
+        "baseline",
+        "patched"
+      ],
+      "test": "cava-profile",
+      "platform": "baseline",
+      "exitCode": 0,
+      "elapsedSeconds": 27.52,
+      "logSha256": "ff8a0a1fb7dd5f593605ea04d1b5c7e90b8f0ce6957e886046454c5bde457766",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": true,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "python3",
+        "scripts/test-bar-cava-profile-runtime.py"
+      ]
+    },
+    {
+      "step": "pair-3-cava-profile-patched",
+      "pair": 3,
+      "order": [
+        "baseline",
+        "patched"
+      ],
+      "test": "cava-profile",
+      "platform": "patched",
+      "exitCode": 0,
+      "elapsedSeconds": 28.02,
+      "logSha256": "ff8a0a1fb7dd5f593605ea04d1b5c7e90b8f0ce6957e886046454c5bde457766",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": true,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "python3",
+        "scripts/test-bar-cava-profile-runtime.py"
+      ]
+    },
+    {
+      "step": "pair-3-dashboard-editor-fields-baseline",
+      "pair": 3,
+      "order": [
+        "baseline",
+        "patched"
+      ],
+      "test": "dashboard-editor-fields",
+      "platform": "baseline",
+      "exitCode": 0,
+      "elapsedSeconds": 34.02,
+      "logSha256": "a5efd1199a6458f8339f0cbaf1fe3d45833fda32f9f97528238bf8351f3ff827",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": false,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "python3",
+        "scripts/test-dashboard-editor-field-runtime.py"
+      ]
+    },
+    {
+      "step": "pair-3-dashboard-editor-fields-patched",
+      "pair": 3,
+      "order": [
+        "baseline",
+        "patched"
+      ],
+      "test": "dashboard-editor-fields",
+      "platform": "patched",
+      "exitCode": 0,
+      "elapsedSeconds": 34.02,
+      "logSha256": "d01cb998efd0e390b3b02bd99656cf7e8ca4bb308c1d41a08f17bfb607eef3c9",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": false,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "python3",
+        "scripts/test-dashboard-editor-field-runtime.py"
+      ]
+    },
+    {
+      "step": "pair-3-dashboard-editing-baseline",
+      "pair": 3,
+      "order": [
+        "baseline",
+        "patched"
+      ],
+      "test": "dashboard-editing",
+      "platform": "baseline",
+      "exitCode": 0,
+      "elapsedSeconds": 53.53,
+      "logSha256": "2451ede923766b635bcf8f139ef1c289c80fdd92fe1c26b2c24bead2a440932b",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": false,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "bash",
+        "scripts/test-abyss-dashboard-editing.sh"
+      ]
+    },
+    {
+      "step": "pair-3-dashboard-editing-patched",
+      "pair": 3,
+      "order": [
+        "baseline",
+        "patched"
+      ],
+      "test": "dashboard-editing",
+      "platform": "patched",
+      "exitCode": 0,
+      "elapsedSeconds": 54.03,
+      "logSha256": "9a11c8486ffc8c7accf2a2b8fef8b65a8c72ec7b185b3f3e175204d98129497a",
+      "skipMarker": false,
+      "hasAudioUndefinedWarning": false,
+      "hasNumericParityMarker": false,
+      "hasDashboardDimensionsFailure": false,
+      "originalCommand": [
+        "bash",
+        "scripts/test-abyss-dashboard-editing.sh"
+      ]
+    }
+  ],
+  "artifactHashesBefore": {
+    "patchedNiri": "81d6a2898df7a9f4a0e91b49531f3c9cb94010c63dfeaeadb9b12d1ba1da948b",
+    "patchedQt": "53adb1a7c3c4b0664cc591f018d7441c9988c9570950d7910ade4069cd684929",
+    "installedNiri": "f09e0b1cb2144794fb615c90e9cdaff6adc0cb6b05347503123bc392aeea66d3"
+  },
+  "artifactHashesAfter": {
+    "patchedNiri": "81d6a2898df7a9f4a0e91b49531f3c9cb94010c63dfeaeadb9b12d1ba1da948b",
+    "patchedQt": "53adb1a7c3c4b0664cc591f018d7441c9988c9570950d7910ade4069cd684929",
+    "installedNiri": "f09e0b1cb2144794fb615c90e9cdaff6adc0cb6b05347503123bc392aeea66d3"
+  },
+  "findings": {
+    "cava-profile": "3/3 exit 0 on both platforms; original strict warning/functional oracle unchanged",
+    "dashboard-editing": "3/3 exit 0 on both platforms; original dimensions, edit and persistence oracles unchanged",
+    "dashboard-editor-fields": "2/3 exit 0 on each platform. One original timeout/exit 124 on each platform after 15 completed cases; wrapper exit 1 preserved. No numerical/behavior assertion failure in these two runs.",
+    "causalConclusion": "No isolated platform cause established; intermittent native timeout remains unresolved. This is not whole-host or installed acceptance."
+  },
+  "sourceCompatibilityQualified": false,
+  "awaitingOwnerEligible": false
+}
