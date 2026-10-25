@@ -120,6 +120,24 @@ Item {
         }
     }
     Connections {
+        target:ToplevelManager
+        function onActiveToplevelChanged(): void {
+            if(!root.contextConnected || !root.contextState.enabled
+                    || !root.companionPreferences.contextFocusEnabled) return
+            const id=String(ToplevelManager.activeToplevel?.appId ?? "").trim().toLowerCase()
+            const cat=!id ? "none"
+                : ["foot","footclient","kitty","alacritty","wezterm","org.wezfurlong.wezterm",
+                   "org.kde.konsole","org.gnome.terminal","com.mitchellh.ghostty"].includes(id) ? "terminal"
+                : ["code","code-oss","vscodium","codium","dev.zed.zed","org.gnome.builder",
+                   "org.kde.kate","emacs","neovide","antigravity","google-antigravity",
+                   "cursor","windsurf","zed","obsidian"].includes(id) ? "editor" : "other"
+            if(Director.setFocus(root.contextState.director,cat,Date.now()).accepted) {
+                root.evaluateContext()
+                contextSettle.restart()
+            }
+        }
+    }
+    Connections {
         target:WullMind
         function onConversationOpenChanged(): void {root.evaluateContext()}
         function onHostBlockedChanged(): void {root.evaluateContext()}
