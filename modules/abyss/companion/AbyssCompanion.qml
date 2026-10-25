@@ -130,6 +130,7 @@ Item {
     readonly property bool verticalEdge: !upright && (edge === "left" || edge === "right")
     readonly property bool hovered: droplet.hovered
     signal chatRequested()
+    signal pocketRequested()
     signal activated()
     signal settingsRequested()
     signal travelCompleted()
@@ -408,6 +409,7 @@ Item {
             transformOrigin: Item.Center
             anchors.centerIn: parent
             onChatRequested: root.chatRequested()
+            onPocketRequested: root.pocketRequested()
             onPressed: root.activated()
             onSettingsRequested: root.settingsRequested()
         }

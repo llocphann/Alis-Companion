@@ -121,6 +121,7 @@ Item {
         function onFrameSwapped(): void { root.framePresented = true }
     }
     signal chatRequested()
+    signal pocketRequested()
     signal pressed()
     signal settingsRequested()
     function reactToTap(px,py): void {
@@ -564,6 +565,11 @@ Item {
         gesturePolicy: TapHandler.DragThreshold
         onTapped: root.reactToTap(point.position.x,point.position.y)
         onDoubleTapped: root.chatRequested()
+    }
+    TapHandler {
+        enabled: root.enabled
+        acceptedButtons: Qt.MiddleButton
+        onTapped: root.pocketRequested()
     }
     TapHandler {
         enabled: root.enabled

@@ -47,19 +47,34 @@ Item {
     readonly property bool ambientBlocked: !root.companionHostActive || root.companionOccluded
         || companionPresence.dragging || companionPresence.traveling || companionPresence.portalActive
         || companionCuriosity.busy || talkCloud.controlsVisible
+    readonly property bool companionPerformanceHeld: session.companionTargetOutput===host.outputName
+        && (session.cowork?.active===true || (session.companionAmbientProp ?? "").length>0 || WullPocket.opened)
+    onCompanionPerformanceHeldChanged: if (companionPerformanceHeld) root.ensureCompanionPresent()
     readonly property var directorContext: ({enabled:root.companionHostActive,
         dragging:companionPresence.dragging,manualTravel:companionPresence.traveling,
         portalTravel:companionPresence.portalActive,
+        grounded:companionPresence.grounded && !companion.flying && !companion.relocating,
+        controlsVisible:talkCloud.controlsVisible,
         modalOpen:root.companionOccluded || companionCuriosity.busy || WullPocket.opened || WullPocket.busy})
     onDirectorContextChanged: if (session && session.companionTargetOutput===host.outputName) session.evaluateContext()
-    function requestCompanionChat(): void {
+    function ensureCompanionPresent(): void {
         if(!root.companionPermission) return
         companionTurns.cancel()
         companionCuriosity.interrupt()
         companionPresence.hiddenUntil=0
         if(!companionPresence.visitActive || companionPresence.retreating)companionPresence.appear()
         companionPresence.peekOnly=false;companionPresence.peekIntro=false;companionPresence.renderedReveal=1
+    }
+    function requestCompanionChat(): void {
+        if(!root.companionPermission) return
+        root.ensureCompanionPresent()
         WullMind.openChat()
+    }
+    function requestCompanionPocket(): void {
+        if(!root.companionPermission || !WullPocket.permitted) return
+        root.ensureCompanionPresent()
+        WullMind.dismiss()
+        WullPocket.show()
     }
     function resetCompanionCast(): void {
         companionTurns.cancel()
@@ -98,7 +113,7 @@ Item {
                 x:companion.x,y:companion.y}}
     }
     readonly property bool companionHoverHeld: root.companionHostActive
-        && companion.interactive && (companion.hovered || cloudActions.hovered || cloudActions.visible || companion.dragging || pocketDrop.containsDrag || talkCloud.controlsVisible || WullMind.conversationOpen)
+        && companion.interactive && (companion.hovered || cloudActions.hovered || cloudActions.visible || companion.dragging || pocketDrop.containsDrag || talkCloud.controlsVisible || WullMind.conversationOpen || root.companionPerformanceHeld)
     onCompanionHoverHeldChanged: if (session.companionTargetOutput===host.outputName && companionBridge.ready)
         companionBridge.sendEvent("hover",root.companionHoverHeld)
     WullPresence {
@@ -109,7 +124,7 @@ Item {
         requestedReveal: companionBridge.visibility==="present" ? 1
             : companionBridge.visibility==="peeking" ? .46 : 0
         motionEnabled: session.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled
-        interactionHeld: companionBridge.activity!=="idle" || pocketDrop.containsDrag || WullPocket.busy || talkCloud.controlsVisible || WullMind.conversationOpen
+        interactionHeld: companionBridge.activity!=="idle" || pocketDrop.containsDrag || WullPocket.busy || talkCloud.controlsVisible || WullMind.conversationOpen || root.companionPerformanceHeld
         pointerFresh: root.companionPointerFresh
         pointerX: root.companionPointerX
         pointerY: root.companionPointerY
@@ -248,7 +263,7 @@ Item {
         adapter: root
         features: root.companionFeatures
         allowed: root.companionHostActive && session.companionPreferences.exploreFeatures
-            && session.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled
+            && session.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled && !root.companionPerformanceHeld
         idle: companionBridge.activity==="idle" && companionBridge.visibility==="present"
         eventId: companionBridge.travelId
     }
@@ -378,6 +393,7 @@ Item {
         onDragEnded: companionPresence.endDrag()
         onActivated: {companionWater.tap();companionBridge.sendEvent("click")}
         onChatRequested: {companionCuriosity.interrupt();WullMind.openChat()}
+        onPocketRequested: if (WullPocket.permitted) {companionCuriosity.interrupt();WullMind.dismiss();WullPocket.show()}
         onSettingsRequested: GlobalStates.openSettingsSection(37,"Overview")
     }
     WullTalkCloud {

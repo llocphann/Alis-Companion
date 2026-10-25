@@ -35,6 +35,10 @@ Item {
         contextConnection=source;contextConnected=true
         if(!source.activate(root,binding.generation))disconnectContext()
     }
+    property bool readingFocusActive:false
+    property bool quietIdle:false
+    property string previewAmbientProp:""
+    property bool previewLaptopActive:false
     function evaluateContext(): void {
         contextIntent=ContextProtocol.observe(contextState,{
             enabled:companionEnabled,visible:companionSessionVisible,
@@ -43,8 +47,18 @@ Item {
             gameMode:Appearance.gameModeMinimal,chatOpen:WullMind.conversationOpen,
             modalOpen:WullMind.hostBlocked,dnd:Notifications.notificationPolicyActive,
             quiet:!AbyssStyle.motionEnabled || companionPreferences?.animationsEnabled!==true,
-            idle:WullMind.hostIdle},Date.now())
+            idle:false},Date.now())
         if(!contextState.enabled)contextConnected=false
+        const focusCategory=contextState.director?.focus ?? "none"
+        const hasAgent=Object.keys(contextState.director?.sessions ?? ({})).length>0
+        if(companionSessionVisible && (focusCategory==="editor" || focusCategory==="terminal" || hasAgent || previewLaptopActive))
+            companionBridge.show()
+        if(contextConnected && contextState.enabled && focusCategory==="other" && !hasAgent && !previewLaptopActive) {
+            if(!readingFocusActive && !readingFocusSettle.running)readingFocusSettle.restart()
+        } else {
+            readingFocusSettle.stop()
+            readingFocusActive=false
+        }
         if(coworkController) {
             coworkController.directorState=contextState.director
             coworkController.hostContext=coworkHostContext()
@@ -77,8 +91,25 @@ Item {
     // Re-evaluate the Director's existing focus-settle deadline; this is not a
     // Focus session clock and never loads a model or starts a second actor.
     Timer {id:contextSettle;interval:750;onTriggered:root.evaluateContext()}
+    Timer {id:readingFocusSettle;interval:1200;onTriggered:{root.readingFocusActive=true;if(root.companionSessionVisible)companionBridge.show()}}
+    Timer {id:quietIdleSettle;interval:8000;onTriggered:root.quietIdle=true}
     Timer {id:contextConnect;interval:1;onTriggered:root.connectContext()}
     Timer {id:contextReconnect;interval:1000;onTriggered:root.connectContext()}
+    Connections {
+        target:companionBridge
+        function onReadyChanged(): void {root.evaluateContext()}
+        function onVisibilityChanged(): void {root.evaluateContext()}
+        function onActivityChanged(): void {
+            if(companionBridge.activity==="idle" && !coworkController.active && !root.readingFocusActive)
+                quietIdleSettle.restart()
+            else {quietIdleSettle.stop();root.quietIdle=false}
+        }
+    }
+    Connections {
+        target:WullMind
+        function onConversationOpenChanged(): void {root.evaluateContext()}
+        function onHostBlockedChanged(): void {root.evaluateContext()}
+    }
     Connections {
         target:root.host
         ignoreUnknownSignals:true
@@ -132,9 +163,11 @@ Item {
         if(!base)return null
         const targetExt=root.outputHosts.find(window=>window.outputName===root.companionTargetOutput)?.extension
         return Object.assign({},base,{
-            optedIn:root.contextConnected && root.contextState.enabled,
-            coworkEnabled:Boolean(targetExt?.actor) && root.companionEnabled && root.contextConnected
-                && (root.companionPreferences.contextEnabled || root.companionPreferences.contextAiEnabled),
+            idle:false,
+            optedIn:(root.contextConnected && root.contextState.enabled) || root.previewLaptopActive,
+            coworkEnabled:Boolean(targetExt?.actor) && root.companionEnabled
+                && ((root.contextConnected && (root.companionPreferences.contextEnabled || root.companionPreferences.contextAiEnabled))
+                    || root.previewLaptopActive),
             grounded:targetExt?.actor ? targetExt.actor.surfaceSupported!==false && !targetExt.actor.flying : false,
             character:root.companionCharacter,
             quiet:!base.motionEnabled
@@ -171,8 +204,8 @@ Item {
         const target=root.outputHosts.find(window=>window.outputName===root.companionTargetOutput)?.extension
         if(target && !target.ambientBlocked)target.actor?.perform(gesture)
     }
-    readonly property string companionAmbientProp: ambientController.activeProp
-    readonly property string companionAmbientActivity: ambientController.activeActivity
+    readonly property string companionAmbientProp: root.previewAmbientProp.length>0 ? root.previewAmbientProp : ambientController.activeProp
+    readonly property string companionAmbientActivity: root.previewAmbientProp.length>0 ? root.previewAmbientProp : ambientController.activeActivity
     WullAmbientController {
         id:ambientController
         objectName:"companionAmbientController"
@@ -185,10 +218,12 @@ Item {
         consentKey:[root.companionPreferences.ambientFocusEnabled,
             root.companionPreferences.ambientBatteryEnabled,root.companionPreferences.ambientMediaEnabled].join(":")
         eligible:Director.proposeAmbientExpression(root.contextState.director,
-            root.visualContext(),{expression:"idle"},Date.now()).accepted
+            root.visualContext(),{expression:"idle"},Date.now()).accepted && !coworkController.active
         focusPhase:permitted && root.companionPreferences.ambientFocusEnabled
-            ? !TimerService.pomodoroRunning ? "off" : TimerService.pomodoroPaused ? "paused"
-                : TimerService.pomodoroBreak ? "break" : "focus" : "unavailable"
+            ? TimerService.pomodoroRunning
+                ? (TimerService.pomodoroPaused ? "paused" : TimerService.pomodoroBreak ? "break" : "focus")
+                : (root.readingFocusActive ? "focus" : "off")
+            : "unavailable"
         powerBand:permitted && root.companionPreferences.ambientBatteryEnabled
             ? !Battery.available ? "unavailable" : !Battery.onBattery ? "charging"
                 : Battery.isLow ? "low" : "normal" : "unavailable"
@@ -196,7 +231,7 @@ Item {
             ? !MprisController.activePlayer ? "unavailable"
                 : MprisController.activePlayer.isPlaying ? "playing" : "paused" : "unavailable"
         idleState:permitted && root.companionPreferences.ambientFocusEnabled
-            ? (WullMind.hostIdle && (root.contextState.frame?.idle ?? false) ? "idle" : "active") : "unavailable"
+            ? (WullMind.hostIdle && (root.quietIdle || (root.contextState.frame?.idle ?? false)) ? "idle" : "active") : "unavailable"
         resultCategory:permitted && root.companionPreferences.ambientFocusEnabled
             ? (["none","success","failure"].includes(root.contextState.frame?.result ?? "")
                 ? root.contextState.frame.result : "none") : "unavailable"
@@ -241,13 +276,54 @@ function chat(): void {
     for (const window of root.outputHosts)
         if(window.outputName===root.companionTargetOutput)window.requestCompanionChat()
 }
+function pocket(): void {
+    if (!root.companionSessionVisible || !root.companionInteractive || !WullPocket.permitted) return
+    if (WullPocket.opened) {WullPocket.close();return}
+    companionBridge.show()
+    companionBridge.sendEvent("hover",true)
+    for (const window of root.outputHosts)
+        if(window.outputName===root.companionTargetOutput && window.extension?.requestCompanionPocket)
+            window.extension.requestCompanionPocket()
+}
+function previewProp(kind): void {
+    if (!root.companionSessionVisible) return
+    const mode=String(kind ?? "").trim().toLowerCase()
+    companionBridge.show()
+    companionBridge.sendEvent("hover",true)
+    for (const window of root.outputHosts)
+        if(window.outputName===root.companionTargetOutput && window.extension?.ensureCompanionPresent)
+            window.extension.ensureCompanionPresent()
+    if (["book","coffee","thought"].includes(mode)) {
+        root.previewLaptopActive=false
+        Director.acceptAgent(root.contextState.director,{word:"ended",token:"fedcba9876543210"},Date.now())
+        root.previewAmbientProp=mode
+        root.evaluateContext()
+    } else if (mode==="laptop") {
+        root.previewAmbientProp=""
+        root.previewLaptopActive=true
+        Director.acceptAgent(root.contextState.director,{word:"working",token:"fedcba9876543210"},Date.now())
+        root.evaluateContext()
+    } else {
+        root.previewAmbientProp=""
+        root.previewLaptopActive=false
+        Director.acceptAgent(root.contextState.director,{word:"ended",token:"fedcba9876543210"},Date.now())
+        root.evaluateContext()
+    }
+}
 function status(): string {
     const outputs=[]
     for (let i=0;i<root.outputHosts.length;i++)
         outputs.push(root.outputHosts[i].companionStatus())
     return JSON.stringify({enabled:root.companionEnabled,
         context:{connected:root.contextConnected,mode:root.contextIntent.mode,
-            reason:root.contextIntent.reason,epoch:root.contextIntent.epoch},
+            reason:root.contextIntent.reason,epoch:root.contextIntent.epoch,
+            focus:root.contextState.director?.focus ?? "none"},
+        pocket:{permitted:WullPocket.permitted,opened:WullPocket.opened,
+            busy:WullPocket.busy,count:WullPocket.items.length},
+        cowork:{active:coworkController.active,phase:coworkController.phase,
+            clip:coworkController.clip,renderProp:coworkController.renderProp},
+        ambient:{prop:root.companionAmbientProp,activity:root.companionAmbientActivity,
+            focusPhase:ambientController.focusPhase},
         sessionVisible:root.companionSessionVisible,
         targetOutput:root.companionTargetOutput,
         backend:{ready:companionBridge.ready,

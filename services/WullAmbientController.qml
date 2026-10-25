@@ -57,6 +57,14 @@ Item {
                 settle.interval=perf.ttlMs
                 settle.restart()
             }
+        } else if(eligible && activeProp==="") {
+            if(focusPhase==="focus") {
+                activeActivity="reading"
+                activeProp="book"
+            } else if(focusPhase==="break") {
+                activeActivity="coffee"
+                activeProp="coffee"
+            }
         }
     }
     function schedule(): void {
@@ -86,6 +94,9 @@ Item {
         interval:250
         onTriggered: {
             if(root.pendingObserve)root.observe()
+            else if((root.focusPhase==="focus" && root.activeProp==="book")
+                    || (root.focusPhase==="break" && root.activeProp==="coffee"))
+                root.lastGesture=""
             else root.clearPerformance()
         }
     }
