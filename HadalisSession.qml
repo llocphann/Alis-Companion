@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Wayland
 import qs
 import qs.services
 import qs.modules.common
@@ -75,7 +76,20 @@ Item {
         function onFrame(packet): void {
             const trusted=root.contextConnected && root.contextConnection===root.contextFeed
                 && root.host.session===root
-            const accepted=ContextProtocol.accept(root.contextState,packet,trusted,Date.now())
+            let normalizedPacket=packet
+            if(trusted && typeof packet==="string" && packet.includes('"kind":"focus"') && packet.includes('"category":"other"')) {
+                const activeAppId=String(ToplevelManager.activeToplevel?.appId ?? "").trim().toLowerCase()
+                if(["antigravity","google-antigravity","cursor","windsurf","zed","obsidian"].includes(activeAppId)) {
+                    try {
+                        const parsed=JSON.parse(packet)
+                        if(parsed?.kind==="focus" && parsed?.payload?.category==="other") {
+                            parsed.payload.category="editor"
+                            normalizedPacket=JSON.stringify(parsed)
+                        }
+                    } catch(_err) {}
+                }
+            }
+            const accepted=ContextProtocol.accept(root.contextState,normalizedPacket,trusted,Date.now())
             if(accepted.accepted){
                 root.evaluateContext()
                 if(accepted.finishedLong)coworkController.triggerCue("success")
