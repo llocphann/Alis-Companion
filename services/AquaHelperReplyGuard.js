@@ -122,7 +122,7 @@ function validResult(action, result) {
         && result.cancelled === true && result.status === "cancelled"
     if (action === "tool_receipts") return Array.isArray(result.receipts)
         && result.receipts.length <= 128 && result.receipts.every(validToolReceipt)
-    if (action === "agent_file_op") return ["access", "edit", "copy", "cut", "delete", "cancel_delete"].includes(result.op)
+    if (action === "agent_file_op") return ["access", "edit", "copy", "cut", "delete", "cancel_delete", "run"].includes(result.op)
         && ["completed", "confirm_1_required", "confirm_2_required", "cancelled"].includes(result.status)
         && integer(result.confirmStage, 0, 2)
         && path(result.targetPath, true)

@@ -10,8 +10,8 @@ function defaults() {
     return {
         enabled: false, character: "aqua", alternateCompanions: false,
         contextEnabled:false,contextFocusEnabled:false,contextAiEnabled:false,
-        ambientEnabled:false,ambientFocusEnabled:false,ambientBatteryEnabled:false,ambientMediaEnabled:false,
-        pocketEnabled:false,
+        ambientEnabled:true,ambientFocusEnabled:false,ambientBatteryEnabled:true,ambientMediaEnabled:true,
+        pocketEnabled:true,
         output: "", edge: "auto", along: 0.72, size: 1,
         interactive: true, soundEnabled: false, personality: "balanced",
         appearanceFrequency: "always", animationsEnabled: true,
@@ -46,6 +46,5 @@ function motionScale(personality) {
 }
 
 function renderTier(quality, shellQuality) {
-    if (shellQuality === "performance") return 0
     return quality === "performance" ? 0 : quality === "detailed" ? 2 : 1
 }

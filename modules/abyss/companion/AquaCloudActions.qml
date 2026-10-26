@@ -61,6 +61,7 @@ Item {
     onVisibleChanged: if (!visible) pomodoroExpanded = false
     onAllowedChanged: if(!allowed) { revealed=false; pomodoroExpanded=false }
     onHoveredChanged: if(hovered)hide.stop();else hide.restart()
+    onPomodoroExpandedChanged: if (pomodoroExpanded) hide.restart()
     Connections {
         target:root.actor
         function onHoveredChanged():void {
@@ -68,7 +69,7 @@ Item {
             else hide.restart()
         }
     }
-    Timer { id:hide; interval:450; onTriggered:if(!root.actor.hovered && !root.hovered)root.revealed=false }
+    Timer { id:hide; interval: root.pomodoroExpanded ? 1800 : 450; onTriggered:if(!root.actor.hovered && !root.hovered)root.revealed=false }
     component Cloud: Item {
         id:cloud
         required property string kind

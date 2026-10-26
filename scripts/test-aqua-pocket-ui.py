@@ -39,7 +39,9 @@ FloatingWindow {
     tryCompare(AlisCompanion,"available",true,3000)
     Ai._initialized=true;Ai.models=({});Ai.modelList=[];Ai.currentModelId=""
     AquaPocket.hostAvailable=true
-    verify(Config.options.abyss.companion.pocketEnabled===false)
+    verify(Config.options.abyss.companion.pocketEnabled===true)
+    Config.setNestedValue("abyss.companion.pocketEnabled",false)
+    tryCompare(AquaPocket,"permitted",false,3000)
     verify(!AquaPocket.permitted && !AquaPocket.show() && !drop.enabled)
     verify(!AquaPocket.addFiles([Quickshell.env("POCKET_FILE_ONE")],"drop"))
     Config.setNestedValue("abyss.companion.pocketEnabled",true)

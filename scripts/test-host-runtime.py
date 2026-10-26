@@ -126,6 +126,8 @@ ShellRoot {
                 const invalid=session.presentAiExpression("fly")
                 const accepted=session.presentAiExpression("happy")
                 const afterAi=session.bridge.outboundSeq
+                Config.setNestedValues({"abyss.companion.ambientEnabled":false,
+                    "abyss.companion.ambientFocusEnabled":false})
                 const defaultAmbient=session.presentAmbientExpression("working")
                 Config.setNestedValues({"abyss.companion.ambientEnabled":true,
                     "abyss.companion.ambientFocusEnabled":true})

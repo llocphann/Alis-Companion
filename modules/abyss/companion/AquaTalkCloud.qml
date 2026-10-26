@@ -39,7 +39,21 @@ Item {
             cloudColor.b + (AbyssStyle.surfaceRaised.b - cloudColor.b) * k,
             edgeOpacity)
     }
-    width: Math.min(380, Math.max(220, outputWidth - 32))
+    width: (pocketOpen || (AquaMind.contextOpen && !editing))
+        ? Math.min(272, Math.max(200, outputWidth - 32))
+        : Math.min(380, Math.max(220, outputWidth - 32))
+    focus: visible && !editing && (AquaMind.contextOpen || pocketOpen)
+    Keys.onEscapePressed: {
+        if (AquaMind.contextOpen) AquaMind.dismiss()
+        else if (pocketOpen) AquaPocket.close()
+    }
+    Connections {
+        target: AquaMind
+        function onContextOpenChanged(): void {
+            if (AquaMind.contextOpen && !root.editing)
+                Qt.callLater(() => root.forceActiveFocus())
+        }
+    }
     readonly property real nonEditingContentHeight: AquaMind.contextOpen
         ? content.implicitHeight
         : speechText.implicitHeight + (AquaMind.checkInStage.length > 0 ? content.spacing + 28 : 0)
@@ -137,8 +151,17 @@ Item {
         RowLayout {
             visible: AquaMind.contextOpen && !root.editing
             Layout.fillWidth: true
-            StyledText { Layout.fillWidth:true; text:Translation.tr("Today"); font.weight:Font.DemiBold }
-            DialogButton { objectName:"aquaContextClose"; buttonText:Translation.tr("Close"); onClicked:AquaMind.dismiss() }
+            spacing: 6
+            MaterialSymbol {
+                text: "menu_book"
+                iconSize: 16
+                color: AbyssStyle.accent
+            }
+            StyledText {
+                Layout.fillWidth: true
+                text: Translation.tr("Today")
+                font.weight: Font.DemiBold
+            }
         }
         StyledText {
             id: speechText
@@ -366,10 +389,22 @@ Item {
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 6
-                            MaterialSymbol {
-                                text: AquaMind.lastActiveAppContext?.version === "screenshot_ocr" ? "document_scanner" : "desktop_windows"
-                                iconSize: 15
-                                color: AbyssStyle.accent
+                            Rectangle {
+                                objectName: "aquaFullAccessBadge"
+                                implicitWidth: fullAccessBadgeText.implicitWidth + 12
+                                implicitHeight: 20
+                                radius: 10
+                                color: Qt.alpha(AbyssStyle.accent, 0.16)
+                                border.width: 1
+                                border.color: Qt.alpha(AbyssStyle.accent, 0.36)
+                                StyledText {
+                                    id: fullAccessBadgeText
+                                    anchors.centerIn: parent
+                                    text: "Full Access"
+                                    font.pixelSize: Appearance.font.pixelSize.smallest - 1
+                                    font.weight: Font.DemiBold
+                                    color: AbyssStyle.accent
+                                }
                             }
                             StyledText {
                                 Layout.fillWidth: true
@@ -391,7 +426,7 @@ Item {
                                 onClicked: AquaMind.runAgentFileOp("access", "", "", "", "write", 0, "access screen")
                                 StyledToolTip {
                                     extraVisibleCondition: scanAppBtn.buttonHovered
-                                    text: "Inspect active app / Screen OCR"
+                                    text: "Inspect active app, Desktop & Screen OCR"
                                 }
                                 contentItem: MaterialSymbol {
                                     anchors.centerIn: parent
@@ -406,8 +441,9 @@ Item {
                             spacing: 5
                             Repeater {
                                 model: [
-                                    { op: "access", icon: "folder_open", tip: "Access / Read file or folder" },
-                                    { op: "edit", icon: "edit_note", tip: "Edit / Write file" },
+                                    { op: "access", icon: "folder_open", tip: "Access / Read Apps, Desktop or file" },
+                                    { op: "edit", icon: "edit_note", tip: "Edit / Write file on Desktop" },
+                                    { op: "run", icon: "terminal", tip: "Run script or command" },
                                     { op: "copy", icon: "content_copy", tip: "Copy file or folder" },
                                     { op: "cut", icon: "content_cut", tip: "Cut / Move file or folder" },
                                     { op: "delete", icon: "delete_forever", tip: "Delete (requires 2x confirmation)" }
@@ -436,6 +472,7 @@ Item {
                                         } else {
                                             if (modelData.op === "access") message.text = "access " + (pocketItem ? sampleName : "~/Desktop")
                                             else if (modelData.op === "edit") message.text = "edit " + sampleName + ": "
+                                            else if (modelData.op === "run") message.text = "run " + (pocketItem ? sampleName : "~/Desktop/script.sh")
                                             else if (modelData.op === "copy") message.text = "copy " + sampleName + " -> ~/Desktop/copy.txt"
                                             else if (modelData.op === "cut") message.text = "cut " + sampleName + " -> ~/Documents/"
                                             else if (modelData.op === "delete") message.text = "delete " + sampleName

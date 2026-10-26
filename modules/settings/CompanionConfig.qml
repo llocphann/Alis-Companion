@@ -456,7 +456,7 @@ ContentPage {
                     CompactToggle {
                         objectName: "companionInteractive"
                         buttonIcon: "touch_app"
-                        text: Translation.tr("Respond to pointer interactions")
+                        text: Translation.tr("Respond to Click")
                         tooltipText: Translation.tr("Highlight on hover, react to clicks, and drag your companion around the screen.")
                         checked: root.preferences.interactive
                         onToggledByUser: checked => root.setPreference("interactive", checked)
@@ -491,7 +491,7 @@ ContentPage {
                     label: Translation.tr("Rendering quality") + " (" + Translation.tr("Current render quality") + ": " + AbyssRenderPolicy.aquaQualityLabel + ")"
                     enabled: !root.preferences.autoQuality
                     options: root.qualityOptions
-                    currentValue: root.preferences.renderQuality
+                    currentValue: root.preferences.autoQuality ? AbyssRenderPolicy.aquaQuality : root.preferences.renderQuality
                     onSelected: value => root.setPreference("renderQuality", value)
                 }
                 ColumnLayout {
@@ -527,7 +527,7 @@ ContentPage {
                     CompactToggle {
                         buttonIcon: "bolt"
                         text: Translation.tr("Follow power profile")
-                        tooltipText: Translation.tr("Use Performance in Power Saver and Balanced in other power profiles.")
+                        tooltipText: Translation.tr("Use Performance in Power Saver, Balanced in Balanced, and Quality in Performance power profile.")
                         checked: root.preferences.autoQuality
                         onToggledByUser: checked => root.setPreference("autoQuality",checked)
                     }
@@ -601,26 +601,22 @@ ContentPage {
                         onToggledByUser: checked => root.setPreference("exploreFeatures", checked)
                     }
                     CompactToggle {
-                        objectName: "companionPocket"
-                        buttonIcon: "inventory_2"
-                        text: Translation.tr("Enable Pocket")
-                        tooltipText: Translation.tr("Save local file names, paths, sizes and dates when you choose or drop files. File contents are never read or sent to AI. Removing a reference keeps the original file.")
-                        checked: root.preferences.pocketEnabled
-                        onToggledByUser: checked => root.setPreference("pocketEnabled", checked)
-                    }
-                    CompactToggle {
                         objectName: "companionContext"
-                        buttonIcon: "sensors"
-                        text: Translation.tr("Share coarse activity with Companion")
-                        tooltipText: Translation.tr("Off by default. Shares only the categories and states you choose below. Stops while locked, fullscreen or Do Not Disturb.")
+                        buttonIcon: "admin_panel_settings"
+                        text: Translation.tr("Full Desktop & App Access")
+                        tooltipText: Translation.tr("Allow Companion full access to Apps, Desktop & User data, on-screen info, desktop edits, and scripts.")
                         checked: root.preferences.contextEnabled
-                        onToggledByUser: checked => root.setPreference("contextEnabled", checked)
+                        onToggledByUser: checked => {
+                            root.setPreference("contextEnabled", checked)
+                            if (checked && !root.preferences.contextFocusEnabled)
+                                root.setPreference("contextFocusEnabled", true)
+                        }
                     }
                     CompactToggle {
                         objectName: "companionContextFocus"
-                        buttonIcon: "terminal"
-                        text: Translation.tr("Share the focused app category")
-                        tooltipText: Translation.tr("Only terminal, editor or other. Window titles, files and app content stay private.")
+                        buttonIcon: "desktop_windows"
+                        text: Translation.tr("Access Apps, Desktop & User Data")
+                        tooltipText: Translation.tr("Access focused app content, screen info, user files, desktop edits, and script execution.")
                         enabled: root.preferences.contextEnabled
                         checked: root.preferences.contextFocusEnabled
                         onToggledByUser: checked => root.setPreference("contextFocusEnabled", checked)
@@ -635,39 +631,40 @@ ContentPage {
                         onToggledByUser: checked => root.setPreference("contextAiEnabled", checked)
                     }
                     CompactToggle {
-                        objectName: "companionAmbient"
-                        buttonIcon: "auto_awesome"
-                        text: Translation.tr("Quiet ambient reactions")
-                        tooltipText: Translation.tr("Small expressions, at most once every two minutes.")
-                        checked: root.preferences.ambientEnabled
-                        onToggledByUser: checked => root.setPreference("ambientEnabled", checked)
-                    }
-                    CompactToggle {
                         objectName: "companionAmbientFocus"
                         buttonIcon: "timer"
                         text: Translation.tr("Follow Focus sessions")
                         tooltipText: Translation.tr("Uses the existing Focus timer; stays quiet during work.")
-                        enabled: root.preferences.ambientEnabled
                         checked: root.preferences.ambientFocusEnabled
                         onToggledByUser: checked => root.setPreference("ambientFocusEnabled", checked)
                     }
-                    CompactToggle {
-                        objectName: "companionAmbientBattery"
-                        buttonIcon: "battery_charging_full"
-                        text: Translation.tr("React to battery state")
-                        tooltipText: Translation.tr("Only low battery or charging; no device details.")
-                        enabled: root.preferences.ambientEnabled
-                        checked: root.preferences.ambientBatteryEnabled
-                        onToggledByUser: checked => root.setPreference("ambientBatteryEnabled", checked)
-                    }
-                    CompactToggle {
-                        objectName: "companionAmbientMedia"
-                        buttonIcon: "music_note"
-                        text: Translation.tr("React to playback state")
-                        tooltipText: Translation.tr("Only playing or paused; no titles, artists or media control.")
-                        enabled: root.preferences.ambientEnabled
-                        checked: root.preferences.ambientMediaEnabled
-                        onToggledByUser: checked => root.setPreference("ambientMediaEnabled", checked)
+                }
+                Rectangle {
+                    objectName: "companionFullAccessBanner"
+                    visible: root.preferences.contextEnabled || AquaMind.agentToolsEnabled
+                    Layout.fillWidth: true
+                    implicitHeight: fullAccessRow.implicitHeight + 16
+                    radius: 10
+                    color: Qt.alpha(Appearance.colors.colPrimary, 0.12)
+                    border.width: 1
+                    border.color: Qt.alpha(Appearance.colors.colPrimary, 0.35)
+                    RowLayout {
+                        id: fullAccessRow
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 8
+                        MaterialSymbol {
+                            text: "verified_user"
+                            iconSize: 18
+                            color: Appearance.colors.colPrimary
+                        }
+                        StyledText {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            font.pixelSize: Appearance.font.pixelSize.smaller
+                            color: Appearance.colors.colOnLayer1
+                            text: Translation.tr("Full Access Active — Companion can access Apps, Desktop & User data, assist with on-screen info, edit desktop files, and run scripts.")
+                        }
                     }
                 }
             }
@@ -938,16 +935,16 @@ ContentPage {
                     CompactIconToggle {
                         objectName:"aquaAgentToolsToggle"
                         buttonIcon:"smart_toy"
-                        text:"Enable Desktop Agent"
-                        tooltipText:"Allow Companion to answer questions using your focused app context or screenshot OCR."
+                        text:"Enable Desktop Agent (Full Access)"
+                        tooltipText:"Full Access Active: allow Companion to access Apps, Desktop & User data, read on-screen info, edit desktop files, and run scripts."
                         checked:AquaMind.agentToolsEnabled
                         onToggledByUser:checked=>AquaMind.agentToolsEnabled=checked
                     }
                     CompactIconToggle {
                         objectName:"aquaAgentAppContextToggle"
                         buttonIcon:"desktop_windows"
-                        text:"Access focused app"
-                        tooltipText:"Read active window metadata and open text/code file from your focused application."
+                        text:"Access Apps, Desktop & User Data"
+                        tooltipText:"Read active app content, Desktop & User files, and on-screen context."
                         enabled:AquaMind.agentToolsEnabled
                         checked:AquaMind.agentAppContextEnabled
                         onToggledByUser:checked=>AquaMind.agentAppContextEnabled=checked

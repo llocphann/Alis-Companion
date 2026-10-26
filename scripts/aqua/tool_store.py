@@ -290,6 +290,21 @@ def _capture_screen_ocr() -> list[str]:
         tmp_path.unlink(missing_ok=True)
 
 
+def _list_desktop_user_summary() -> list[str]:
+    home = Path.home().resolve()
+    summary_lines: list[str] = []
+    desktop_dir = home / "Desktop"
+    if desktop_dir.is_dir():
+        try:
+            items = sorted(desktop_dir.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))[:6]
+            if items:
+                names = ", ".join(p.name + ("/" if p.is_dir() else "") for p in items)
+                summary_lines.append(_clean_line(f"desktop:{names}", 155))
+        except OSError:
+            pass
+    return summary_lines
+
+
 def inspect_metadata(options: dict, companion_root: Path, host_root: Path) -> dict:
     kind = str(options.get("kind", "")).strip()
     if kind == "active_app":
@@ -310,7 +325,8 @@ def inspect_metadata(options: dict, companion_root: Path, host_root: Path) -> di
             _clean_line(f"app:{app_id} | title:{title}", 155),
             _clean_line(f"method:{access_method} | cwd:{cwd_str or 'n/a'}", 155),
         ]
-        for ln in content_lines[:14]:
+        headings.extend(_list_desktop_user_summary())
+        for ln in content_lines[:13]:
             headings.append(_clean_line(ln, 155))
         return {
             "kind": "active_app",
@@ -318,7 +334,7 @@ def inspect_metadata(options: dict, companion_root: Path, host_root: Path) -> di
             "packageId": app_id[:120],
             "version": access_method[:80],
             "localOnlyDefault": True,
-            "capabilities": ["active_app", access_method],
+            "capabilities": ["active_app", access_method, "full_access", "desktop_files", "run_script"],
             "headings": headings[:16],
         }
     if kind == "host_metadata":
@@ -619,8 +635,8 @@ def _resolve_user_path(raw_path: str, allow_missing: bool = False) -> Path:
 
 def agent_file_op(options: dict) -> dict:
     op = str(options.get("op", "")).strip().lower()
-    if op not in ("access", "edit", "copy", "cut", "delete", "cancel_delete"):
-        raise ToolError("invalid_op", "Agent operation must be access, edit, copy, cut, delete, or cancel_delete.")
+    if op not in ("access", "edit", "copy", "cut", "delete", "cancel_delete", "run"):
+        raise ToolError("invalid_op", "Agent operation must be access, edit, copy, cut, delete, cancel_delete, or run.")
     now = _now_ms(options.get("nowMs"))
     store = _load_store()
     proposals = store["proposals"]
@@ -639,6 +655,60 @@ def agent_file_op(options: dict) -> dict:
         }
 
     raw_target = str(options.get("targetPath", "")).strip()
+    if op == "run":
+        cmd_text = str(options.get("content", "")).strip() or raw_target
+        if not cmd_text or "\x00" in cmd_text:
+            raise ToolError("invalid_script", "Specify a script path or command to run.")
+        home = Path.home().resolve()
+        work_dir = (home / "Desktop") if (home / "Desktop").is_dir() else home
+        target_label = cmd_text
+        resolved_script = None
+        first_token = cmd_text.split()[0] if cmd_text.split() else ""
+        try:
+            cand = _resolve_user_path(first_token, allow_missing=False)
+            if cand.is_file():
+                resolved_script = cand
+                work_dir = cand.parent
+                target_label = cand.name
+        except ToolError:
+            resolved_script = None
+        try:
+            if resolved_script is not None and len(cmd_text.split()) == 1:
+                suffix = resolved_script.suffix.lower()
+                if suffix == ".py":
+                    argv = ["python3", str(resolved_script)]
+                elif suffix in (".js", ".cjs", ".mjs"):
+                    argv = ["node", str(resolved_script)]
+                else:
+                    argv = ["bash", str(resolved_script)]
+                proc = subprocess.run(
+                    argv, cwd=str(work_dir), text=True,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=4.0
+                )
+            else:
+                proc = subprocess.run(
+                    ["bash", "-lc", cmd_text], cwd=str(work_dir), text=True,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=4.0
+                )
+            out_lines = [
+                _clean_line(ln, 180)
+                for ln in (proc.stdout or "").splitlines()
+                if ln.strip()
+            ][:18]
+            return {
+                "op": "run",
+                "status": "completed",
+                "confirmStage": 0,
+                "targetPath": str(resolved_script or work_dir)[:400],
+                "destPath": "",
+                "summary": _clean_line(f"Ran '{target_label}' (exit {proc.returncode}).", 240),
+                "lines": out_lines or [f"(completed with exit code {proc.returncode})"],
+            }
+        except subprocess.TimeoutExpired:
+            raise ToolError("script_timeout", "Script timed out after 4 seconds.")
+        except OSError as exc:
+            raise ToolError("script_error", _clean_line(f"Failed to run script: {exc}", 180))
+
     if op == "access" and not raw_target:
         win = _resolve_active_window()
         app_id = _clean_line(win.get("app_id") or "desktop", 80) or "desktop"
@@ -655,6 +725,7 @@ def agent_file_op(options: dict) -> dict:
         out_lines = [_clean_line(f"app:{app_id} | {title}", 180)]
         if cwd_str:
             out_lines.append(_clean_line(f"cwd:{cwd_str}", 180))
+        out_lines.extend(_list_desktop_user_summary())
         out_lines.extend(_clean_line(x, 180) for x in lines[:14])
         return {
             "op": "access",
@@ -662,7 +733,7 @@ def agent_file_op(options: dict) -> dict:
             "confirmStage": 0,
             "targetPath": cwd_str[:400] if cwd_str else "",
             "destPath": "",
-            "summary": _clean_line(f"Accessed active desktop context ({app_id}, {method}).", 240),
+            "summary": _clean_line(f"Accessed Apps, Desktop & User context ({app_id}, {method}).", 240),
             "lines": out_lines[:20],
         }
 

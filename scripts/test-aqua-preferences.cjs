@@ -35,7 +35,7 @@ for (const [index, quality] of Array.from(api.qualities).entries()) {
     assert.equal(api.normalize({renderQuality: quality}).renderQuality, quality);
     assert.equal(api.renderTier(quality, "balanced"), index);
     assert.equal(api.renderTier(quality, "quality"), index);
-    assert.equal(api.renderTier(quality, "performance"), 0);
+    assert.equal(api.renderTier(quality, "performance"), index);
 }
 assert.equal(api.renderTier("unknown", "balanced"), 1);
 for (const old of ["balanced", "quality", "unknown"]) {

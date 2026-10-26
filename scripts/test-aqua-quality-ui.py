@@ -79,15 +79,16 @@ ShellRoot {
                 root.require(shader !== null && shader.rendering.x === 2, "shader receives tier two")
                 Config.options.abyss.quality = "performance"
             } else if (root.step === 4) {
-                root.require(material.qualityLevel === 0 && AbyssRenderPolicy.aquaQualityLabel === "Performance", "shell ceiling")
-                root.require(Config.options.abyss.companion.renderQuality === "detailed", "ceiling preserves choice")
+                root.require(material.qualityLevel === 2 && AbyssRenderPolicy.aquaQualityLabel === "Quality", "independent companion quality")
+                root.require(Config.options.abyss.companion.renderQuality === "detailed", "preserves choice")
                 Config.options.abyss.quality = "balanced"
             } else if (root.step === 5) {
                 root.require(material.qualityLevel === 2, "manual detail restored")
                 Config.options.abyss.companion.autoQuality = true
             } else if (root.step === 6) {
-                const expected = AbyssRenderPolicy.powerProfile === "power-saver" ? 0 : 1
-                root.require(material.qualityLevel === expected, "automatic profile cost preserved")
+                const expected = AbyssRenderPolicy.powerProfile === "power-saver" ? 0
+                    : AbyssRenderPolicy.powerProfile === "performance" ? 2 : 1
+                root.require(material.qualityLevel === expected, "automatic profile mapping")
                 root.require(row.enabled === false, "automatic control")
                 Config.options.abyss.companion.autoQuality = false
             } else if (root.step === 7) {

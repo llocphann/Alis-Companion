@@ -294,4 +294,16 @@ with tempfile.TemporaryDirectory(prefix="companion-tools-") as tmp:
     assert not moved_file.exists()
     verify_guard("agent_file_op", raw)
 
+    # 5. Desktop Agent script execution (op == "run")
+    script_file = private / "Desktop" / "hello_agent.sh"
+    script_file.write_text("#!/usr/bin/env bash\necho 'Full Access Script OK'\n", encoding="utf-8")
+    raw, ran_script = call_mind(agent_env, {
+        "action": "agent_file_op",
+        "op": "run",
+        "targetPath": str(script_file),
+    })
+    assert ran_script["ok"] is True and ran_script["result"]["status"] == "completed"
+    assert any("Full Access Script OK" in ln for ln in ran_script["result"]["lines"])
+    verify_guard("agent_file_op", raw)
+
 print("COMPANION_LOCAL_TOOLS_PASS readOnlyMetadata routingCostGate confirmedReceipts timeoutCancel idempotentRollback desktopAgentFileOps2xDelete")

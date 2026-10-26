@@ -13,10 +13,10 @@ DropArea {
     readonly property real dragRadius:expandedZone
         ? Math.round(Math.max(380, Math.min(outputWidth, outputHeight) * 0.48))
         : 92
-    x:expandedZone ? Math.round((actor ? actor.width * 0.5 : 56) - dragRadius) : -36
-    y:expandedZone ? Math.round((actor ? actor.height * 0.5 : 49) - dragRadius) : -36
-    width:expandedZone ? dragRadius * 2 : (actor ? actor.width : 112) + 72
-    height:expandedZone ? dragRadius * 2 : (actor ? actor.height : 98) + 72
+    x:expandedZone ? Math.round((actor ? actor.width * 0.5 : 56) - dragRadius) : 0
+    y:expandedZone ? Math.round((actor ? actor.height * 0.5 : 49) - dragRadius) : 0
+    width:expandedZone ? dragRadius * 2 : (actor ? actor.width : 112)
+    height:expandedZone ? dragRadius * 2 : (actor ? actor.height : 98)
     // Keep this target alive while the accepted request starts its helper.
     // Helper startup must not change the target's input ownership mid-event.
     enabled:allowed && AquaPocket.permitted && actor.visible && actor.inputReady && !actor.dragging

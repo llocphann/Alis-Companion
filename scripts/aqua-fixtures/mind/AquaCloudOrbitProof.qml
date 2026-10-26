@@ -79,6 +79,12 @@ Window {
                     mouseMove(board,pom.x+pom.width/2,pom.y+pom.height/2);wait(50)
                     mouseClick(board,pom.x+pom.width/2,pom.y+pom.height/2);wait(60)
                     check(actions.pomodoroExpanded && pomAction?.visible && pomReset?.visible && !pomExpand?.visible,"Pomodoro icon bubble did not expand on click on "+edge)
+                    for(const other of [a,b,actions.pocketTarget]) {
+                        if(!other || !other.visible) continue
+                        const overlap = pom.x < other.x+other.width+4 && pom.x+pom.width+4 > other.x
+                            && pom.y < other.y+other.height+4 && pom.y+pom.height+4 > other.y
+                        check(!overlap,"expanded Pomodoro overlapped bubble on "+edge)
+                    }
                     actions.pomodoroExpanded=false;wait(40)
                     mouseMove(board,a.x+a.width/2,a.y+a.height/2);wait(50)
                     check(actions.hovered,"cloud hover did not hold its orbit "+JSON.stringify({

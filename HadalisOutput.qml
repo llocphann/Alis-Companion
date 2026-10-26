@@ -305,6 +305,8 @@ Item {
                 if (!talkCloud.containsScenePoint(point.scenePosition)) {
                     if (AquaPocket.opened && !GlobalStates.settingsNativeDialogOpen)
                         AquaPocket.close()
+                    if (AquaMind.contextOpen)
+                        AquaMind.dismiss()
                     companionPresence.nearbyClick(point.scenePosition.x,point.scenePosition.y)
                 }
             }
@@ -451,9 +453,10 @@ Item {
         Region { x:root.pocketMidX; y:root.pocketMidY+root.pocketMidH-2; width:root.pocketSensorActive ? root.pocketMidW : 0; height:2 }
         Region { x:root.pocketMidX; y:root.pocketMidY; width:2; height:root.pocketSensorActive ? root.pocketMidH : 0 }
         Region { x:root.pocketMidX+root.pocketMidW-2; y:root.pocketMidY; width:2; height:root.pocketSensorActive ? root.pocketMidH : 0 }
+        Region { x:0; y:0; width:(root.companionRimInputActive && (AquaMind.contextOpen || (AquaPocket.opened && !GlobalStates.settingsNativeDialogOpen))) ? host.width : 0; height:(root.companionRimInputActive && (AquaMind.contextOpen || (AquaPocket.opened && !GlobalStates.settingsNativeDialogOpen))) ? host.height : 0 }
     }
 
-    readonly property bool editing: talkCloud.editing
+    readonly property bool editing: talkCloud.editing || (talkCloud.visible && (AquaMind.contextOpen || talkCloud.pocketOpen))
     readonly property bool curiosityOwned: companionCuriosity.owned
     readonly property bool utilitiesVisitActive: companionCuriosity.owned
         && companionCuriosity.feature?.kind === "utilities"

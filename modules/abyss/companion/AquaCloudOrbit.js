@@ -93,10 +93,48 @@ function layout(outputWidth, outputHeight, actor) {
                     if (pomValid) {
                         const pmCx = pomValid.x + pomValid.width / 2;
                         const pmCy = pomValid.y + pomValid.height / 2;
+                        const pmAngle = Math.atan2(pmCy - cy, pmCx - cx);
+                        const pmDist = Math.hypot(pmCx - cx, pmCy - cy);
                         pomValid.expandedWidth = pomW;
                         pomValid.expandedHeight = pomH;
-                        pomValid.expandedX = Math.max(8, Math.min(outputWidth - pomW - 8, pmCx - pomW / 2));
-                        pomValid.expandedY = Math.max(8, Math.min(outputHeight - pomH - 8, pmCy - pomH / 2));
+                        let bestEx = Math.max(8, Math.min(outputWidth - pomW - 8,
+                            cx + Math.cos(pmAngle) * (pmDist + 36) - pomW / 2));
+                        let bestEy = Math.max(8, Math.min(outputHeight - pomH - 8,
+                            cy + Math.sin(pmAngle) * (pmDist + 36) - pomH / 2));
+                        let foundExpanded = false;
+                        const expAngles = [
+                            pmAngle,
+                            pmAngle + 0.22,
+                            pmAngle - 0.22,
+                            axis,
+                            axis + 0.38,
+                            axis - 0.38,
+                            normal
+                        ];
+                        for (const extraDist of [26, 36, 46, 58, 72]) {
+                            for (const ang of expAngles) {
+                                const candCx = cx + Math.cos(ang) * (pmDist + extraDist);
+                                const candCy = cy + Math.sin(ang) * (pmDist + extraDist);
+                                const cand = {
+                                    x: Math.max(8, Math.min(outputWidth - pomW - 8, candCx - pomW / 2)),
+                                    y: Math.max(8, Math.min(outputHeight - pomH - 8, candCy - pomH / 2)),
+                                    width: pomW,
+                                    height: pomH
+                                };
+                                if (!overlaps(cand, body, 6)
+                                    && !overlaps(cand, a, 6)
+                                    && !overlaps(cand, b, 6)
+                                    && (!pocketValid || !overlaps(cand, pocketValid, 6))) {
+                                    bestEx = cand.x;
+                                    bestEy = cand.y;
+                                    foundExpanded = true;
+                                    break;
+                                }
+                            }
+                            if (foundExpanded) break;
+                        }
+                        pomValid.expandedX = bestEx;
+                        pomValid.expandedY = bestEy;
                     }
                     return {available:true,nodes:[a,b],pocketNode:pocketValid,pomodoroNode:pomValid,axisAngle:axis};
                 }
