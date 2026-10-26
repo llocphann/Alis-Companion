@@ -746,7 +746,7 @@ Item {
                             Layout.preferredHeight: 36
                             implicitWidth: 36
                             implicitHeight: 36
-                            enabled: !AquaMind.busy && message.text.trim().length>0
+                            enabled: (!AquaMind.busy || /^\/(?:clear|clean|cls)(?:\s+.*)?$/i.test(message.text.trim())) && message.text.trim().length>0
                             buttonRadius: 18
                             onClicked: root.submit()
                             contentItem: MaterialSymbol {
@@ -775,6 +775,12 @@ Item {
         function onContextOpenChanged():void {if(AquaMind.contextOpen)AquaPocket.close()}
     }
     function submit(): void {
+        const raw = String(message.text ?? "").trim()
+        if (/^\/(?:clear|clean|cls)(?:\s+.*)?$/i.test(raw)) {
+            AquaMind.clearConversation()
+            message.text = ""
+            return
+        }
         if (AquaMind.sendMessage(message.text)) message.text=""
     }
     onEditingChanged: {

@@ -461,7 +461,7 @@ Singleton {
     function sendMessage(message): bool {
         const prompt=String(message).trim().slice(0,1200)
         if (!prompt) return false
-        if (/^\/clear(?:\s+.*)?$/i.test(prompt)) {
+        if (/^\/(?:clear|clean|cls)(?:\s+.*)?$/i.test(prompt)) {
             clearConversation()
             return true
         }
