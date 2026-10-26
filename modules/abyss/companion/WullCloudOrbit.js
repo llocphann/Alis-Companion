@@ -52,21 +52,24 @@ function layout(outputWidth, outputHeight, actor) {
                         pocket = node(axis, radius + 0.32);
                     const pocketValid = fits(pocket) && !overlaps(a,pocket,3) && !overlaps(b,pocket,3) && !overlaps(pocket,centerPt,2) ? pocket : null;
                     let pomValid = null;
+                    outerPom:
                     for (const angOff of [0, -0.42, 0.42, -0.65, 0.65]) {
-                        const pAng = axis + angOff;
-                        const step = Math.abs(Math.cos(pAng))*(nodeWidth+pomW)/2 + Math.abs(Math.sin(pAng))*(nodeHeight+pomH)/2 + 8;
-                        const dist = baseRadius * radius * 1.02 + step;
-                        const cand = {
-                            x: Math.max(8, Math.min(outputWidth - pomW - 8, cx + Math.cos(pAng) * dist - pomW / 2)),
-                            y: Math.max(8, Math.min(outputHeight - pomH - 8, cy + Math.sin(pAng) * dist - pomH / 2)),
-                            width: pomW,
-                            height: pomH
-                        };
-                        if (fits(cand) && !overlaps(a,cand,3) && !overlaps(b,cand,3)
-                            && (!pocketValid || !overlaps(pocketValid,cand,3))
-                            && !overlaps(cand,centerPt,2)) {
-                            pomValid = cand;
-                            break;
+                        for (const extraGap of [6, 20]) {
+                            const pAng = axis + angOff;
+                            const step = Math.abs(Math.cos(pAng))*(nodeWidth+pomW)/2 + Math.abs(Math.sin(pAng))*(nodeHeight+pomH)/2 + extraGap;
+                            const dist = baseRadius * radius * 1.02 + step;
+                            const cand = {
+                                x: Math.max(8, Math.min(outputWidth - pomW - 8, cx + Math.cos(pAng) * dist - pomW / 2)),
+                                y: Math.max(8, Math.min(outputHeight - pomH - 8, cy + Math.sin(pAng) * dist - pomH / 2)),
+                                width: pomW,
+                                height: pomH
+                            };
+                            if (fits(cand) && !overlaps(a,cand,3) && !overlaps(b,cand,3)
+                                && (!pocketValid || !overlaps(pocketValid,cand,3))
+                                && !overlaps(cand,centerPt,2)) {
+                                pomValid = cand;
+                                break outerPom;
+                            }
                         }
                     }
                     return {available:true,nodes:[a,b],pocketNode:pocketValid,pomodoroNode:pomValid,axisAngle:axis};
