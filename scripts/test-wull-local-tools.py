@@ -201,4 +201,97 @@ with tempfile.TemporaryDirectory(prefix="companion-tools-") as tmp:
     assert receipts["result"]["receipts"][0]["rolledBack"] is True
     verify_guard("tool_receipts", raw)
 
-print("COMPANION_LOCAL_TOOLS_PASS readOnlyMetadata routingCostGate confirmedReceipts timeoutCancel idempotentRollback")
+    # 4. Desktop Agent file operations (access, edit, copy, cut, and 2x-confirmed delete)
+    agent_env = env.copy()
+    agent_env["HOME"] = str(private)
+    (private / "Desktop").mkdir(parents=True, exist_ok=True)
+
+    raw, edited = call_mind(agent_env, {
+        "action": "agent_file_op",
+        "op": "edit",
+        "targetPath": "agent_note.txt",
+        "mode": "write",
+        "content": "Hello from Companion Agent\nSecond line",
+    })
+    assert edited["ok"] is True and edited["result"]["status"] == "completed"
+    verify_guard("agent_file_op", raw)
+    note_file = private / "Desktop" / "agent_note.txt"
+    assert note_file.is_file() and "Hello from Companion Agent" in note_file.read_text(encoding="utf-8")
+
+    raw, accessed = call_mind(agent_env, {
+        "action": "agent_file_op",
+        "op": "access",
+        "targetPath": str(note_file),
+    })
+    assert accessed["ok"] is True and accessed["result"]["status"] == "completed"
+    assert any("Hello from Companion Agent" in ln for ln in accessed["result"]["lines"])
+    verify_guard("agent_file_op", raw)
+
+    copy_file = private / "Desktop" / "agent_copy.txt"
+    raw, copied = call_mind(agent_env, {
+        "action": "agent_file_op",
+        "op": "copy",
+        "targetPath": str(note_file),
+        "destPath": str(copy_file),
+    })
+    assert copied["ok"] is True and copy_file.is_file()
+    verify_guard("agent_file_op", raw)
+
+    moved_file = private / "Desktop" / "agent_moved.txt"
+    raw, moved = call_mind(agent_env, {
+        "action": "agent_file_op",
+        "op": "cut",
+        "targetPath": str(copy_file),
+        "destPath": str(moved_file),
+    })
+    assert moved["ok"] is True and not copy_file.exists() and moved_file.is_file()
+    verify_guard("agent_file_op", raw)
+
+    # Delete must require 2 confirmations before removing the file
+    raw, del_step0 = call_mind(agent_env, {
+        "action": "agent_file_op",
+        "op": "delete",
+        "targetPath": str(moved_file),
+        "confirmStep": 0,
+        "nowMs": now + 3000,
+    })
+    assert del_step0["ok"] is True and del_step0["result"]["status"] == "confirm_1_required"
+    assert del_step0["result"]["confirmStage"] == 1 and moved_file.is_file()
+    verify_guard("agent_file_op", raw)
+
+    # Skipping step 1 directly to step 2 must be rejected
+    _, skip_step1 = call_mind(agent_env, {
+        "action": "agent_file_op",
+        "op": "delete",
+        "targetPath": str(moved_file),
+        "confirmStep": 2,
+        "nowMs": now + 3100,
+    })
+    assert skip_step1["ok"] is False and skip_step1["error"]["code"] == "second_confirmation_required"
+    assert moved_file.is_file()
+
+    # Step 1 confirmation advances to stage 2 without deleting yet
+    raw, del_step1 = call_mind(agent_env, {
+        "action": "agent_file_op",
+        "op": "delete",
+        "targetPath": str(moved_file),
+        "confirmStep": 1,
+        "nowMs": now + 3200,
+    })
+    assert del_step1["ok"] is True and del_step1["result"]["status"] == "confirm_2_required"
+    assert del_step1["result"]["confirmStage"] == 2 and moved_file.is_file()
+    verify_guard("agent_file_op", raw)
+
+    # Step 2 (2nd confirmation) deletes the file
+    raw, del_step2 = call_mind(agent_env, {
+        "action": "agent_file_op",
+        "op": "delete",
+        "targetPath": str(moved_file),
+        "confirmStep": 2,
+        "nowMs": now + 3300,
+    })
+    assert del_step2["ok"] is True and del_step2["result"]["status"] == "completed"
+    assert not moved_file.exists()
+    verify_guard("agent_file_op", raw)
+
+print("COMPANION_LOCAL_TOOLS_PASS readOnlyMetadata routingCostGate confirmedReceipts timeoutCancel idempotentRollback desktopAgentFileOps2xDelete")

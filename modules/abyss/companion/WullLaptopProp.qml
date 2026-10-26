@@ -12,6 +12,29 @@ Item {
     width: 76
     height: 92
 
+    readonly property color deckEdgeStrokeColor: Qt.darker(root.accentColor, 2.8)
+    readonly property color deckEdgeFillColor: Qt.darker(root.accentColor, 2.35)
+    readonly property color deckTopRimColor: Qt.lighter(root.specularColor, 1.05)
+    readonly property color deckGradStartColor: Qt.darker(root.accentColor, 1.45)
+    readonly property color deckGradEndColor: Qt.darker(root.accentColor, 1.95)
+    readonly property color trackpadStrokeColor: Qt.lighter(root.accentColor, 1.35)
+    readonly property color trackpadFillColor: Qt.alpha(root.accentColor, 0.34 + root.typingPulse * 0.28)
+    readonly property color keyWellFillColor: Qt.darker(root.accentColor, 3.1)
+    readonly property color keyCapPrimaryColor: Qt.lighter(root.accentColor, 1.22)
+    readonly property color keyCapSecondaryColor: root.accentColor
+    readonly property color screenGlowColor: Qt.alpha(root.accentColor, 0.44 + root.screenPulse * 0.18)
+    readonly property color hingeStrokeColor: Qt.darker(root.accentColor, 2.6)
+    readonly property color hingeFillColor: Qt.darker(root.accentColor, 1.65)
+    readonly property color lidRimStrokeColor: Qt.darker(root.accentColor, 2.15)
+    readonly property color lidRimFillColor: Qt.darker(root.accentColor, 1.35)
+    readonly property color lidBackStrokeColor: Qt.darker(root.accentColor, 1.9)
+    readonly property color lidBackGrad0: Qt.lighter(root.specularColor, 1.02)
+    readonly property color lidBackGrad1: Qt.lighter(root.accentColor, 1.18)
+    readonly property color lidBackGrad2: Qt.darker(root.accentColor, 1.15)
+    readonly property color lidCreaseColor: Qt.darker(root.accentColor, 1.55)
+    readonly property color emblemStrokeColor: Qt.darker(root.accentColor, 2.0)
+    readonly property color emblemFillColor: root.specularColor
+
     readonly property real laptopHinge: pose?.laptopHinge ?? 0
     readonly property real laptopSlide: pose?.laptopSlide ?? 0
     readonly property real laptopLift: pose?.laptopLift ?? 0
@@ -68,8 +91,8 @@ Item {
                 // 3D base thickness along the right/bottom edges
                 ShapePath {
                     strokeWidth: 0.75
-                    strokeColor: "#0e1f2f"
-                    fillColor: "#13283c"
+                    strokeColor: root.deckEdgeStrokeColor
+                    fillColor: root.deckEdgeFillColor
                     startX: 20.0; startY: 20.8
                     PathLine { x: 37.5; y: 9.8 }
                     PathLine { x: 37.5; y: 12.2 }
@@ -81,11 +104,11 @@ Item {
                 // Top aluminum deck plane extending back toward Companion (upper-right)
                 ShapePath {
                     strokeWidth: 1.0
-                    strokeColor: "#d8f8ff"
+                    strokeColor: root.deckTopRimColor
                     fillGradient: LinearGradient {
                         x1: 34; y1: 4; x2: 8; y2: 20
-                        GradientStop { position: 0; color: "#315f82" }
-                        GradientStop { position: 1; color: "#1b374e" }
+                        GradientStop { position: 0; color: root.deckGradStartColor }
+                        GradientStop { position: 1; color: root.deckGradEndColor }
                     }
                     startX: 0.8; startY: 15.0
                     PathLine { x: 18.5; y: 3.8 }
@@ -96,8 +119,8 @@ Item {
                 // Trackpad on the upper-right palmrest (closest to Companion's belly!)
                 ShapePath {
                     strokeWidth: 0.6
-                    strokeColor: "#b8f2ff"
-                    fillColor: Qt.alpha("#9ef6ff", 0.32 + root.typingPulse * 0.28)
+                    strokeColor: root.trackpadStrokeColor
+                    fillColor: root.trackpadFillColor
                     startX: 21.8; startY: 6.2
                     PathLine { x: 28.2; y: 8.2 }
                     PathLine { x: 24.4; y: 10.7 }
@@ -108,7 +131,7 @@ Item {
                 ShapePath {
                     strokeWidth: 0.65
                     strokeColor: Qt.alpha(root.specularColor, 0.75)
-                    fillColor: "#091521"
+                    fillColor: root.keyWellFillColor
                     startX: 5.5; startY: 14.5
                     PathLine { x: 16.2; y: 7.6 }
                     PathLine { x: 31.8; y: 12.5 }
@@ -128,7 +151,7 @@ Item {
                     x: 13.5 + index * 3.5
                     y: 9.8 + index * 1.05
                     rotation: 17
-                    color: (index % 2 === 0 && root.typingPulse > 0.15) ? "#ffffff" : "#82f0ff"
+                    color: (index % 2 === 0 && root.typingPulse > 0.15) ? root.specularColor : root.keyCapPrimaryColor
                     opacity: 0.82 + root.typingPulse * 0.18
                 }
             }
@@ -142,13 +165,13 @@ Item {
                     x: 10.2 + index * 3.5
                     y: 12.2 + index * 1.05
                     rotation: 17
-                    color: (index % 2 === 1 && root.typingPulse > 0.15) ? "#ffffff" : "#5ed2f2"
+                    color: (index % 2 === 1 && root.typingPulse > 0.15) ? root.specularColor : root.keyCapSecondaryColor
                     opacity: 0.76 + root.typingPulse * 0.22
                 }
             }
         }
 
-        // 2. MIDDLE LAYER: Cyan light cast backward/upward from the hidden inner screen onto Companion
+        // 2. MIDDLE LAYER: Theme light cast backward/upward from the hidden inner screen onto Companion
         Shape {
             visible: root.hingeFactor > 0.35
             anchors.fill: parent
@@ -158,7 +181,7 @@ Item {
                 strokeWidth: 0
                 fillGradient: LinearGradient {
                     x1: 18; y1: 16; x2: 34; y2: 2
-                    GradientStop { position: 0; color: Qt.rgba(0.42, 0.94, 1.0, 0.42 + root.screenPulse * 0.18) }
+                    GradientStop { position: 0; color: root.screenGlowColor }
                     GradientStop { position: 1; color: "transparent" }
                 }
                 startX: 6; startY: 9
@@ -181,8 +204,8 @@ Item {
             preferredRendererType: Shape.CurveRenderer
             ShapePath {
                 strokeWidth: 0.85
-                strokeColor: "#142b3d"
-                fillColor: "#2d526d"
+                strokeColor: root.hingeStrokeColor
+                fillColor: root.hingeFillColor
                 startX: 1.2; startY: 1.0
                 PathLine { x: 22.0; y: 6.8 }
                 PathLine { x: 20.8; y: 8.3 }
@@ -191,7 +214,7 @@ Item {
             }
         }
 
-        // 4. FOREGROUND LAYER: Brushed Silver-Aluminum BACK Cover of the Screen Lid
+        // 4. FOREGROUND LAYER: Theme-Tinted Metallic BACK Cover of the Screen Lid
         //    (Faces the viewer in the foreground, occluding the front of the keyboard;
         //     the screen is on the opposite side facing Companion!)
         Item {
@@ -210,8 +233,8 @@ Item {
                 // 3D lid thickness edge along the top & right rim (showing the lid is angled away toward Companion)
                 ShapePath {
                     strokeWidth: 0.75
-                    strokeColor: "#1b394f"
-                    fillColor: "#396884"
+                    strokeColor: root.lidRimStrokeColor
+                    fillColor: root.lidRimFillColor
                     startX: 3.0; startY: 0.5
                     PathLine { x: 25.6; y: 6.0 }
                     PathLine { x: 26.2; y: laptopLid.height - 0.4 }
@@ -221,15 +244,15 @@ Item {
                     PathLine { x: 3.0; y: 0.5 }
                 }
 
-                // Brushed silver-aluminum BACK shell of the lid facing the viewer
+                // Theme-tinted metallic BACK shell of the lid facing the viewer
                 ShapePath {
                     strokeWidth: 1.1
-                    strokeColor: "#20425a"
+                    strokeColor: root.lidBackStrokeColor
                     fillGradient: LinearGradient {
                         x1: 2; y1: 1; x2: 24; y2: laptopLid.height
-                        GradientStop { position: 0.0; color: "#d6f2fa" }
-                        GradientStop { position: 0.45; color: "#9ac7db" }
-                        GradientStop { position: 1.0; color: "#689cb5" }
+                        GradientStop { position: 0.0; color: root.lidBackGrad0 }
+                        GradientStop { position: 0.45; color: root.lidBackGrad1 }
+                        GradientStop { position: 1.0; color: root.lidBackGrad2 }
                     }
                     startX: 1.0; startY: 1.7
                     PathLine { x: 23.4; y: 7.2 }
@@ -241,7 +264,7 @@ Item {
                 // Metallic diagonal specular reflection across the aluminum lid back
                 ShapePath {
                     strokeWidth: 0
-                    fillColor: Qt.alpha("#ffffff", 0.38)
+                    fillColor: Qt.alpha(root.specularColor, 0.38)
                     startX: 4.2; startY: 2.5
                     PathLine { x: 11.2; y: 4.2 }
                     PathLine { x: 8.0; y: Math.max(4.2, laptopLid.height - 4.2) }
@@ -252,7 +275,7 @@ Item {
                 // Bottom-back hinge crease line on the exterior shell
                 ShapePath {
                     strokeWidth: 0.8
-                    strokeColor: "#35607a"
+                    strokeColor: root.lidCreaseColor
                     fillColor: "transparent"
                     startX: 2.6; startY: Math.max(2.8, laptopLid.height - 6.8)
                     PathLine { x: 23.6; y: Math.max(7.6, laptopLid.height - 1.4) }
@@ -261,8 +284,8 @@ Item {
                 // Glowing Abyss droplet emblem on the center of the metallic back cover
                 ShapePath {
                     strokeWidth: 0.85
-                    strokeColor: "#1b435c"
-                    fillColor: "#ffffff"
+                    strokeColor: root.emblemStrokeColor
+                    fillColor: root.emblemFillColor
                     startX: 12.8; startY: laptopLid.height * 0.34
                     PathQuad { x: 15.6; y: laptopLid.height * 0.56; controlX: 16.2; controlY: laptopLid.height * 0.44 }
                     PathQuad { x: 12.6; y: laptopLid.height * 0.66; controlX: 14.8; controlY: laptopLid.height * 0.68 }

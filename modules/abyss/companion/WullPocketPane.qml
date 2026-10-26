@@ -7,156 +7,231 @@ import qs.services
 import "../../../services"
 import qs.modules.common
 import qs.modules.common.widgets
+import qs.modules.abyss.looks
 import qs.modules.settings
 
-ColumnLayout {
+Item {
     id:root
-    spacing:8
+    property Item actor: null
     property bool confirmClear:false
+    implicitHeight: layoutCol.implicitHeight
     focus:true
     Component.onCompleted: Qt.callLater(() => { if (root.visible) root.forceActiveFocus() })
     Keys.onEscapePressed: WullPocket.close()
     DropArea {
-        parent:root
+        id: paneDrop
         anchors.fill:parent
         enabled:WullPocket.canSelect
         function accepts(event): bool {
             return enabled && event.hasUrls && (event.supportedActions & Qt.CopyAction)!==0
                 && event.urls.length>0 && event.urls.length<=8
         }
-        onEntered:drag=> {drag.accepted=false;if(accepts(drag))drag.accept(Qt.CopyAction)}
-        onPositionChanged:drag=> {drag.accepted=false;if(accepts(drag))drag.accept(Qt.CopyAction)}
+        function syncActorDrag(drag, active): void {
+            if (!root.actor) return
+            root.actor.pocketDragActive = active
+            if (active && drag) {
+                const cx = Math.max(1, paneDrop.width * 0.5)
+                const cy = Math.max(1, paneDrop.height * 0.5)
+                root.actor.pocketDragX = Math.max(-1, Math.min(1, (drag.x - cx) / cx))
+                root.actor.pocketDragY = Math.max(-1, Math.min(1, (drag.y - cy) / cy))
+            } else {
+                root.actor.pocketDragX = 0
+                root.actor.pocketDragY = 0
+            }
+        }
+        onEntered:drag=> {
+            drag.accepted=false
+            if(accepts(drag)) {
+                drag.accept(Qt.CopyAction)
+                syncActorDrag(drag, true)
+            }
+        }
+        onPositionChanged:drag=> {
+            drag.accepted=false
+            if(accepts(drag)) {
+                drag.accept(Qt.CopyAction)
+                syncActorDrag(drag, true)
+            }
+        }
+        onExited: syncActorDrag(null, false)
         onDropped:drop=> {
             drop.accepted=false
+            syncActorDrag(null, false)
             if (accepts(drop) && WullPocket.addFiles(Array.from(drop.urls,value=>String(value)),"drop"))
                 drop.accept(Qt.CopyAction)
         }
     }
-    RowLayout {
-        Layout.fillWidth:true
-        spacing:6
-        RippleButton {
-            id:chooseBtn
-            objectName:"wullPocketChoose"
-            Layout.preferredWidth:30;Layout.preferredHeight:30
-            implicitWidth:30;implicitHeight:30
-            buttonRadius:15
-            enabled:WullPocket.canSelect
-            Accessible.name:Translation.tr("Choose files")
-            onClicked: {root.confirmClear=false;picker.open()}
-            StyledToolTip {
-                extraVisibleCondition:chooseBtn.buttonHovered
-                text:Translation.tr("Choose files")
-            }
-            contentItem:MaterialSymbol {
-                anchors.centerIn:parent
-                text:"add"
-                iconSize:18
-                color:Appearance.colors.colPrimary
-            }
-        }
-        StyledText {
+    ColumnLayout {
+        id: layoutCol
+        anchors.fill: parent
+        spacing: 8
+        RowLayout {
             Layout.fillWidth:true
-            horizontalAlignment:Text.AlignHCenter
-            text:Translation.tr("Pocket")+" · "+WullPocket.items.length+"/32"
-            font.weight:Font.DemiBold
-        }
-        RippleButton {
-            id:clearBtn
-            objectName:"wullPocketClear"
-            Layout.preferredWidth:30;Layout.preferredHeight:30
-            implicitWidth:30;implicitHeight:30
-            buttonRadius:15
-            enabled:WullPocket.canSelect && WullPocket.items.length>0
-            Accessible.name:root.confirmClear ? Translation.tr("Confirm clear") : Translation.tr("Clear")
-            onClicked: {if(root.confirmClear){WullPocket.clear(true);root.confirmClear=false}else root.confirmClear=true}
-            StyledToolTip {
-                extraVisibleCondition:clearBtn.buttonHovered
-                text:root.confirmClear ? Translation.tr("Confirm clear") : Translation.tr("Clear")
-            }
-            contentItem:MaterialSymbol {
-                anchors.centerIn:parent
-                text:root.confirmClear ? "check" : "delete_sweep"
-                iconSize:18
-                color:root.confirmClear ? Appearance.colors.colError : Appearance.colors.colOnLayer1
-            }
-        }
-    }
-    StyledText {
-        visible:root.confirmClear;Layout.fillWidth:true
-        text:Translation.tr("Clear saved references? Original files will stay where they are.")
-        wrapMode:Text.WordWrap
-        font.pixelSize:Appearance.font.pixelSize.smallest
-        color:Appearance.colors.colSubtext
-    }
-    ListView {
-        id:list;objectName:"wullPocketList";Layout.fillWidth:true;Layout.fillHeight:true
-        clip:true;spacing:4;model:WullPocket.items
-        delegate:RowLayout {
-            id:row
-            required property var modelData
-            width:list.width;spacing:6
-            ColumnLayout {
-                Layout.fillWidth:true;Layout.minimumWidth:0;spacing:1
-                StyledText {Layout.fillWidth:true;text:row.modelData.name;textFormat:Text.PlainText;elide:Text.ElideMiddle;font.pixelSize:Appearance.font.pixelSize.small}
-                StyledText {
-                    Layout.fillWidth:true;text:row.modelData.path;textFormat:Text.PlainText;elide:Text.ElideLeft
-                    font.pixelSize:Appearance.font.pixelSize.smallest;color:Appearance.colors.colSubtext
-                }
-            }
+            Layout.alignment: Qt.AlignTop
+            spacing:6
             RippleButton {
-                id:openItemBtn
-                Layout.preferredWidth:28;Layout.preferredHeight:28
-                implicitWidth:28;implicitHeight:28
-                buttonRadius:14
-                enabled:!!row.modelData.path
-                Accessible.name:"Open"
-                onClicked:Quickshell.execDetached(["xdg-open",row.modelData.path])
-                StyledToolTip {
-                    extraVisibleCondition:openItemBtn.buttonHovered
-                    text:"Open"
-                }
-                contentItem:MaterialSymbol {
-                    anchors.centerIn:parent
-                    text:"open_in_new"
-                    iconSize:15
-                    color:Appearance.colors.colSubtext
-                }
-            }
-            RippleButton {
-                id:removeItemBtn
-                objectName:"wullPocketRemove-"+row.modelData.id
-                Layout.preferredWidth:28;Layout.preferredHeight:28
-                implicitWidth:28;implicitHeight:28
-                buttonRadius:14
+                id:chooseBtn
+                objectName:"wullPocketChoose"
+                Layout.preferredWidth:30;Layout.preferredHeight:30
+                implicitWidth:30;implicitHeight:30
+                buttonRadius:15
                 enabled:WullPocket.canSelect
-                Accessible.name:Translation.tr("Remove")
-                onClicked: {root.confirmClear=false;WullPocket.remove(row.modelData.id)}
+                Accessible.name:Translation.tr("Choose files")
+                onClicked: {root.confirmClear=false;picker.open()}
                 StyledToolTip {
-                    extraVisibleCondition:removeItemBtn.buttonHovered
-                    text:Translation.tr("Remove")
+                    extraVisibleCondition:chooseBtn.buttonHovered
+                    text:Translation.tr("Choose files")
                 }
                 contentItem:MaterialSymbol {
                     anchors.centerIn:parent
-                    text:"close"
-                    iconSize:16
-                    color:Appearance.colors.colSubtext
+                    text:"add"
+                    iconSize:18
+                    color:Appearance.colors.colPrimary
+                }
+            }
+            Item {
+                Layout.fillWidth:true
+                Layout.preferredHeight:30
+                Rectangle {
+                    anchors.centerIn:parent
+                    width:headerBadgeRow.implicitWidth + 18
+                    height:26
+                    radius:13
+                    color:Qt.alpha(AbyssStyle.accent, 0.12)
+                    border.width:1
+                    border.color:Qt.alpha(AbyssStyle.accent, 0.24)
+                    RowLayout {
+                        id:headerBadgeRow
+                        anchors.centerIn:parent
+                        spacing:5
+                        MaterialSymbol {
+                            text:"inventory_2"
+                            iconSize:16
+                            color:AbyssStyle.accent
+                        }
+                        StyledText {
+                            text:WullPocket.items.length+"/32"
+                            font.pixelSize:Appearance.font.pixelSize.smaller
+                            font.weight:Font.DemiBold
+                            color:AbyssStyle.textColor
+                        }
+                    }
+                }
+            }
+            RippleButton {
+                id:clearBtn
+                objectName:"wullPocketClear"
+                Layout.preferredWidth:30;Layout.preferredHeight:30
+                implicitWidth:30;implicitHeight:30
+                buttonRadius:15
+                enabled:WullPocket.canSelect && WullPocket.items.length>0
+                Accessible.name:root.confirmClear ? Translation.tr("Confirm clear") : Translation.tr("Clear")
+                onClicked: {if(root.confirmClear){WullPocket.clear(true);root.confirmClear=false}else root.confirmClear=true}
+                StyledToolTip {
+                    extraVisibleCondition:clearBtn.buttonHovered
+                    text:root.confirmClear ? Translation.tr("Confirm clear") : Translation.tr("Clear")
+                }
+                contentItem:MaterialSymbol {
+                    anchors.centerIn:parent
+                    text:root.confirmClear ? "check" : "delete_sweep"
+                    iconSize:18
+                    color:root.confirmClear ? Appearance.colors.colError : Appearance.colors.colOnLayer1
                 }
             }
         }
-        StyledText {
-            anchors.centerIn:parent;width:parent.width
-            visible:!WullPocket.busy && WullPocket.items.length===0
-            text:Translation.tr("Pocket is empty.");horizontalAlignment:Text.AlignHCenter;wrapMode:Text.WordWrap
-            color:Appearance.colors.colSubtext
+        ListView {
+            id:list;objectName:"wullPocketList";Layout.fillWidth:true;Layout.fillHeight:true
+            clip:true;spacing:5;model:WullPocket.items
+            delegate:Rectangle {
+                id:row
+                required property var modelData
+                width:list.width
+                height:40
+                radius:10
+                color:Qt.alpha(AbyssStyle.textColor, 0.05)
+                border.width:1
+                border.color:Qt.alpha(AbyssStyle.textColor, 0.08)
+                RowLayout {
+                    anchors.fill:parent
+                    anchors.leftMargin:8
+                    anchors.rightMargin:6
+                    spacing:6
+                    MaterialSymbol {
+                        text:"description"
+                        iconSize:16
+                        color:AbyssStyle.accent
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth:true;Layout.minimumWidth:0;spacing:0
+                        StyledText {
+                            Layout.fillWidth:true
+                            text:row.modelData.name
+                            textFormat:Text.PlainText
+                            elide:Text.ElideMiddle
+                            font.pixelSize:Appearance.font.pixelSize.small
+                        }
+                        StyledText {
+                            Layout.fillWidth:true
+                            text:row.modelData.path
+                            textFormat:Text.PlainText
+                            elide:Text.ElideLeft
+                            font.pixelSize:Appearance.font.pixelSize.smallest
+                            color:Appearance.colors.colSubtext
+                        }
+                    }
+                    RippleButton {
+                        id:openItemBtn
+                        Layout.preferredWidth:26;Layout.preferredHeight:26
+                        implicitWidth:26;implicitHeight:26
+                        buttonRadius:13
+                        enabled:!!row.modelData.path
+                        Accessible.name:"Open"
+                        onClicked:Quickshell.execDetached(["xdg-open",row.modelData.path])
+                        StyledToolTip {
+                            extraVisibleCondition:openItemBtn.buttonHovered
+                            text:"Open"
+                        }
+                        contentItem:MaterialSymbol {
+                            anchors.centerIn:parent
+                            text:"open_in_new"
+                            iconSize:15
+                            color:Appearance.colors.colSubtext
+                        }
+                    }
+                    RippleButton {
+                        id:removeItemBtn
+                        objectName:"wullPocketRemove-"+row.modelData.id
+                        Layout.preferredWidth:26;Layout.preferredHeight:26
+                        implicitWidth:26;implicitHeight:26
+                        buttonRadius:13
+                        enabled:WullPocket.canSelect
+                        Accessible.name:Translation.tr("Remove")
+                        onClicked: {root.confirmClear=false;WullPocket.remove(row.modelData.id)}
+                        StyledToolTip {
+                            extraVisibleCondition:removeItemBtn.buttonHovered
+                            text:Translation.tr("Remove")
+                        }
+                        contentItem:MaterialSymbol {
+                            anchors.centerIn:parent
+                            text:"close"
+                            iconSize:15
+                            color:Appearance.colors.colSubtext
+                        }
+                    }
+                }
+            }
+            ColumnLayout {
+                anchors.centerIn:parent
+                visible:!WullPocket.busy && WullPocket.items.length===0
+                spacing:4
+                MaterialSymbol {
+                    Layout.alignment:Qt.AlignHCenter
+                    text:"place_item"
+                    iconSize:26
+                    color:Qt.alpha(AbyssStyle.textColorMuted, 0.7)
+                }
+            }
         }
-    }
-    StyledText {
-        Layout.fillWidth:true
-        visible:WullPocket.busy || WullPocket.notice.length>0
-        text:WullPocket.busy ? Translation.tr("Updating references…") : Translation.tr(WullPocket.notice)
-        wrapMode:Text.WordWrap;font.pixelSize:Appearance.font.pixelSize.smaller
-        Accessible.role:Accessible.StaticText
     }
     FileDialog {
         id:picker;objectName:"wullPocketFileDialog"

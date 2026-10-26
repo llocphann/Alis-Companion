@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -580,3 +581,242 @@ def rollback_edit(options: dict) -> dict:
 def list_receipts() -> dict:
     store = _load_store()
     return {"receipts": store["receipts"][-MAX_RECEIPTS:]}
+
+
+BLOCKED_DOT_DIRS = {".ssh", ".gnupg", ".pki", ".aws", ".kube"}
+
+
+def _resolve_user_path(raw_path: str, allow_missing: bool = False) -> Path:
+    text = str(raw_path or "").strip().strip("'\"")
+    if not text or "\x00" in text or "\r" in text or "\n" in text:
+        raise ToolError("invalid_path", "Specify a valid path inside your home folder.")
+    home = Path.home().resolve()
+    if text.startswith("file://"):
+        text = text[7:]
+    cand = Path(text).expanduser()
+    if not cand.is_absolute():
+        desktop_cand = (home / "Desktop" / cand).resolve()
+        home_cand = (home / cand).resolve()
+        if desktop_cand.exists():
+            resolved = desktop_cand
+        elif home_cand.exists():
+            resolved = home_cand
+        elif (home / "Desktop").is_dir() and "/" not in text:
+            resolved = desktop_cand
+        else:
+            resolved = home_cand
+    else:
+        resolved = cand.resolve()
+    if not resolved.is_relative_to(home) or resolved == home:
+        raise ToolError("path_outside_home", "Agent file tools only operate on paths inside your home directory.")
+    rel_parts = resolved.relative_to(home).parts
+    if any(part in BLOCKED_DOT_DIRS for part in rel_parts):
+        raise ToolError("protected_path", "That protected directory cannot be modified by Companion.")
+    if not allow_missing and not resolved.exists():
+        raise ToolError("path_not_found", f"Path not found: {resolved.name}")
+    return resolved
+
+
+def agent_file_op(options: dict) -> dict:
+    op = str(options.get("op", "")).strip().lower()
+    if op not in ("access", "edit", "copy", "cut", "delete", "cancel_delete"):
+        raise ToolError("invalid_op", "Agent operation must be access, edit, copy, cut, delete, or cancel_delete.")
+    now = _now_ms(options.get("nowMs"))
+    store = _load_store()
+    proposals = store["proposals"]
+
+    if op == "cancel_delete":
+        proposals.pop("delete_pending", None)
+        _save_store(store)
+        return {
+            "op": "cancel_delete",
+            "status": "cancelled",
+            "confirmStage": 0,
+            "targetPath": "",
+            "destPath": "",
+            "summary": "Delete request cancelled. No files were deleted.",
+            "lines": [],
+        }
+
+    raw_target = str(options.get("targetPath", "")).strip()
+    if op == "access" and not raw_target:
+        win = _resolve_active_window()
+        app_id = _clean_line(win.get("app_id") or "desktop", 80) or "desktop"
+        title = _clean_line(win.get("title") or "Active workspace", 120) or "Active workspace"
+        pid = int(win.get("pid") or 0)
+        cwd_str, direct_lines = _try_direct_app_access(pid, app_id, title)
+        lines = list(direct_lines)
+        method = "direct_app" if lines else "window_only"
+        if not lines and options.get("allowScreenshot") is not False:
+            ocr = _capture_screen_ocr()
+            if ocr:
+                lines = ocr
+                method = "screenshot_ocr"
+        out_lines = [_clean_line(f"app:{app_id} | {title}", 180)]
+        if cwd_str:
+            out_lines.append(_clean_line(f"cwd:{cwd_str}", 180))
+        out_lines.extend(_clean_line(x, 180) for x in lines[:14])
+        return {
+            "op": "access",
+            "status": "completed",
+            "confirmStage": 0,
+            "targetPath": cwd_str[:400] if cwd_str else "",
+            "destPath": "",
+            "summary": _clean_line(f"Accessed active desktop context ({app_id}, {method}).", 240),
+            "lines": out_lines[:20],
+        }
+
+    if op == "access":
+        target = _resolve_user_path(raw_target, allow_missing=False)
+        if target.is_dir():
+            entries = sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))[:20]
+            lines = [
+                _clean_line(f"{'[dir]' if e.is_dir() else '[file]'} {e.name}", 180)
+                for e in entries
+            ]
+            return {
+                "op": "access",
+                "status": "completed",
+                "confirmStage": 0,
+                "targetPath": str(target),
+                "destPath": "",
+                "summary": _clean_line(f"Folder {target.name}: {len(entries)} item(s) shown.", 240),
+                "lines": lines or ["(empty folder)"],
+            }
+        size = target.stat().st_size
+        if size > 512 * 1024:
+            return {
+                "op": "access",
+                "status": "completed",
+                "confirmStage": 0,
+                "targetPath": str(target),
+                "destPath": "",
+                "summary": _clean_line(f"File {target.name} ({size} bytes, binary/large).", 240),
+                "lines": [_clean_line(f"Path: {target}", 180), f"Size: {size} bytes"],
+            }
+        raw_text = target.read_text(encoding="utf-8", errors="replace")
+        lines = [_clean_line(ln, 180) for ln in raw_text.splitlines() if ln.strip()][:18]
+        return {
+            "op": "access",
+            "status": "completed",
+            "confirmStage": 0,
+            "targetPath": str(target),
+            "destPath": "",
+            "summary": _clean_line(f"Read {target.name} ({size} bytes).", 240),
+            "lines": lines or ["(empty file)"],
+        }
+
+    if op == "edit":
+        target = _resolve_user_path(raw_target, allow_missing=True)
+        if target.exists() and target.is_dir():
+            raise ToolError("is_directory", "Cannot edit a folder as a text file.")
+        mode = str(options.get("mode", "write")).strip().lower()
+        content = str(options.get("content", ""))
+        if len(content) > 8000:
+            raise ToolError("content_too_large", "Edit content exceeds the 8000-character limit.")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        existing = target.read_text(encoding="utf-8", errors="replace") if target.is_file() else ""
+        if mode == "append":
+            sep = "\n" if existing and not existing.endswith("\n") else ""
+            updated = existing + sep + content + ("\n" if not content.endswith("\n") else "")
+        elif mode == "replace":
+            search_text = str(options.get("searchText", ""))
+            if not search_text or search_text not in existing:
+                raise ToolError("search_not_found", "Target text to replace was not found in file.")
+            updated = existing.replace(search_text, content, 1)
+        else:
+            updated = content
+        target.write_text(updated, encoding="utf-8")
+        preview = [_clean_line(ln, 180) for ln in updated.splitlines() if ln.strip()][:10]
+        return {
+            "op": "edit",
+            "status": "completed",
+            "confirmStage": 0,
+            "targetPath": str(target),
+            "destPath": "",
+            "summary": _clean_line(f"Updated {target.name} ({len(updated.encode('utf-8'))} bytes).", 240),
+            "lines": preview or ["(file saved)"],
+        }
+
+    if op in ("copy", "cut"):
+        src = _resolve_user_path(raw_target, allow_missing=False)
+        raw_dest = str(options.get("destPath", "")).strip()
+        if not raw_dest:
+            raise ToolError("missing_destination", "Specify a destination path for copy or cut.")
+        dst = _resolve_user_path(raw_dest, allow_missing=True)
+        if dst.exists() and dst.is_dir():
+            dst = (dst / src.name).resolve()
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if op == "copy":
+            if src.is_dir():
+                shutil.copytree(src, dst, dirs_exist_ok=True)
+            else:
+                shutil.copy2(src, dst)
+            verb = "Copied"
+        else:
+            shutil.move(str(src), str(dst))
+            verb = "Moved (cut)"
+        return {
+            "op": op,
+            "status": "completed",
+            "confirmStage": 0,
+            "targetPath": str(src),
+            "destPath": str(dst),
+            "summary": _clean_line(f"{verb} {src.name} -> {dst}", 240),
+            "lines": [_clean_line(f"From: {src}", 180), _clean_line(f"To: {dst}", 180)],
+        }
+
+    # op == "delete": requires 2-step confirmation (confirmStep 0 -> 1 -> 2)
+    target = _resolve_user_path(raw_target, allow_missing=False)
+    step = int(options.get("confirmStep") or 0)
+    pending_del = proposals.get("delete_pending")
+    if step <= 0:
+        proposals["delete_pending"] = {
+            "targetPath": str(target),
+            "stage": 1,
+            "expiresMs": now + PROPOSAL_TTL_MS,
+        }
+        _save_store(store)
+        return {
+            "op": "delete",
+            "status": "confirm_1_required",
+            "confirmStage": 1,
+            "targetPath": str(target),
+            "destPath": "",
+            "summary": _clean_line(f"Confirm 1/2: Delete '{target.name}'? Click Confirm (1/2) to continue.", 240),
+            "lines": [_clean_line(f"Target: {target}", 180)],
+        }
+    if not isinstance(pending_del, dict) or pending_del.get("targetPath") != str(target) or now > int(pending_del.get("expiresMs", 0)):
+        raise ToolError("delete_session_expired", "Delete confirmation expired or changed. Start delete again.")
+    if step == 1:
+        pending_del["stage"] = 2
+        pending_del["expiresMs"] = now + PROPOSAL_TTL_MS
+        _save_store(store)
+        return {
+            "op": "delete",
+            "status": "confirm_2_required",
+            "confirmStage": 2,
+            "targetPath": str(target),
+            "destPath": "",
+            "summary": _clean_line(f"Confirm 2/2 (Final): Permanently delete '{target.name}'? Confirm a 2nd time to delete.", 240),
+            "lines": [_clean_line(f"Final check: {target}", 180)],
+        }
+    if step == 2:
+        if int(pending_del.get("stage", 0)) < 2:
+            raise ToolError("second_confirmation_required", "Delete requires 2 confirmations (step 1 before step 2).")
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+        proposals.pop("delete_pending", None)
+        _save_store(store)
+        return {
+            "op": "delete",
+            "status": "completed",
+            "confirmStage": 2,
+            "targetPath": str(target),
+            "destPath": "",
+            "summary": _clean_line(f"Deleted '{target.name}' after 2x confirmation.", 240),
+            "lines": [_clean_line(f"Removed: {target}", 180)],
+        }
+    raise ToolError("invalid_confirm_step", "Invalid delete confirmation step.")

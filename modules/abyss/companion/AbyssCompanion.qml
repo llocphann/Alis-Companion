@@ -64,6 +64,13 @@ Item {
     property var coworkPose: null
     property bool coworkPropVisible: false
     property bool pocketDragActive: false
+    property real pocketDragX: 0
+    property real pocketDragY: 0
+    readonly property real orientRad: (upright ? standingAngle : edge === "left" ? 90 : edge === "right" ? -90 : edge === "bottom" ? 180 : 0) * Math.PI / 180
+    readonly property real orientCos: Math.cos(orientRad)
+    readonly property real orientSin: Math.sin(orientRad)
+    readonly property real dragFaceX: Math.max(-1, Math.min(1, pocketDragX * orientCos + pocketDragY * orientSin))
+    readonly property real dragFaceY: Math.max(-1, Math.min(1, -pocketDragX * orientSin + pocketDragY * orientCos))
     readonly property real swallowPhase: droplet.swallowPhase
     readonly property real tangentDirection: travelDirection*Math.cos(standingAngle*Math.PI/180)+travelDirectionY*Math.sin(standingAngle*Math.PI/180)
     property real travelPhase: 0
@@ -372,8 +379,8 @@ Item {
             gripProgress: root.gripProgress
             width: 76; height: 92
             visible: root.visible
-            gazeX: root.attention.x
-            gazeY: root.attention.y
+            gazeX: root.pocketDragActive ? root.dragFaceX : root.attention.x
+            gazeY: root.pocketDragActive ? root.dragFaceY : root.attention.y
             energy: root.energy
             motionEnabled: root.motionEnabled && visible
             motionScale: root.motionScale
@@ -392,8 +399,10 @@ Item {
             coworkPropVisible: root.presentation > 0.99 && !root.leaving && !root.peeking && !root.moving && !root.portalWalking && !root.dragging && root.coworkPropVisible
             pocketDragActive: root.pocketDragActive
             walkingDirection: (root.upright ? root.tangentDirection : root.travelDirection) * (root.upright || root.edge === "top" || root.edge === "left" ? 1 : -1)
-            viewYaw: (root.moving || root.portalWalking) ? (root.walking ? root.tangentDirection : root.travelDirection) * (root.walking ? 32 : 20)
+            viewYaw: root.pocketDragActive ? root.dragFaceX * 28
+                : (root.moving || root.portalWalking) ? (root.walking ? root.tangentDirection : root.travelDirection) * (root.walking ? 32 : 20)
                 : root.peeking ? root.emergenceEdge==="left" ? 22 : root.emergenceEdge==="right" ? -22 : 0 : -15
+            viewPitch: root.pocketDragActive ? -root.dragFaceY * 16 : 0
             effectsEnabled: root.effectsEnabled
             stateSquash: root.motionEnabled ? root.bodySquash : 0
             stateStretch: root.motionEnabled ? root.bodyStretch : 0

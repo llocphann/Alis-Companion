@@ -486,7 +486,7 @@ def dispatch(payload):
     action=payload.get('action')
     if action in ('memory_list','memory_save','memory_forget','memory_forget_all'):
         return memory_action(action,payload)
-    if action in ('tool_inspect','tool_route','tool_propose','tool_confirm','tool_cancel','tool_rollback','tool_receipts'):
+    if action in ('tool_inspect','tool_route','tool_propose','tool_confirm','tool_cancel','tool_rollback','tool_receipts','agent_file_op'):
         return tool_action(action,payload)
     if action=='probe':return probe(payload)
     if action=='context':return context(payload)
@@ -508,6 +508,7 @@ def tool_action(action, payload):
         if action=='tool_cancel':return tool_store.cancel_edit(payload)
         if action=='tool_rollback':return tool_store.rollback_edit(payload)
         if action=='tool_receipts':return tool_store.list_receipts()
+        if action=='agent_file_op':return tool_store.agent_file_op(payload)
     except tool_store.ToolError as exc:
         raise MindError(exc.code,str(exc)) from exc
     raise MindError('invalid_action','Unsupported tool action')

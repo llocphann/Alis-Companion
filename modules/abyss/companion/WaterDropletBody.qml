@@ -666,7 +666,8 @@ Item {
     }
     Behavior on accentColor { enabled: root.motionEnabled; ColorAnimation { duration: 480 } }
     Behavior on hoverAmount { enabled: root.motionEnabled; NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-    Behavior on viewYaw { enabled: root.motionEnabled; NumberAnimation { duration: 600; easing.type: Easing.InOutCubic } }
+    Behavior on viewYaw { enabled: root.motionEnabled; NumberAnimation { duration: root.pocketDragActive ? 140 : 600; easing.type: Easing.InOutCubic } }
+    Behavior on viewPitch { enabled: root.motionEnabled; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     Behavior on expressionSquash { enabled: root.motionEnabled; SpringAnimation { spring: 3; damping: 0.42 } }
     Behavior on stateSquash { enabled: root.motionEnabled; SpringAnimation { spring: 3.2; damping: 0.34 } }
     Behavior on stateStretch { enabled: root.motionEnabled; SpringAnimation { spring: 2.8; damping: 0.36 } }

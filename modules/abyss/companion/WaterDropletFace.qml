@@ -46,7 +46,7 @@ Item {
             y: 46 * root.unit
             width: 14 * root.unit; height: 16 * root.unit
             rotation: root.profile.angry ? (index === 0 ? -15 : 15) : root.profile.worried ? (index === 0 ? 13 : -13) : 0
-            scale: root.profile.eyeScale * 0.83 * (1 + (index === 0 ? 1 : -1) * root.viewYawSin * 0.25)
+            scale: root.profile.eyeScale * (root.feedingOpen ? 0.93 : 0.83) * (1 + (index === 0 ? 1 : -1) * root.viewYawSin * 0.25)
             Behavior on scale { enabled: root.motionEnabled; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
             Shape {
                 visible: root.profile.angry
@@ -205,16 +205,17 @@ Item {
     Item {
         id: mouth
         objectName: "wullMouth"
-        x: 31 * root.unit; y: (root.feedingOpen ? 55.5 : 58) * root.unit
-        width: 14 * root.unit; height: 10 * root.unit
+        x: (31 + (root.feedingOpen ? root.pupilX * 2.2 : 0)) * root.unit
+        y: (root.feedingOpen ? 53.5 + root.pupilY * 1.4 : 58) * root.unit
+        width: 14 * root.unit; height: 12 * root.unit
         scale: root.feedingOpen
-            ? (1.18 - 0.32 * Math.abs(Math.sin(root.chompPhase * Math.PI * 2)))
+            ? (1.36 - 0.36 * Math.abs(Math.sin(root.chompPhase * Math.PI * 2)))
             : (root.profile.openMouth || root.expression === "surprised" ? 0.80 : 0.55)
         Behavior on scale { enabled: root.motionEnabled; NumberAnimation { duration: 120; easing.type: Easing.OutBack } }
         Rectangle {
             anchors.horizontalCenter: parent.horizontalCenter
-            width: (root.feedingOpen ? 11.5 : 6) * root.unit
-            height: (root.feedingOpen ? 10.5 : 8) * root.unit
+            width: (root.feedingOpen ? 14.5 : 6) * root.unit
+            height: (root.feedingOpen ? 13.5 : 8) * root.unit
             radius: width / 2
             color: root.ink
             visible: root.feedingOpen || root.expression === "surprised"
@@ -222,9 +223,9 @@ Item {
                 visible: root.feedingOpen
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
-                anchors.bottomMargin: 1.0 * root.unit
-                width: 7.2 * root.unit
-                height: 4.2 * root.unit
+                anchors.bottomMargin: 1.1 * root.unit
+                width: 9.4 * root.unit
+                height: 5.4 * root.unit
                 radius: height / 2
                 color: "#ff94c2"
             }

@@ -14,6 +14,16 @@ Item {
     height: 92
     visible: propKind === "book" || propKind === "coffee" || propKind === "thought"
 
+    readonly property color bookCoverLight: Qt.lighter(root.accentColor, 1.15)
+    readonly property color bookCoverMid: Qt.darker(root.accentColor, 1.25)
+    readonly property color bookCoverDark: Qt.darker(root.accentColor, 1.55)
+    readonly property color bookSpineFill: Qt.darker(root.accentColor, 1.95)
+    readonly property color bookRimStroke: Qt.lighter(root.specularColor, 1.02)
+    readonly property color bookPageLineColor: Qt.darker(root.accentColor, 1.65)
+    readonly property color bookRibbonFill: Qt.lighter(root.accentColor, 1.32)
+    readonly property color coffeeCupStroke: Qt.lighter(root.specularColor, 1.04)
+    readonly property color coffeeCupFill: Qt.lighter(root.accentColor, 1.65)
+
     readonly property var bookAnchor: body ? body.project(-2, -23, 21) : ({ x: -2, y: -23, z: 21, scale: 1 })
     readonly property var coffeeAnchor: body ? body.project(14, -14, 19) : ({ x: 14, y: -14, z: 19, scale: 1 })
     readonly property var thoughtAnchor: body ? body.project(23, 24, 14) : ({ x: 23, y: 24, z: 14, scale: 1 })
@@ -66,7 +76,7 @@ Item {
             // Subtle inner page text lines facing Wull (visible on the 3/4 right wing)
             ShapePath {
                 strokeWidth: 0.7
-                strokeColor: "#466885"
+                strokeColor: root.bookPageLineColor
                 fillColor: "transparent"
                 startX: 20.5; startY: 6.4
                 PathLine { x: 31.2; y: 4.5 }
@@ -76,12 +86,12 @@ Item {
                 PathLine { x: 30.8; y: 9.7 }
             }
 
-            // 2. Outer hardcover boards facing the viewer in 3/4 perspective
+            // 2. Outer hardcover boards facing the viewer in 3/4 perspective (theme-matched to Companion)
             // Right-back cover board (angled away)
             ShapePath {
                 strokeWidth: 1.05
-                strokeColor: "#ffd88a"
-                fillColor: "#7a2f24"
+                strokeColor: root.bookRimStroke
+                fillColor: root.bookCoverDark
                 startX: 16.5; startY: 7.4
                 PathQuad { x: 31.8; y: 4.4; controlX: 24.2; controlY: 4.6 }
                 PathLine { x: 33.2; y: 16.4 }
@@ -92,11 +102,11 @@ Item {
             // Left-front cover board (facing viewer at 3/4 slant, hiding the left page face)
             ShapePath {
                 strokeWidth: 1.1
-                strokeColor: "#ffd88a"
+                strokeColor: root.bookRimStroke
                 fillGradient: LinearGradient {
                     x1: 2; y1: 5; x2: 18; y2: 20
-                    GradientStop { position: 0; color: "#a44537" }
-                    GradientStop { position: 1; color: "#7c3025" }
+                    GradientStop { position: 0; color: root.bookCoverLight }
+                    GradientStop { position: 1; color: root.bookCoverMid }
                 }
                 startX: 2.2; startY: 5.8
                 PathQuad { x: 16.5; y: 7.4; controlX: 9.2; controlY: 4.8 }
@@ -108,8 +118,8 @@ Item {
             // 3. Central 3D book spine ridge facing outward toward viewer
             ShapePath {
                 strokeWidth: 0.9
-                strokeColor: "#ffd88a"
-                fillColor: "#591e16"
+                strokeColor: root.bookRimStroke
+                fillColor: root.bookSpineFill
                 startX: 15.2; startY: 7.1
                 PathLine { x: 17.8; y: 7.2 }
                 PathLine { x: 19.3; y: 20.6 }
@@ -117,11 +127,11 @@ Item {
                 PathLine { x: 15.2; y: 7.1 }
             }
 
-            // Gold decorative emblem on the outer front-left cover facing the viewer
+            // Specular decorative emblem on the outer front-left cover facing the viewer
             ShapePath {
                 strokeWidth: 0.85
-                strokeColor: "#ffe39e"
-                fillColor: "#ffd88a"
+                strokeColor: root.bookRimStroke
+                fillColor: root.specularColor
                 startX: 9.4; startY: 10.2
                 PathLine { x: 11.8; y: 12.4 }
                 PathLine { x: 9.6; y: 14.6 }
@@ -130,7 +140,7 @@ Item {
             }
         }
 
-        // Hanging red bookmark ribbon from the bottom of the spine
+        // Hanging bookmark ribbon from the bottom of the spine
         Shape {
             x: 16.2
             y: 19.5
@@ -140,8 +150,8 @@ Item {
             preferredRendererType: Shape.CurveRenderer
             ShapePath {
                 strokeWidth: 0.5
-                strokeColor: "#ffd88a"
-                fillColor: "#ff5c6c"
+                strokeColor: root.bookRimStroke
+                fillColor: root.bookRibbonFill
                 startX: 0.8; startY: 0
                 PathLine { x: 2.8; y: 0.2 }
                 PathLine { x: 3.8; y: 4.2 }
@@ -167,8 +177,8 @@ Item {
             preferredRendererType: Shape.CurveRenderer
             ShapePath {
                 strokeWidth: 1.0
-                strokeColor: "#eefcff"
-                fillColor: "#fff6ea"
+                strokeColor: root.coffeeCupStroke
+                fillColor: root.coffeeCupFill
                 startX: 4.5; startY: 9.5
                 PathLine { x: 16.5; y: 9.5 }
                 PathQuad { x: 15.2; y: 21.5; controlX: 16.5; controlY: 19 }
@@ -177,7 +187,7 @@ Item {
             }
             ShapePath {
                 strokeWidth: 0.7
-                strokeColor: "#d9b478"
+                strokeColor: root.bookRimStroke
                 fillColor: "#4a2713"
                 startX: 5.0; startY: 9.8
                 PathQuad { x: 16.0; y: 9.8; controlX: 10.5; controlY: 8.2 }
@@ -185,7 +195,7 @@ Item {
             }
             ShapePath {
                 strokeWidth: 1.4
-                strokeColor: "#fff6ea"
+                strokeColor: root.coffeeCupFill
                 fillColor: "transparent"
                 startX: 16.2; startY: 11.5
                 PathCubic { x: 15.5; y: 18.2; control1X: 21.2; control1Y: 11.5; control2X: 21.2; control2Y: 18.2 }

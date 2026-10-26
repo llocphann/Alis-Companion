@@ -43,7 +43,7 @@ Item {
     readonly property real nonEditingContentHeight: WullMind.contextOpen
         ? content.implicitHeight
         : speechText.implicitHeight + (WullMind.checkInStage.length > 0 ? content.spacing + 28 : 0)
-    height: pocketOpen ? Math.min(360,Math.max(220,outputHeight-48))
+    height: pocketOpen ? Math.min(310, Math.max(138, 66 + Math.max(1, WullPocket.items.length) * 46))
         : editing ? Math.min(430, Math.max(230, outputHeight - 48)) : nonEditingContentHeight + 24
     readonly property real actorVisualScale: Math.max(.1, Number(actor.scale) || 1)
     readonly property real actorVisualWidth: actor.width * actorVisualScale
@@ -280,7 +280,7 @@ Item {
             Rectangle {
                 id: profileBox
                 objectName: "wullProfilePanel"
-                visible: root.editing && root.profileStage > 0
+                visible: root.editing && (root.profileStage > 0 || WullMind.pendingDeleteStage > 0)
                 width: content.width
                 height: implicitHeight
                 Layout.fillWidth: true
@@ -288,12 +288,177 @@ Item {
                 radius: Math.max(10, Math.min(14, root.edgeRadius - 6))
                 color: Qt.alpha(AbyssStyle.textColor, .05)
                 border.width: 1
-                border.color: Qt.alpha(AbyssStyle.textColor, .08)
+                border.color: WullMind.pendingDeleteStage > 0
+                    ? Qt.alpha(Appearance.colors.colError, 0.45)
+                    : Qt.alpha(AbyssStyle.textColor, .08)
                 ColumnLayout {
                     id: profilePanel
                     anchors.fill: parent
                     anchors.margins: 8
                     spacing: 5
+                    RowLayout {
+                        objectName: "wullDeleteConfirmBar"
+                        visible: WullMind.pendingDeleteStage > 0
+                        Layout.fillWidth: true
+                        spacing: 6
+                        MaterialSymbol {
+                            text: WullMind.pendingDeleteStage === 2 ? "delete_forever" : "warning"
+                            iconSize: 17
+                            color: Appearance.colors.colError
+                        }
+                        StyledText {
+                            Layout.fillWidth: true
+                            text: (WullMind.pendingDeleteStage === 2 ? "Confirm 2/2 (Final): " : "Confirm 1/2: ")
+                                + WullMind.pendingDeletePath.split("/").pop()
+                            elide: Text.ElideMiddle
+                            font.pixelSize: Appearance.font.pixelSize.smallest
+                            font.weight: Font.DemiBold
+                            color: Appearance.colors.colError
+                        }
+                        RippleButton {
+                            id: confirmDelBtn
+                            objectName: "wullAgentConfirmDelete"
+                            Layout.preferredWidth: WullMind.pendingDeleteStage === 2 ? 78 : 68
+                            Layout.preferredHeight: 26
+                            implicitWidth: Layout.preferredWidth
+                            implicitHeight: 26
+                            buttonRadius: 13
+                            colBackground: Qt.alpha(Appearance.colors.colError, 0.22)
+                            colBackgroundHover: Qt.alpha(Appearance.colors.colError, 0.35)
+                            onClicked: WullMind.confirmAgentDelete()
+                            contentItem: StyledText {
+                                anchors.centerIn: parent
+                                text: WullMind.pendingDeleteStage === 2 ? "Delete 2/2" : "Confirm 1/2"
+                                horizontalAlignment: Text.AlignHCenter
+                                font.pixelSize: Appearance.font.pixelSize.smallest
+                                font.weight: Font.DemiBold
+                                color: Appearance.colors.colError
+                            }
+                        }
+                        RippleButton {
+                            id: cancelDelBtn
+                            objectName: "wullAgentCancelDelete"
+                            Layout.preferredWidth: 26
+                            Layout.preferredHeight: 26
+                            implicitWidth: 26
+                            implicitHeight: 26
+                            buttonRadius: 13
+                            colBackground: Qt.alpha(AbyssStyle.textColor, 0.08)
+                            colBackgroundHover: Qt.alpha(AbyssStyle.textColor, 0.16)
+                            onClicked: WullMind.cancelAgentDelete()
+                            StyledToolTip {
+                                extraVisibleCondition: cancelDelBtn.buttonHovered
+                                text: "Cancel delete"
+                            }
+                            contentItem: MaterialSymbol {
+                                anchors.centerIn: parent
+                                text: "close"
+                                iconSize: 15
+                                color: AbyssStyle.textColor
+                            }
+                        }
+                    }
+                    ColumnLayout {
+                        objectName: "wullAgentPanel"
+                        visible: root.profileStage === 3
+                        Layout.fillWidth: true
+                        spacing: 6
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 6
+                            MaterialSymbol {
+                                text: WullMind.lastActiveAppContext?.version === "screenshot_ocr" ? "document_scanner" : "desktop_windows"
+                                iconSize: 15
+                                color: AbyssStyle.accent
+                            }
+                            StyledText {
+                                Layout.fillWidth: true
+                                text: WullMind.agentStatusSummary
+                                elide: Text.ElideRight
+                                font.pixelSize: Appearance.font.pixelSize.smallest
+                                color: Appearance.colors.colSubtext
+                            }
+                            RippleButton {
+                                id: scanAppBtn
+                                objectName: "wullAgentScanScreen"
+                                Layout.preferredWidth: 26
+                                Layout.preferredHeight: 26
+                                implicitWidth: 26
+                                implicitHeight: 26
+                                buttonRadius: 13
+                                colBackground: Qt.alpha(AbyssStyle.accent, 0.14)
+                                colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.26)
+                                onClicked: WullMind.runAgentFileOp("access", "", "", "", "write", 0, "access screen")
+                                StyledToolTip {
+                                    extraVisibleCondition: scanAppBtn.buttonHovered
+                                    text: "Inspect active app / Screen OCR"
+                                }
+                                contentItem: MaterialSymbol {
+                                    anchors.centerIn: parent
+                                    text: "document_scanner"
+                                    iconSize: 15
+                                    color: AbyssStyle.accent
+                                }
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 5
+                            Repeater {
+                                model: [
+                                    { op: "access", icon: "folder_open", tip: "Access / Read file or folder" },
+                                    { op: "edit", icon: "edit_note", tip: "Edit / Write file" },
+                                    { op: "copy", icon: "content_copy", tip: "Copy file or folder" },
+                                    { op: "cut", icon: "content_cut", tip: "Cut / Move file or folder" },
+                                    { op: "delete", icon: "delete_forever", tip: "Delete (requires 2x confirmation)" }
+                                ]
+                                RippleButton {
+                                    id: agentOpChip
+                                    required property var modelData
+                                    objectName: "wullAgentOp-" + modelData.op
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 28
+                                    implicitHeight: 28
+                                    buttonRadius: 10
+                                    colBackground: modelData.op === "delete"
+                                        ? Qt.alpha(Appearance.colors.colError, 0.12)
+                                        : Qt.alpha(AbyssStyle.accent, 0.10)
+                                    colBackgroundHover: modelData.op === "delete"
+                                        ? Qt.alpha(Appearance.colors.colError, 0.24)
+                                        : Qt.alpha(AbyssStyle.accent, 0.22)
+                                    onClicked: {
+                                        const pocketItem = WullPocket.permitted && WullPocket.items.length > 0 ? WullPocket.items[0] : null
+                                        const sampleName = pocketItem ? String(pocketItem.name) : "~/Desktop/note.txt"
+                                        if (modelData.op === "access" && pocketItem) {
+                                            WullMind.runAgentFileOp("access", pocketItem.path, "", "", "write", 0, "access " + pocketItem.name)
+                                        } else if (modelData.op === "delete" && pocketItem) {
+                                            WullMind.runAgentFileOp("delete", pocketItem.path, "", "", "write", 0, "delete " + pocketItem.name)
+                                        } else {
+                                            if (modelData.op === "access") message.text = "access " + (pocketItem ? sampleName : "~/Desktop")
+                                            else if (modelData.op === "edit") message.text = "edit " + sampleName + ": "
+                                            else if (modelData.op === "copy") message.text = "copy " + sampleName + " -> ~/Desktop/copy.txt"
+                                            else if (modelData.op === "cut") message.text = "cut " + sampleName + " -> ~/Documents/"
+                                            else if (modelData.op === "delete") message.text = "delete " + sampleName
+                                            Qt.callLater(() => {
+                                                message.forceActiveFocus()
+                                                message.cursorPosition = message.text.length
+                                            })
+                                        }
+                                    }
+                                    StyledToolTip {
+                                        extraVisibleCondition: agentOpChip.buttonHovered
+                                        text: agentOpChip.modelData.tip
+                                    }
+                                    contentItem: MaterialSymbol {
+                                        anchors.centerIn: parent
+                                        text: agentOpChip.modelData.icon
+                                        iconSize: 16
+                                        color: agentOpChip.modelData.op === "delete" ? Appearance.colors.colError : AbyssStyle.accent
+                                    }
+                                }
+                            }
+                        }
+                    }
                     ColumnLayout {
                         objectName: "wullEffortPanel"
                         visible: root.profileStage === 1
@@ -474,16 +639,17 @@ Item {
                             onClicked: {
                                 if (!WullMind.agentToolsEnabled) WullMind.agentToolsEnabled = true
                                 WullMind.captureActiveAppContext()
+                                root.profileStage = (root.profileStage === 3 ? 0 : 3)
                             }
                             StyledToolTip {
                                 extraVisibleCondition: agentQuickBtn.buttonHovered
-                                text: "Agent: " + WullMind.agentStatusSummary
+                                text: "Desktop Agent: " + WullMind.agentStatusSummary
                             }
                             contentItem: MaterialSymbol {
                                 anchors.centerIn: parent
                                 text: WullMind.lastActiveAppContext?.version === "screenshot_ocr" ? "document_scanner" : "screen_search_desktop"
                                 iconSize: 17
-                                color: WullMind.agentToolsEnabled ? AbyssStyle.accent : AbyssStyle.textColorMuted
+                                color: root.profileStage === 3 || WullMind.agentToolsEnabled ? AbyssStyle.accent : AbyssStyle.textColorMuted
                             }
                         }
                         RippleButton {
@@ -497,7 +663,7 @@ Item {
                             enabled: !WullMind.busy && WullMind.selectableModels.length > 0
                             buttonRadius: 15
                             onClicked: {
-                                if (root.profileStage === 0)
+                                if (root.profileStage === 0 || root.profileStage === 3)
                                     root.profileStage = 1
                                 else if (root.profileStage === 1)
                                     root.profileStage = 2
@@ -561,7 +727,7 @@ Item {
     Loader {
         anchors.fill:parent;anchors.margins:12
         active:root.pocketOpen
-        sourceComponent:Component {WullPocketPane {}}
+        sourceComponent:Component {WullPocketPane {actor:root.actor}}
     }
     function openPocket(): void {
         if (!WullMind.busy && WullPocket.show()) WullMind.dismiss()
