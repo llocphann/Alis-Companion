@@ -103,6 +103,7 @@ ContentPage {
             }
         }
         StyledComboBox {
+            id: choiceCombo
             objectName: choice.objectName + "Control"
             Layout.preferredWidth: 224
             Layout.fillWidth: choice.columns === 1
@@ -111,6 +112,11 @@ ContentPage {
             settingsSearchLabel: choice.label
             settingsSearchDescription: choice.description
             currentIndex: Math.max(0, choice.options.findIndex(o => o.value === choice.currentValue))
+            Binding {
+                target: choiceCombo
+                property: "currentIndex"
+                value: Math.max(0, choice.options.findIndex(o => o.value === choice.currentValue))
+            }
             onActivated: index => choice.selected(choice.options[index].value)
         }
     }
@@ -203,6 +209,7 @@ ContentPage {
             font.pixelSize: Appearance.font.pixelSize.smaller
         }
         StyledComboBox {
+            id: inlineCombo
             objectName: inlineChoice.objectName ? inlineChoice.objectName + "Control" : ""
             Layout.fillWidth: true
             Layout.minimumWidth: inlineChoice.comboMinWidth
@@ -211,6 +218,11 @@ ContentPage {
             settingsSearchLabel: inlineChoice.label
             settingsSearchDescription: inlineChoice.description
             currentIndex: Math.max(0, inlineChoice.options.findIndex(o => o.value === inlineChoice.currentValue))
+            Binding {
+                target: inlineCombo
+                property: "currentIndex"
+                value: Math.max(0, inlineChoice.options.findIndex(o => o.value === inlineChoice.currentValue))
+            }
             onActivated: index => inlineChoice.selected(inlineChoice.options[index].value)
         }
     }
@@ -233,6 +245,7 @@ ContentPage {
             elide: Text.ElideRight
         }
         StyledComboBox {
+            id: compactCombo
             objectName: compactChoice.objectName ? compactChoice.objectName + "Control" : ""
             Layout.fillWidth: true
             model: compactChoice.options
@@ -240,6 +253,11 @@ ContentPage {
             settingsSearchLabel: compactChoice.label
             settingsSearchDescription: compactChoice.description
             currentIndex: Math.max(0, compactChoice.options.findIndex(o => o.value === compactChoice.currentValue))
+            Binding {
+                target: compactCombo
+                property: "currentIndex"
+                value: Math.max(0, compactChoice.options.findIndex(o => o.value === compactChoice.currentValue))
+            }
             onActivated: index => compactChoice.selected(compactChoice.options[index].value)
         }
     }
@@ -344,7 +362,7 @@ ContentPage {
                     motionScale: Preferences.motionScale(root.preferences.personality)
                     motionEnabled: root.preferences.animationsEnabled && AbyssStyle.motionEnabled && visible
                     effectsEnabled: root.preferences.effectsEnabled && Appearance.effectsEnabled
-                        && AbyssStyle.quality !== "performance"
+                        && AbyssRenderPolicy.aquaQuality !== "performance"
                     renderQuality: AbyssRenderPolicy.aquaQuality
                     translucency: root.preferences.translucency
                 }
@@ -534,8 +552,8 @@ ContentPage {
                     CompactToggle {
                         objectName: "companionEffects"
                         buttonIcon: "auto_fix_high"
-                        text: Translation.tr("Bubbles and floor reflections")
-                        tooltipText: Translation.tr("Add floating bubbles, sparkle and the liquid reflection beneath your companion. Performance uses a simpler floor effect. Respects the shell effects setting.")
+                        text: Translation.tr("Floating bubbles and sparkle")
+                        tooltipText: Translation.tr("Add floating bubbles and sparkle around your companion. Respects the shell effects setting.")
                         checked: root.preferences.effectsEnabled
                         onToggledByUser: checked => root.setPreference("effectsEnabled", checked)
                     }

@@ -35,6 +35,7 @@ Item {
                 || !ContextProtocol.configure(contextState,true,binding.generation,Date.now()).accepted){disconnectContext();return}
         contextConnection=source;contextConnected=true
         if(!source.activate(root,binding.generation))disconnectContext()
+        else root.syncActiveDesktopFocus(ToplevelManager.activeToplevel?.appId || (CompositorService.isNiri ? NiriService.activeWindow?.app_id : "") || "")
     }
     property bool readingFocusActive:false
     property bool quietIdle:false
@@ -82,13 +83,14 @@ Item {
             const trusted=root.contextConnected && root.contextConnection===root.contextFeed
                 && root.host.session===root
             let normalizedPacket=packet
-            if(trusted && typeof packet==="string" && packet.includes('"kind":"focus"') && packet.includes('"category":"other"')) {
-                const activeAppId=String(ToplevelManager.activeToplevel?.appId ?? "").trim().toLowerCase()
-                if(["antigravity","google-antigravity","cursor","windsurf","zed","obsidian"].includes(activeAppId)) {
+            if(trusted && typeof packet==="string" && packet.includes('"kind":"focus"')) {
+                const rawAppId=String(ToplevelManager.activeToplevel?.appId || (CompositorService.isNiri ? NiriService.activeWindow?.app_id : "") || (GlobalStates.settingsOverlayOpen ? root.lastActiveAppId : "") || "").trim().toLowerCase()
+                const resolvedCat=root.categoryForAppId(rawAppId)
+                if(resolvedCat!=="none") {
                     try {
                         const parsed=JSON.parse(packet)
-                        if(parsed?.kind==="focus" && parsed?.payload?.category==="other") {
-                            parsed.payload.category="editor"
+                        if(parsed?.kind==="focus" && (parsed?.payload?.category==="none" || parsed?.payload?.category==="other")) {
+                            parsed.payload.category=resolvedCat
                             normalizedPacket=JSON.stringify(parsed)
                         }
                     } catch(_err) {}
@@ -124,27 +126,46 @@ Item {
             else {quietIdleSettle.stop();root.quietIdle=false}
         }
     }
-    Connections {
-        target:ToplevelManager
-        function onActiveToplevelChanged(): void {
+    property string lastActiveAppId:""
+    function categoryForAppId(rawAppId): string {
+        const id=String(rawAppId ?? "").trim().toLowerCase()
+        return !id ? "none"
+            : ["foot","footclient","kitty","alacritty","wezterm","org.wezfurlong.wezterm",
+               "org.kde.konsole","org.gnome.terminal","com.mitchellh.ghostty"].includes(id) ? "terminal"
+            : ["code","code-oss","vscodium","codium","dev.zed.zed","org.gnome.builder",
+               "org.kde.kate","emacs","neovide","antigravity","google-antigravity",
+               "cursor","windsurf","zed","obsidian"].includes(id) ? "editor" : "other"
+    }
+    function syncActiveDesktopFocus(rawAppId): void {
+        const id=String(rawAppId ?? "").trim().toLowerCase()
+        if(!id && GlobalStates.settingsOverlayOpen) return
+        if(id.length>0 && id!==root.lastActiveAppId) {
+            root.lastActiveAppId=id
             if(root.previewAmbientProp.length>0 || root.previewLaptopActive) {
                 root.previewAmbientProp=""
                 root.previewLaptopActive=false
                 Director.acceptAgent(root.contextState.director,{word:"ended",token:"fedcba9876543210"},Date.now())
             }
-            if(!root.contextConnected || !root.contextState.enabled
-                    || !root.companionPreferences.contextFocusEnabled) return
-            const id=String(ToplevelManager.activeToplevel?.appId ?? "").trim().toLowerCase()
-            const cat=!id ? "none"
-                : ["foot","footclient","kitty","alacritty","wezterm","org.wezfurlong.wezterm",
-                   "org.kde.konsole","org.gnome.terminal","com.mitchellh.ghostty"].includes(id) ? "terminal"
-                : ["code","code-oss","vscodium","codium","dev.zed.zed","org.gnome.builder",
-                   "org.kde.kate","emacs","neovide","antigravity","google-antigravity",
-                   "cursor","windsurf","zed","obsidian"].includes(id) ? "editor" : "other"
-            if(Director.setFocus(root.contextState.director,cat,Date.now()).accepted) {
-                root.evaluateContext()
-                contextSettle.restart()
-            }
+        }
+        if(!root.contextConnected || !root.contextState.enabled
+                || !root.companionPreferences.contextFocusEnabled) return
+        const cat=root.categoryForAppId(id || (GlobalStates.settingsOverlayOpen ? root.lastActiveAppId : ""))
+        if(Director.setFocus(root.contextState.director,cat,Date.now()).accepted) {
+            root.evaluateContext()
+            contextSettle.restart()
+        }
+    }
+    Connections {
+        target:ToplevelManager
+        function onActiveToplevelChanged(): void {
+            root.syncActiveDesktopFocus(ToplevelManager.activeToplevel?.appId || (CompositorService.isNiri ? NiriService.activeWindow?.app_id : "") || "")
+        }
+    }
+    Connections {
+        target:CompositorService.isNiri ? NiriService : null
+        ignoreUnknownSignals:true
+        function onActiveWindowChanged(): void {
+            root.syncActiveDesktopFocus(NiriService.activeWindow?.app_id || ToplevelManager.activeToplevel?.appId || "")
         }
     }
     Connections {

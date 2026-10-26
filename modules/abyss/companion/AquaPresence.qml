@@ -155,8 +155,9 @@ Item {
         return landing
     }
     function position() {
-        return actor ? {x:actor.x-(actor.scale-1)*actor.width/2,
-            y:actor.y-(actor.scale-1)*actor.height/2} : {x:targetX,y:targetY}
+        return (actor && (traveling || dragging || portalActive))
+            ? {x:actor.x-(actor.scale-1)*actor.width/2, y:actor.y-(actor.scale-1)*actor.height/2}
+            : {x:targetX,y:targetY}
     }
     function clearMotion(): void {
         if (portalActive) {
@@ -518,12 +519,14 @@ Item {
         if (!visitActive && requestedReveal>0 && !retreating) {if(Date.now()>=hiddenUntil)appear();return}
         if (!visitActive || dragging) return
         let from=position()
+        const sizeChanged=Number.isFinite(placement?.hostWidth)
+            && (Math.abs(placement.hostWidth-scene.hostWidth)>.1 || Math.abs(placement.hostHeight-scene.hostHeight)>.1)
         const ride=Scene.ride(scene,from,placement)
-        if (ride.qualified && Scene.distance(from,ride)>.25) {
+        if (ride.qualified && (sizeChanged || Scene.distance(from,ride)>.25)) {
             const oldKey=placement.support?.key,delta=Scene.distance(from,ride)
             clearMotion();placement=ride;destination=ride;targetX=ride.x;targetY=ride.y
             actor.carryTo(ride.x+(actor.scale-1)*actor.width/2,ride.y+(actor.scale-1)*actor.height/2)
-            if (oldKey!==ride.key || delta>6*scene.scale) balance()
+            if (!sizeChanged && (oldKey!==ride.key || delta>6*scene.scale)) balance()
             return
         }
         if (!Scene.clearAt(scene,from)) {

@@ -35,7 +35,7 @@ Item {
     property string activity: "idle"
     property bool interactive: true
     property bool motionEnabled: AbyssStyle.motionEnabled
-    property bool effectsEnabled: Appearance.effectsEnabled && AbyssStyle.quality !== "performance"
+    property bool effectsEnabled: Appearance.effectsEnabled && renderQuality !== "performance"
     property real motionScale: 1
     property string renderQuality: "quality"
     property real translucency: 0.16
@@ -103,8 +103,9 @@ Item {
     property bool curvedImmersion: false
     property real presentation: 0
     readonly property bool peeking: reveal>0 && reveal<.99
-    property real floorAlignment: upright && surfaceSupported ? (height/2-34.3)*Math.cos(standingAngle*Math.PI/180) : 0
-    property real sideAlignment: upright && surfaceSupported ? -(width/2-34.3)*Math.sin(standingAngle*Math.PI/180) : 0
+    readonly property real footContactOffset: character === "octo" ? 28.5 : 37.5
+    property real floorAlignment: upright && surfaceSupported ? (height/2-footContactOffset)*Math.cos(standingAngle*Math.PI/180) : 0
+    property real sideAlignment: upright && surfaceSupported ? -(width/2-footContactOffset)*Math.sin(standingAngle*Math.PI/180) : 0
     Behavior on sideAlignment { enabled: root.motionEnabled && !root.hardResetting; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
     Behavior on floorAlignment { enabled: root.motionEnabled && !root.hardResetting; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
     property bool initialized: false
@@ -216,7 +217,9 @@ Item {
         // A caller retaining travelEnabled must not also start a flight tween.
         if (effectiveTravelMode==="portal") return
         if (Math.abs(x-targetX)<0.01 && Math.abs(y-targetY)<0.01) return
-        if (dragging || !motionEnabled || reveal <= 0 || presentation < 0.01) {
+        if (dragging || !motionEnabled || reveal <= 0 || presentation < 0.01
+                || (!travelEnabled && !relocating && presentation > 0.99 && activeEmergenceEdge === emergenceEdge
+                    && Math.hypot(x - targetX, y - targetY) <= Math.max(width, height) * 0.85)) {
             stopTravel()
             relocation.stop()
             activeEmergenceEdge = emergenceEdge
@@ -238,6 +241,9 @@ Item {
     }
     onTargetXChanged: Qt.callLater(root.place)
     onTargetYChanged: Qt.callLater(root.place)
+    onScaleChanged: if (initialized && managedPlacement && !dragging && !moving && !relocating) {
+        x = targetX; y = targetY
+    }
 
     implicitWidth: verticalEdge ? 98 : 112
     implicitHeight: verticalEdge ? 112 : 98

@@ -35,7 +35,8 @@ function fromParticipants(base, participants, modules) {
             ? {x:record.along,y:record.edge==="top" ? 0 : base.height-depth,width:record.span,height:depth}
             : {x:record.edge==="left" ? 0 : base.width-depth,y:record.along,width:depth,height:record.span})
     }
-    const keys=Object.keys(participants ?? {})
+    const excluded=Array.isArray(base?.excludeKeys) ? base.excludeKeys : []
+    const keys=Object.keys(participants ?? {}).filter(k=>!excluded.includes(k))
     // Capacity overflow fails closed rather than dropping a visible obstacle.
     if (keys.length>40) return Object.assign({},base,{records:records,blockers:[],surfaces:null})
     for (const key of keys) {
@@ -107,6 +108,7 @@ function supportAt(scene, point, preferredEdge) {
 function annotate(scene, point, edge, kind, key) {
     const support=supportAt(scene,point,edge)
     const placement={qualified:true,x:point.x,y:point.y,edge:support?.edge ?? edge,kind:kind,key:key,
+        hostWidth:scene.hostWidth,hostHeight:scene.hostHeight,
         grounded:!!support,support:support}
     placement.contact=waterContact(scene,placement,point)
     return placement
@@ -341,17 +343,35 @@ function drop(scene, x, y, previous) {
 function ride(scene, point, previous) {
     if (!valid(scene) || !previous?.support) return {qualified:false}
     const edge=previous.support.edge, horizontal=edge==="top" || edge==="bottom"
+    const oldW=finite(previous.hostWidth) ? previous.hostWidth : scene.hostWidth
+    const oldH=finite(previous.hostHeight) ? previous.hostHeight : scene.hostHeight
+    const sizeChanged=Math.abs(oldW-scene.hostWidth)>.1 || Math.abs(oldH-scene.hostHeight)>.1
+    if (edges.includes(previous.support.key) && (sizeChanged || !supportAt(scene,point,edge))) {
+        const center=horizontal ? point.x+oldW/2 : point.y+oldH/2
+        const edgeCandidate=edgePoint(scene,edge,center/(horizontal ? scene.width : scene.height))
+        if (edgeCandidate.qualified) return edgeCandidate
+    }
     const candidates=scene.surfaces.filter(s=>s.key===previous.support.key || Slots.intersects(rect(scene,point),s.rect,1.5))
     for (const surface of candidates) {
         const r=surface.rect, margin=Math.min(Number(surface.radius)||0,(horizontal ? r.width : r.height)/2)
         const extent=horizontal ? scene.hostWidth : scene.hostHeight
         const lo=(horizontal ? r.x : r.y)+margin, hi=(horizontal ? r.x+r.width : r.y+r.height)-margin-extent
         if (hi<lo) continue
-        const along=clamp(horizontal ? point.x : point.y,lo,hi),gap=Math.max(2,2*scene.scale)
-        const candidate=edge==="bottom" ? {x:along,y:r.y-scene.hostHeight-gap}
-            : edge==="top" ? {x:along,y:r.y+r.height+gap}
-            : edge==="left" ? {x:r.x+r.width+gap,y:along} : {x:r.x-scene.hostWidth-gap,y:along}
+        const desired=(horizontal ? point.x+(oldW-scene.hostWidth)/2 : point.y+(oldH-scene.hostHeight)/2)
+        const along=clamp(desired,lo,hi),gap=Math.max(2,2*scene.scale)
+        const makePoint=pos=>edge==="bottom" ? {x:pos,y:r.y-scene.hostHeight-gap}
+            : edge==="top" ? {x:pos,y:r.y+r.height+gap}
+            : edge==="left" ? {x:r.x+r.width+gap,y:pos} : {x:r.x-scene.hostWidth-gap,y:pos}
+        const candidate=makePoint(along)
         if (clearAt(scene,candidate)) return annotate(scene,candidate,edge,"surface",surface.key)
+        for (let step=12;step<=hi-lo;step+=12) {
+            for (const dir of [-1,1]) {
+                const pos=along+dir*step
+                if (pos<lo || pos>hi) continue
+                const shifted=makePoint(pos)
+                if (clearAt(scene,shifted)) return annotate(scene,shifted,edge,"surface",surface.key)
+            }
+        }
     }
     return {qualified:false}
 }

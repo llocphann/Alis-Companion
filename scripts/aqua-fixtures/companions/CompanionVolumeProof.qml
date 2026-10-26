@@ -16,7 +16,7 @@ Window {
         readonly property var state:root.step>=root.states.length*2 ? {action:"",phase:0,quality:"quality"} : root.states[root.step%root.states.length]
         tentacleGrip:root.step===root.states.length*2;gripProgress:.6
         accentColor:state.amber ? "#faaa52" : "#25b8fa"
-        motionEnabled:true;effectsEnabled:true;renderQuality:state.quality;translucency:.16
+        motionEnabled:true;effectsEnabled:true;floorReflectionEnabled:true;renderQuality:state.quality;translucency:.16
         motionAction:state.action;motionProgress:state.phase
     }
     function named(item,name) {

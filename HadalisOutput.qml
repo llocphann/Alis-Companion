@@ -35,7 +35,8 @@ Item {
     readonly property var companionScene: AquaScene.fromParticipants({
         width:host.width,height:host.height,
         hostWidth:112*session.companionScale,hostHeight:98*session.companionScale,
-        scale:session.companionScale,insets:host.nativeInsets,rimRadius:AbyssStyle.neckRadius},
+        scale:session.companionScale,insets:host.nativeInsets,rimRadius:AbyssStyle.neckRadius,
+        excludeKeys:["settings"]},
         liquid.participants,bar.visible ? bar.layoutRecords.map(record=>({
             edge:record.edge,along:record.along,span:record.span})) : [])
     readonly property bool companionPermission: AquaHostPolicy.hostActive(
@@ -57,7 +58,6 @@ Item {
         controlsVisible:talkCloud.controlsVisible,
         modalOpen:root.companionOccluded || companionCuriosity.busy || AquaPocket.opened || AquaPocket.busy})
     onDirectorContextChanged: if (session && session.companionTargetOutput===host.outputName) {
-        session.evaluateContext()
         Qt.callLater(session.evaluateContext)
     }
     function ensureCompanionPresent(): void {
@@ -346,7 +346,7 @@ Item {
         dragEnabled: interactive
         motionEnabled: session.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled
         effectsEnabled: session.companionPreferences.effectsEnabled && Appearance.effectsEnabled
-            && AbyssStyle.quality!=="performance"
+            && AbyssRenderPolicy.aquaQuality!=="performance"
         motionScale: AquaPreferences.motionScale(session.companionPreferences.personality)
         renderQuality: AbyssRenderPolicy.aquaQuality
         translucency: session.companionPreferences.translucency

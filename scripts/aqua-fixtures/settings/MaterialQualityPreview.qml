@@ -62,6 +62,7 @@ ApplicationWindow {
                     transformOrigin: Item.Center
                     viewYaw: -15
                     motionEnabled: false
+                    floorReflectionEnabled: true
                     enabled: false
                     renderQuality: card.modelData
                 }

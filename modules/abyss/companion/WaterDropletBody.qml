@@ -31,10 +31,11 @@ Item {
     property real gazeY: 0
     property bool motionEnabled: AbyssStyle.motionEnabled && visible
     property real motionScale: 1
-    property bool effectsEnabled: Appearance.effectsEnabled && AbyssStyle.quality !== "performance"
+    property bool effectsEnabled: Appearance.effectsEnabled && renderQuality !== "performance"
+    property bool floorReflectionEnabled: false
     property string renderQuality: "quality"
     property real translucency: 0.16
-    readonly property int qualityLevel: Preferences.renderTier(renderQuality, AbyssStyle.quality)
+    readonly property int qualityLevel: Preferences.renderTier(renderQuality)
     readonly property bool detailedEffects: effectsEnabled && qualityLevel > 0
     property real squash: 0
     property real bob: 0
@@ -178,17 +179,17 @@ Item {
     rotation: orientationAngle + ((gait.active ? 0 : sway * 2.2) + stateLean * 5.0 + stateTip * 2.4 + expressionProfile.tilt * 4) * motionAmount
     transform: [
         Scale {
-            origin.x: root.width * 0.5; origin.y: root.height * 0.5
+            origin.x: root.width * 0.5; origin.y: root.octopus ? 74.5 : 83.5
             xScale: 1 + (root.stateSquash + root.expressionSquash) * 0.05 - root.stateStretch * 0.025 + root.squash * 0.06
             yScale: 1 - (root.stateSquash + root.expressionSquash) * 0.035 + root.stateStretch * 0.06 - root.squash * 0.05
         },
         Translate {
-            y: (gait.active ? 0 : root.bob) * root.motionAmount + (1 - root.reveal) * 6 * root.motionAmount
+            y: (gait.active || root.grounded ? 0 : root.bob) * root.motionAmount + (1 - root.reveal) * 6 * root.motionAmount
         }
     ]
     Item {
         id: contact
-        visible: root.grounded
+        visible: root.floorReflectionEnabled && root.grounded
         width: root.qualityLevel > 1 ? 102 : 94
         height: root.qualityLevel > 1 ? 18 : root.qualityLevel > 0 ? 15 : 13
         x: (root.width - width) * 0.5
@@ -252,14 +253,14 @@ Item {
     ShaderEffectSource {
         id: reflectionSource
         objectName: "aquaFloorReflectionSource"
-        sourceItem: root.grounded && root.detailedEffects && !root.softwareFallback && material.status !== ShaderEffect.Error ? reflectionLayer : null
+        sourceItem: root.floorReflectionEnabled && root.grounded && root.detailedEffects && !root.softwareFallback && material.status !== ShaderEffect.Error ? reflectionLayer : null
         sourceRect: Qt.rect(0, 7, 76, 82)
         // The reflection is finally compressed into a 13-18 px-tall puddle
         // and sampled with a three-tap softening kernel. A 2x capture at tier 2
         // quadruples offscreen pixels without preserving visible extra detail.
         textureSize: Qt.size(76, 82)
         smooth: true
-        live: root.visible && root.grounded && root.detailedEffects
+        live: root.floorReflectionEnabled && root.visible && root.grounded && root.detailedEffects
         visible: false
     }
     // Reflect only our body, limbs, bubbles and face; never desktop content.
@@ -352,7 +353,7 @@ Item {
         Item {
             id: torso
             width: root.width; height: root.height
-            y: gait.lift + root.reactionLift * root.motionAmount
+            y: gait.lift + (root.reactionLift + (gait.active || !root.grounded ? 0 : root.bob * 0.35)) * root.motionAmount
             // Rounded vector fallback for software/error; volume optics require a GPU.
             Rectangle {
                 visible:root.octopus && (root.softwareFallback || material.status===ShaderEffect.Error)
