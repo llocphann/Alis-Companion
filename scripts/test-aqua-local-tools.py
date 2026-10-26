@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(os.environ.get("ALIS_COMPANION_SOURCE", Path(__file__).resolve().parents[1]))
-HOST = Path(os.environ.get("HADALIS_ROOT", ROOT))
+HOST = Path(os.environ.get("ALIS_ROOT", ROOT))
 
 
 def call_mind(env, payload):

@@ -95,7 +95,7 @@ def find_private():
         "XDG_STATE_HOME", str(Path.home() / ".local/state"))).expanduser()
     need(root.is_absolute() and not root.is_symlink(),
          "PRIVATE_EVIDENCE_UNAVAILABLE")
-    shared = root / "hadalis-aqua-visual-private"
+    shared = root / "alis-aqua-visual-private"
     owner_private(shared, False)
     prefix = "matrix-" + SOURCE[:12] + "-"
     cases = [p for p in shared.iterdir()

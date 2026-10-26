@@ -100,9 +100,9 @@ def verify_isolation(niri):
                              or outputs[0][1].get("x") != 0
                              or outputs[0][1].get("y") != 0):
         stop("nested_single_output_geometry_unavailable")
-    if namespaced(niri_json(niri, "layers"), "hadalis:abyss-perimeter"):
+    if namespaced(niri_json(niri, "layers"), "alis:abyss-perimeter"):
         stop("preexisting_nested_abyss_layer")
-    if namespaced(niri_json(niri, "layers"), "hadalis:aqua-pointer-underlay"):
+    if namespaced(niri_json(niri, "layers"), "alis:aqua-pointer-underlay"):
         stop("preexisting_nested_pointer_underlay")
     return outputs[0][0], outputs[0][1]["width"], outputs[0][1]["height"]
 
@@ -286,7 +286,7 @@ def phase_config(folder, fixture, name, config=None, env_add=None,
         file.parent.mkdir()
         file.write_text(json.dumps(config) + "\n", encoding="utf-8")
     env = dict(os.environ)
-    for key in ("QS_CONFIG_PATH", "QS_CONFIG_NAME", "QS_MANIFEST", "INIR_COMPANIOND"):
+    for key in ("QS_CONFIG_PATH", "QS_CONFIG_NAME", "QS_MANIFEST", "ALIS_COMPANIOND"):
         env.pop(key, None)
     env.update({"XDG_CONFIG_HOME": str(xdg / "config"),
                 "XDG_DATA_HOME": str(xdg / "data"),
@@ -392,7 +392,7 @@ def main():
               "private_candidate_mask_tested": False}
     final = folder / "pointer-child.private-summary.json"
     underlay_proc = disabled_proc = enabled_proc = None
-    binary = folder / "cargo-target" / "release" / "inir-companiond"
+    binary = folder / "cargo-target" / "release" / "alis-companiond"
     private_relay = folder / "owned-relay.py"
     underlay_log = None
     trace = folder / "real-relay.private.jsonl"
@@ -418,7 +418,7 @@ def main():
             built = subprocess.run(
                 [cargo, "build", "--locked", "--release",
                  "--manifest-path", str(ROOT / "native/Cargo.toml"),
-                 "-p", "inir-companiond"],
+                 "-p", "alis-companiond"],
                 env=build_env, stdout=log, stderr=subprocess.STDOUT, timeout=900)
         bounded(folder / "cargo-build.private.log")
         if built.returncode != 0 or not binary.is_file():
@@ -433,10 +433,10 @@ def main():
             return (underlay_proc.poll() is None
                     and bool(markers(underlay_log, "AQUA_POINTER_UNDERLAY_QML_READY"))
                     and len(namespaced(niri_json(niri, "layers"),
-                                       "hadalis:aqua-pointer-underlay")) == 1
+                                       "alis:aqua-pointer-underlay")) == 1
                     and no_keyboard_focus(namespaced(
                         niri_json(niri, "layers"),
-                        "hadalis:aqua-pointer-underlay")))
+                        "alis:aqua-pointer-underlay")))
         if not wait_for(underlay_ready, 15):
             report["reason"] = "underlay_layer_or_qml_unavailable"
             return
@@ -481,7 +481,7 @@ def main():
             configured["abyss"]["companion"]["enabled"] = enabled
             overlay = None
             if enabled:
-                overlay = {"INIR_COMPANIOND": str(private_relay),
+                overlay = {"ALIS_COMPANIOND": str(private_relay),
                            "AQUA_PRIVATE_POINTER_SESSION": "isolated-nested-only",
                            "AQUA_PARENT_WAYLAND_DISPLAY":
                                os.environ["AQUA_PARENT_WAYLAND_DISPLAY"],
@@ -499,10 +499,10 @@ def main():
                 return (proc.poll() is None
                         and bool(markers(log, "AQUA_PRODUCTION_FIXTURE_READY"))
                         and len(namespaced(niri_json(niri, "layers"),
-                                           "hadalis:abyss-perimeter")) == 1
+                                           "alis:abyss-perimeter")) == 1
                         and no_keyboard_focus(namespaced(
                             niri_json(niri, "layers"),
-                            "hadalis:abyss-perimeter"))
+                            "alis:abyss-perimeter"))
                         and len(private_pids(binary)) == (1 if enabled else 0))
             if not wait_for(ready, 20):
                 stop(label + "_actual_production_not_ready")
@@ -529,7 +529,7 @@ def main():
         owned_cleanup(disabled_proc, binary, private_relay)
         disabled_proc = None
         if not wait_for(lambda: not namespaced(niri_json(niri, "layers"),
-                           "hadalis:abyss-perimeter"), 5):
+                           "alis:abyss-perimeter"), 5):
             report["status"] = "failed"
             report["reason"] = "disabled_layer_not_cleaned"
             return
@@ -628,7 +628,7 @@ def main():
             enabled_proc = None
             if not wait_for(
                     lambda: not namespaced(niri_json(niri, "layers"),
-                                           "hadalis:abyss-perimeter")
+                                           "alis:abyss-perimeter")
                     and not private_pids(binary)
                     and not relay_pids(private_relay), 6):
                 report["status"] = "failed"
@@ -781,9 +781,9 @@ def main():
             bounded(logfile)
         try:
             report["production_unmapped"] = not namespaced(
-                niri_json(niri, "layers"), "hadalis:abyss-perimeter")
+                niri_json(niri, "layers"), "alis:abyss-perimeter")
             report["underlay_unmapped"] = not namespaced(
-                niri_json(niri, "layers"), "hadalis:aqua-pointer-underlay")
+                niri_json(niri, "layers"), "alis:aqua-pointer-underlay")
         except (RuntimeError, OSError, ValueError):
             pass
         report["private_daemon_stopped"] = (

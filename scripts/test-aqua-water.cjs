@@ -82,10 +82,11 @@ const full={surfaceSettled:true,geometry:{edge:'bottom',progress:1,surface:{x:0,
 assert.equal(api.appearance(api.fromParticipants(base,{settings:full},[]),0,0,.5).qualified,false,'do not cover full-screen content to force an appearance');
 // Evaluate the actual QML hold expression. No speculative model of the Dock's
 // visibility decision, and no native-window/source-mask claim.
-const perimeter=fs.readFileSync('optional/alis-companion/HadalisOutput.qml','utf8');
+const perimeter=fs.readFileSync(fs.existsSync('AlisOutput.qml')?'AlisOutput.qml':'optional/alis-companion/AlisOutput.qml','utf8');
 const expression=perimeter.match(/readonly property bool dockHeld: ([\s\S]*?)\n\s*readonly property var waterLink:/)[1];
-function dockHeld(ready,visible,placement,destination={},traveling=false){return vm.runInNewContext(expression,{companionBridge:{ready},companion:{visible},companionPresence:{placement,destination,traveling}});}
+function dockHeld(ready,visible,placement,destination={},traveling=false,desktopHasApps=false){return vm.runInNewContext(expression,{host:{desktopHasApps},companionBridge:{ready},companion:{visible},companionPresence:{placement,destination,traveling}});}
 assert.equal(dockHeld(true,true,{key:'dock'}),true);
+assert.equal(dockHeld(true,true,{key:'dock'},{},false,true),false,'do not hold dock open when apps are on desktop');
 assert.equal(dockHeld(true,true,{key:'drop',support:{key:'dock'}}),true);
 assert.equal(dockHeld(true,true,{key:'top'},{key:'dock'},true),true);
 assert.equal(dockHeld(true,true,{key:'top'},{key:'dock'},false),false);

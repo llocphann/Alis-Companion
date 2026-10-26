@@ -57,7 +57,7 @@ three-dimensional; no sprites or planar falling poses are substituted.
 
 ```sh
 uv run --offline --python 3.11 --with bpy==4.3.0 --with 'numpy<2' python scripts/companion-export-cowork-native.py --output /new/owned/export
-python3 scripts/test-aqua-cowork-native.py --bundle /new/owned/export --output /new/owned/proof --hadalis-root /clean/Hadalis
+python3 scripts/test-aqua-cowork-native.py --bundle /new/owned/export --output /new/owned/proof --alis-root /clean/Alis
 ```
 
 The fixed 40-frame schedule checks all paired clips, independent hand/tentacle

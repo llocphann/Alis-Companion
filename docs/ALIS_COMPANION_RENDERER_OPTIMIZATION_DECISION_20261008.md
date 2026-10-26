@@ -2,7 +2,7 @@
 
 Original decision: 2026-10-08; updated 2026-10-09. **Status: current technical evidence and G0/G1 runbook, NOT an independent roadmap.** G0 offline harness and G1 resource sampler are implemented and CI-tested; physical G0/G1 qualification remains OPEN. No production shader, compiled release QSB or renderer change is approved by this document. See the [single active Visual/Behavior TODO](../to-do/cloud-bot/ABYSS_WATER_DROPLET_COMPANION.md) for the authoritative checklist.
 
-Source reviewed: Alis-Companion `main@bd5281d4f27a91c611e741d13225b76b3d7dc228`; Hadalis host `dev@d31e54b9e7444c623f185b4d740344040a39b62a`. Re-pin both immediately before measurement/implementation: prior SHAs are **research snapshots**, not current production or physical-desktop acceptance. This is a technical study subordinate to [the single active Companion TODO](../to-do/cloud-bot/ABYSS_WATER_DROPLET_COMPANION.md); it is **not a second task board**. [Host/API ownership](HADALIS_EXTRACTION.md). Alis-Companion owns Aqua/Octo shaders, motions, tests and renderer; Hadalis owns shared Abyss fields, optional host surfaces, compositor, theme and desktop-wide optimization research.
+Source reviewed: Alis-Companion `main@bd5281d4f27a91c611e741d13225b76b3d7dc228`; Alis host `dev@d31e54b9e7444c623f185b4d740344040a39b62a`. Re-pin both immediately before measurement/implementation: prior SHAs are **research snapshots**, not current production or physical-desktop acceptance. This is a technical study subordinate to [the single active Companion TODO](../to-do/cloud-bot/ABYSS_WATER_DROPLET_COMPANION.md); it is **not a second task board**. [Host/API ownership](ALIS_EXTRACTION.md). Alis-Companion owns Aqua/Octo shaders, motions, tests and renderer; Alis owns shared Abyss fields, optional host surfaces, compositor, theme and desktop-wide optimization research.
 
 ## Decision and exclusions
 
@@ -25,7 +25,7 @@ No actual GPU/CPU/PSS/VRAM/frame-time gain has been measured for this research. 
 | `modules/abyss/companion/AquaPreferences.js` (blob `c34f118`) | Actual user choices performance/quality produce tier 0 or 1; tier-2 shader branch is not presently selected by this policy. | Never attribute hypothetical tier-2 cost to normal production. |
 | `modules/abyss/companion/AquaMotion.qml` (blob `f8e31e2`) | Single local loop clock and shared finite progress; visibility/motion eligibility affects animation weight. | Switching whole body instances by Loader or visibility may reset phase/weight; keep one motion owner. |
 | `scripts/build-aqua-material-candidate.py` (blob `184e318`) | Existing isolated source candidate skips radius, distance and exponentials for bubbles whose projection is outside the closed ray segment. | Best early low-risk **experiment**, not a proven optimization: compile separately, verify finite/NaN and boundary semantics, image parity and GPU time. |
-| `scripts/validate.py` (blob `7af3d22`) | `make test HADALIS_ROOT=...` builds Rust and runs selected component/regression tests inside a private host overlay, plus QML format checks. | **It does not automatically dispatch every legacy render-cost, spatial-volume or shader-parity script.** Include explicit opt-in renderer checks in the gate; a skip for missing Wayland is not a GPU PASS. |
+| `scripts/validate.py` (blob `7af3d22`) | `make test ALIS_ROOT=...` builds Rust and runs selected component/regression tests inside a private host overlay, plus QML format checks. | **It does not automatically dispatch every legacy render-cost, spatial-volume or shader-parity script.** Include explicit opt-in renderer checks in the gate; a skip for missing Wayland is not a GPU PASS. |
 
 **Critical test-oracle gap (BLOCKER 0).** `scripts/aqua-verify-lossless-render.py` compares historical and current *WaterDropletBody.qml* and hashes those QML sources, but stages the current `WaterDropletMaterial.frag.qsb` into the baseline directory (with other current dependencies). Its reference captures do **not** independently pin a historical shader binary, so success cannot certify that a **changed shader** matches the old shader. `--self-control` is a useful capture qualification only. Before shader optimization, implement an isolated source- and binary-pinned dual-material A/B harness; do not weaken the comparator to obtain a PASS. Historical identical-source mismatch remains an explicit possible INCONCLUSIVE outcome.
 
@@ -35,10 +35,10 @@ No actual GPU/CPU/PSS/VRAM/frame-time gain has been measured for this research. 
 
 ### B0 — pin identity and ensure valid signals
 
-- Record immutable Alis-Companion and compatible Hadalis host commit SHAs, manifest/payload SHA, compiled QSB hashes, kernel/compositor, Qt + Quickshell, GPU vendor/driver, backend (OpenGL/Vulkan), power profile, scale/DPR, refresh, output topology and display mode. No default-branch or historic Hadalis source may silently substitute for AlisCompanion.
+- Record immutable Alis-Companion and compatible Alis host commit SHAs, manifest/payload SHA, compiled QSB hashes, kernel/compositor, Qt + Quickshell, GPU vendor/driver, backend (OpenGL/Vulkan), power profile, scale/DPR, refresh, output topology and display mode. No default-branch or historic Alis source may silently substitute for AlisCompanion.
 - A control/measurement harness must demonstrate it can distinguish identical-source PASS from a deliberate known shader perturbation FAIL and a missing/inconclusive graphics capture. A screenshot or fixture only proves its own bounded case, never physical pointer, performance or full-output acceptance.
 - GPU timing: collect Qt scene-graph timing (`QSG_RENDER_TIMING=1`) and batching (`QSG_RENDERER_DEBUG=render`) as diagnostic signals; where supported, enable timestamp sampling (`QSG_RHI_PROFILE=1`) and an appropriate GPU profiler/frame capture. Qt RHI GPU timestamps may be unavailable on some backends/drivers and usually describe command buffers, **not** the time spent solely inside one shader. Disentangle by controlled A/B variants; do not equate FPS, GPU utilization %, scene-graph CPU duration, or draw count with Companion GPU milliseconds.
-- Measure *two separate costs*: (a) bounded isolated per-actor shader/render workload under identical synthetic motion, plus (b) **incremental end-to-end Hadalis shell cost** in a compatible live host. The latter must include compositor effects and floor capture, and compare disabled, enabled-but-hidden, and visible across real scene states.
+- Measure *two separate costs*: (a) bounded isolated per-actor shader/render workload under identical synthetic motion, plus (b) **incremental end-to-end Alis shell cost** in a compatible live host. The latter must include compositor effects and floor capture, and compare disabled, enabled-but-hidden, and visible across real scene states.
 
 ### B1 — reproducible state matrix
 
@@ -48,9 +48,9 @@ Use deterministic finite motion phases and explicitly qualified clips. For image
 
 ### G1 tooling preflight — read-only resource sampler (2026-10-09)
 
-The repository now owns [`scripts/aqua-g1-resource-sample.py`](../scripts/aqua-g1-resource-sample.py), its [offline parser/identity tests](../scripts/test-aqua-g1-resource-contract.py), [`scripts/aqua-g1-compare.py`](../scripts/aqua-g1-compare.py) and [multi-run comparison tests](../scripts/test-aqua-g1-compare-contract.py). **These scripts do not start, stop, move, show or hide the actor, compositor or any user process.** A future local chatbot must first identify the correct Quickshell PID and manually establish each target state in a compatible Hadalis host, without changing presentation policy for the sake of tests.
+The repository now owns [`scripts/aqua-g1-resource-sample.py`](../scripts/aqua-g1-resource-sample.py), its [offline parser/identity tests](../scripts/test-aqua-g1-resource-contract.py), [`scripts/aqua-g1-compare.py`](../scripts/aqua-g1-compare.py) and [multi-run comparison tests](../scripts/test-aqua-g1-compare-contract.py). **These scripts do not start, stop, move, show or hide the actor, compositor or any user process.** A future local chatbot must first identify the correct Quickshell PID and manually establish each target state in a compatible Alis host, without changing presentation policy for the sake of tests.
 
-The sampler pins the **current clean Alis-Companion and Hadalis source revisions**, reads only `/proc/<explicit_pid>/stat`, `status` and (when readable) `smaps_rollup`, requires a process belonging to the user's UID, and rejects PID recycling/mid-sample changes. Sampled values: process CPU ticks converted using OS clock tick rate, CPU usage normalized to one logical core, observed thread count, process RSS and PSS (when supported). Every receipt labels **GPU frame time, scene/compositor GPU time, VRAM, frame p50/p95/p99 and power `NOT_MEASURED`**. The tool is not a driver profiler, GPU benchmark or measurement of total Hadalis resource consumption. Never attribute all of Quickshell CPU to Companion without paired OFF/hidden/visible evidence.
+The sampler pins the **current clean Alis-Companion and Alis source revisions**, reads only `/proc/<explicit_pid>/stat`, `status` and (when readable) `smaps_rollup`, requires a process belonging to the user's UID, and rejects PID recycling/mid-sample changes. Sampled values: process CPU ticks converted using OS clock tick rate, CPU usage normalized to one logical core, observed thread count, process RSS and PSS (when supported). Every receipt labels **GPU frame time, scene/compositor GPU time, VRAM, frame p50/p95/p99 and power `NOT_MEASURED`**. The tool is not a driver profiler, GPU benchmark or measurement of total Alis resource consumption. Never attribute all of Quickshell CPU to Companion without paired OFF/hidden/visible evidence.
 
 The comparison tool requires at least **three independent captures per actor state** with the same commit SHAs, role, backend, nominal duration, sampling interval and warmup. It publishes descriptive medians/ranges for CPU and RSS/PSS only. It does *not* pair separate machines, infer statistical significance, provide GPU percentages, assert CPU savings, or validate state truth automatically.
 
@@ -65,12 +65,12 @@ root="$HOME/.local/state/alis-companion/g1-$(date +%Y%m%d-%H%M%S)"
 for i in 1 2 3; do
   # Confirm Aqua is disabled/OFF before each recording.
   python3 scripts/aqua-g1-resource-sample.py --pid "$QS_PID" --role shell \
-    --state off --backend opengl --hadalis-root /path/to/Hadalis \
+    --state off --backend opengl --alis-root /path/to/Alis \
     --duration 30 --interval 1 --warmup 5 --output "$root/off-$i"
   # The local chatbot must explicitly enable Aqua and observe idle before recording;
   # NEVER use script timing as a proxy for the confirmed visible state.
   python3 scripts/aqua-g1-resource-sample.py --pid "$QS_PID" --role shell \
-    --state aqua_idle --backend opengl --hadalis-root /path/to/Hadalis \
+    --state aqua_idle --backend opengl --alis-root /path/to/Alis \
     --duration 30 --interval 1 --warmup 5 --output "$root/aqua-idle-$i"
 done
 python3 scripts/aqua-g1-compare.py --reference-state off --observed-state aqua_idle \
@@ -104,7 +104,7 @@ Do not implement candidates in parallel. Each is separately source-pinned, measu
 ### Specific hard constraints for source changes
 
 - Do not remove live themed refraction, transparency, glossy cornea, soft reflections, 3D volume through pitch/yaw/roll, optical bubble detail, 4 opaque Octo tentacles/16 cups or handoff/grip behavior simply to improve numbers.
-- Any replacement must preserve the public QML/IPC contract, actor bounds, event timing, surface attachment, input passthrough and fallback. The optimization scope must not extend into Hadalis-owned `AbyssField.frag` by accident.
+- Any replacement must preserve the public QML/IPC contract, actor bounds, event timing, surface attachment, input passthrough and fallback. The optimization scope must not extend into Alis-owned `AbyssField.frag` by accident.
 - Avoid extra ShaderEffectSource/layer captures, sprite atlases, hidden parallel renderers, scene/item proliferation and CPU-side Bezier reconstruction by default. Test driver-specific changes rather than assuming a shorter GLSL shader compiles to fewer instructions.
 - Beware `Shape`/fallback shader updates; a lower GPU arithmetic count that increases QML binding/geometry churn is not a win.
 - There is no general proof that analytic derivatives of the rounded droplet, tapered tubes or interface distances produce byte-identical pixels. Such candidates are numerical experiments, not pre-approved strict-lossless replacements.
@@ -117,11 +117,11 @@ Do not implement candidates in parallel. Each is separately source-pinned, measu
 
 **G2 / visual:** All required variants/poses are verified with the new shader-aware oracle. Strict-lossless means exact approved oracle equivalence on specified captures and no new visual behavior; if a controlled visual difference is accepted instead, log explicit owner approval and label it **quality/performance tradeoff**, not strict-lossless. Check RGB, alpha, edge, theme, 3D roll, eyes, droplets, caustics, Octo grips and scene composite. INCONCLUSIVE cannot be promoted.
 
-**G3 / engineering:** Targeted source-independent tests, all Alis-Companion validator checks (`make test HADALIS_ROOT=/path/to/Hadalis`; optionally `--require-clean` after commit), and explicit legacy volume/spatial/cast/render-cost tests where available, with real Wayland rather than SKIP. Shader source and binary have correct packaged hashes. No new runtime loader/daemon/material error, p95/p99 hitch, CPU/RAM/VRAM regression beyond measured noise, startup penalty or idle wakeups.
+**G3 / engineering:** Targeted source-independent tests, all Alis-Companion validator checks (`make test ALIS_ROOT=/path/to/Alis`; optionally `--require-clean` after commit), and explicit legacy volume/spatial/cast/render-cost tests where available, with real Wayland rather than SKIP. Shader source and binary have correct packaged hashes. No new runtime loader/daemon/material error, p95/p99 hitch, CPU/RAM/VRAM regression beyond measured noise, startup penalty or idle wakeups.
 
 **G4 / desktop:** Maintainer-observed live Niri/Quickshell, four rims/corners, supported shared surfaces, popup/chat/drag/input, dynamic themes, multiple outputs/DPR/hotplug, sleep-resume and fullscreen/permission precedence. A private QML scene proves neither live host interactivity nor desktop-safe Region.
 
-**G5 / decision:** Publish exact baseline and candidate SHA + metrics + raw artifact provenance + acceptance status + gains **for Companion and whole desktop separately**. Promote only if improvement exceeds noise and useful target without regressing more important metrics; otherwise **stop, retain single 3D renderer, and consider Hadalis's independently owned full-screen/Abyss optimizations**. Maintain a clean rollback to the last known-good Alis-Companion release through the existing immutable release/current-link design; no mandatory install/restart during tests.
+**G5 / decision:** Publish exact baseline and candidate SHA + metrics + raw artifact provenance + acceptance status + gains **for Companion and whole desktop separately**. Promote only if improvement exceeds noise and useful target without regressing more important metrics; otherwise **stop, retain single 3D renderer, and consider Alis's independently owned full-screen/Abyss optimizations**. Maintain a clean rollback to the last known-good Alis-Companion release through the existing immutable release/current-link design; no mandatory install/restart during tests.
 
 ## Repository-only verification result — 2026-10-09
 
@@ -144,7 +144,7 @@ The maintainer provided a **bounded `sequence.json` receipt** from Alis-Companio
 
 ## G0 implementation checkpoint and manual GPU qualification — 2026-10-08
 
-**Current implementation:** `scripts/aqua-shader-ab.py` is committed as an **isolated, independently compiled** two-`.qsb` ShaderEffect pixel comparison harness, with `scripts/test-aqua-shader-ab-contract.py` integrated into `scripts/validate.py`. It does **not** touch the product `.frag`, shipped `.qsb`, Blender animation, loader, installed release, or Hadalis host. Unit/offline classification and fail-closed checks are possible without a GPU. **G0 is NOT YET QUALIFIED** until actual A/A and deliberately altered A/B captures succeed on the maintainer's real Wayland + Qt/Quickshell + `qsb` session.
+**Current implementation:** `scripts/aqua-shader-ab.py` is committed as an **isolated, independently compiled** two-`.qsb` ShaderEffect pixel comparison harness, with `scripts/test-aqua-shader-ab-contract.py` integrated into `scripts/validate.py`. It does **not** touch the product `.frag`, shipped `.qsb`, Blender animation, loader, installed release, or Alis host. Unit/offline classification and fail-closed checks are possible without a GPU. **G0 is NOT YET QUALIFIED** until actual A/A and deliberately altered A/B captures succeed on the maintainer's real Wayland + Qt/Quickshell + `qsb` session.
 
 The harness stages two different QSB locations in one temporary, private Quickshell window; each is produced with `qsb --qt6` from an explicitly hashed shader source. It samples 12 material/pose/theme combinations, compares unmodified RGBA pixels, checks for non-empty baseline captures and records QSB hashes, qsb version, backend/Wayland handle, Qt logs and failure categories. It requires a prior **qualifying A/A** result before negative testing, and requires **both** qualifying A/A and deliberately different-shader control results before real candidate comparisons. Comparison is **shader-only** (not full WaterDropletBody composition, no 60-clip claim, no live compositor input proof). A successful single QML capture is not a frame-time benchmark.
 
@@ -162,7 +162,7 @@ Review `sequence.json` and per-stage `result.json` before accepting any conclusi
 
 ### Exact interactive GPU qualification commands
 
-Run from a current clean Alis-Companion checkout with `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `qs`, `qsb`, `dbus-run-session` and Python Pillow available. Prefer Alis-Companion's ordinary source checkout, *not* an installed runtime or the historical Hadalis Companion copy. Use a new evidence directory for each invocation; the command never overwrites existing captures.
+Run from a current clean Alis-Companion checkout with `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `qs`, `qsb`, `dbus-run-session` and Python Pillow available. Prefer Alis-Companion's ordinary source checkout, *not* an installed runtime or the historical Alis Companion copy. Use a new evidence directory for each invocation; the command never overwrites existing captures.
 
 ```bash
 set -euo pipefail
@@ -185,12 +185,12 @@ printf 'Shader A/B reports: %s\n' "$run"
 
 The built-in negative mutation changes the final body-fragment output only to demonstrate visible pixel detection. `--diagnostics` records `QSG_RENDER_TIMING`, `QSG_RHI_PROFILE`, `QSG_RENDERER_DEBUG=render` and `QSG_INFO` diagnostics separately from later repeatable timing experiments. GPU timestamps may be unsupported; Qt timings are not isolated per-material shader time. The `elapsed_capture_wall_seconds_not_gpu_time` report field **must never** be interpreted as a GPU speedup.
 
-**Next after G0 is proven:** obtain a pinned, repeatable G1 baseline in the real Alis-Companion-enabled Hadalis host (OFF / hidden / idle / moving / pitched / Octo grip, p50/p95/p99 GPU frame, CPU, PSS/VRAM when observable). Only then investigate E1 bubble-ray's candidate as a performance optimization. A doc-only write, contract test pass or synthetic pixel capture does not itself satisfy G1 or real Niri acceptance.
+**Next after G0 is proven:** obtain a pinned, repeatable G1 baseline in the real Alis-Companion-enabled Alis host (OFF / hidden / idle / moving / pitched / Octo grip, p50/p95/p99 GPU frame, CPU, PSS/VRAM when observable). Only then investigate E1 bubble-ray's candidate as a performance optimization. A doc-only write, contract test pass or synthetic pixel capture does not itself satisfy G1 or real Niri acceptance.
 
 ## Tooling and references
 
 - Alis-Companion build and isolated tests: [Makefile](../Makefile), [scripts/validate.py](../scripts/validate.py), [scripts/aqua-verify-lossless-render.py](../scripts/aqua-verify-lossless-render.py), [scripts/build-aqua-material-candidate.py](../scripts/build-aqua-material-candidate.py), [scripts/test-companion-volume.py](../scripts/test-companion-volume.py), [scripts/test-companion-cast.py](../scripts/test-companion-cast.py), [scripts/test-aqua-spatial-volume.py](../scripts/test-aqua-spatial-volume.py), [scripts/test-aqua-render-cost-contract.py](../scripts/test-aqua-render-cost-contract.py).
 - Qt documentation: [ShaderEffect QSB and uniform semantics](https://doc.qt.io/qt-6/qml-qtquick-shadereffect.html); [QSB baking and variant inspection](https://doc.qt.io/qt-6/qtshadertools-qsb.html); [scene-graph batching, timing and debug](https://doc.qt.io/qt-6/qtquick-visualcanvas-scenegraph-renderer.html); [GPU RHI timestamp prerequisites](https://doc.qt.io/qt-6/qquickgraphicsconfiguration.html); [ShaderEffectSource memory/performance](https://doc.qt.io/qt-6/qml-qtquick-shadereffectsource.html).
-- The [Hadalis strict-lossless audit](https://github.com/llocphann/Hadalis/blob/dev/docs/optimization/STRICT_LOSSLESS_GPU_RAM_CPU_AUDIT.md) already has a profile-first Aqua/Octo caution (historical R32.5); future **Companion** findings belong here/Alis-Companion, while full-desktop shared render-graph findings stay in that audit.
+- The [Alis strict-lossless audit](https://github.com/llocphann/Alis/blob/dev/docs/optimization/STRICT_LOSSLESS_GPU_RAM_CPU_AUDIT.md) already has a profile-first Aqua/Octo caution (historical R32.5); future **Companion** findings belong here/Alis-Companion, while full-desktop shared render-graph findings stay in that audit.
 
-**Next authorized work if implementation is requested:** implement only G0/B0 dual-QSB controls and baseline instrumentation in test tooling. No production shader, QML actor, feature, or Hadalis host change until that evidence is available.
+**Next authorized work if implementation is requested:** implement only G0/B0 dual-QSB controls and baseline instrumentation in test tooling. No production shader, QML actor, feature, or Alis host change until that evidence is available.

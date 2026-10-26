@@ -129,7 +129,7 @@ elif sys.argv[1:2] == ['--ensure-provider']:
     print(json.dumps({'ok': True, 'started': started}))
     raise SystemExit(0)
 
-HOST=Path(sys.argv[sys.argv.index('--host-root')+1]) if '--host-root' in sys.argv else Path(os.environ.get('HADALIS_ROOT', Path(__file__).resolve().parents[2]))
+HOST=Path(sys.argv[sys.argv.index('--host-root')+1]) if '--host-root' in sys.argv else Path(os.environ.get('ALIS_ROOT', Path(__file__).resolve().parents[2]))
 sys.path.insert(0,str(HOST/'scripts/ai'))
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 daily=core=None
@@ -152,7 +152,7 @@ class MindError(Exception):
 def journal_modules():
     """Load the host-owned resolver only for explicit journal actions.
 
-    Older hosts keep it in-tree; extracted hosts validate Hadalird through
+    Older hosts keep it in-tree; extracted hosts validate Alis-Intergration through
     their existing finite package inspector. Chat/history never require it.
     Neither request text nor a model can choose an import directory.
     """
@@ -161,9 +161,9 @@ def journal_modules():
     folder=HOST/'scripts/todo'
     if not all((folder/name).is_file() for name in ('obsidian_daily_todo.py','obsidian_todo.py')):
         inspector=HOST/'scripts/alis-intergration-status.py'
-        if not inspector.is_file():inspector=HOST/'scripts/hadalird-status.py'
+        if not inspector.is_file():inspector=HOST/'scripts/alis-intergration-status.py'
         if not inspector.is_file():raise MindError('integration_unavailable','Obsidian integration is not installed.')
-        spec=importlib.util.spec_from_file_location('hadalird_status',inspector)
+        spec=importlib.util.spec_from_file_location('alis_intergration_status',inspector)
         status=importlib.util.module_from_spec(spec);spec.loader.exec_module(status)
         found=status.inspect(HOST)
         if found.get('available') is not True:

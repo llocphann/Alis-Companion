@@ -197,9 +197,9 @@ ShellRoot {
         if environment is None:
             print("SKIP: actual Alis-Companion loader requires an isolated Wayland backend")
             raise SystemExit(77)
-        environment.pop("INIR_COMPANIOND",None)
+        environment.pop("ALIS_COMPANIOND",None)
         environment.update(QT_QUICK_BACKEND="software", QT_QUICK_CONTROLS_STYLE="Basic",
-            INIR_GGUF_ROOTS="[]", QT_QPA_PLATFORMTHEME="generic", QT_NO_XDG_DESKTOP_PORTAL="1")
+            ALIS_GGUF_ROOTS="[]", QT_QPA_PLATFORMTHEME="generic", QT_NO_XDG_DESKTOP_PORTAL="1")
         log = private / "runtime.log"
         native_pids = set()
         peak = 0
@@ -215,7 +215,7 @@ ShellRoot {
                             command = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")[0]
                         except OSError:
                             continue
-                        if command.endswith((b"/alis-companiond", b"/inir-companiond")):
+                        if command.endswith((b"/alis-companiond", b"/alis-companiond")):
                             live.add(pid)
                     native_pids.update(live)
                     peak = max(peak, len(live))

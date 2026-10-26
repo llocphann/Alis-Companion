@@ -160,7 +160,7 @@ def categorize(rows):
 def private_log(state):
     if not isinstance(state, Path):
         raise ValueError("invalid_state_directory")
-    session = state / "hadalis" / SESSION
+    session = state / "alis" / SESSION
     log = session / "nested/child/underlay/quickshell.private.log"
     if (not session.is_dir() or session.is_symlink()
             or session.stat().st_uid != os.getuid()

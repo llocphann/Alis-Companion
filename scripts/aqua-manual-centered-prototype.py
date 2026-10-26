@@ -21,12 +21,12 @@ CONTRACT = "scripts/test-aqua-centered-prototype-contract.py"
 FIXTURE = "scripts/aqua-fixtures/centered-prototype/shell.qml"
 FIXTURE_BLOB = "3987ee38e24793f3d535d5ae766171d0136b0180"
 REMOTES = {
-    "https://github.com/llocphann/Hadalis",
-    "https://github.com/llocphann/Hadalis.git",
-    "git@github.com:llocphann/Hadalis",
-    "git@github.com:llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
-    "ssh://git@github.com/llocphann/Hadalis.git",
+    "https://github.com/llocphann/Alis",
+    "https://github.com/llocphann/Alis.git",
+    "git@github.com:llocphann/Alis",
+    "git@github.com:llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
+    "ssh://git@github.com/llocphann/Alis.git",
 }
 SENSITIVE = {
     "modules/abyss/AbyssPerimeter.qml",
@@ -151,7 +151,7 @@ def probe(folder, qs, dbus):
     shutil.copyfile("defaults/config.json", config / "config.json")
     environment = dict(os.environ)
     for variable in ("QS_CONFIG_PATH", "QS_CONFIG_NAME", "QS_MANIFEST",
-                     "INIR_COMPANIOND"):
+                     "ALIS_COMPANIOND"):
         environment.pop(variable, None)
     environment.update({
         "QT_QPA_PLATFORM": "offscreen",
@@ -275,7 +275,7 @@ def main():
     state = Path(os.environ.get(
         "XDG_STATE_HOME", str(Path.home() / ".local/state")
     )).resolve()
-    private = state / "hadalis" / ("aqua-centered-prototype-" + identifier)
+    private = state / "alis" / ("aqua-centered-prototype-" + identifier)
     if private == root or root in private.parents:
         raise RuntimeError("Private diagnostics must be outside the checkout")
     private.mkdir(parents=True, mode=0o700, exist_ok=False)

@@ -2,7 +2,7 @@
 // Execute the production adapter, including guards, output ownership and
 // actual selection of existing GlobalStates presentation APIs. No live UI.
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
-const source=fs.readFileSync('optional/alis-companion/HadalisOutput.qml','utf8');
+const source=fs.readFileSync('optional/alis-companion/AlisOutput.qml','utf8');
 const perimeter=fs.readFileSync('modules/abyss/AbyssPerimeter.qml','utf8');
 const state={};
 const calls=[];

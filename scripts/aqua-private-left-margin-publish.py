@@ -23,12 +23,12 @@ ORIGINAL_CHILD_BLOB = "c099fc6a1a62b06218d69dd3ec526df18de701db"
 ORIGINAL_TARGETS_BLOB = "527ebecd01e2fc51d497e0de73a0f3bcd83305ac"
 DEST = "docs/aqua-pointer-left-margin-drift-20261001T175020Z-5a11aa42-5b72e0e3294c.json"
 SAFE_REMOTES = {
-    "https://github.com/llocphann/Hadalis",
-    "https://github.com/llocphann/Hadalis.git",
-    "git@github.com:llocphann/Hadalis",
-    "git@github.com:llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
-    "ssh://git@github.com/llocphann/Hadalis.git",
+    "https://github.com/llocphann/Alis",
+    "https://github.com/llocphann/Alis.git",
+    "git@github.com:llocphann/Alis",
+    "git@github.com:llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
+    "ssh://git@github.com/llocphann/Alis.git",
 }
 CHOICES = {
     "relative_offset_bucket": {
@@ -69,7 +69,7 @@ def guard_private_clone(state):
             or git("symbolic-ref", "--short", "HEAD") != "dev"
             or not clean()
             or ROOT.name != "repo"
-            or ROOT.parent.parent.resolve() != (state / "hadalis").resolve()
+            or ROOT.parent.parent.resolve() != (state / "alis").resolve()
             or not ROOT.parent.name.startswith("aqua-left-drift-publish.")
             or stat.S_IMODE(ROOT.parent.stat().st_mode) & 0o077):
         stop("owned_clean_temporary_dev_clone_required")

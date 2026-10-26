@@ -44,12 +44,12 @@ ALLOWED_GROUPS = {
     "other regression contracts",
 }
 ALLOWED_URLS = {
-    "https://github.com/llocphann/Hadalis",
-    "https://github.com/llocphann/Hadalis.git",
-    "git@github.com:llocphann/Hadalis",
-    "git@github.com:llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
-    "ssh://git@github.com/llocphann/Hadalis.git",
+    "https://github.com/llocphann/Alis",
+    "https://github.com/llocphann/Alis.git",
+    "git@github.com:llocphann/Alis",
+    "git@github.com:llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
+    "ssh://git@github.com/llocphann/Alis.git",
 }
 
 
@@ -88,10 +88,10 @@ def read_summary(log_file):
         size = source.tell()
         source.seek(max(0, size - 262144))
         tail = source.read(262144).decode("utf-8", errors="replace")
-    if "HADALIS VALIDATION SUMMARY" not in tail:
+    if "ALIS VALIDATION SUMMARY" not in tail:
         raise RuntimeError("Validator log does not contain a final summary")
     lines = [line.strip() for line in tail.rsplit(
-        "HADALIS VALIDATION SUMMARY", 1
+        "ALIS VALIDATION SUMMARY", 1
     )[-1].splitlines()]
     if "Result: FAIL" not in lines:
         raise RuntimeError("Previous validator summary does not say FAIL")
@@ -158,7 +158,7 @@ def read_summary(log_file):
 def select_log():
     home = Path(os.environ.get(
         "XDG_STATE_HOME", str(Path.home() / ".local/state")
-    )) / "hadalis"
+    )) / "alis"
     matches = []
     for summary_file in home.glob(
         "aqua-qualification-*/sanitized-summary.json"
@@ -198,7 +198,7 @@ def verify_remote():
 def main():
     os.umask(0o077)
     if Path.cwd().resolve() != Path(git("rev-parse", "--show-toplevel")).resolve():
-        raise RuntimeError("Run from the Hadalis repository root")
+        raise RuntimeError("Run from the Alis repository root")
     if git("symbolic-ref", "--quiet", "--short", "HEAD") != "dev" or not clean():
         raise RuntimeError("Require a clean checkout on dev")
     urls = git("remote", "get-url", "--push", "--all", "origin").splitlines()
@@ -267,7 +267,7 @@ if __name__ == "__main__":
     try:
         if len(sys.argv) == 2 and sys.argv[1] == "--self-test":
             fixture = (
-                "HADALIS VALIDATION SUMMARY\n"
+                "ALIS VALIDATION SUMMARY\n"
                 "Exact SHA: " + TEST_SOURCE + "\n"
                 "Result: FAIL\nChecks run: 4\nPassed: 2\nFailed: 2\n"
                 "Skipped: 0\nFailed checks:\n"

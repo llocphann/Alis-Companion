@@ -121,7 +121,7 @@ def main():
         return 39
     state = Path(os.environ.get(
         "XDG_STATE_HOME", str(Path.home() / ".local/state")))
-    folder = state / "hadalis-automation" / "worker" / "actions" / JOB
+    folder = state / "alis-automation" / "worker" / "actions" / JOB
     action = folder / "action-0.json"
     if not action.is_file() or action.is_symlink():
         return 39

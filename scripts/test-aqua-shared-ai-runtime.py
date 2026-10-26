@@ -70,7 +70,7 @@ class Handler(BaseHTTPRequestHandler):
 server=ThreadingHTTPServer(("127.0.0.1",0),Handler)
 threading.Thread(target=server.serve_forever,daemon=True).start()
 try:
- with tempfile.TemporaryDirectory(prefix="hadalis-aqua-ai-") as name:
+ with tempfile.TemporaryDirectory(prefix="alis-aqua-ai-") as name:
     folder=Path(name)
     for entry in ["modules","services","GlobalStates.qml","qmldir","assets","scripts","defaults","translations","optional"]:
         (folder/entry).symlink_to(ROOT/entry)
@@ -597,7 +597,7 @@ ShellRoot {
     assert instant[0]['store'] is False and instant[0]['max_output_tokens']==256
     assert 'tools' not in instant[0] and 'previous_response_id' not in instant[0]
     assert any(row.get('role')=='assistant' for row in instant[0]['input']), 'Instant mode lost assistant history roles'
-    with sqlite3.connect(Path(env['XDG_STATE_HOME'])/'inir/aqua/chat.sqlite3') as db:
+    with sqlite3.connect(Path(env['XDG_STATE_HOME'])/'alis/aqua/chat.sqlite3') as db:
         rows=db.execute('SELECT role,content FROM messages ORDER BY id').fetchall()
     original_rows=[('user','Hello fixture'),('assistant','Fixture hello'),
                   ('user','Retry fixture'),('assistant','Fixture hello'),

@@ -160,7 +160,7 @@ jobs:
           if [ -z "$QMLFORMAT" ]; then QMLFORMAT=/usr/lib/qt6/bin/qmlformat; fi
           test -x "$QMLFORMAT"
           "$QMLFORMAT" services/AquaMind.qml >/dev/null
-          "$QMLFORMAT" HadalisSession.qml >/dev/null
+          "$QMLFORMAT" AlisSession.qml >/dev/null
           echo "ALIS_COMPANION_QML_PARSE_SMOKE_PASS (Qt syntax only; not live import/integration)"
       - name: Independently bake baseline, bubble candidate and deliberately changed shader
         run: |

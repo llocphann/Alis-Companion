@@ -27,12 +27,12 @@ FIXTURE = "scripts/aqua-fixtures/production-layer/shell.qml"
 FIXTURE_BLOB = "e16b6dcada26a27fd71cc670e30c55135401bcef"
 INITIAL_SELF_BLOB = "acbea356a22daed2b92f239db326b964172ede70"
 ORIGINS = {
-    "https://github.com/llocphann/Hadalis",
-    "https://github.com/llocphann/Hadalis.git",
-    "git@github.com:llocphann/Hadalis",
-    "git@github.com:llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
-    "ssh://git@github.com/llocphann/Hadalis.git",
+    "https://github.com/llocphann/Alis",
+    "https://github.com/llocphann/Alis.git",
+    "git@github.com:llocphann/Alis",
+    "git@github.com:llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
+    "ssh://git@github.com/llocphann/Alis.git",
 }
 MAX_LOG = 1048576
 
@@ -231,7 +231,7 @@ def run_nested(niri, folder, host_display, host_ipc, host_outputs):
                     if not isinstance(layers, list):
                         raise ValueError("layers schema")
                     existing = sum(isinstance(x, dict)
-                                   and x.get("namespace") == "hadalis:abyss-perimeter"
+                                   and x.get("namespace") == "alis:abyss-perimeter"
                                    for x in layers)
                     result["nested_preexisting_abyss_layer"] = (
                         "absent" if existing == 0 else "present"
@@ -342,7 +342,7 @@ def main():
     if sys.argv[1:] != ["--acknowledge-nested-niri"]:
         raise RuntimeError("Explicit opt-in required: --acknowledge-nested-niri")
     if Path.cwd().resolve() != Path(git("rev-parse", "--show-toplevel")).resolve():
-        raise RuntimeError("Run from Hadalis repository root")
+        raise RuntimeError("Run from Alis repository root")
     if git("symbolic-ref", "--quiet", "--short", "HEAD") != "dev" or not clean():
         raise RuntimeError("A clean dev checkout is required")
     origin = git("remote", "get-url", "origin")
@@ -360,7 +360,7 @@ def main():
     token = secrets.token_hex(4)
     state = Path(os.environ.get("XDG_STATE_HOME",
                                str(Path.home() / ".local/state"))).resolve()
-    folder = state / "hadalis" / ("aqua-nested-niri-" + timestamp + "-" + token)
+    folder = state / "alis" / ("aqua-nested-niri-" + timestamp + "-" + token)
     if root == folder or root in folder.parents:
         raise RuntimeError("Private state directory cannot reside in checkout")
     folder.mkdir(mode=0o700, parents=True, exist_ok=False)

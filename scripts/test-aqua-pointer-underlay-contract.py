@@ -18,7 +18,7 @@ defaults = json.loads((ROOT / "defaults/config.json").read_text())
 # The event witness is an entirely separate LOWER layer; it cannot shadow
 # the actual production host, mutate Aqua settings, or inject host input.
 for marker in (
-    'WlrLayershell.namespace: "hadalis:aqua-pointer-underlay"',
+    'WlrLayershell.namespace: "alis:aqua-pointer-underlay"',
     "WlrLayershell.layer: WlrLayer.Bottom",
     "WlrLayershell.keyboardFocus: WlrKeyboardFocus.None",
     "mask: Region { item: witness }",
@@ -40,7 +40,7 @@ assert not any(
     and line[len("AbyssPerimeter"):].lstrip().startswith("{")
     for line in qml_code
 )
-assert "INIR_COMPANIOND" not in fixture
+assert "ALIS_COMPANIOND" not in fixture
 assert "Quickshell.env" not in fixture
 
 # This test only recognizes the CURRENT complete-host input mask. A future

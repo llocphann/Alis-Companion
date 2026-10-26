@@ -36,7 +36,7 @@ Item {
         width:host.width,height:host.height,
         hostWidth:112*session.companionScale,hostHeight:98*session.companionScale,
         scale:session.companionScale,insets:host.nativeInsets,rimRadius:AbyssStyle.neckRadius,
-        excludeKeys:["settings"]},
+        excludeKeys:(host?.desktopHasApps ?? false) ? ["settings","dock"] : ["settings"]},
         liquid.participants,bar.visible ? bar.layoutRecords.map(record=>({
             edge:record.edge,along:record.along,span:record.span})) : [])
     readonly property bool companionPermission: AquaHostPolicy.hostActive(
@@ -462,6 +462,7 @@ Item {
         && companionCuriosity.feature?.kind === "utilities"
         && root.ownsCompanionFeature(companionCuriosity.feature)
     readonly property bool dockHeld: companionBridge.ready && companion.visible
+        && !(host?.desktopHasApps ?? false)
         && (companionPresence.placement.key === "dock"
             || companionPresence.placement.support?.key === "dock"
             || (companionPresence.traveling && companionPresence.destination.key === "dock"))

@@ -12,12 +12,12 @@ import stat
 import subprocess
 
 SAFE_ORIGINS = {
-    "git@github.com:llocphann/Hadalis.git",
-    "git@github.com:llocphann/Hadalis",
-    "https://github.com/llocphann/Hadalis.git",
-    "https://github.com/llocphann/Hadalis",
-    "ssh://git@github.com/llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
+    "git@github.com:llocphann/Alis.git",
+    "git@github.com:llocphann/Alis",
+    "https://github.com/llocphann/Alis.git",
+    "https://github.com/llocphann/Alis",
+    "ssh://git@github.com/llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
 }
 # Every printed class is authored below; no untrusted log content is returned.
 PATTERNS = (
@@ -75,7 +75,7 @@ def inspect(scratch, expected):
         raise ValueError("invalid_expected_source")
     # Reject arbitrary paths, symlinks and other users' retained private logs.
     if (scratch.name[:15] != "aqua-qt-motion."
-            or scratch.parent.name != "hadalis"
+            or scratch.parent.name != "alis"
             or not scratch.parent.parent.name.startswith("aqua-qt-state.")
             or scratch.is_symlink() or scratch.parent.is_symlink()
             or scratch.parent.parent.is_symlink()

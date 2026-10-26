@@ -740,7 +740,7 @@ if __name__=="__main__":
     parser.add_argument("--performance",action="store_true",help="also prove synthetic native controller interruptions and blends")
     parser.add_argument("--optics",action="store_true",help="also compare eight themed refractive Abyss staging poses")
     parser.add_argument("--contact",action="store_true",help="also compare native water/reflection/ripple/rim poses; requires Qt 6.12")
-    parser.add_argument("--hadalis-root",type=Path,default=Path(os.environ.get("HADALIS_ROOT",ROOT.parent/"Hadalis")))
+    parser.add_argument("--alis-root",type=Path,default=Path(os.environ.get("ALIS_ROOT",ROOT.parent/"Alis")))
     args=parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="alis-companion-cowork-converter-") as temporary:
         offline(Path(temporary))
@@ -753,4 +753,4 @@ if __name__=="__main__":
         if not args.bundle or args.video or args.performance or args.optics or args.contact:
             parser.error("--reference-bundle requires --bundle/--output and excludes native capture options")
         compare_eye_normals(args.reference_bundle.resolve(), args.bundle.resolve(), args.output.resolve())
-    elif args.bundle:native(args.bundle.resolve(),args.output.resolve(),args.hadalis_root.resolve(),args.video,args.performance,args.optics,args.contact)
+    elif args.bundle:native(args.bundle.resolve(),args.output.resolve(),args.alis_root.resolve(),args.video,args.performance,args.optics,args.contact)

@@ -1,5 +1,5 @@
 [package]
-name = "inir-companiond"
+name = "alis-companiond"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

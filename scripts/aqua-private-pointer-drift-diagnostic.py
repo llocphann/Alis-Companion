@@ -126,7 +126,7 @@ def main():
     home_state = Path(
         os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))
     ).expanduser().resolve()
-    session = home_state / "hadalis" / (
+    session = home_state / "alis" / (
         "aqua-pointer-" + match.group(1) + "-" + match.group(2))
     log = session / "nested/child/underlay/quickshell.private.log"
     if (not session.is_dir() or session.is_symlink()

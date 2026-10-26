@@ -61,8 +61,8 @@ try:
         env['AQUA_TEST_LOCAL_FINGERPRINT']=hashlib.sha256(json.dumps({'provider':'lmstudio',
             'model':'tiny:local','format':'gguf','architecture':'fixture','quantization':'Q4_K_M',
             'contextTokens':4096},sort_keys=True,separators=(',',':')).encode()).hexdigest()
-        env['INIR_AQUA_HISTORY_DB']=str(private/'aqua-history.sqlite3')
-        env['INIR_GGUF_ROOTS']='[]'
+        env['ALIS_AQUA_HISTORY_DB']=str(private/'aqua-history.sqlite3')
+        env['ALIS_GGUF_ROOTS']='[]'
         with (private/'test.log').open('w') as output:
             p=subprocess.Popen(['dbus-run-session','--','qs','--path',str(shell/'shell.qml')],env=env,cwd=ROOT,
                                stdout=output,stderr=subprocess.STDOUT,start_new_session=True)

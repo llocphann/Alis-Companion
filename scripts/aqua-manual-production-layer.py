@@ -20,14 +20,14 @@ SELF = "scripts/aqua-manual-production-layer.py"
 INITIAL_SELF_BLOB = "75b0f44d18abd135492c9e460765aeef5bd58d5c"
 FIXTURE = "scripts/aqua-fixtures/production-layer/shell.qml"
 FIXTURE_BLOB = "e16b6dcada26a27fd71cc670e30c55135401bcef"
-NAMESPACE = "hadalis:abyss-perimeter"
+NAMESPACE = "alis:abyss-perimeter"
 SAFE_REMOTE = {
-    "https://github.com/llocphann/Hadalis",
-    "https://github.com/llocphann/Hadalis.git",
-    "git@github.com:llocphann/Hadalis",
-    "git@github.com:llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
-    "ssh://git@github.com/llocphann/Hadalis.git",
+    "https://github.com/llocphann/Alis",
+    "https://github.com/llocphann/Alis.git",
+    "git@github.com:llocphann/Alis",
+    "git@github.com:llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
+    "ssh://git@github.com/llocphann/Alis.git",
 }
 MAX_LOG = 1048576
 
@@ -192,7 +192,7 @@ def observe_phase(label, folder, output, outputs, qs, niri, dbus, binary):
     env.update({
         "QT_QPA_PLATFORM": "wayland",
         "QS_NO_RELOAD_POPUP": "1",
-        "INIR_COMPANIOND": str(binary),
+        "ALIS_COMPANIOND": str(binary),
         "XDG_CONFIG_HOME": str(xdg / "config"),
         "XDG_DATA_HOME": str(xdg / "data"),
         "XDG_CACHE_HOME": str(xdg / "cache"),
@@ -343,7 +343,7 @@ def main():
                   + "-" + secrets.token_hex(4))
     private = Path(os.environ.get("XDG_STATE_HOME",
                     str(Path.home() / ".local/state"))).resolve()
-    private = private / "hadalis" / ("aqua-production-layer-" + identifier)
+    private = private / "alis" / ("aqua-production-layer-" + identifier)
     root = Path(git("rev-parse", "--show-toplevel")).resolve()
     if private == root or root in private.parents:
         raise RuntimeError("Private state directory must be outside the repo")
@@ -358,7 +358,7 @@ def main():
     dbus = shutil.which("dbus-run-session")
     output = None
     names = []
-    binary = private / "cargo-target" / "release" / "inir-companiond"
+    binary = private / "cargo-target" / "release" / "alis-companiond"
     if not all((qs, niri, cargo, dbus, os.environ.get("WAYLAND_DISPLAY"))):
         preflight_reason = "required_desktop_tool_or_wayland_unavailable"
     else:
@@ -385,7 +385,7 @@ def main():
                 build = subprocess.run(
                     [cargo, "build", "--locked", "--release",
                      "--manifest-path", "native/Cargo.toml",
-                     "-p", "inir-companiond"],
+                     "-p", "alis-companiond"],
                     env=env, stdout=stream, stderr=subprocess.STDOUT,
                     timeout=900
                 )

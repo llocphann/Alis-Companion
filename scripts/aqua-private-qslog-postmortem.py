@@ -108,7 +108,7 @@ def git(repo, *args):
 
 def inspect(scratch):
     if (scratch.name[:15] != "aqua-qt-motion."
-            or scratch.parent.name != "hadalis"
+            or scratch.parent.name != "alis"
             or not scratch.parent.parent.name.startswith("aqua-qt-state.")
             or scratch.is_symlink() or scratch.parent.is_symlink()
             or scratch.parent.parent.is_symlink()

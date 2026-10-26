@@ -51,8 +51,8 @@ Scope {
     CompanionBridge {
         id: companionBridge
         // Guard the development binary override as well as the dispatcher.
-        // An inherited INIR_COMPANIOND must not bypass default-off.
-        binaryPath: root.companionEnabled ? (Quickshell.env("INIR_COMPANIOND") ?? "") : ""
+        // An inherited ALIS_COMPANIOND must not bypass default-off.
+        binaryPath: root.companionEnabled ? (Quickshell.env("ALIS_COMPANIOND") ?? "") : ""
         useNativeDispatcher: root.companionEnabled
         personality: root.companionPreferences.personality
         appearanceFrequency: root.companionPreferences.appearanceFrequency
@@ -226,7 +226,7 @@ Scope {
             color: "transparent"
             exclusionMode: ExclusionMode.Ignore
             exclusiveZone: 0
-            WlrLayershell.namespace: "hadalis:abyss-perimeter"
+            WlrLayershell.namespace: "alis:abyss-perimeter"
             WlrLayershell.layer: GlobalStates.settingsNativeDialogOpen ? WlrLayer.Bottom : PolkitService.active ? WlrLayer.Top : (window.editorOpen || utility.open || liquid.popupsOpen || toastBody.open || dialogBody.open || settings.open || dashboardBody.open || controls.open || (window.fullscreenCovered && window.presented)) ? WlrLayer.Overlay : WlrLayer.Top
             WlrLayershell.keyboardFocus: !window.presented || !field.ready || GlobalStates.regionSelectorOpen || GlobalStates.settingsNativeDialogOpen || PolkitService.active || window.overviewDragging
                 ? WlrKeyboardFocus.None
@@ -1031,7 +1031,7 @@ Scope {
         exclusiveZone: mapped ? thickness : 0
         implicitWidth: horizontal ? 1 : thickness
         implicitHeight: horizontal ? thickness : 1
-        WlrLayershell.namespace: "hadalis:abyss-reservation-" + edge
+        WlrLayershell.namespace: "alis:abyss-reservation-" + edge
         WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
         anchors {

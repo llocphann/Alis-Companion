@@ -20,12 +20,12 @@ FIXTURE = "scripts/aqua-fixtures/motion-envelope/shell.qml"
 FIXTURE_BLOB = "6e3b5402d32d263868c1ec688925adba0fd7250b"
 LOG_BYTES_CAP = 524288
 SAFE_ORIGINS = {
-    "git@github.com:llocphann/Hadalis",
-    "git@github.com:llocphann/Hadalis.git",
-    "https://github.com/llocphann/Hadalis",
-    "https://github.com/llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
-    "ssh://git@github.com/llocphann/Hadalis.git",
+    "git@github.com:llocphann/Alis",
+    "git@github.com:llocphann/Alis.git",
+    "https://github.com/llocphann/Alis",
+    "https://github.com/llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
+    "ssh://git@github.com/llocphann/Alis.git",
 }
 # Only actual authored parser and known-frozen ValueError codes are printable.
 SAFE_VALUE_ERRORS = {
@@ -56,7 +56,7 @@ def git(repo, *args):
 def owner_guard(scratch):
     parents = (scratch, scratch.parent, scratch.parent.parent)
     if (scratch.name[:15] != "aqua-qt-motion."
-            or scratch.parent.name != "hadalis"
+            or scratch.parent.name != "alis"
             or not scratch.parent.parent.name.startswith("aqua-qt-state.")
             or any(p.is_symlink() or not p.is_dir() for p in parents)):
         raise ValueError("untrusted_private_scratch")

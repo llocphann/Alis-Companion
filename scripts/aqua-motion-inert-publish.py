@@ -17,12 +17,12 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SAFE_REMOTES = {
-    "https://github.com/llocphann/Hadalis",
-    "https://github.com/llocphann/Hadalis.git",
-    "git@github.com:llocphann/Hadalis",
-    "git@github.com:llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
-    "ssh://git@github.com/llocphann/Hadalis.git",
+    "https://github.com/llocphann/Alis",
+    "https://github.com/llocphann/Alis.git",
+    "git@github.com:llocphann/Alis",
+    "git@github.com:llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
+    "ssh://git@github.com/llocphann/Alis.git",
 }
 REVIEWED = {
     "scripts/aqua-silhouette-band-prototype.py":
@@ -77,7 +77,7 @@ def private_clone(state):
             or git("symbolic-ref", "--short", "HEAD") != "dev"
             or not clean()
             or ROOT.name != "repo"
-            or parent.parent.resolve() != (state / "hadalis").resolve()
+            or parent.parent.resolve() != (state / "alis").resolve()
             or not parent.name.startswith("aqua-motion-inert.")
             or (stat.S_IMODE(parent.stat().st_mode) & 0o077) != 0):
         stop("private_clean_owned_dev_clone_required")

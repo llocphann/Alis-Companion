@@ -325,8 +325,8 @@ Item {
     CompanionBridge {
         id: companionBridge
         // Guard the development binary override as well as the dispatcher.
-        // An inherited INIR_COMPANIOND must not bypass default-off.
-        binaryPath: root.companionEnabled ? (Quickshell.env("INIR_COMPANIOND") ?? "") : ""
+        // An inherited ALIS_COMPANIOND must not bypass default-off.
+        binaryPath: root.companionEnabled ? (Quickshell.env("ALIS_COMPANIOND") ?? "") : ""
         useNativeDispatcher: root.companionEnabled
         personality: root.companionPreferences.personality
         appearanceFrequency: root.companionPreferences.appearanceFrequency

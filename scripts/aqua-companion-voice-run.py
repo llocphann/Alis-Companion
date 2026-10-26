@@ -2,7 +2,7 @@
 """Explicit, bounded GGUF Companion voice qualification client.
 
 Runs only the 14 checked-in synthetic scenarios, matched for Aqua and Octo.
-Uses the existing one-shot local_mind and Hadalis GGUF supervisor; no model
+Uses the existing one-shot local_mind and Alis GGUF supervisor; no model
 download, alternate backend, cloud, user history, vault or desktop activation.
 Accepted responses stay in a new private directory for human review. A report
 does not independently establish real inference, voice quality or GPU costs.
@@ -103,7 +103,7 @@ def run(model, runtime, host, output, source=ROOT):
         raise ValueError("output_already_exists")
     if output.is_relative_to(source) or output.is_relative_to(host):
         raise ValueError("output_inside_source_repository")
-    sources = {"Alis-Companion":identity(source),"Hadalis":identity(host)}
+    sources = {"Alis-Companion":identity(source),"Alis":identity(host)}
     scanner = module("voice_local_models",host/"scripts/ai/local_models.py")
     if not model.is_file() or model.suffix.lower()!=".gguf" or model.stat().st_size>MAX_MODEL or not scanner.valid_file(model):
         raise ValueError("selected_gguf_missing_or_incomplete")
@@ -136,7 +136,7 @@ def run(model, runtime, host, output, source=ROOT):
                         raise ValueError("matrix_deadline_exceeded")
                     if fingerprint(model)!=pinned["model"] or fingerprint(runtime)!=pinned["runtime"]:
                         raise ValueError("artifact_changed_during_run")
-                    if identity(source)!=sources["Alis-Companion"] or identity(host)!=sources["Hadalis"]:
+                    if identity(source)!=sources["Alis-Companion"] or identity(host)!=sources["Alis"]:
                         raise ValueError("source_changed_during_run")
                     request = {"action":"chat","model":model_id,"modelPath":str(model),
                         "runtimePath":str(runtime),"character":character,"prompt":case["prompt"],
@@ -147,7 +147,7 @@ def run(model, runtime, host, output, source=ROOT):
                     answer=call_helper(source,host,request)
                     if fingerprint(model)!=pinned["model"] or fingerprint(runtime)!=pinned["runtime"]:
                         raise ValueError("artifact_changed_during_run")
-                    if identity(source)!=sources["Alis-Companion"] or identity(host)!=sources["Hadalis"]:
+                    if identity(source)!=sources["Alis-Companion"] or identity(host)!=sources["Alis"]:
                         raise ValueError("source_changed_during_run")
                     if (not isinstance(answer,dict) or answer.get("source")!="local" or
                             answer.get("model")!=model_id or answer.get("thinkingEffort")!="off" or
@@ -171,7 +171,7 @@ def run(model, runtime, host, output, source=ROOT):
     except OSError:
         failure,code="ArtifactUnavailable","artifact_unavailable_after_run"
     try:
-        if identity(source)!=sources["Alis-Companion"] or identity(host)!=sources["Hadalis"]:
+        if identity(source)!=sources["Alis-Companion"] or identity(host)!=sources["Alis"]:
             failure,code="SourceChanged","source_changed_during_run"
     except (OSError,ValueError,subprocess.SubprocessError):
         failure,code="SourceChanged","source_unavailable_or_dirty_after_run"
@@ -195,14 +195,14 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-path",type=Path,required=True,help="explicit existing GGUF; never downloaded")
     parser.add_argument("--runtime-path",type=Path,required=True,help="explicit existing llama-server executable")
-    parser.add_argument("--hadalis-root",type=Path,required=True,help="clean compatible Hadalis source")
+    parser.add_argument("--alis-root",type=Path,required=True,help="clean compatible Alis source")
     parser.add_argument("--output",type=Path,required=True,help="new private directory, never reused")
     args=parser.parse_args()
     original=signal.getsignal(signal.SIGTERM)
     def canceled(signum,frame):raise RunCanceled("run_canceled")
     signal.signal(signal.SIGTERM,canceled)
     try:
-        report=run(args.model_path,args.runtime_path,args.hadalis_root,args.output)
+        report=run(args.model_path,args.runtime_path,args.alis_root,args.output)
     except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError,RunCanceled) as error:
         parser.exit(2,"ALIS_COMPANION_VOICE_RUN_BLOCKED:"+failure_code(error)+"\n")
     finally:

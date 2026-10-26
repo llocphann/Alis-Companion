@@ -132,7 +132,7 @@ with tempfile.TemporaryDirectory(prefix="alis-companion-quality-ui-") as tempora
         env["XDG_" + name + "_HOME"] = str(folder)
     env.update(QT_QPA_PLATFORM="offscreen", QT_NO_XDG_DESKTOP_PORTAL="1",
                QT_QPA_PLATFORMTHEME="generic", QT_LOGGING_RULES="qml.debug=true",
-               NIRI_SOCKET=str(private / "unavailable-niri.sock"), INIR_GGUF_ROOTS="[]")
+               NIRI_SOCKET=str(private / "unavailable-niri.sock"), ALIS_GGUF_ROOTS="[]")
     log = private / "run.log"
     with log.open("w") as stream:
         process = subprocess.Popen(["dbus-run-session", "--", "qs", "--path", str(shell / "shell.qml"), "--no-color"],

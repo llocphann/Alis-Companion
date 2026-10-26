@@ -16,14 +16,14 @@ POSTMORTEM_BLOB = "73904dbda1de437a8586925d32fa774af6b04d5e"
 FIXTURE_BLOB = "6e3b5402d32d263868c1ec688925adba0fd7250b"
 FROZEN_BLOB = "dc2f36b525ef7e412869f155153dc4e48720f898"
 PATH = Path("docs/aqua-qt-dynamic-retained-4caccd2058f1-scale-parser.json")
-SCRATCH = Path("/tmp/aqua-qt-state.TwSIa1/hadalis/aqua-qt-motion.y2aZdO")
+SCRATCH = Path("/tmp/aqua-qt-state.TwSIa1/alis/aqua-qt-motion.y2aZdO")
 ORIGINS = {
-    "https://github.com/llocphann/Hadalis.git",
-    "https://github.com/llocphann/Hadalis",
-    "git@github.com:llocphann/Hadalis.git",
-    "git@github.com:llocphann/Hadalis",
-    "ssh://git@github.com/llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
+    "https://github.com/llocphann/Alis.git",
+    "https://github.com/llocphann/Alis",
+    "git@github.com:llocphann/Alis.git",
+    "git@github.com:llocphann/Alis",
+    "ssh://git@github.com/llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
 }
 
 

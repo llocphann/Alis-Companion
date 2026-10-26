@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix='aqua-cloud-orbit-') as temporary:
     env.update(QT_QPA_PLATFORM='wayland',WAYLAND_DISPLAY=os.environ['WAYLAND_DISPLAY'],
         XDG_RUNTIME_DIR=os.environ['XDG_RUNTIME_DIR'],QT_QUICK_BACKEND='rhi',QSG_RHI_BACKEND='opengl',
         QT_QUICK_CONTROLS_STYLE='Basic',QT_QPA_PLATFORMTHEME='generic',QT_NO_XDG_DESKTOP_PORTAL='1',
-        INIR_GGUF_ROOTS='[]',INIR_AQUA_HISTORY_DB=str(private/'history.sqlite3'),AQUA_CLOUD_ORBIT_OUTPUT=str(private))
+        ALIS_GGUF_ROOTS='[]',ALIS_AQUA_HISTORY_DB=str(private/'history.sqlite3'),AQUA_CLOUD_ORBIT_OUTPUT=str(private))
     with (private/'test.log').open('w') as output:
         process=subprocess.Popen(['dbus-run-session','--','qs','--path',str(shell/'shell.qml')],cwd=ROOT,
             env=env,stdout=output,stderr=subprocess.STDOUT,start_new_session=True)

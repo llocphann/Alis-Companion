@@ -1,7 +1,7 @@
 BROAD LOCAL SOURCE: preserved 74 PASS / 1 FAIL / 0 SKIP
 Alis-Companion source: c7a78998fea7424a597a5acbc483d1ea6d3ad2cf committed
-Hadalis source: 442f645b02b50e88f1d417d2fc374b45b6ec02ab committed
-Hadalird source: d03f4b5e6d8dc70bfd062a2e80c2cddf32bc56c4 committed
+Alis source: 442f645b02b50e88f1d417d2fc374b45b6ec02ab committed
+Alis-Intergration source: d03f4b5e6d8dc70bfd062a2e80c2cddf32bc56c4 committed
 PASS test-companion-cast.cjs
 PASS test-companion-retired-fall.cjs
 COMPANION_RETIRED_FALL_PASS cast=2 preserved_samples=2385 no_asset_mutation
@@ -59,8 +59,8 @@ PASS test-aqua-immersion-runtime.py
 PASS test-aqua-cloud-orbit.py
 PASS test-aqua-cowork-qml.py
 PASS test-aqua-cowork-native.py
-PASS HadalisOutput.qml
-PASS HadalisSession.qml
+PASS AlisOutput.qml
+PASS AlisSession.qml
 PASS AbyssCompanion.qml
 PASS AbyssCompanionProof.qml
 PASS CompanionBridge.qml
@@ -83,8 +83,8 @@ Alis-Companion checks: 74 PASS / 1 FAIL / 0 SKIP
 
 FOLLOW-UP CONTRACT: exact local source
 Alis-Companion source: d38cdfe08e0f07a78c7a664127a6e7a9bdc453f3 committed
-Hadalis source: 442f645b02b50e88f1d417d2fc374b45b6ec02ab committed
-Hadalird source: d03f4b5e6d8dc70bfd062a2e80c2cddf32bc56c4 committed
+Alis source: 442f645b02b50e88f1d417d2fc374b45b6ec02ab committed
+Alis-Intergration source: d03f4b5e6d8dc70bfd062a2e80c2cddf32bc56c4 committed
 PASS test-aqua-actual-panel-layout.cjs
 AQUA_ACTUAL_PANEL_LAYOUT_GATE=PASS
 REAL_SOURCE_CASES=8
@@ -93,8 +93,8 @@ Alis-Companion checks: 1 PASS / 0 FAIL / 0 SKIP
 
 PUBLISHED SOURCE: exact committed SHA
 Alis-Companion source: ea5967fb48ea2f7a3ae6df6f6751024e25277865 committed
-Hadalis source: 442f645b02b50e88f1d417d2fc374b45b6ec02ab committed
-Hadalird source: d03f4b5e6d8dc70bfd062a2e80c2cddf32bc56c4 committed
+Alis source: 442f645b02b50e88f1d417d2fc374b45b6ec02ab committed
+Alis-Intergration source: d03f4b5e6d8dc70bfd062a2e80c2cddf32bc56c4 committed
 PASS test-companion-cast.cjs
 PASS test-companion-retired-fall.cjs
 COMPANION_RETIRED_FALL_PASS cast=2 preserved_samples=2385 no_asset_mutation

@@ -131,7 +131,7 @@ def run_control(work, entry, qs, dbus):
     shutil.copyfile(ROOT / "defaults/config.json", config / "config.json")
     env = dict(os.environ)
     for key in ("QS_CONFIG_PATH", "QS_CONFIG_NAME", "QS_MANIFEST",
-                "INIR_COMPANIOND", "WAYLAND_DISPLAY", "NIRI_SOCKET",
+                "ALIS_COMPANIOND", "WAYLAND_DISPLAY", "NIRI_SOCKET",
                 "DISPLAY"):
         env.pop(key, None)
     if scrub_import:

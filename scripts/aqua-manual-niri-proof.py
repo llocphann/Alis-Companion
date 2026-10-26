@@ -24,12 +24,12 @@ REVIEWED_SOURCE = {
     "scripts/native-dispatch",
 }
 REMOTES = {
-    "https://github.com/llocphann/Hadalis",
-    "https://github.com/llocphann/Hadalis.git",
-    "git@github.com:llocphann/Hadalis",
-    "git@github.com:llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
-    "ssh://git@github.com/llocphann/Hadalis.git",
+    "https://github.com/llocphann/Alis",
+    "https://github.com/llocphann/Alis.git",
+    "git@github.com:llocphann/Alis",
+    "git@github.com:llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
+    "ssh://git@github.com/llocphann/Alis.git",
 }
 MAX_PRIVATE_LOG_BYTES = 1048576
 WINDOW_TITLE = "Aqua procedural attachment proof [present]"
@@ -61,7 +61,7 @@ def audit(target):
         raise RuntimeError("Remote does not descend from the reviewed Aqua source")
     modified = set(git("diff", "--name-only", BASE, target).splitlines())
     if modified & REVIEWED_SOURCE or any(
-        name.startswith("native/inir-companiond/") for name in modified
+        name.startswith("native/alis-companiond/") for name in modified
     ):
         raise RuntimeError("Reviewed Aqua renderer/daemon source changed")
     if SELF in modified:
@@ -182,7 +182,7 @@ def proof(qs, niri, folder):
         return result
 
     private_target = folder / "cargo-target"
-    binary = private_target / "release" / "inir-companiond"
+    binary = private_target / "release" / "alis-companiond"
     build_env = dict(os.environ)
     build_env["CARGO_TARGET_DIR"] = str(private_target)
     build_log = folder / "cargo-build.private.log"
@@ -190,7 +190,7 @@ def proof(qs, niri, folder):
         try:
             build = subprocess.run(
                 ["cargo", "build", "--locked", "--release", "--manifest-path",
-                 "native/Cargo.toml", "-p", "inir-companiond"],
+                 "native/Cargo.toml", "-p", "alis-companiond"],
                 stdout=output, stderr=subprocess.STDOUT,
                 env=build_env, timeout=900
             )
@@ -210,7 +210,7 @@ def proof(qs, niri, folder):
         (isolated / name).mkdir(parents=True)
     env = dict(os.environ)
     env.update({
-        "INIR_COMPANIOND": str(binary),
+        "ALIS_COMPANIOND": str(binary),
         "QS_NO_RELOAD_POPUP": "1",
         "QT_QPA_PLATFORM": "wayland",
         "XDG_CONFIG_HOME": str(isolated / "config"),
@@ -369,7 +369,7 @@ def main():
     state = Path(os.environ.get(
         "XDG_STATE_HOME", str(Path.home() / ".local/state")
     )).resolve()
-    private = state / "hadalis" / ("aqua-niri-proof-" + identifier)
+    private = state / "alis" / ("aqua-niri-proof-" + identifier)
     private.mkdir(parents=True, exist_ok=False, mode=0o700)
     print("EXACT_SOURCE_SHA:", source, flush=True)
     print("PRIVATE_LOG_DIRECTORY:", private, flush=True)

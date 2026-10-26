@@ -15,7 +15,7 @@ import sys
 BASE = "d24761531ed942e3283533123062bf93bdff0ffc"
 SCRIPT = "scripts/test-aqua-manual-perimeter.py"
 CASES = [
-    ("iris-production", 180, ["python3", "scripts/test-iris-production-surface-contract.py"]),
+    ("abyss-production", 180, ["python3", "scripts/test-abyss-production-surface-contract.py"]),
     ("connected-input", 180, ["python3", "scripts/test-connected-input-lifecycle.py"]),
     ("quick-notes", 180, ["python3", "scripts/test-quick-notes-corner-contract.py"]),
     ("aqua-production", 180, ["python3", "scripts/test-aqua-production-contract.py"]),
@@ -94,16 +94,16 @@ def clean():
 
 def main():
     if Path.cwd().resolve() != Path(git("rev-parse", "--show-toplevel")).resolve():
-        raise RuntimeError("Run from Hadalis repository root")
+        raise RuntimeError("Run from Alis repository root")
     if git("symbolic-ref", "--quiet", "--short", "HEAD") != "dev" or not clean():
         raise RuntimeError("Require clean working tree on dev")
     valid_urls = {
-        "https://github.com/llocphann/Hadalis",
-        "https://github.com/llocphann/Hadalis.git",
-        "git@github.com:llocphann/Hadalis",
-        "git@github.com:llocphann/Hadalis.git",
-        "ssh://git@github.com/llocphann/Hadalis",
-        "ssh://git@github.com/llocphann/Hadalis.git",
+        "https://github.com/llocphann/Alis",
+        "https://github.com/llocphann/Alis.git",
+        "git@github.com:llocphann/Alis",
+        "git@github.com:llocphann/Alis.git",
+        "ssh://git@github.com/llocphann/Alis",
+        "ssh://git@github.com/llocphann/Alis.git",
     }
     push_urls = git("remote", "get-url", "--push", "--all", "origin").splitlines()
     if git("remote", "get-url", "origin") not in valid_urls or len(push_urls) != 1 or push_urls[0] not in valid_urls:
@@ -115,7 +115,7 @@ def main():
         raise RuntimeError("Working tree changed during fast-forward")
     source = git("rev-parse", "HEAD")
     run_id = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(4)
-    log_dir = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "hadalis" / ("aqua-" + run_id)
+    log_dir = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "alis" / ("aqua-" + run_id)
     log_dir.mkdir(mode=0o700, parents=True, exist_ok=False)
     print("EXACT_SOURCE_SHA:", source, flush=True)
     print("PRIVATE_LOG_DIRECTORY:", log_dir, flush=True)

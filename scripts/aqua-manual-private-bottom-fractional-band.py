@@ -221,7 +221,7 @@ def publish_safe_report(source, result):
         require(call("rev-parse", "HEAD") == source and
                 call("symbolic-ref", "--short", "HEAD") == "dev" and
                 call("config", "--get", "remote.origin.url") ==
-                "https://github.com/llocphann/Hadalis.git" and
+                "https://github.com/llocphann/Alis.git" and
                 not call("status", "--porcelain=v1", "--untracked-files=all"),
                 "REPORT_PRECONDITION_FAILED")
         remote = call("ls-remote", "origin", "refs/heads/dev").split()

@@ -14,7 +14,7 @@ spec.loader.exec_module(memory)
 
 with TemporaryDirectory(prefix="alis-companion-memory-sandbox-") as tmp:
     dbfile = Path(tmp)/"private"/"memory.sqlite3"
-    with patch.dict(os.environ,{"INIR_AQUA_MEMORY_DB":str(dbfile)}):
+    with patch.dict(os.environ,{"ALIS_AQUA_MEMORY_DB":str(dbfile)}):
         assert not dbfile.exists()
         assert memory.list_all()==[] and memory.list_visible("aqua")==[]
         assert not dbfile.exists(), "inspection of an absent store must not create it"
@@ -89,7 +89,7 @@ with TemporaryDirectory(prefix="alis-companion-memory-sandbox-") as tmp:
 with TemporaryDirectory(prefix="alis-companion-memory-symlink-") as tmp:
     target=Path(tmp)/'target';target.write_bytes(b'unchanged')
     link=Path(tmp)/'memory.sqlite3';link.symlink_to(target)
-    with patch.dict(os.environ,{"INIR_AQUA_MEMORY_DB":str(link)}):
+    with patch.dict(os.environ,{"ALIS_AQUA_MEMORY_DB":str(link)}):
         try:memory.list_all()
         except memory.MemoryError:pass
         else:raise AssertionError('symlink database accepted')

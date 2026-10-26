@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::time::{Duration, Instant};
 
-use inir_companiond::{BoundedLine, Engine, ProtocolError, StateMessage, read_bounded_line};
+use alis_companiond::{BoundedLine, Engine, ProtocolError, StateMessage, read_bounded_line};
 
 const INPUT_QUEUE_CAPACITY: usize = 64;
 const IDLE_SEED: u64 = 0x5755_4c4c_5f41_4259;
@@ -64,20 +64,20 @@ fn handle_record(
         InputRecord::Line(line) => match engine.apply_line(&line, now_ms) {
             Ok(message) => write_message(out, &message),
             Err(error) => {
-                eprintln!("inir-companiond: ignored_input={}", error.code());
+                eprintln!("alis-companiond: ignored_input={}", error.code());
                 true
             }
         },
         InputRecord::Oversized => {
             eprintln!(
-                "inir-companiond: ignored_input={}",
+                "alis-companiond: ignored_input={}",
                 ProtocolError::Oversized.code()
             );
             true
         }
         InputRecord::Eof => false,
         InputRecord::ReadError => {
-            eprintln!("inir-companiond: stdin_read_error");
+            eprintln!("alis-companiond: stdin_read_error");
             false
         }
     }
@@ -125,7 +125,7 @@ fn run_loop(rx: Receiver<InputRecord>, engine: &mut Engine, out: &mut impl Write
 
 fn main() {
     if std::env::args().skip(1).any(|arg| arg == "--version") {
-        println!("inir-companiond {}", env!("CARGO_PKG_VERSION"));
+        println!("alis-companiond {}", env!("CARGO_PKG_VERSION"));
         return;
     }
 

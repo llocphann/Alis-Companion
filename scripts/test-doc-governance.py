@@ -20,7 +20,7 @@ ARCHIVES = {
         "f21c38fe3563c6994156eb32749dee6cafbe29ca",
 }
 ACTIVE = (
-    "README.md", "docs/README.md", "docs/HADALIS_EXTRACTION.md",
+    "README.md", "docs/README.md", "docs/ALIS_EXTRACTION.md",
     "docs/ALIS_COMPANION_COMPANION_SYNTHESIS_20261009.md",
     "docs/ALIS_COMPANION_RENDERER_OPTIMIZATION_DECISION_20261008.md",
     "to-do/README.md", "to-do/cloud-bot/README.md",

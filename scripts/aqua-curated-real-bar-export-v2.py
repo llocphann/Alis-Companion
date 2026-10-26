@@ -29,8 +29,8 @@ PNG=RELATIVE/"curated-real-bar-left-right.png"
 PROVENANCE=RELATIVE/"curated-provenance.json"
 MANIFEST=ROOT/RELATIVE/"manifest.json"
 RECEIPT=ROOT/"automation/results"/(OLD_JOB+".json")
-REMOTE="https://github.com/llocphann/Hadalis.git"
-SSH_REMOTE="git@github.com:llocphann/Hadalis.git"
+REMOTE="https://github.com/llocphann/Alis.git"
+SSH_REMOTE="git@github.com:llocphann/Alis.git"
 MAX_SAFE=512*1024
 # Split left/right bands into exactly four strictly source-owned sub-rectangles
 # for the reviewed alpha-safe encoder. Nothing from the actual clock module's
@@ -113,7 +113,7 @@ def raw_source():
         str(Path.home()/".local/state"))).expanduser()
     need(state.is_absolute() and not state.is_symlink(),
          "OWNER_PRIVATE_UNQUALIFIED")
-    collection=state/"hadalis-aqua-nested-bar-private"
+    collection=state/"alis-aqua-nested-bar-private"
     owner_only(collection,True)
     folders=[p for p in collection.iterdir()
              if p.name.startswith("bar-"+SOURCE[:12]+"-")
@@ -147,7 +147,7 @@ def raw_source():
 def verify_worker_digest(raws):
     state=Path(os.environ.get("XDG_STATE_HOME",
         str(Path.home()/".local/state"))).expanduser()
-    file=state/"hadalis-automation"/"worker"/"actions"/OLD_JOB/"action-4.json"
+    file=state/"alis-automation"/"worker"/"actions"/OLD_JOB/"action-4.json"
     owner_only(file,False)
     record=json.loads(file.read_bytes())
     result=record.get("result",{})
@@ -250,7 +250,7 @@ def publish_curated(curated, proof):
     staged = command(["git", "diff", "--cached", "--name-only"])
     need(staged.returncode == 0 and set(staged.stdout.splitlines()) ==
          {str(PNG), str(PROVENANCE)}, "PUBLIC_STAGE_UNQUALIFIED")
-    authored = command(["git", "-c", "user.name=Hadalis-Aqua-Evidence",
+    authored = command(["git", "-c", "user.name=Alis-Aqua-Evidence",
                         "-c", "user.email=actions@users.noreply.github.com",
                         "commit", "-m",
                         "test(aqua): publish curated synthetic-only exact-source visual sheet"])

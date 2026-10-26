@@ -76,7 +76,7 @@ def run_owned(force_opengl=True):
          "COMPILED_SHADER_UNAVAILABLE")
     state = Path(os.environ.get(
         "XDG_STATE_HOME", str(Path.home() / ".local/state"))).expanduser().resolve()
-    root = state / "hadalis-aqua-field-private"
+    root = state / "alis-aqua-field-private"
     root.mkdir(parents=True, mode=0o700, exist_ok=True)
     st = root.stat()
     need(st.st_uid == os.getuid()

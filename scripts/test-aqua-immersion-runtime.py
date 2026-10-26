@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import Image
 from native_test_session import private_wayland,run_qs
 ROOT=Path(__file__).resolve().parents[1]
-with tempfile.TemporaryDirectory(prefix='hadalis-aqua-immersion-') as name:
+with tempfile.TemporaryDirectory(prefix='alis-aqua-immersion-') as name:
  folder=Path(name)
  for entry in ['modules','services','GlobalStates.qml','qmldir','assets','scripts','defaults','translations','optional']:(folder/entry).symlink_to(ROOT/entry)
  (folder/'shell.qml').write_text(r'''
@@ -98,5 +98,5 @@ Window {
    assert alpha(-7,60)<40,(edge,'curved quicksand contour became a rectangle')
   assert len(rects)==5
   # Only an owned fixture is captured; this is visual evidence, not desktop acceptance.
-  target=Path('/tmp/hadalis-aqua-quicksand-20261007.png');target.write_bytes((folder/'actual-dock.png').read_bytes())
+  target=Path('/tmp/alis-aqua-quicksand-20261007.png');target.write_bytes((folder/'actual-dock.png').read_bytes())
   print('AQUA_IMMERSION_NATIVE_PASS pixel workspace/water curved contour all four edges and Dock; capture destroyed at rest')

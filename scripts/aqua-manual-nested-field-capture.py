@@ -193,7 +193,7 @@ def capture(mode):
         os.environ.copy(), iso, niri)
     state = Path(os.environ.get(
         "XDG_STATE_HOME", str(Path.home() / ".local/state"))).expanduser().resolve()
-    base = state / "hadalis-aqua-nested-field-private"
+    base = state / "alis-aqua-nested-field-private"
     base.mkdir(mode=0o700, parents=True, exist_ok=True)
     st = base.lstat()
     need(stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid()

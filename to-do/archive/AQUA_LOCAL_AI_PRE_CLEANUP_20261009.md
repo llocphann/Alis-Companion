@@ -1,14 +1,14 @@
-> Repository extraction (2026-10-08): implementation and active Companion work now belong to AlisCompanion. The following milestones were imported from Hadalis `b3e05cb4e59cd266a78057fbe4ae95ca679f316f`; historical paths and validation receipts refer to that repository. See [current host API and extraction](../../docs/HADALIS_EXTRACTION.md).
+> Repository extraction (2026-10-08): implementation and active Companion work now belong to AlisCompanion. The following milestones were imported from Alis `b3e05cb4e59cd266a78057fbe4ae95ca679f316f`; historical paths and validation receipts refer to that repository. See [current host API and extraction](../../docs/ALIS_EXTRACTION.md).
 
-> **CURRENT OWNER / EDIT TARGET:** `llocphann/Alis-Companion` branch `main`, **not** Hadalis `dev`. This file is the canonical active Alis-Companion local-AI/product TODO; inherited lines below that name `llocphann/Hadalis`, `dev`, or historical source SHAs are **pre-extraction snapshots** only and must not direct new work. Alis-Companion owns Companion behavior/UI/runtime and accepts future plan updates here; Hadalis owns shared AI transport/catalog/supervisor and the optional host adapter. Validate Alis-Companion with `make test HADALIS_ROOT=/path/to/Hadalis` plus impacted Hadalis host contracts. Do not write to Hadalis `stable`.
+> **CURRENT OWNER / EDIT TARGET:** `llocphann/Alis-Companion` branch `main`, **not** Alis `dev`. This file is the canonical active Alis-Companion local-AI/product TODO; inherited lines below that name `llocphann/Alis`, `dev`, or historical source SHAs are **pre-extraction snapshots** only and must not direct new work. Alis-Companion owns Companion behavior/UI/runtime and accepts future plan updates here; Alis owns shared AI transport/catalog/supervisor and the optional host adapter. Validate Alis-Companion with `make test ALIS_ROOT=/path/to/Alis` plus impacted Alis host contracts. Do not write to Alis `stable`.
 
 # Aqua Local AI / Desktop Agent — Canonical TODO
 
 > **Single source of truth for Aqua local-AI work.** All future planning, status updates, architecture/model/runtime decisions, benchmark summaries, fine-tuning/distillation notes, rollout state, and acceptance evidence for this effort MUST be edited into this file only. Do not create another Aqua-AI TODO/task-board/handoff document.
 >
 > Repository: `llocphann/Alis-Companion` — active Companion AI source and TODO.  
-> Working branch: `main` for AlisCompanion. Hadalis `dev` retains shared AI/host integration; never mutate Hadalis `stable`.  
-> Imported Hadalis historical task snapshot: `5653fa24fb8c9e948afc3337826581da190e6325`; this SHA is **not** current Alis-Companion baseline.
+> Working branch: `main` for AlisCompanion. Alis `dev` retains shared AI/host integration; never mutate Alis `stable`.  
+> Imported Alis historical task snapshot: `5653fa24fb8c9e948afc3337826581da190e6325`; this SHA is **not** current Alis-Companion baseline.
 >
 > This file is the only **planning/status** document for Aqua AI. Normal implementation source, tests, fixtures and generated benchmark outputs may exist elsewhere in the repository as needed; they must not become competing planning documents.
 >
@@ -21,7 +21,7 @@
 **Reflex model target:** `unsloth/LFM2.5-VL-3B-GGUF` — `UD-Q6_K_XL`  
 **Reflex vision projector target:** `mmproj-F16.gguf` or the exact compatible projector shipped for that model revision  
 **Brain model target:** `unsloth/Qwen3.5-4B-MTP-GGUF` — `UD-Q4_K_XL`  
-**Specialist model:** none; Rust/Python/Hadalis specialization comes from tools + RAG first  
+**Specialist model:** none; Rust/Python/Alis specialization comes from tools + RAG first  
 **Fine-tuning:** not started and intentionally blocked until the baseline benchmark exists  
 **Distillation:** not started and intentionally blocked until benchmark + validators are mature  
 **Production model files:** never committed to Git
@@ -58,7 +58,7 @@ The maintainer explicitly resumed local conversation and permitted a better impl
 
 `LocalModels` shares one finite inventory with AI settings and Aqua: Hugging Face snapshots, Unsloth exports/library, Models, Downloads and the local shell-model directory. It validates GGUF headers, deduplicates resolved artifacts and excludes projectors/vocabulary from chat choices. Startup/manual Refresh scans neither download nor load models. Both installed models are now discovered; Aqua selects a downloaded model only when AI is enabled and its model preference is empty, preserving an existing selection. The maintainer's current LFM selection remains unchanged.
 
-The chosen early process boundary is an external Python supervisor (`scripts/aqua/gguf_runtime.py`), reached by narrow JSON requests from QML. It owns a private Unix socket and cross-client model lock, one slot, CPU at most four threads, context 2,048 and output at most 180 tokens. Deadlines, cancellation, parent-death signaling and bounded TERM/KILL/reap cleanup prevent a resident orphan. There is no TCP listener, cloud fallback, model download, web UI or model execution in `inir-companiond`. General AI chat and Aqua share this same supervisor/lock. The optional Ollama loopback adapter remains compatible, but downloaded GGUF execution requires no Ollama dependency. See the official [llama.cpp server contract](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md). A native Rust agent manager remains future P1 work, not something supplied by this baseline.
+The chosen early process boundary is an external Python supervisor (`scripts/aqua/gguf_runtime.py`), reached by narrow JSON requests from QML. It owns a private Unix socket and cross-client model lock, one slot, CPU at most four threads, context 2,048 and output at most 180 tokens. Deadlines, cancellation, parent-death signaling and bounded TERM/KILL/reap cleanup prevent a resident orphan. There is no TCP listener, cloud fallback, model download, web UI or model execution in `alis-companiond`. General AI chat and Aqua share this same supervisor/lock. The optional Ollama loopback adapter remains compatible, but downloaded GGUF execution requires no Ollama dependency. See the official [llama.cpp server contract](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md). A native Rust agent manager remains future P1 work, not something supplied by this baseline.
 
 Verified artifacts, with stable metadata before/after hashing:
 
@@ -86,7 +86,7 @@ P1 remains open: repeatable cold/warm/offload/resource measurements, compatible 
 
 Maintainer direction: Aqua explicit chat should behave as a compact quick-chat transcript rather than a one-reply speech bubble. Source commit `d5d1e1f524f46a2836f486d119087cbd3292c97e` adds a scrollable user/Aqua transcript and leaves exactly one visible chat action beside the input: Send. Automatic Mood/Energy check-ins remain a separate non-chat surface.
 
-Persistence is intentionally split from inference context. `scripts/aqua/history_store.py` stores explicit successful user/assistant exchanges incrementally in SQLite at `$XDG_STATE_HOME/inir/aqua/chat.sqlite3` (or the test override), with a private parent, mode 0600 database, WAL, bounded 2,000-row retention and 60-row UI paging. The model does not receive the whole transcript: the local mind reloads only the newest six persisted messages and still applies its existing per-message/content bounds. This avoids rewriting an ever-growing JSON file and avoids making prompt cost scale with visible history. Clear Conversation clears the durable transcript as well as the current UI state. This implementation is committed and locally/canonically qualified on the maintainer machine at exact SHA `f80c1e05cd44baa96f4b6a8f11c4f806c6e7f1cb`.
+Persistence is intentionally split from inference context. `scripts/aqua/history_store.py` stores explicit successful user/assistant exchanges incrementally in SQLite at `$XDG_STATE_HOME/alis/aqua/chat.sqlite3` (or the test override), with a private parent, mode 0600 database, WAL, bounded 2,000-row retention and 60-row UI paging. The model does not receive the whole transcript: the local mind reloads only the newest six persisted messages and still applies its existing per-message/content bounds. This avoids rewriting an ever-growing JSON file and avoids making prompt cost scale with visible history. Clear Conversation clears the durable transcript as well as the current UI state. This implementation is committed and locally/canonically qualified on the maintainer machine at exact SHA `f80c1e05cd44baa96f4b6a8f11c4f806c6e7f1cb`.
 
 The previously observed post-crash GPU 99% state is no longer reproducible after the maintainer rebooted, so no causal GPU/backend claim is recorded from the later snapshot. The text baseline still invokes `llama-server` with `-ngl 0`; no GPU/offload policy was changed from that observation. Source commit `0941b08e88f0717bdbcaf2fb7b7b5b0acd3f29ec` only hardens lifecycle cleanup: the supervisor records the process-group ID, sends TERM/KILL to the whole group even when the llama server leader has already exited, treats abrupt HTTP disconnects as bounded local-runtime failures, and adds a fixture where a crashed server leaves a child behind. Local execution of that regression is now qualified at exact SHA `f80c1e05cd44baa96f4b6a8f11c4f806c6e7f1cb`: `test-aqua-gguf-runtime.py`, `test-aqua-gguf-ui.py`, `test-aqua-local-mind.py`, and `test-aqua-mind-ui.py` all PASS, and the full maintainer validator reports 419 passed, 0 failed, 12 skipped out of 420 checks.
 
@@ -105,18 +105,18 @@ Implementation starts at `c9ee3b78fc57d6fbf612db753ad58861f92e8af8`. The staged 
 
 ### 0.4 Mak1zu comparison and source-only rollout boundary (2026-10-09)
 
-- **Pinned upstream audit, not marketing parity:** [Mak1zu comparative source study](../../docs/COMPANION_MAK1ZU_RESEARCH_20261008.md) uses upstream `snowarch/mak1zu main@a30fef7cc10324684fd4ae9123d9c29cbd00ca9e`. Mak1zu is a Go conversational engine for Discord/CLI/web, **not** a Quickshell 3D avatar renderer. Alis-Companion retains Qt/QML + Rust and Hadalis's shared AI/session backend; do not start a second Go daemon, import Mak1zu artwork/persona, enable Discord, or duplicate chat panel.
+- **Pinned upstream audit, not marketing parity:** [Mak1zu comparative source study](../../docs/COMPANION_MAK1ZU_RESEARCH_20261008.md) uses upstream `snowarch/mak1zu main@a30fef7cc10324684fd4ae9123d9c29cbd00ca9e`. Mak1zu is a Go conversational engine for Discord/CLI/web, **not** a Quickshell 3D avatar renderer. Alis-Companion retains Qt/QML + Rust and Alis's shared AI/session backend; do not start a second Go daemon, import Mak1zu artwork/persona, enable Discord, or duplicate chat panel.
 - **Source-only work performed:** [bounded aggregate-only Aqua/Octo voice evaluator](../../scripts/aqua-companion-voice-eval.py), [synthetic 14-case matrix](../../scripts/fixtures/alis-companion-voice-scenarios.json), [model-free evaluation tests](../../scripts/test-aqua-companion-voice-eval.py), [QML shared/local reply guard](../../services/AquaReplyGuard.js), [local-helper reply guard](../../scripts/aqua/reply_guard.py) applied before SQLite writes, and [Node](../../scripts/test-aqua-reply-guard.cjs)/[Python](../../scripts/test-aqua-reply-guard-local.py) guard checks. CI has offline tests; these do not prove real local-model voice, UI, mood, or permission acceptance.
-- **Verified already present at baseline:** `AquaMind.sendMessage()` uses Hadalis `Ai.createTextSession`; text + expression output, bounded old chat history and SQLite WAL, deterministic host animation, local GGUF helper, bounded journal integration, reminders and manual mode. Do **not** confuse history with Mak1zu's source-aware memory/person ledger.
+- **Verified already present at baseline:** `AquaMind.sendMessage()` uses Alis `Ai.createTextSession`; text + expression output, bounded old chat history and SQLite WAL, deterministic host animation, local GGUF helper, bounded journal integration, reminders and manual mode. Do **not** confuse history with Mak1zu's source-aware memory/person ledger.
 - **Additional dormant repository-only candidates:** [`scripts/aqua/memory_store.py`](../../scripts/aqua/memory_store.py) implements **explicit-confirmation-only** SQLite source `explicit_user`, bounded private memory rows scoped `shared`/`aqua`/`octo`, expiry and inspect/forget calls. [`scripts/test-aqua-memory-store.py`](../../scripts/test-aqua-memory-store.py) exercises consent required, same-person character separation, expiry and forget in a private temp DB. [`scripts/aqua-proactive-policy-prototype.js`](../../scripts/aqua-proactive-policy-prototype.js) is an inert fake-clock policy for opt-in quiet hours, DND/fullscreen/manual, daily caps and dismissal/unanswered backoff; [test](../../scripts/test-aqua-proactive-policy.cjs) uses synthetic fixtures. Neither prototype is imported by QML, makes model calls, creates a real user's memory or changes notifications. No release feature should be advertised until owner-approved UX + runtime integration tests pass.
 - **Still missing as Mak1zu-class capabilities:** consented, inspectable, source-scoped and erasable long-term memory; actual voice/persona quality on pinned models in EN/VN; measured provider/context budget; quiet hours + dismissal/backoff policy (with user approval and deterministic clock fixtures); every-route live output guard QA; no silent model-generated desktop mutation; side-effect receipts. Optional night diary, generated skills, Discord/MCP, model persona distillation and broad agent tools are **not pre-approved**. Hard model/GPU profiling and local policy verification must remain OPEN.
 - **Follow-up sequence:** First verify full Alis-Companion validator + changed QML guard through Qt/Niri host (and G0/G1 renderer gates separately); then run synthetic voice cases with explicitly selected local/shared model and consent; only then design **separate opt-in** memory/proactive implementation backed by migrations, tests and approved UX. Do not call optional code-only scaffolding "feature completed" without integration receipts.
 
-**Repo-only validation receipt, not end-to-end product acceptance:** [GitHub Actions 37820590568](https://github.com/llocphann/Alis-Companion/actions/runs/37820590568) **SUCCESS**, source `Alis-Companion main@6db9d800416fb1b834245186c64f012d92f0a332`: `offline-contracts` (Python AST + G0/G1 + voice + QML guard/SQLite memory + fake-clock proactive tests) and `QSB bake portability smoke` (Qt 6.4.2 QML syntax parse and 5 independent shader compiles) both passed. A QML syntax parser cannot demonstrate correct Quickshell runtime imports, responsive real Niri/Wayland UI, real-model persona, user consent UX or model privacy. **Full `make test HADALIS_ROOT=...`, G0 live A/A, G1 GPU/pacing and Mak1zu-class feature integration remain OPEN.** No Mak1zu implementation code or artwork was imported.
+**Repo-only validation receipt, not end-to-end product acceptance:** [GitHub Actions 37820590568](https://github.com/llocphann/Alis-Companion/actions/runs/37820590568) **SUCCESS**, source `Alis-Companion main@6db9d800416fb1b834245186c64f012d92f0a332`: `offline-contracts` (Python AST + G0/G1 + voice + QML guard/SQLite memory + fake-clock proactive tests) and `QSB bake portability smoke` (Qt 6.4.2 QML syntax parse and 5 independent shader compiles) both passed. A QML syntax parser cannot demonstrate correct Quickshell runtime imports, responsive real Niri/Wayland UI, real-model persona, user consent UX or model privacy. **Full `make test ALIS_ROOT=...`, G0 live A/A, G1 GPU/pacing and Mak1zu-class feature integration remain OPEN.** No Mak1zu implementation code or artwork was imported.
 
 ### 0.5 Two-source Companion synthesis implemented at code level (2026-10-09)
 
-**Cross-source decision:** [Mochi × Mak1zu × Hadalis architecture](../../docs/ALIS_COMPANION_COMPANION_SYNTHESIS_20261009.md) distinguishes Mochi's one-owner animation/cowork state from Mak1zu's persona/guard/budget/memory principles, while keeping Alis-Companion's 3D Aqua/Octo, Hadalis shared AI/session, existing IPC, no extra AI runtime or Discord. This is **not a new task board**.
+**Cross-source decision:** [Mochi × Mak1zu × Alis architecture](../../docs/ALIS_COMPANION_COMPANION_SYNTHESIS_20261009.md) distinguishes Mochi's one-owner animation/cowork state from Mak1zu's persona/guard/budget/memory principles, while keeping Alis-Companion's 3D Aqua/Octo, Alis shared AI/session, existing IPC, no extra AI runtime or Discord. This is **not a new task board**.
 
 - **Now in existing runtime routes (new unqualified-by-local-model source changes):** [`services/AquaPersona.js`](../../services/AquaPersona.js) is imported by [`AquaMind.qml`](../../services/AquaMind.qml); [`scripts/aqua/persona.py`](../../scripts/aqua/persona.py) is used by [`local_mind.py`](../../scripts/aqua/local_mind.py). Aqua is warm/playful/watery; Octo is observant/dry-witted, both subject to identical compact tool/permission/privacy and `text+expression` output instructions. No extra model calls or GPU feature. [JS tests](../../scripts/test-aqua-persona.cjs) and [local helper test](../../scripts/test-aqua-local-persona.py) are in the validator/CI.
 - **Read-only, unconnected coordination:** [`AquaBehaviorDirector.js`](../../modules/abyss/companion/AquaBehaviorDirector.js) accepts only sanitized, fixed-size anonymous coding-agent lifecycle tokens or coarse focus categories; human interaction, existing travel, host suppression, opt-in and DND outrank cowork. Tested with [Node contracts](../../scripts/test-aqua-behavior-director.cjs). No hooks, input capture or new background process are installed. Actual laptop animation and enabled host signal permissions remain in the visual TODO.
@@ -131,7 +131,7 @@ Build Aqua as a local desktop companion/agent that can:
 - perceive visible desktop state when vision is actually required;
 - choose deterministic typed tools instead of guessing shell commands;
 - perform authorized desktop/file/system actions;
-- reason across Rust, Python, Quickshell/QML and the Hadalis codebase;
+- reason across Rust, Python, Quickshell/QML and the Alis codebase;
 - explain and recover from tool/runtime failures;
 - remain useful offline;
 - preserve Quickshell responsiveness even when inference is slow, crashes or runs out of memory;
@@ -157,7 +157,7 @@ A correct tool result beats an LLM guess. A small model with precise context bea
 
 The repository already has two important boundaries that must remain distinct:
 
-- `native/inir-companiond` is a deterministic semantic Aqua presence/animation engine. It currently consumes bounded JSON-line events/intents/preferences and emits visual state. **Do not put LLM inference, RAG or arbitrary tool execution into this daemon during the first implementation.**
+- `native/alis-companiond` is a deterministic semantic Aqua presence/animation engine. It currently consumes bounded JSON-line events/intents/preferences and emits visual state. **Do not put LLM inference, RAG or arbitrary tool execution into this daemon during the first implementation.**
 - `services/Ai.qml` already owns multi-provider chat/conversation UI behavior. It may expose a local-Aqua provider/bridge later, but **QML must not own model process lifetime, permission enforcement or unsafe system actions.**
 
 Preferred new production boundary after P0/P1 succeeds:
@@ -167,7 +167,7 @@ Quickshell / services/Ai.qml / Aqua UI
                   |
              narrow IPC
                   v
-       native/inir-aqua-agentd
+       native/alis-aqua-agentd
        (new Rust agent sidecar)
           |       |       |
           |       |       +-- typed tools + permission policy
@@ -180,15 +180,15 @@ Quickshell / services/Ai.qml / Aqua UI
   LFM inference         Qwen inference
   process/runtime       process/runtime
           |
-          +---- semantic Aqua activity events ----> inir-companiond
+          +---- semantic Aqua activity events ----> alis-companiond
 ```
 
-Naming `inir-aqua-agentd` is the preferred working name, not a requirement to create it before baseline measurements. Before implementation, verify it fits current native workspace/package conventions.
+Naming `alis-aqua-agentd` is the preferred working name, not a requirement to create it before baseline measurements. Before implementation, verify it fits current native workspace/package conventions.
 
 ### Hard architectural rules
 
 - Quickshell remains alive if either model/runtime dies.
-- `inir-companiond` remains deterministic and must remain useful without AI.
+- `alis-companiond` remains deterministic and must remain useful without AI.
 - Model runtime processes are supervised and restartable.
 - The LLM never directly owns destructive authority.
 - Tool contracts stay independent of model prompt syntax.
@@ -249,7 +249,7 @@ Responsibilities:
 - multi-step reasoning;
 - planning;
 - Rust/Python analysis;
-- Hadalis architecture reasoning;
+- Alis architecture reasoning;
 - deciding among already-authorized typed tools;
 - recovery after tool errors;
 - synthesizing retrieved documentation/source evidence.
@@ -269,7 +269,7 @@ Qwen3.5-4B base capability
         +
 retrieved Rust/Python/Qt/Quickshell docs
         +
-relevant Hadalis source
+relevant Alis source
         +
 compiler/test/tool feedback
 ```
@@ -311,7 +311,7 @@ Examples:
 - explain Rust ownership/borrow errors from already-provided text;
 - compare a Python and Rust implementation;
 - plan a sequence of typed actions;
-- reason about Hadalis code retrieved from source;
+- reason about Alis code retrieved from source;
 - answer EN/VN questions not requiring the current screen.
 
 **R3 — Reflex -> Brain**
@@ -506,7 +506,7 @@ Buckets:
 - Python reasoning;
 - Rust vs Python architectural choice;
 - Quickshell/QML;
-- Hadalis source reasoning using retrieved context;
+- Alis source reasoning using retrieved context;
 - tool-plan generation;
 - schema-constrained JSON;
 - recovery after tool failure;
@@ -654,7 +654,7 @@ LLMs propose; Rust validates and executes.
 - `system.status/logs`
 - `app.list/launch/focus`
 - `git.status/diff/log`
-- Hadalis/Quickshell IPC reads
+- Alis/Quickshell IPC reads
 - compositor/window/workspace reads
 - screenshot capture
 
@@ -667,7 +667,7 @@ Add mutation only after read-only end-to-end flow is stable:
 
 ### Execution preference
 
-1. Hadalis/Quickshell native IPC;
+1. Alis/Quickshell native IPC;
 2. DBus/system APIs;
 3. compositor IPC;
 4. typed native helper;
@@ -737,7 +737,7 @@ Do not fine-tune current documentation into weights.
 
 ### Initial corpora
 
-- current Hadalis `dev` source;
+- current Alis `dev` source;
 - `AGENTS.md`, architecture/structure docs and relevant project docs;
 - Rust standard/book/reference/API material needed for tasks;
 - Python language/library docs needed for tasks;
@@ -756,7 +756,7 @@ Do not fine-tune current documentation into weights.
 
 ### Index freshness
 
-Hadalis repository retrieval must be revision-aware. A response about code should know which commit/source version it used.
+Alis repository retrieval must be revision-aware. A response about code should know which commit/source version it used.
 
 Invalidate/reindex changed files incrementally rather than rebuilding everything on every chat.
 
@@ -836,7 +836,7 @@ The exact protocol must:
 - distinguish model text from trusted tool results;
 - never rely on parsing human-readable logs.
 
-Aqua activity can be mapped into existing `inir-companiond` semantic events such as thinking/working/success/warning/error without sending frame-rate animation traffic through the AI daemon.
+Aqua activity can be mapped into existing `alis-companiond` semantic events such as thinking/working/success/warning/error without sending frame-rate animation traffic through the AI daemon.
 
 ---
 
@@ -911,7 +911,7 @@ Suitable targets:
 
 - Aqua concise EN/VN style;
 - structured tool calls;
-- Hadalis conventions;
+- Alis conventions;
 - recovery behavior;
 - stable Rust/QML patterns.
 
@@ -1016,7 +1016,7 @@ The deployed model remains replaceable.
 - [ ] app/window/workspace queries;
 - [ ] clipboard read with privacy guard;
 - [ ] Git status/diff/log;
-- [ ] Hadalis IPC read paths;
+- [ ] Alis IPC read paths;
 - [ ] screenshot capture.
 
 **Exit gate:** Brain can solve useful desktop tasks with no mutation authority and all calls are schema validated.
@@ -1030,13 +1030,13 @@ The deployed model remains replaceable.
 - [ ] incremental refresh;
 - [ ] retrieval benchmark.
 
-**Exit gate:** Hadalis/Rust/Python answers measurably improve without inflating the model or feeding whole repositories.
+**Exit gate:** Alis/Rust/Python answers measurably improve without inflating the model or feeding whole repositories.
 
 ### P6 — Quickshell/Aqua integration
 
 - [ ] define versioned async IPC;
 - [ ] integrate with existing Aqua UI without blocking render loop;
-- [ ] map AI activity into `inir-companiond` semantic states;
+- [ ] map AI activity into `alis-companiond` semantic states;
 - [ ] evaluate integration with `services/Ai.qml`;
 - [ ] streaming text;
 - [ ] cancellation UI;
@@ -1141,7 +1141,7 @@ Keep aggregate results here. Raw generated files are evidence, not the source of
 ### Environment
 
 - Date: TBD
-- Hadalis dev SHA: TBD
+- Alis dev SHA: TBD
 - `llama.cpp` SHA: TBD
 - CPU: Ryzen 5 PRO 7540U
 - GPU: Radeon 740M
@@ -1192,10 +1192,10 @@ Add future decisions here with the evidence/benchmark revision that caused them.
 
 ## 20. Local model storage/package policy
 
-Proposed user-data location, subject to existing Hadalis XDG conventions:
+Proposed user-data location, subject to existing Alis XDG conventions:
 
 ```text
-$XDG_DATA_HOME/inir/models/aqua/
+$XDG_DATA_HOME/alis/models/aqua/
   lfm/
   qwen/
   manifest.json
@@ -1223,9 +1223,9 @@ Runtime must validate files before treating them as usable.
 Refined XDG layout candidate after repository audit:
 
 ~~~text
-$XDG_DATA_HOME/inir/models/aqua/       # large immutable-ish model artifacts
-$XDG_RUNTIME_DIR/inir/aqua/            # private live sockets/temp runtime state
-$XDG_STATE_HOME/inir/aqua/             # durable manifests/benchmark summaries/log metadata
+$XDG_DATA_HOME/alis/models/aqua/       # large immutable-ish model artifacts
+$XDG_RUNTIME_DIR/alis/aqua/            # private live sockets/temp runtime state
+$XDG_STATE_HOME/alis/aqua/             # durable manifests/benchmark summaries/log metadata
 ~~~
 
 Create the runtime directory as private user state (target mode 0700) and model/agent sockets as user-only (target mode 0600). Reuse the repository's established XDG conventions rather than inventing fixed home-directory paths.
@@ -1378,7 +1378,7 @@ This maps unusually well to Aqua:
 Quickshell
    |
    v
-inir-aqua-agentd
+alis-aqua-agentd
    |
    | private HTTP over Unix socket
    v
@@ -1402,7 +1402,7 @@ P0.5/P1 must benchmark **router mode vs dual-server mode** before production loc
 
 Keep the server private:
 
-- Unix socket under a private `$XDG_RUNTIME_DIR/inir/aqua/` directory where supported;
+- Unix socket under a private `$XDG_RUNTIME_DIR/alis/aqua/` directory where supported;
 - `--no-webui`;
 - single slot initially;
 - do **not** enable llama.cpp server tools/agent/MCP;
@@ -1466,7 +1466,7 @@ Because only 8 of Qwen3.5-4B's 32 layers are full-attention under its documented
 
 Also benchmark --ctx-checkpoints / --cache-ram behavior. Recent llama.cpp reports show recurrent-model prompt checkpoints can consume substantial host RAM when many checkpoints are retained. Aqua is single-user and does not need a huge prompt cache by default.
 
-### 24.8 Existing Hadalis AI stack can be reused as UI adapter
+### 24.8 Existing Alis AI stack can be reused as UI adapter
 
 Repository audit at dev HEAD 6787666cba0c282ec30295c01ccc198a781c21b1 found:
 
@@ -1482,7 +1482,7 @@ Preferred integration:
 ~~~text
 Ai.qml
   -> one local "Aqua" provider
-  -> inir-aqua-agentd
+  -> alis-aqua-agentd
   -> internal router
        -> Reflex server
        -> Brain server
@@ -1526,7 +1526,7 @@ This pass continues P0.5. It changes the preferred runtime topology, but does no
 
 The current llama.cpp router is more capable than assumed in the previous pass. In addition to model-specific presets, it exposes explicit load/unload and status APIs and can sleep idle models.
 
-That means `inir-aqua-agentd` does **not** need to reimplement a full model loader state machine from scratch. Rust should still own the product-level state and recovery policy, but it can delegate low-level residency to the router:
+That means `alis-aqua-agentd` does **not** need to reimplement a full model loader state machine from scratch. Rust should still own the product-level state and recovery policy, but it can delegate low-level residency to the router:
 
 ~~~text
 Rust state              llama.cpp router state
@@ -1554,14 +1554,14 @@ services/Ai.qml / Aqua QML
         |
         | versioned bounded JSONL
         v
-$XDG_RUNTIME_DIR/inir/aqua/agent.sock
+$XDG_RUNTIME_DIR/alis/aqua/agent.sock
         |
         v
-inir-aqua-agentd (Rust)
+alis-aqua-agentd (Rust)
         |
         | HTTP over Unix socket
         v
-$XDG_RUNTIME_DIR/inir/aqua/llama.sock
+$XDG_RUNTIME_DIR/alis/aqua/llama.sock
         |
         v
 llama-server router
@@ -1652,7 +1652,7 @@ Only route text to LFM if quality remains acceptable and it measurably avoids Br
 
 LFM uses a dynamic vision path that can split large images into 512×512 regions plus a global view. A 4K desktop can therefore cost far more visual work than an active-window or target-region capture.
 
-Hadalis already ships/uses `grim` and has existing targeted `grim -g` capture patterns. Reuse that infrastructure.
+Alis already ships/uses `grim` and has existing targeted `grim -g` capture patterns. Reuse that infrastructure.
 
 Benchmark:
 
@@ -1729,13 +1729,13 @@ If P0.5 memory pressure makes this worthwhile, benchmark in order:
 
 Run the full hard reasoning/schema suite after every cache-format change. Do not promote a memory optimization that silently changes reasoning/tool output.
 
-### 25.10 LFM licensing must remain separate from Hadalis GPL code
+### 25.10 LFM licensing must remain separate from Alis GPL code
 
 Qwen3.5-4B is Apache-2.0. LFM2.5-VL-3B is distributed under Liquid AI's **LFM Open License v1.0**, which is Apache-derived but adds a commercial-use condition: free commercial rights end for entities at/above the stated **USD 10 million annual revenue** threshold, after which a separate commercial license is required. Redistribution also requires retaining the applicable license/attribution/NOTICE material.
 
-Consequences for Hadalis packaging:
+Consequences for Alis packaging:
 
-- never describe the LFM weights as GPL merely because Hadalis source is GPL;
+- never describe the LFM weights as GPL merely because Alis source is GPL;
 - keep model files as separately licensed artifacts;
 - prefer opt-in/downloaded model installation under XDG data rather than embedding multi-GB weights in the source repository;
 - store/display source + license metadata in the Aqua model manifest;
@@ -1753,7 +1753,7 @@ Quickshell / Ai.qml / Aqua UI
          |
          | Unix socket
          v
-   inir-aqua-agentd
+   alis-aqua-agentd
          |
          +-- deterministic router / RAG / tools / policy
          |
@@ -1769,7 +1769,7 @@ Quickshell / Ai.qml / Aqua UI
 Benchmark against the fallback:
 
 ~~~text
-inir-aqua-agentd
+alis-aqua-agentd
    |            |
    v            v
 reflex server  brain server

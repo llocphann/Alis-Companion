@@ -16,14 +16,14 @@ import time
 BASE = "a42dfc4b9cdb9da5c066868f9959da591cb4a221"
 SELF = "scripts/aqua-manual-existing-layer.py"
 CONTRACT = "scripts/test-aqua-existing-layer-contract.py"
-NAMESPACE = "hadalis:abyss-perimeter"
+NAMESPACE = "alis:abyss-perimeter"
 ALLOWED_ORIGINS = {
-    "https://github.com/llocphann/Hadalis",
-    "https://github.com/llocphann/Hadalis.git",
-    "git@github.com:llocphann/Hadalis",
-    "git@github.com:llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
-    "ssh://git@github.com/llocphann/Hadalis.git",
+    "https://github.com/llocphann/Alis",
+    "https://github.com/llocphann/Alis.git",
+    "git@github.com:llocphann/Alis",
+    "git@github.com:llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
+    "ssh://git@github.com/llocphann/Alis.git",
 }
 
 
@@ -205,7 +205,7 @@ def main():
     if sys.argv[1:] != ["--observe-current-session"]:
         raise RuntimeError("Usage: ... --observe-current-session (read-only desktop)")
     if Path.cwd().resolve() != Path(git("rev-parse", "--show-toplevel")).resolve():
-        raise RuntimeError("Run at the root of the Hadalis checkout")
+        raise RuntimeError("Run at the root of the Alis checkout")
     if git("symbolic-ref", "--quiet", "--short", "HEAD") != "dev" or not clean():
         raise RuntimeError("Requires a clean dev checkout")
     read_url = git("remote", "get-url", "origin")

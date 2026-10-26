@@ -18,12 +18,12 @@ OLD_PROBE_BLOB = "edd28683dc1ce679f24aa460e914cfad5abdc0a6"
 LABELS = ("OFFSCREEN_FILE", "OFFSCREEN_DIRECTORY", "MINIMAL_FILE")
 MAX_BYTES = 524288
 SAFE_ORIGINS = {
-    "git@github.com:llocphann/Hadalis.git",
-    "git@github.com:llocphann/Hadalis",
-    "https://github.com/llocphann/Hadalis.git",
-    "https://github.com/llocphann/Hadalis",
-    "ssh://git@github.com/llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
+    "git@github.com:llocphann/Alis.git",
+    "git@github.com:llocphann/Alis",
+    "https://github.com/llocphann/Alis.git",
+    "https://github.com/llocphann/Alis",
+    "ssh://git@github.com/llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
 }
 # Patterns match explicit FAILURES, not the normal Qt debug plugin chatter.
 FAILURES = (
@@ -102,7 +102,7 @@ def git(repo, *args):
 
 def validate(scratch):
     if (scratch.name[:15] != "aqua-qt-motion."
-            or scratch.parent.name != "hadalis"
+            or scratch.parent.name != "alis"
             or not scratch.parent.parent.name.startswith("aqua-qt-state.")
             or any(p.is_symlink() for p in
                    (scratch, scratch.parent, scratch.parent.parent))):

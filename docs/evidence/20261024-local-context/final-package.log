@@ -58,8 +58,8 @@ PASS test-aqua-immersion-runtime.py
 PASS test-aqua-cloud-orbit.py
 PASS test-aqua-cowork-qml.py
 PASS test-aqua-cowork-native.py
-PASS HadalisOutput.qml
-PASS HadalisSession.qml
+PASS AlisOutput.qml
+PASS AlisSession.qml
 PASS AbyssCompanion.qml
 PASS AbyssCompanionProof.qml
 PASS CompanionBridge.qml

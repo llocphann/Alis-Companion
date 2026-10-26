@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install an immutable Alis-Companion payload independently of the Hadalis runtime."""
+"""Install an immutable Alis-Companion payload independently of the Alis runtime."""
 import argparse
 import fcntl
 import hashlib
@@ -12,7 +12,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_DIRS = ("modules/abyss/companion", "modules/settings", "services", "scripts/aqua")
-RUNTIME_FILES = ("manifest.json", "qmldir", "HadalisSession.qml", "HadalisOutput.qml", "scripts/native-dispatch", "LICENSE")
+RUNTIME_FILES = ("manifest.json", "qmldir", "AlisSession.qml", "AlisOutput.qml", "scripts/native-dispatch", "LICENSE")
 
 
 def assemble(source, target, binary, sha):
@@ -29,8 +29,6 @@ def assemble(source, target, binary, sha):
     executable = native / "alis-companiond"
     shutil.copy2(binary, executable)
     executable.chmod(0o755)
-    # Preserve the legacy native entrypoint within the same immutable release.
-    os.link(executable, native / "inir-companiond")
     manifest = json.loads((target / "manifest.json").read_text())
     manifest["sourceSha"] = sha
     files = {}
@@ -67,7 +65,7 @@ def install(data_root, source=ROOT, binary=None):
     dirty = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=source, text=True)
     if dirty:
         raise ValueError("Commit source changes before installing an exact Alis-Companion revision")
-    binary = Path(binary or source / "native/target/release/inir-companiond")
+    binary = Path(binary or source / "native/target/release/alis-companiond")
     if not binary.is_file() or not os.access(binary, os.X_OK):
         raise ValueError("Build the native runtime with make build first")
     releases = data_root / "releases"
@@ -111,7 +109,7 @@ def main():
         else:
             uninstall(data_root)
             print("Disabled the Alis-Companion installation; releases and user data are preserved")
-    print("Run inir ipc alis-companion refresh, or restart Hadalis, to apply the change")
+    print("Run alis ipc alis-companion refresh, or restart Alis, to apply the change")
 
 
 if __name__ == "__main__":

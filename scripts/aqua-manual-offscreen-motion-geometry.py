@@ -23,12 +23,12 @@ ROOT = Path(__file__).resolve().parents[1]
 BASE = "07c81fef4217f634a8a8910a1903a7d9007c878a"
 FIXTURE = "scripts/aqua-fixtures/motion-geometry/shell.qml"
 SAFE_REMOTES = {
-    "https://github.com/llocphann/Hadalis",
-    "https://github.com/llocphann/Hadalis.git",
-    "git@github.com:llocphann/Hadalis",
-    "git@github.com:llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
-    "ssh://git@github.com/llocphann/Hadalis.git",
+    "https://github.com/llocphann/Alis",
+    "https://github.com/llocphann/Alis.git",
+    "git@github.com:llocphann/Alis",
+    "git@github.com:llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
+    "ssh://git@github.com/llocphann/Alis.git",
 }
 PINNED = {
     FIXTURE: "11df91496a8bb9b18d79498e86d1f734d78dc574",
@@ -71,7 +71,7 @@ def guard(state):
     scratch = ROOT.parent
     if (Path.cwd().resolve() != ROOT
             or ROOT.name != "repo"
-            or scratch.parent.resolve() != (state / "hadalis").resolve()
+            or scratch.parent.resolve() != (state / "alis").resolve()
             or not scratch.name.startswith("aqua-qt-motion.")
             or scratch.is_symlink()
             or scratch.stat().st_uid != os.getuid()
@@ -228,7 +228,7 @@ def run_fixture(folder):
     shutil.copyfile(ROOT / "defaults/config.json", config / "config.json")
     env = dict(os.environ)
     for variable in ("QS_CONFIG_PATH", "QS_CONFIG_NAME", "QS_MANIFEST",
-                     "INIR_COMPANIOND", "WAYLAND_DISPLAY", "NIRI_SOCKET",
+                     "ALIS_COMPANIOND", "WAYLAND_DISPLAY", "NIRI_SOCKET",
                      "DISPLAY"):
         env.pop(variable, None)
     env.update({

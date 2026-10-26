@@ -2,7 +2,7 @@
 """Inert real-stdio relay smoke using a deterministic private FAKE backend.
 
 Only this test uses a fake backend. The eventual nested production pointer
-runner must use an exact-source, privately built REAL inir-companiond.
+runner must use an exact-source, privately built REAL alis-companiond.
 No compositor, pointer injection, or live desktop is used by this contract.
 """
 import json

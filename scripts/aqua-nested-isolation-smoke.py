@@ -155,7 +155,7 @@ def smoke():
                   dict(env, NIRI_SOCKET=host_ipc))
     require(pre is not None and outputs(pre) is not None,
             "HOST_INVENTORY_UNAVAILABLE")
-    private_root = runtime / "hadalis-aqua-isolation"
+    private_root = runtime / "alis-aqua-isolation"
     private_root.mkdir(mode=0o700, exist_ok=True)
     root_meta = private_root.lstat()
     require(stat.S_ISDIR(root_meta.st_mode)

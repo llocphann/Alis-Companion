@@ -41,7 +41,7 @@ CONFIG_PATHS = {
 
 DOC_KEYWORDS = frozenset({
     "architecture", "companion", "config", "cowork", "doc", "docs", "event",
-    "focus", "hadalis", "alis-companion", "memory", "obsidian", "planner", "pocket",
+    "focus", "alis", "alis-companion", "memory", "obsidian", "planner", "pocket",
     "portal", "privacy", "reminder", "repo", "schedule", "setting", "settings",
     "shader", "todo", "wayland", "aqua",
 })

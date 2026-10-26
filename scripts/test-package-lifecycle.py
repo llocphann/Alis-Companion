@@ -53,7 +53,7 @@ with tempfile.TemporaryDirectory(prefix="alis-companion-install-") as temporary:
     manifest = json.loads((first / "manifest.json").read_text())
     assert manifest["binary"] == "native/bin/alis-companiond"
     digest = hashlib.sha256(binary.read_bytes()).hexdigest()
-    for name in ("alis-companiond", "inir-companiond"):
+    for name in ("alis-companiond", "alis-companiond"):
         executable = first / "native/bin" / name
         assert executable.is_file() and os.access(executable, os.X_OK)
         assert manifest["files"][str(executable.relative_to(first))] == digest
@@ -68,7 +68,7 @@ with tempfile.TemporaryDirectory(prefix="alis-companion-install-") as temporary:
         assert result["root"] == str(first) and result["sourceSha"] == manifest["sourceSha"], result
         print("PASS: current host discovers canonical packaged native entrypoint")
     assert module.install(data, source, binary) == first
-    for name in ("alis-companiond", "inir-companiond"):
+    for name in ("alis-companiond", "alis-companiond"):
         executable = first / "native/bin" / name
         original = executable.read_bytes()
         try:

@@ -10,7 +10,7 @@ status=subprocess.check_output(['git','status','--porcelain','--untracked-files=
 identity=source_sha+('-working' if status else '')
 spec=importlib.util.spec_from_file_location('private_installer',PACKAGE/'scripts/install.py');installer=importlib.util.module_from_spec(spec);spec.loader.exec_module(installer)
 from native_test_session import private_wayland,run_qs
-if not (PACKAGE/'native/target/release/inir-companiond').is_file():
+if not (PACKAGE/'native/target/release/alis-companiond').is_file():
  raise SystemExit('Build the pinned Companion CPU actor backend first; no AI backend required')
 with tempfile.TemporaryDirectory(prefix='alis-companion-hover-') as name:
  folder=Path(name)
@@ -177,9 +177,9 @@ ShellRoot {
   if env is None:raise SystemExit('SKIP: private Niri unavailable')
   # Only an isolated installation. Never mutate the owner release or defaults.
   release=folder/'data/alis-companion/releases'/identity;release.parent.mkdir(parents=True)
-  installer.assemble(PACKAGE,release,PACKAGE/'native/target/release/inir-companiond',identity)
+  installer.assemble(PACKAGE,release,PACKAGE/'native/target/release/alis-companiond',identity)
   (release.parent.parent/'current').symlink_to(Path('releases')/identity)
-  assert (release/'HadalisOutput.qml').read_bytes()==(PACKAGE/'HadalisOutput.qml').read_bytes(), 'private package readback mismatch'
+  assert (release/'AlisOutput.qml').read_bytes()==(PACKAGE/'AlisOutput.qml').read_bytes(), 'private package readback mismatch'
   runtime=folder/'runtime';runtime.mkdir(mode=0o700)
   env.update(WAYLAND_DISPLAY=str(Path(env.get('XDG_RUNTIME_DIR',f'/run/user/{os.getuid()}'))/env['WAYLAND_DISPLAY']),XDG_RUNTIME_DIR=str(runtime),QSG_RHI_BACKEND='opengl',ALIS_COMPANION_TEST_SHA=identity)
   cfg=folder/'config/alis/config.json';cfg.parent.mkdir(parents=True,exist_ok=True)
@@ -193,5 +193,5 @@ ShellRoot {
   result=run_qs(folder,env,timeout=400)
   output=os.environ.get('ALIS_COMPANION_HOVER_LOG')
   if output:Path(output).write_text(result.stdout+'\nprocessExit='+str(result.returncode)+'\n')
-  print('Host source:',os.environ.get('ALIS_COMPANION_HOVER_HOST_SHA','direct host checkout'));print('Package identity:',identity);print('Payload sha256:',hashlib.sha256((PACKAGE/'HadalisOutput.qml').read_bytes()).hexdigest());print(result.stdout);print('Process exit:',result.returncode)
+  print('Host source:',os.environ.get('ALIS_COMPANION_HOVER_HOST_SHA','direct host checkout'));print('Package identity:',identity);print('Payload sha256:',hashlib.sha256((PACKAGE/'AlisOutput.qml').read_bytes()).hexdigest());print(result.stdout);print('Process exit:',result.returncode)
   if result.returncode or 'COMPANION_HOVER_PASS' not in result.stdout or any(x in result.stdout for x in ['COMPANION_HOVER_FAIL','TypeError:','ReferenceError:','Binding loop','Failed to load configuration']):raise SystemExit(1)

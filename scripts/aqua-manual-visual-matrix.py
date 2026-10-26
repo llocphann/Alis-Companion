@@ -80,7 +80,7 @@ def private_env(xdg, output):
     env = dict(os.environ)
     for key in ("DISPLAY", "WAYLAND_DISPLAY", "WAYLAND_SOCKET", "NIRI_SOCKET",
                 "QS_CONFIG_PATH", "QS_CONFIG_NAME", "QS_MANIFEST",
-                "INIR_COMPANIOND", "DBUS_SESSION_BUS_ADDRESS",
+                "ALIS_COMPANIOND", "DBUS_SESSION_BUS_ADDRESS",
                 "DBUS_SYSTEM_BUS_ADDRESS", "QML_IMPORT_PATH",
                 "QML2_IMPORT_PATH", "AQUA_CAPTURE_OUTPUT"):
         env.pop(key, None)
@@ -170,7 +170,7 @@ def main():
         return
     state = Path(os.environ.get("XDG_STATE_HOME",
                  str(Path.home() / ".local/state"))).expanduser().resolve()
-    owned = state / "hadalis-aqua-visual-private"
+    owned = state / "alis-aqua-visual-private"
     owned.mkdir(mode=0o700, parents=True, exist_ok=True)
     need(owned.stat().st_uid == os.getuid()
          and not stat.S_IMODE(owned.stat().st_mode) & 0o077,

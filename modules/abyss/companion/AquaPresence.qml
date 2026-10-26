@@ -249,7 +249,8 @@ Item {
         const here=position(), support=Scene.supportAt(scene,here)
         targetX=here.x; targetY=here.y
         clearMotion()
-        placement=Scene.annotate(scene,here,placement.edge,placement.kind,placement.key)
+        const isEdge=!!support && Scene.edges.includes(support.key)
+        placement=Scene.annotate(scene,here,support?.edge ?? placement.edge,isEdge ? "edge" : placement.kind,isEdge ? support.key : placement.key)
     }
     function beginTurn(clip): void {
         handoffActive=true
@@ -466,8 +467,9 @@ Item {
         const horizontal=support.axis==="x",span=horizontal ? scene.hostWidth : scene.hostHeight
         const along=Scene.clamp((horizontal ? here.x : here.y)+(travelFraction-.5)*240*scene.scale,
             support.from,support.to-span)
+        const isEdge=Scene.edges.includes(support.key)
         const selected=Scene.annotate(scene,horizontal ? {x:along,y:here.y} : {x:here.x,y:along},
-            support.edge,placement.kind,placement.key)
+            support.edge,isEdge ? "edge" : placement.kind,isEdge ? support.key : placement.key)
         if (selected.qualified && Scene.distance(here,selected)>10*scene.scale) {
             const gait=random(), length=Scene.distance(here,selected)
             const movement=length>=35*scene.scale && gait<.18 ? "run"
@@ -495,7 +497,8 @@ Item {
         const support=Scene.supportAt(scene,from,placement.support?.edge ?? placement.edge)
         if (support) {
             clearMotion()
-            const safe=Scene.annotate(scene,from,support.edge,placement.kind,placement.key)
+            const isEdge=Scene.edges.includes(support.key)
+            const safe=Scene.annotate(scene,from,support.edge,isEdge ? "edge" : placement.kind,isEdge ? support.key : placement.key)
             placement=safe;destination=safe;targetX=safe.x;targetY=safe.y
             scheduleSurface()
             return true
@@ -522,11 +525,12 @@ Item {
         const sizeChanged=Number.isFinite(placement?.hostWidth)
             && (Math.abs(placement.hostWidth-scene.hostWidth)>.1 || Math.abs(placement.hostHeight-scene.hostHeight)>.1)
         const ride=Scene.ride(scene,from,placement)
-        if (ride.qualified && (sizeChanged || Scene.distance(from,ride)>.25)) {
+        if (ride.qualified && (sizeChanged || Scene.distance(from,ride)>.25 || placement.support?.key!==ride.support?.key)) {
             const oldKey=placement.support?.key,delta=Scene.distance(from,ride)
+            const closedToEdge=!Scene.edges.includes(oldKey) && Scene.edges.includes(ride.key)
             clearMotion();placement=ride;destination=ride;targetX=ride.x;targetY=ride.y
             actor.carryTo(ride.x+(actor.scale-1)*actor.width/2,ride.y+(actor.scale-1)*actor.height/2)
-            if (!sizeChanged && (oldKey!==ride.key || delta>6*scene.scale)) balance()
+            if (!sizeChanged && !closedToEdge && (oldKey!==ride.key || delta>6*scene.scale)) balance()
             return
         }
         if (!Scene.clearAt(scene,from)) {

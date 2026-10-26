@@ -21,11 +21,11 @@ class MemoryError(Exception):
 
 
 def path():
-    override = os.environ.get("INIR_AQUA_MEMORY_DB")
+    override = os.environ.get("ALIS_AQUA_MEMORY_DB")
     if override:
         return Path(override).expanduser()
     root = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
-    return root / "inir/aqua/memory.sqlite3"
+    return root / "alis/aqua/memory.sqlite3"
 
 
 def connect(create=True):

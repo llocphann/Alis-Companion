@@ -2,11 +2,11 @@
 
 Status: **dormant receiving contract**, not a running host bridge. The implementation is [AquaContextProtocol.js](../modules/abyss/companion/AquaContextProtocol.js); its synthetic regression is [test-aqua-context-protocol.cjs](../scripts/test-aqua-context-protocol.cjs). Visual work remains in the [canonical TODO](../to-do/cloud-bot/ABYSS_WATER_DROPLET_COMPANION.md).
 
-The receiver feeds the existing Behavior Director. It neither creates a second actor nor owns movement, presentation, input, a process or a timer. No production QML imports it. Hadalis must own permission, semantic reduction, peer authentication and transport before any live integration. The optional host/package API remains v1; this document versions a separate future event frame.
+The receiver feeds the existing Behavior Director. It neither creates a second actor nor owns movement, presentation, input, a process or a timer. No production QML imports it. Alis must own permission, semantic reduction, peer authentication and transport before any live integration. The optional host/package API remains v1; this document versions a separate future event frame.
 
 ## Owner boundary
 
-1. A trusted Hadalis owner explicitly calls `configure(state, true, generation, nowMs)` after opt-in, with a fresh anonymous 16-character lowercase hexadecimal generation. The owner must mint a new value for every reconnect and never recycle one within its lifetime; this library rejects reuse of the most recent disconnected generation. Default state is disabled. A packet cannot enable the receiver.
+1. A trusted Alis owner explicitly calls `configure(state, true, generation, nowMs)` after opt-in, with a fresh anonymous 16-character lowercase hexadecimal generation. The owner must mint a new value for every reconnect and never recycle one within its lifetime; this library rejects reuse of the most recent disconnected generation. Default state is disabled. A packet cannot enable the receiver.
 2. The host must authenticate its local transport peer, bind that peer to the current generation and enforce a bounded frame read. For a future Unix socket, verify native peer credentials; a UID, boolean, token or source name supplied inside JSON is not authentication. `peerVerified` is an assertion by the trusted owner, not an implemented credential check.
 3. The owner calls `accept(state, frame, peerVerified, nowMs)` with monotonic local time. No app title, prompt, command, file, URL, screenshot, PID or user identity belongs in a frame.
 4. The existing presentation owner may call `observe(state, hostPolicy, nowMs)`. Hidden/lock/fullscreen/game, direct chat/drag/modal and explicit travel retain their established priority. Opt-out, quiet and DND suppress contextual presentation. No packet directly plays an animation or opens a surface.
@@ -50,4 +50,4 @@ Receipts contain only acceptance/reason and a bounded success eligibility boolea
 
 ## Integration still required
 
-The contract does not supply a compositor monitor, coding-agent hook, permission UI, peer credential verification or a heartbeat source. These need an independently reviewed Hadalis integration and owned-host lifecycle/visibility tests. The laptop prop and contextual animation are not implemented by this protocol. Synthetic PASS cannot qualify desktop observation, user-visible animation, hardware cost or permission grant.
+The contract does not supply a compositor monitor, coding-agent hook, permission UI, peer credential verification or a heartbeat source. These need an independently reviewed Alis integration and owned-host lifecycle/visibility tests. The laptop prop and contextual animation are not implemented by this protocol. Synthetic PASS cannot qualify desktop observation, user-visible animation, hardware cost or permission grant.

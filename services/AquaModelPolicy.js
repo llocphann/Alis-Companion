@@ -1,6 +1,6 @@
 .pragma library
 
-// Companion policy only; catalog and inference transport remain Hadalis-owned.
+// Companion policy only; catalog and inference transport remain Alis-owned.
 function isLocal(model) {
     if (!model || model.local !== true) return false
     if (model.api_format === "gguf")

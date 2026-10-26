@@ -23,12 +23,12 @@ REVIEWED = {
     FIXTURE + "/fake-dispatch.py",
 }
 VALID_URLS = {
-    "https://github.com/llocphann/Hadalis",
-    "https://github.com/llocphann/Hadalis.git",
-    "git@github.com:llocphann/Hadalis",
-    "git@github.com:llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
-    "ssh://git@github.com/llocphann/Hadalis.git",
+    "https://github.com/llocphann/Alis",
+    "https://github.com/llocphann/Alis.git",
+    "git@github.com:llocphann/Alis",
+    "git@github.com:llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
+    "ssh://git@github.com/llocphann/Alis.git",
 }
 CAP = 1048576
 
@@ -100,7 +100,7 @@ def run_case(qs, kind, private_dir):
         "XDG_STATE_HOME": str(isolated / "state"),
         "QT_QPA_PLATFORM": "offscreen",
         "QS_NO_RELOAD_POPUP": "1",
-        "INIR_COMPANIOND": str(fake) if kind == "disabled-override" else "",
+        "ALIS_COMPANIOND": str(fake) if kind == "disabled-override" else "",
         "AQUA_SMOKE_CASE": kind,
         "AQUA_SMOKE_STATE": str(state_file),
     })
@@ -241,7 +241,7 @@ def push_report_with_bounded_retry(payload, path):
 def main():
     os.umask(0o077)
     if Path.cwd().resolve() != Path(git("rev-parse", "--show-toplevel")).resolve():
-        raise RuntimeError("Must run at the Hadalis repository root")
+        raise RuntimeError("Must run at the Alis repository root")
     if git("symbolic-ref", "--quiet", "--short", "HEAD") != "dev" or not clean():
         raise RuntimeError("Requires a clean dev checkout")
     push_urls = git("remote", "get-url", "--push", "--all", "origin").splitlines()
@@ -259,7 +259,7 @@ def main():
     identifier = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     identifier += "-" + secrets.token_hex(4)
     state = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
-    private_dir = state / "hadalis" / ("aqua-bridge-" + identifier)
+    private_dir = state / "alis" / ("aqua-bridge-" + identifier)
     private_dir.mkdir(mode=0o700, parents=True, exist_ok=False)
     print("EXACT_SOURCE_SHA:", source, flush=True)
     print("PRIVATE_LOG_DIRECTORY:", private_dir, flush=True)

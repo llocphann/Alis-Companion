@@ -24,8 +24,8 @@ OLD_SHA="d1f1231790bd8d683cced6bd52bcc966cc95b75b"
 OLD_BASE="4e6c48a22973b29f55d0c0a855a8586f475e037e"
 REL="docs/aqua-visual/reference/source-metadata.json"
 SCRIPT="scripts/aqua-original-metadata-projection.py"
-REMOTE="https://github.com/llocphann/Hadalis.git"
-SSH_REMOTE="git@github.com:llocphann/Hadalis.git"
+REMOTE="https://github.com/llocphann/Alis.git"
+SSH_REMOTE="git@github.com:llocphann/Alis.git"
 EXPECTED=(
  ("Water Droplet Companion.png","d232af73adeb2e9d4673ced04269f73a5d84a06d",2109568),
  ("Water Droplet Companion Expression.png","f11033572cd43634be1c5a6451f5d172989c17a8",2179910),
@@ -91,7 +91,7 @@ def read_existing_metadata():
          "HISTORICAL_RECEIPT_UNQUALIFIED")
     state=Path(os.environ.get("XDG_STATE_HOME",str(Path.home()/".local/state"))).expanduser()
     need(state.is_absolute() and not state.is_symlink(),"PRIVATE_RECEIPT_UNAVAILABLE")
-    p=state/"hadalis-automation"/"worker"/"actions"/OLD_JOB/"action-0.json"
+    p=state/"alis-automation"/"worker"/"actions"/OLD_JOB/"action-0.json"
     owner_private(p)
     record=json.loads(p.read_text(encoding="utf-8"))
     result=record.get("result",{})
@@ -160,7 +160,7 @@ def publish(metadata):
     changed=cmd(["git","diff","--cached","--name-only"])
     need(changed.returncode==0 and changed.stdout.strip()==REL,
          "ARTIFACT_STAGE_UNQUALIFIED")
-    committed=cmd(["git","-c","user.name=Hadalis-Aqua-Evidence",
+    committed=cmd(["git","-c","user.name=Alis-Aqua-Evidence",
                    "-c","user.email=actions@users.noreply.github.com",
                    "commit","-m","test(aqua): publish verified authentic source metadata only"])
     need(committed.returncode==0,"ARTIFACT_COMMIT_UNQUALIFIED")

@@ -2,9 +2,9 @@
   "id": "alis-companion",
   "version": "0.1.0",
   "hostApi": 1,
-  "host": "Hadalis",
-  "session": "HadalisSession.qml",
-  "output": "HadalisOutput.qml",
+  "host": "Alis",
+  "session": "AlisSession.qml",
+  "output": "AlisOutput.qml",
   "settings": "modules/settings/CompanionConfig.qml",
   "binary": "native/bin/alis-companiond"
 }

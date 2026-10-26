@@ -1,4 +1,4 @@
-# Tham khảo mak1zu cho Local LLM của Hadalis Companion
+# Tham khảo mak1zu cho Local LLM của Alis Companion
 
 Ngày nghiên cứu: **2026-10-08** (Asia/Ho_Chi_Minh).
 
@@ -7,21 +7,21 @@ Ngày nghiên cứu: **2026-10-08** (Asia/Ho_Chi_Minh).
 | Nguồn được đọc | Revision |
 | --- | --- |
 | [snowarch/mak1zu](https://github.com/snowarch/mak1zu/tree/a30fef7cc10324684fd4ae9123d9c29cbd00ca9e) | `a30fef7cc10324684fd4ae9123d9c29cbd00ca9e` |
-| Hadalis `dev` tại lúc đối chiếu | `8eba344f29da249844fbe8910f0a8abf00c859c0` |
+| Alis `dev` tại lúc đối chiếu | `8eba344f29da249844fbe8910f0a8abf00c859c0` |
 
-Đã đọc README, kiến trúc, provider/discovery, persona, memory/ledger, turn pipeline, presence, night reflection, output guard, voice evaluation, persona distillation và các test liên quan. Với Hadalis, đã đọc kế hoạch AI và đường đi hiện tại qua `AquaMind`, `AiTextSession`, `Ai`, GGUF supervisor, history store và helper Obsidian. Không chạy mak1zu, cài dependency, gọi model, quét các server đang chạy hoặc đọc vault/lịch sử cá nhân. Các test của upstream chỉ được đọc, chưa được chạy và không được coi là PASS trong nghiên cứu này.
+Đã đọc README, kiến trúc, provider/discovery, persona, memory/ledger, turn pipeline, presence, night reflection, output guard, voice evaluation, persona distillation và các test liên quan. Với Alis, đã đọc kế hoạch AI và đường đi hiện tại qua `AquaMind`, `AiTextSession`, `Ai`, GGUF supervisor, history store và helper Obsidian. Không chạy mak1zu, cài dependency, gọi model, quét các server đang chạy hoặc đọc vault/lịch sử cá nhân. Các test của upstream chỉ được đọc, chưa được chạy và không được coi là PASS trong nghiên cứu này.
 
 ## Kết luận chính
 
-**Hadalis nên học cách tổ chức hội thoại của mak1zu, giữ renderer và backend hiện có.** Giá trị lớn nhất là trí nhớ có nguồn gốc, persona có thể kiểm chứng, chính sách chủ động biết giảm làm phiền và ngân sách suy luận. mak1zu là engine dùng model, không phải model mới hoặc công cụ huấn luyện local LLM. Nó có transport local riêng và provider tương thích API, nên nhiều ý tưởng không phụ thuộc Discord. [Architecture][M1], [SDK][M2]
+**Alis nên học cách tổ chức hội thoại của mak1zu, giữ renderer và backend hiện có.** Giá trị lớn nhất là trí nhớ có nguồn gốc, persona có thể kiểm chứng, chính sách chủ động biết giảm làm phiền và ngân sách suy luận. mak1zu là engine dùng model, không phải model mới hoặc công cụ huấn luyện local LLM. Nó có transport local riêng và provider tương thích API, nên nhiều ý tưởng không phụ thuộc Discord. [Architecture][M1], [SDK][M2]
 
-Không có bằng chứng từ lượt đọc này rằng dùng engine Go, một binary hoặc thêm một persona sẽ làm inference nhanh hơn hay ít RAM hơn. Chi phí trọng số, context, KV/state cache, nạp model và GPU offload vẫn phải đo trong P1 của Hadalis. Chưa có lý do để thay `llama.cpp`, đổi model đang chọn hoặc thêm daemon mak1zu vào desktop.
+Không có bằng chứng từ lượt đọc này rằng dùng engine Go, một binary hoặc thêm một persona sẽ làm inference nhanh hơn hay ít RAM hơn. Chi phí trọng số, context, KV/state cache, nạp model và GPU offload vẫn phải đo trong P1 của Alis. Chưa có lý do để thay `llama.cpp`, đổi model đang chọn hoặc thêm daemon mak1zu vào desktop.
 
-## 1. Hadalis đã có gì, và khoảng trống thực sự nằm ở đâu?
+## 1. Alis đã có gì, và khoảng trống thực sự nằm ở đâu?
 
-Những nhận xét dưới đây dựa vào source Hadalis ở revision đã ghi, không dùng phần “installed source” ngày 2026-10-04 trong kế hoạch như bằng chứng cho runtime hôm nay.
+Những nhận xét dưới đây dựa vào source Alis ở revision đã ghi, không dùng phần “installed source” ngày 2026-10-04 trong kế hoạch như bằng chứng cho runtime hôm nay.
 
-| Hạng mục | Hiện trạng thấy trong source Hadalis | Phần đáng học thêm |
+| Hạng mục | Hiện trạng thấy trong source Alis | Phần đáng học thêm |
 | --- | --- | --- |
 | Gọi AI | `AquaMind.sendMessage()` dùng session riêng của service `Ai`; chọn model Companion hoặc model của tab AI. | Giữ một catalog/backend dùng chung; bổ sung chính sách local rõ ràng cho Companion. |
 | Giọng Aqua/Octo | Instruction chọn droplet/octopus, yêu cầu câu tiếng Anh ngắn và expression trong danh sách cho phép. | Persona riêng, ví dụ hội thoại riêng và đánh giá khả năng giữ giọng qua nhiều lượt. |
@@ -35,13 +35,13 @@ Nguồn đối chiếu: [AquaMind](../services/AquaMind.qml), [AiTextSession](..
 
 **Chi tiết quan trọng về local:** `Ai.modelCanRun()` đã chặn model không local khi AI privacy policy bằng `2`. Tuy nhiên, `AquaMind` dùng catalog/session nhiều provider; ngoài policy đó, một model cloud hợp lệ cũng có thể được chọn. Đây không phải bằng chứng dữ liệu của maintainer đã rời máy. Nó cho thấy không thể suy ra “Companion luôn local” chỉ từ sự tồn tại của helper GGUF hoặc helper Ollama cũ. Chế độ local trong thiết kế sau này cần được kiểm tra tại chính đường request đang dùng.
 
-## 2. Những ý tưởng nên chuyển sang thiết kế Hadalis
+## 2. Những ý tưởng nên chuyển sang thiết kế Alis
 
 ### 2.1 Tính cách là một lớp nhỏ, tách khỏi quyền hành động
 
 mak1zu tách persona Markdown, quy tắc chung và ngữ cảnh từng lượt; phần compose nhận memory, thời gian và mood riêng. Cách tổ chức này giúp thay giọng mà không thay transport/model. [Persona composer][M3]
 
-Với Hadalis, có thể đánh giá hai persona ngắn: Aqua ấm áp, hay chơi chữ về nước; Octo tò mò, tự tin, hài hước về xúc tu. Cả hai dùng tiếng Anh trong talk cloud, trả lời ngắn và không bịa việc đã làm. Thái độ tranh nhau xuất hiện chỉ là màu sắc hội thoại; việc ai xuất hiện, động tác kéo xuống nước và thời điểm đổi nhân vật vẫn thuộc engine xác định.
+Với Alis, có thể đánh giá hai persona ngắn: Aqua ấm áp, hay chơi chữ về nước; Octo tò mò, tự tin, hài hước về xúc tu. Cả hai dùng tiếng Anh trong talk cloud, trả lời ngắn và không bịa việc đã làm. Thái độ tranh nhau xuất hiện chỉ là màu sắc hội thoại; việc ai xuất hiện, động tác kéo xuống nước và thời điểm đổi nhân vật vẫn thuộc engine xác định.
 
 Phải tách **mood của Companion** khỏi **Mood/Energy người dùng đã chọn**. State nội bộ có thể đổi giọng/biểu cảm và trở về baseline theo thời gian; không được tự điền cảm xúc của người dùng vào journal. Heuristic từ khóa mood của mak1zu chỉ là một ví dụ đơn giản, không phải phương pháp nhận biết cảm xúc đáng tin cậy. [Mood state][M4]
 
@@ -56,7 +56,7 @@ Ví dụ giọng do tài liệu này đề xuất, không lấy từ chat thật
 
 mak1zu có SQLite/FTS5, tách episodic/semantic/introspective memory, lưu nguồn và truy hồi theo người/persona; embedding rerank là tùy chọn. Nó còn có API quên một mục hoặc xóa các dữ liệu theo người. [Memory store][M5]
 
-Hadalis đã có SQLite cho history, vì vậy không cần giới thiệu một database/vector daemon mới chỉ để nhớ sở thích. Có thể đánh giá một kho memory nhỏ dùng SQLite/FTS trước, với các trường như loại, scope, nội dung, nguồn, thời điểm, ngày hết hạn và trạng thái được người dùng xác nhận. Chỉ lấy vài mục liên quan cho mỗi lượt; thêm embedding chỉ khi truy hồi từ khóa thất bại trong bộ câu hỏi thực tế.
+Alis đã có SQLite cho history, vì vậy không cần giới thiệu một database/vector daemon mới chỉ để nhớ sở thích. Có thể đánh giá một kho memory nhỏ dùng SQLite/FTS trước, với các trường như loại, scope, nội dung, nguồn, thời điểm, ngày hết hạn và trạng thái được người dùng xác nhận. Chỉ lấy vài mục liên quan cho mỗi lượt; thêm embedding chỉ khi truy hồi từ khóa thất bại trong bộ câu hỏi thực tế.
 
 Các nguyên tắc thiết kế nên đánh giá:
 
@@ -76,7 +76,7 @@ Ledger của mak1zu tách những việc còn dang dở và những câu đùa d
 
 Presence của mak1zu kiểm tra quiet hours, lần trò chuyện gần nhất và số lời chủ động không được trả lời; khoảng cách giữa các lời tăng lên và có điểm dừng. Gate có hàm thuần để kiểm tra riêng. [Presence policy][M7]
 
-Hadalis có thể học **backoff và gate xác định**, thay vì gọi LLM để quyết định mỗi vài giây xem có nên nói. Tôn trọng mode Manual, idle, fullscreen/game/DND, cuộc chat đang mở và việc người dùng đã dismiss. Nhắc lịch đến hạn và câu đùa ngẫu nhiên cần độ ưu tiên khác nhau; dồn nhiều event thành một lời nhắc có giới hạn thay vì mở nhiều cloud.
+Alis có thể học **backoff và gate xác định**, thay vì gọi LLM để quyết định mỗi vài giây xem có nên nói. Tôn trọng mode Manual, idle, fullscreen/game/DND, cuộc chat đang mở và việc người dùng đã dismiss. Nhắc lịch đến hạn và câu đùa ngẫu nhiên cần độ ưu tiên khác nhau; dồn nhiều event thành một lời nhắc có giới hạn thay vì mở nhiều cloud.
 
 Không bê nguyên các khoảng thời gian thiết kế cho chat Discord sang desktop. Tần suất hiện tại là preference của người dùng; thay đổi sau này phải được đánh giá trong ngữ cảnh desktop và không tự bật inference nền liên tục.
 
@@ -92,7 +92,7 @@ Với output sai style, ưu tiên fallback có sẵn hoặc xử lý nhẹ. Sử
 
 mak1zu tách provider khỏi engine; router có danh sách theo capability và cooldown sau lỗi. Discovery dùng `/v1/models` trên một danh sách loopback port hữu hạn; probe kiểm tra khả năng trả lời. [Provider router][M9], [Local discovery][M10]
 
-Hadalis đã có GGUF discovery và catalog AI. Phần đáng bổ sung là chẩn đoán rõ: artifact có nhưng thiếu runtime, model đang bận, nạp thất bại, timeout, response/schema không hợp lệ. File được tìm thấy, endpoint liệt kê được và một request thật thành công là ba mức khác nhau. Health probe cần do người dùng yêu cầu hoặc gắn với request thật, không đánh thức model mỗi lần hover/appearance.
+Alis đã có GGUF discovery và catalog AI. Phần đáng bổ sung là chẩn đoán rõ: artifact có nhưng thiếu runtime, model đang bận, nạp thất bại, timeout, response/schema không hợp lệ. File được tìm thấy, endpoint liệt kê được và một request thật thành công là ba mức khác nhau. Health probe cần do người dùng yêu cầu hoặc gắn với request thật, không đánh thức model mỗi lần hover/appearance.
 
 Trong chế độ local, fallback chỉ được chọn backend local đã cấu hình hoặc lời built-in. Không sao chép ordered fallback có thể đi sang provider cloud. Loopback cũng có thể là gateway proxy; backend identity và redirect/proxy policy cần được kiểm tra, không chỉ tên host hay tên model.
 
@@ -138,7 +138,7 @@ Không quyết định ở đây nên dùng một hay hai model, warm TTL hay na
 
 Test budget của mak1zu đặt trần **7.600 byte tool schemas** và **12.200 byte persona + substrate**; đây là trần byte cho hai phần, không phải tổng token của một lượt. [Prompt budget tests][M13]
 
-GGUF supervisor Hadalis đang đặt context **2.048**, một slot, CPU tối đa bốn thread và tắt GPU offload trong baseline được đọc. Nó giữ tối đa hai system message, sáu message gần nhất và cap ký tự; các mức effort còn có output/thinking budget khác nhau. Giới hạn ký tự không chứng minh prompt sẽ vừa context của mọi tokenizer.
+GGUF supervisor Alis đang đặt context **2.048**, một slot, CPU tối đa bốn thread và tắt GPU offload trong baseline được đọc. Nó giữ tối đa hai system message, sáu message gần nhất và cap ký tự; các mức effort còn có output/thinking budget khác nhau. Giới hạn ký tự không chứng minh prompt sẽ vừa context của mọi tokenizer.
 
 Vì vậy không nên đưa nguyên persona/substrate/tool catalog của mak1zu vào model hiện tại. Một thiết kế phù hợp cần:
 
@@ -152,7 +152,7 @@ Không có đề xuất tăng context lên một giá trị mới trong tài li�
 
 ## 5. Những phần không nên bê nguyên
 
-| Phần của mak1zu | Cách xử lý với Hadalis |
+| Phần của mak1zu | Cách xử lý với Alis |
 | --- | --- |
 | Discord transport, mention/guild rules, account linking | Loại khỏi phạm vi desktop local. |
 | Thêm Go engine, TUI và web panel | Học các interface; giữ QML/Settings/backend đang có. Không có dữ liệu để biện minh thêm runtime mới. |
@@ -168,9 +168,9 @@ Upstream ghi code Apache-2.0 và yêu cầu giữ NOTICE/credit khi phân phối
 
 ## 6. Điều cần thận trọng khi đọc các tuyên bố upstream
 
-- Docs mô tả một public output boundary chung. Tuy nhiên, `FireReminders()` trong source đã đọc gửi text model sau kiểm tra non-empty mà không gọi `guard.Clean` trong hàm; `transport/local.Send()` cũng không thêm guard đó. Đây là nhận xét source, không phải kết quả khai thác hay audit bảo mật đầy đủ. Với Hadalis, kiểm tra tất cả nhánh output bằng test thay vì coi mô tả kiến trúc là bằng chứng đã bao phủ. [Reminder path][M15], [Local transport][M16]
+- Docs mô tả một public output boundary chung. Tuy nhiên, `FireReminders()` trong source đã đọc gửi text model sau kiểm tra non-empty mà không gọi `guard.Clean` trong hàm; `transport/local.Send()` cũng không thêm guard đó. Đây là nhận xét source, không phải kết quả khai thác hay audit bảo mật đầy đủ. Với Alis, kiểm tra tất cả nhánh output bằng test thay vì coi mô tả kiến trúc là bằng chứng đã bao phủ. [Reminder path][M15], [Local transport][M16]
 - `MaxRounds` giới hạn vòng tool chính; còn có lần final answer sau tool và một lần regenerate. Retry và auto-extraction nằm ở các phần khác của pipeline. Trần số vòng không tự bảo đảm trần tổng số inference. [Turn pipeline][M12]
-- Extraction của upstream dùng model để đề xuất rồi lưu fact/thread; instruction bảo model chỉ dùng dữ kiện chưa chứng minh nó không bịa. Hadalis cần provenance, xác nhận và test mâu thuẫn/xóa riêng. [Automatic extraction][M17]
+- Extraction của upstream dùng model để đề xuất rồi lưu fact/thread; instruction bảo model chỉ dùng dữ kiện chưa chứng minh nó không bịa. Alis cần provenance, xác nhận và test mâu thuẫn/xóa riêng. [Automatic extraction][M17]
 - Night reflection có giới hạn người, dữ liệu, mutation ID và dry-run; vẫn là thêm inference và ghi dữ liệu suy ra. Không thể kết luận rẻ trên máy của maintainer chỉ từ việc có cap. [Night reflection][M18]
 - Có test trong repo không đồng nghĩa model nhỏ local sẽ giữ persona, tuân schema, nhanh hay ít RAM. Những điều này chưa được đo trong lượt nghiên cứu.
 
@@ -193,23 +193,23 @@ Thứ tự ưu tiên đánh giá hợp lý là **persona nhỏ + output contract
 
 ## 8. Đối chiếu sau extraction: Mak1zu ↔ Alis-Companion main (2026-10-09)
 
-**Phạm vi và provenance:** Đối chiếu trực tiếp `snowarch/mak1zu main@a30fef7cc10324684fd4ae9123d9c29cbd00ca9e` với Alis-Companion `main@209e8de7b105d571cc903ee521d125ff755cd188` (baseline trước phần tooling cùng ngày). Chỉ xem code/docs trong repo; không chạy bot Discord, model, dữ liệu người dùng hoặc compositor. Nội dung mục 1–7 ở trên là lịch sử đối chiếu Hadalis trước extraction; **sở hữu hiện tại là Alis-Companion `main` cho Companion, Hadalis `dev` cho AI shared transport/host**. Các thay đổi code sau baseline được ghi là *tooling mới*, không hồi tố thành tính năng runtime đã hoạt động.
+**Phạm vi và provenance:** Đối chiếu trực tiếp `snowarch/mak1zu main@a30fef7cc10324684fd4ae9123d9c29cbd00ca9e` với Alis-Companion `main@209e8de7b105d571cc903ee521d125ff755cd188` (baseline trước phần tooling cùng ngày). Chỉ xem code/docs trong repo; không chạy bot Discord, model, dữ liệu người dùng hoặc compositor. Nội dung mục 1–7 ở trên là lịch sử đối chiếu Alis trước extraction; **sở hữu hiện tại là Alis-Companion `main` cho Companion, Alis `dev` cho AI shared transport/host**. Các thay đổi code sau baseline được ghi là *tooling mới*, không hồi tố thành tính năng runtime đã hoạt động.
 
 **Mak1zu không phải bộ animation/renderer**: upstream là Go engine cho Discord/CLI/panel, có `memory`, `persona`, `engine`, `guard`, `voice`, `provider`, `sdk` và `tools`; không nên gộp nhầm nghiên cứu Mak1zu với kế hoạch animation *Mochi-inspired* khác trong TODO Aqua/Octo. Không có tiêu chí hợp lý để đạt "100% parity" bằng cách thêm Discord/Go/web panel. [Upstream README](https://github.com/snowarch/mak1zu/blob/a30fef7cc10324684fd4ae9123d9c29cbd00ca9e/README.md), [Architecture][M1], [Roadmap](https://github.com/snowarch/mak1zu/blob/a30fef7cc10324684fd4ae9123d9c29cbd00ca9e/ROADMAP.md).
 
 | Nhóm năng lực | Mak1zu source tại SHA ghim | Alis-Companion source hiện tại | Kết luận phù hợp |
 | --- | --- | --- | --- |
-| Renderer, animation, 4 edges | Mak1zu không triển khai avatar Quickshell 3D | `modules/abyss/companion/WaterDropletBody.qml`, `OctoTentacles.qml`, `AquaMotion.qml`; host phân vùng màn hình do Hadalis quản lý | **Không có parity tương ứng**; Alis-Companion giữ 3D làm điểm mạnh riêng; G0/G1 vẫn OPEN |
-| AI text session, model selection | `provider/router.go`, `engine/engine.go` hỗ trợ provider fallback và tool loops | `services/AquaMind.qml` dùng Hadalis `Ai.createTextSession` cùng model catalog, và local helper tùy đường gọi | **Có baseline / chưa ngang**: không nhân đôi model manager; local-only phải chứng thực actual outbound policy |
+| Renderer, animation, 4 edges | Mak1zu không triển khai avatar Quickshell 3D | `modules/abyss/companion/WaterDropletBody.qml`, `OctoTentacles.qml`, `AquaMotion.qml`; host phân vùng màn hình do Alis quản lý | **Không có parity tương ứng**; Alis-Companion giữ 3D làm điểm mạnh riêng; G0/G1 vẫn OPEN |
+| AI text session, model selection | `provider/router.go`, `engine/engine.go` hỗ trợ provider fallback và tool loops | `services/AquaMind.qml` dùng Alis `Ai.createTextSession` cùng model catalog, và local helper tùy đường gọi | **Có baseline / chưa ngang**: không nhân đôi model manager; local-only phải chứng thực actual outbound policy |
 | Persona/voice | `persona/`, `voice/voice.go`, `mak1zu eval --gate`, personality Markdown và target theo nguồn riêng | `AquaMind.qml` ghim persona Aqua/Octo bằng chỉ dẫn ngắn; hiện không có persona eval trên model thật | **Một phần**: vừa thêm [bộ đánh giá offline tự viết](../scripts/aqua-companion-voice-eval.py) cùng [test](../scripts/test-aqua-companion-voice-eval.py) dựa trên nguyên tắc, không sao chép code Mak1zu. Chưa có model/persona PASS |
 | Reply safety/guard | [`guard/guard.go`](https://github.com/snowarch/mak1zu/blob/a30fef7cc10324684fd4ae9123d9c29cbd00ca9e/guard/guard.go), leakage/tool protocol/loop heuristics | `services/AquaReplyGuard.js` hiện xử lý text+expression của shared AI và local UI; `scripts/aqua/reply_guard.py` chặn protocol trước khi helper local ghi SQLite. Có bounded plain-text fallback; không cấp quyền tool | **Một phần, source implementation + offline contracts**, chưa chứng nhận QML trên Niri hay đạt bộ anti-loop/anti-hallucination/voice guard hoàn chỉnh của Mak1zu. Chặn marker nội bộ không phải bảo vệ toàn diện khỏi prompt injection |
 | Chat history | SQLite WAL 0600, bounded SQLite/FTS5 store `memory/store.go` | `scripts/aqua/history_store.py` có SQLite 0600/WAL, bounded 2k entries, paging; `Clear Conversation` | **Có history**, không có chứng cứ history được scope riêng mỗi nhân vật/người dùng; không nhầm history với memory |
 | Memory / ledger / forget | `memory/store.go` và [`memory/ledger.go`](https://github.com/snowarch/mak1zu/blob/a30fef7cc10324684fd4ae9123d9c29cbd00ca9e/memory/ledger.go): FTS, source, threads, callbacks/cooldowns, per-person access, forget | Alis-Companion có chat history; [`memory_store.py`](../scripts/aqua/memory_store.py) là prototype SQLite **chưa nối runtime**, chỉ lưu explicit-consent, scope shared/aqua/octo, expire và forget | **Có prototype offline**, chưa có memory feature cho người dùng, không có FTS/ledger/provenance confirmation UI, không tự ghi inferred memory; cần migrations/UX/opt-in trước khi nối AI |
 | Opt-in proactive | [`engine/presence.go`](https://github.com/snowarch/mak1zu/blob/a30fef7cc10324684fd4ae9123d9c29cbd00ca9e/engine/presence.go) kiểm quiet hours, nudge budget, unanswered streak | `AquaMind.offerAutomatic()` có idle/visible/manual gate; [pure policy prototype](../scripts/aqua-proactive-policy-prototype.js) mới thử quiet/DND/fullscreen, user opt-in, ignore-streak, daily cap và cooldown | **Một phần + dormant prototype**: [fake-clock test](../scripts/test-aqua-proactive-policy.cjs), chưa gắn vào QML, chưa thay preference/notification; phải có user consent và QA trước khi bật |
-| Provider observability & budget | [`engine/budget_test.go`](https://github.com/snowarch/mak1zu/blob/a30fef7cc10324684fd4ae9123d9c29cbd00ca9e/engine/budget_test.go), provider circuit breaker, live feed | Hadalis `Ai` catalog/session; Alis-Companion có GGUF helper với context nhỏ, timeout/cancel, nhưng chưa đủ budget mọi lượt chat/rewrite/summary | **Một phần**: đo token/context/cache/warm cold load/total model calls; không sao chép trần byte của Mak1zu sang GGUF |
+| Provider observability & budget | [`engine/budget_test.go`](https://github.com/snowarch/mak1zu/blob/a30fef7cc10324684fd4ae9123d9c29cbd00ca9e/engine/budget_test.go), provider circuit breaker, live feed | Alis `Ai` catalog/session; Alis-Companion có GGUF helper với context nhỏ, timeout/cancel, nhưng chưa đủ budget mọi lượt chat/rewrite/summary | **Một phần**: đo token/context/cache/warm cold load/total model calls; không sao chép trần byte của Mak1zu sang GGUF |
 | Workshop, MCP, Discord | Mak1zu SDK/tool registry, opt-in multi-client; workshop có diff và xác nhận ở lượt sau | Companion intentionally text + expression, không cho model tự thực thi desktop actions | **Không áp dụng để sao chép**: Alis-Companion giữ ranh giới permission; typed tools nếu được duyệt thuộc pha agent riêng |
 | Night shift/diary | Mak1zu opt-in background inference và structured private diary | Alis-Companion nhắc lịch/reflect nhỏ nhưng không có Mak1zu-style night memory pass | **Chưa triển khai; hoãn** do P1 model budget và consent; không bật AI nền chỉ để tương đương |
-| Privacy/ownership | [`docs/SECURITY.md`](https://github.com/snowarch/mak1zu/blob/a30fef7cc10324684fd4ae9123d9c29cbd00ca9e/docs/SECURITY.md) ghi threat model, no arbitrary command/file path | Alis-Companion `local_mind.py` có giới hạn action, `history_store.py` file permission, nhưng tương tác Hadalis host là riêng | **Có ranh giới bước đầu; cần chứng nhận** local/cloud policy, không lộ secrets/log/chat, không nhầm model tool text là hành động |
+| Privacy/ownership | [`docs/SECURITY.md`](https://github.com/snowarch/mak1zu/blob/a30fef7cc10324684fd4ae9123d9c29cbd00ca9e/docs/SECURITY.md) ghi threat model, no arbitrary command/file path | Alis-Companion `local_mind.py` có giới hạn action, `history_store.py` file permission, nhưng tương tác Alis host là riêng | **Có ranh giới bước đầu; cần chứng nhận** local/cloud policy, không lộ secrets/log/chat, không nhầm model tool text là hành động |
 
 ### Repo-only việc đã làm và chưa thể tuyên bố
 

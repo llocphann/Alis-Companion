@@ -26,7 +26,7 @@ BAD_LOG = ('TypeError:', 'ReferenceError:', 'Binding loop', 'Unable to assign',
 # Raw ShaderEffect uniform fields match the existing WaterDropletMaterial.frag.
 # No independent actor, timeline, shape path, secondary Qt window or IPC.
 QML = '''//@ pragma UseQApplication
-//@ pragma Env INIR_STANDALONE_WINDOW=1
+//@ pragma Env ALIS_STANDALONE_WINDOW=1
 import QtQuick
 import QtQuick.Window
 import Quickshell
@@ -384,7 +384,7 @@ def main():
                     raise RuntimeError('negative_report_does_not_qualify_current_baseline')
             stage.joinpath('shell.qml').write_text(QML.replace('CASES', json.dumps(cases(), sort_keys=True, separators=(',', ':'))), encoding='utf-8')
             env = dict(os.environ)
-            for key in ('DISPLAY', 'NIRI_SOCKET', 'INIR_COMPANIOND',
+            for key in ('DISPLAY', 'NIRI_SOCKET', 'ALIS_COMPANIOND',
                         'QML_IMPORT_PATH', 'QML2_IMPORT_PATH', 'QS_CONFIG_PATH', 'QS_CONFIG_NAME'):
                 env.pop(key, None)
             for sub in ('config','cache','data','state'):

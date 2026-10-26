@@ -8,7 +8,7 @@ import "AquaPreferences.js" as Preferences
 Item {
     id: root
 
-    property string binaryPath: Quickshell.env("INIR_COMPANIOND") ?? ""
+    property string binaryPath: Quickshell.env("ALIS_COMPANIOND") ?? ""
     property bool useNativeDispatcher: false
     readonly property string nativeDispatchPath: AlisCompanion.packageRoot + "/scripts/native-dispatch"
     readonly property var backendCommand: binaryPath.length > 0

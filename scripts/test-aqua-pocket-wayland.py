@@ -111,7 +111,7 @@ def main():
                 env.update(WAYLAND_DISPLAY=nested['WAYLAND_DISPLAY'],NIRI_SOCKET=nested['NIRI_SOCKET'],
                     XDG_RUNTIME_DIR=os.environ['XDG_RUNTIME_DIR'],QT_QPA_PLATFORM='wayland',
                     QT_QUICK_BACKEND='software',QT_QUICK_CONTROLS_STYLE='Basic',QT_QPA_PLATFORMTHEME='generic',
-                    QT_NO_XDG_DESKTOP_PORTAL='1',INIR_GGUF_ROOTS='[]',
+                    QT_NO_XDG_DESKTOP_PORTAL='1',ALIS_GGUF_ROOTS='[]',
                     POCKET_PARENT_WAYLAND=os.environ['WAYLAND_DISPLAY'],POCKET_PRIVATE_WAYLAND=nested['WAYLAND_DISPLAY'],
                     POCKET_SOURCE_URLS=json.dumps([original.as_uri()]))
                 targetlog=private/'target.log';sourcelog=private/'source.log'

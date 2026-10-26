@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Private stdio relay for REAL production Aqua click-delivery evidence.
 
-Not a mock backend: the exact private inir-companiond release executable
+Not a mock backend: the exact private alis-companiond release executable
 remains the only Rust daemon. Relay passes JSON lines unchanged and records
 ONLY bounded event/ack markers outside the checkout for a future isolated
 nested-Niri pointer test. Never enable this in normal production.

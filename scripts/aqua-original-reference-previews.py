@@ -23,8 +23,8 @@ SOURCE=Path("docs/aqua-visual/reference/source-metadata.json")
 MANIFEST=Path("docs/aqua-visual/reference/manifest.json")
 SELF="scripts/aqua-original-reference-previews.py"
 PROFILE="profile-1e0042aca8e24db2"
-REMOTE="https://github.com/llocphann/Hadalis.git"
-SSH_REMOTE="git@github.com:llocphann/Hadalis.git"
+REMOTE="https://github.com/llocphann/Alis.git"
+SSH_REMOTE="git@github.com:llocphann/Alis.git"
 OUTPUTS=("blueprint-overview.png","expressions-overview.png","animation-overview.png","animation-plus-overview.png")
 FILES=("assets/Water Droplet Companion.png","assets/Water Droplet Companion Expression.png",
        "assets/Water Droplet Companion Animation.png","assets/Water Droplet Companion Animation Plus.png")
@@ -236,7 +236,7 @@ def publish(source,images):
     changed=run(["git","diff","--cached","--name-only"],15)
     need(changed.returncode==0 and sorted(changed.stdout.splitlines())==sorted(staged),
          "PUBLIC_STAGE_UNQUALIFIED")
-    commit=run(["git","-c","user.name=Hadalis-Aqua-Evidence",
+    commit=run(["git","-c","user.name=Alis-Aqua-Evidence",
                 "-c","user.email=actions@users.noreply.github.com",
                 "commit","-m","docs(aqua): publish verified source-only original visual overview previews"],30)
     need(commit.returncode==0,"PUBLIC_COMMIT_UNQUALIFIED")

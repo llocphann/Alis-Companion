@@ -46,8 +46,8 @@ PINS = {
         "feea498f8b75c24cdd93fe116bac0dd6b36b1d01",
 }
 ORIGINS = {
-    "https://github.com/llocphann/Hadalis.git",
-    "https://github.com/llocphann/Hadalis",
+    "https://github.com/llocphann/Alis.git",
+    "https://github.com/llocphann/Alis",
 }
 STAGES = ("BOOT", "CAPTURE_REQUESTED", "PNG_SAVED")
 FAILURES = {
@@ -113,7 +113,7 @@ def private_env(xdg, png):
     environ = dict(os.environ)
     for key in (
         "DISPLAY", "WAYLAND_DISPLAY", "NIRI_SOCKET", "QS_CONFIG_PATH",
-        "QS_CONFIG_NAME", "QS_MANIFEST", "INIR_COMPANIOND",
+        "QS_CONFIG_NAME", "QS_MANIFEST", "ALIS_COMPANIOND",
         "QML_IMPORT_PATH", "QML2_IMPORT_PATH", "DBUS_SESSION_BUS_ADDRESS",
         "DBUS_SYSTEM_BUS_ADDRESS", "AQUA_CAPTURE_OUTPUT",
     ):

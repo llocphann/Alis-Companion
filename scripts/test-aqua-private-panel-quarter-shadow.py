@@ -114,7 +114,7 @@ with tempfile.TemporaryDirectory(prefix="aqua-paint-canary.") as tmp:
            unsafe_shell, "private_bottom_m025")
     unsafe_shell.chmod(0o700)
 
-    renamed = work / "Hadalis"
+    renamed = work / "Alis"
     renamed.mkdir(mode=0o700)
     denied("UNREVIEWED_DISPOSABLE_CLONE_LAYOUT",
            source["stage"], renamed, fixture("wrong_clone"),

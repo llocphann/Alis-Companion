@@ -24,8 +24,8 @@ OLD_JOB = "JOB-AQUA-VISUAL-FACE-P1E0042-20261002-13"
 RELATIVE = Path("docs/aqua-visual/runs/20261002T165800Z-608cc6")
 PNG = RELATIVE / "curated-four-pose.png"
 PROVENANCE = RELATIVE / "curated-provenance.json"
-REMOTE = "https://github.com/llocphann/Hadalis.git"
-SSH_REMOTE = "git@github.com:llocphann/Hadalis.git"
+REMOTE = "https://github.com/llocphann/Alis.git"
+SSH_REMOTE = "git@github.com:llocphann/Alis.git"
 PROFILE = "profile-1e0042aca8e24db2"
 MAX_SAFE = 512 * 1024
 
@@ -69,7 +69,7 @@ def old_output_provenance(raw):
     """Check current bytes against SHA printed by the exact old Qt worker."""
     base = Path(os.environ.get(
         "XDG_STATE_HOME", str(Path.home() / ".local/state")))
-    original = (base / "hadalis-automation" / "worker" / "actions"
+    original = (base / "alis-automation" / "worker" / "actions"
                 / OLD_JOB / "action-4.json")
     need(original.is_file() and not original.is_symlink(),
          "OLD_CAPTURE_PROVENANCE_UNAVAILABLE")
@@ -124,7 +124,7 @@ def publish_curated(curated, proof):
     staged = command(["git", "diff", "--cached", "--name-only"])
     need(staged.returncode == 0 and set(staged.stdout.splitlines()) ==
          {str(PNG), str(PROVENANCE)}, "PUBLIC_STAGE_UNQUALIFIED")
-    authored = command(["git", "-c", "user.name=Hadalis-Aqua-Evidence",
+    authored = command(["git", "-c", "user.name=Alis-Aqua-Evidence",
                         "-c", "user.email=actions@users.noreply.github.com",
                         "commit", "-m",
                         "test(aqua): publish curated synthetic-only exact-source visual sheet"])

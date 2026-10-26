@@ -23,7 +23,7 @@ outputs = {
     "DP-2": {"logical": {"width": 1080}},
     "HDMI-OFF": {"logical": None},
 }
-def layer(output, keyboard="None", namespace="hadalis:abyss-perimeter"):
+def layer(output, keyboard="None", namespace="alis:abyss-perimeter"):
     return {"namespace": namespace, "output": output,
             "keyboard_interactivity": keyboard, "layer": "Top"}
 expected = fn(outputs, [layer("DP-1"), layer("DP-2", "OnDemand"),

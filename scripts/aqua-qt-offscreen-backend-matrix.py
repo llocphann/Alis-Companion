@@ -92,7 +92,7 @@ def main():
         return 1
     base = Path(os.environ.get(
         "XDG_STATE_HOME", str(Path.home() / ".local/state"))).expanduser().resolve()
-    state = base / "hadalis-aqua-qt-backend-private"
+    state = base / "alis-aqua-qt-backend-private"
     state.mkdir(mode=0o700, parents=True, exist_ok=True)
     stat_info = state.stat()
     if (stat_info.st_uid != os.getuid()

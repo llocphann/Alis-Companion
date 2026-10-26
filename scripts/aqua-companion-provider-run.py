@@ -137,7 +137,7 @@ ShellRoot {
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--hadalis-root',type=Path,required=True)
+    parser.add_argument('--alis-root',type=Path,required=True)
     parser.add_argument('--endpoint',type=endpoint,required=True)
     parser.add_argument('--model',required=True)
     parser.add_argument('--provider',choices=('lmstudio','ollama'),default='lmstudio')
@@ -145,7 +145,7 @@ def main():
     args=parser.parse_args()
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}',args.model):
         raise ValueError('invalid_model_id')
-    host=args.hadalis_root.resolve();output=args.output.resolve()
+    host=args.alis_root.resolve();output=args.output.resolve()
     if output.is_relative_to(ROOT) or output.is_relative_to(host):
         raise ValueError('output_inside_source_repository')
     sources={'companion':identity(ROOT),'host':identity(host)}
@@ -175,7 +175,7 @@ def main():
             if env is None:raise ValueError('private_wayland_unavailable')
             for key in ('QS_CONFIG_NAME','QS_CONFIG_PATH','QS_MANIFEST'):env.pop(key,None)
             env.update(COMPANION_PROVIDER_RESULT=str(output/'raw.json'),CURL_HOME=str(folder/'curl-home'),
-                       PYTHONDONTWRITEBYTECODE='1',INIR_GGUF_ROOTS='[]',ALIS_GGUF_ROOTS='[]')
+                       PYTHONDONTWRITEBYTECODE='1',ALIS_GGUF_ROOTS='[]',ALIS_GGUF_ROOTS='[]')
             (folder/'curl-home').mkdir()
             run=native.run_qs(work,env,timeout=620)
         (output/'native.log').write_text(run.stdout)

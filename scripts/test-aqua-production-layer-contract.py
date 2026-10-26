@@ -12,7 +12,7 @@ ast.parse(runner)
 for marker in (
     'sys.argv[1:] != ["--acknowledge-temporary-layer"]',
     'preflight_reason = "abyss_perimeter_already_running"',
-    '"INIR_COMPANIOND": str(binary)',
+    '"ALIS_COMPANIOND": str(binary)',
     '"XDG_CONFIG_HOME": str(xdg / "config")',
     'env["CARGO_TARGET_DIR"] = str(private / "cargo-target")',
     '"enabledPanels"] = []',

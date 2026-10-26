@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Qualify Alis-Companion on an isolated Hadalis host; no live installation or inference."""
+"""Qualify Alis-Companion on an isolated Alis host; no live installation or inference."""
 import argparse
 import importlib.util
 import os
@@ -26,14 +26,14 @@ def stage(host, target, integration=None, integration_sha=None):
         shutil.copy2(path, target / path.name)
     for name in ("qmldir", "Makefile"):
         shutil.copy2(host / name, target / name)
-    shutil.copy2(ROOT / "HadalisOutput.qml", target / "HadalisOutput.qml")
+    shutil.copy2(ROOT / "AlisOutput.qml", target / "AlisOutput.qml")
     for path in (ROOT / "scripts").iterdir():
         destination = target / "scripts" / path.name
         if path.is_dir():
             shutil.copytree(path, destination, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         else:
             shutil.copy2(path, destination)
-    binary = ROOT / "native/target/release/inir-companiond"
+    binary = ROOT / "native/target/release/alis-companiond"
     installer.assemble(ROOT, target / "optional/alis-companion", binary, "validation-working-source")
     if not (target / "optional/alis_companion").exists():
         (target / "optional/alis_companion").symlink_to(target / "optional/alis-companion")
@@ -49,10 +49,10 @@ def stage(host, target, integration=None, integration_sha=None):
     if integration:
         # Private optional dependency payload, never a user installation or
         # permission change. Reuse the integration owner's package builder.
-        spec = importlib.util.spec_from_file_location("hadalird_installer", integration / "scripts/install.py")
+        spec = importlib.util.spec_from_file_location("alis_intergration_installer", integration / "scripts/install.py")
         builder = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(builder)
-        builder.assemble(integration, target / "optional/hadalird", integration_sha)
+        builder.assemble(integration, target / "optional/alis-intergration", integration_sha)
     # Authoring and reference checks operate on the repository assets, not payload.
     (target / "assets").unlink()
     shutil.copytree(host / "assets", target / "assets")
@@ -62,19 +62,19 @@ def stage(host, target, integration=None, integration_sha=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--hadalis-root", type=Path, required=True)
-    parser.add_argument("--hadalird-root", type=Path, help="optional pinned journal integration for private tests")
+    parser.add_argument("--alis-root", type=Path, required=True)
+    parser.add_argument("--alis-intergration-root", type=Path, help="optional pinned journal integration for private tests")
     parser.add_argument("--require-clean", action="store_true", help="require exact committed source in both repositories")
     parser.add_argument("--only", nargs="*", help="run selected checks during development")
     args = parser.parse_args()
-    host = args.hadalis_root.resolve()
+    host = args.alis_root.resolve()
     if not (host / "services/AlisCompanion.qml").is_file():
-        raise SystemExit("Hadalis host API 1 source is required")
+        raise SystemExit("Alis host API 1 source is required")
     revisions = {}
-    sources = [("Alis-Companion", ROOT), ("Hadalis", host)]
-    integration = args.hadalird_root.resolve() if args.hadalird_root else None
+    sources = [("Alis-Companion", ROOT), ("Alis", host)]
+    integration = args.alis_intergration_root.resolve() if args.alis_intergration_root else None
     if integration:
-        sources.append(("Hadalird", integration))
+        sources.append(("Alis-Intergration", integration))
     for name, repo in sources:
         revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True)
         status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=repo, capture_output=True, text=True)
@@ -88,7 +88,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="alis-companion-validation-") as temporary:
         work = stage(host, Path(temporary) / "host", integration, revisions.get(integration))
         environment = os.environ.copy()
-        environment.update(HADALIS_ROOT=str(work), ALIS_COMPANION_SOURCE=str(ROOT), PYTHONDONTWRITEBYTECODE="1")
+        environment.update(ALIS_ROOT=str(work), ALIS_COMPANION_SOURCE=str(ROOT), PYTHONDONTWRITEBYTECODE="1")
         # A per-run isolated user package is essential when validating on a machine
         # where another Alis-Companion release may already be installed.
         environment["ALIS_COMPANION_TEST_HOST"] = str(work)
@@ -110,7 +110,7 @@ def main():
         qml_parser = "/usr/lib/qt6/bin/qmlformat" if Path("/usr/lib/qt6/bin/qmlformat").is_file() else shutil.which("qmlformat")
         if not qml_parser:
             raise SystemExit("Qt qmlformat is required")
-        product_qml = list((ROOT / "modules").rglob("*.qml")) + list((ROOT / "services").rglob("*.qml")) + [ROOT / "HadalisSession.qml", ROOT / "HadalisOutput.qml"]
+        product_qml = list((ROOT / "modules").rglob("*.qml")) + list((ROOT / "services").rglob("*.qml")) + [ROOT / "AlisSession.qml", ROOT / "AlisOutput.qml"]
         checks += [[qml_parser, str(path)] for path in sorted(product_qml)]
         labels = {Path(command[1]).name if command[0] != "cargo" else "Rust behavior/protocol tests" for command in checks}
         if args.only and set(args.only) - labels:

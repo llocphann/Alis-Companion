@@ -1,7 +1,7 @@
 .pragma library
 .import "AquaBehaviorDirector.js" as Director
 
-// Dormant, pure receiving contract. Hadalis must authenticate the peer and
+// Dormant, pure receiving contract. Alis must authenticate the peer and
 // explicitly bind each fresh generation; packets cannot grant permission.
 // No transport, compositor observation, timer, animation or actor is started.
 var VERSION = 1

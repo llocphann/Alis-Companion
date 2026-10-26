@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the development gallery's own QML item into an explicit PNG.
 
-Uses isolated Hadalis config/data/cache and a short-lived standalone window.
+Uses isolated Alis config/data/cache and a short-lived standalone window.
 Never screenshots the desktop, changes shell settings, or starts companiond.
 """
 import argparse

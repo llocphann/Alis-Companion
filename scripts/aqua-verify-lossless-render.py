@@ -21,7 +21,7 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 QML='''
 //@ pragma UseQApplication
-//@ pragma Env INIR_STANDALONE_WINDOW=1
+//@ pragma Env ALIS_STANDALONE_WINDOW=1
 import QtQuick
 import QtQuick.Window
 import Quickshell

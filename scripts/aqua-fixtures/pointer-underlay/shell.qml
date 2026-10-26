@@ -12,7 +12,7 @@ ShellRoot {
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
         exclusiveZone: 0
-        WlrLayershell.namespace: "hadalis:aqua-pointer-underlay"
+        WlrLayershell.namespace: "alis:aqua-pointer-underlay"
         WlrLayershell.layer: WlrLayer.Bottom
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
         anchors {

@@ -33,7 +33,7 @@ def source_sensitive(path):
     if path == SELF:
         return False
     return (
-        path.startswith(("native/inir-companiond/", "modules/abyss/companion/"))
+        path.startswith(("native/alis-companiond/", "modules/abyss/companion/"))
         or path in {
             "native/Cargo.toml", "native/Cargo.lock",
             "modules/abyss/AbyssPerimeter.qml", "modules/common/Config.qml",
@@ -182,16 +182,16 @@ def main():
     focused = sys.argv[1:] == ["--focused"]
     os.umask(0o077)
     if Path.cwd().resolve() != Path(git("rev-parse", "--show-toplevel")).resolve():
-        stop("Run from Hadalis repository root")
+        stop("Run from Alis repository root")
     if git("symbolic-ref", "--quiet", "--short", "HEAD") != "dev" or not clean():
         stop("A clean dev checkout is required")
     valid_urls = {
-        "https://github.com/llocphann/Hadalis",
-        "https://github.com/llocphann/Hadalis.git",
-        "git@github.com:llocphann/Hadalis",
-        "git@github.com:llocphann/Hadalis.git",
-        "ssh://git@github.com/llocphann/Hadalis",
-        "ssh://git@github.com/llocphann/Hadalis.git",
+        "https://github.com/llocphann/Alis",
+        "https://github.com/llocphann/Alis.git",
+        "git@github.com:llocphann/Alis",
+        "git@github.com:llocphann/Alis.git",
+        "ssh://git@github.com/llocphann/Alis",
+        "ssh://git@github.com/llocphann/Alis.git",
     }
     push_urls = git("remote", "get-url", "--push", "--all", "origin").splitlines()
     if git("remote", "get-url", "origin") not in valid_urls or len(push_urls) != 1 or push_urls[0] not in valid_urls:
@@ -207,7 +207,7 @@ def main():
     source = git("rev-parse", "HEAD")
     identifier = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(4)
     state = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
-    log_dir = state / "hadalis" / ("aqua-qualification-" + identifier)
+    log_dir = state / "alis" / ("aqua-qualification-" + identifier)
     log_dir.mkdir(mode=0o700, parents=True, exist_ok=False)
     print("EXACT_SOURCE_SHA:", source, flush=True)
     print("PRIVATE_LOG_DIRECTORY:", log_dir, flush=True)
@@ -217,10 +217,10 @@ def main():
     env["CARGO_TARGET_DIR"] = str(log_dir / "cargo-target")
     tests = [
         ("rust-unit", ["cargo", "test", "--locked", "--manifest-path",
-                       "native/Cargo.toml", "-p", "inir-companiond"], 600),
+                       "native/Cargo.toml", "-p", "alis-companiond"], 600),
         ("rust-release", ["cargo", "build", "--locked", "--release",
                           "--manifest-path", "native/Cargo.toml",
-                          "-p", "inir-companiond"], 900),
+                          "-p", "alis-companiond"], 900),
     ]
     if focused:
         tests[:0] = [
@@ -233,13 +233,13 @@ def main():
         ]
     results = [run_check(name, argv, duration, env, log_dir)
                for name, argv, duration in tests]
-    binary = log_dir / "cargo-target" / "release" / "inir-companiond"
+    binary = log_dir / "cargo-target" / "release" / "alis-companiond"
     built = next(x for x in results if x["check"] == "rust-release")
     if built["exit_code"] == 0 and binary.is_file():
         smoke_env = dict(env)
         smoke_env.update({
-            "INIR_NATIVE_BACKEND": "rust", "INIR_NATIVE_STRICT": "1",
-            "INIR_NATIVE_BIN_DIR": str(binary.parent),
+            "ALIS_NATIVE_BACKEND": "rust", "ALIS_NATIVE_STRICT": "1",
+            "ALIS_NATIVE_BIN_DIR": str(binary.parent),
         })
         results.append(run_check("dispatcher-version",
                                  ["bash", "scripts/native-dispatch", "companion",
@@ -260,7 +260,7 @@ def main():
                              ["make", "-s", "test-package-metadata"], 120,
                              env, log_dir))
     canonical_env = dict(env)
-    canonical_env["HADALIS_VALIDATION_LOG"] = str(
+    canonical_env["ALIS_VALIDATION_LOG"] = str(
         log_dir / "maintainer-validation.private.log"
     )
     if not focused:
@@ -269,7 +269,7 @@ def main():
                                   "--current-repo"], 1800,
                                  canonical_env, log_dir))
         # Keep raw validator evidence local and size-limited.
-        full_log = Path(canonical_env["HADALIS_VALIDATION_LOG"])
+        full_log = Path(canonical_env["ALIS_VALIDATION_LOG"])
         if full_log.is_file() and full_log.stat().st_size > MAX_LOG:
             with full_log.open("rb") as stream:
                 first = stream.read(262144)

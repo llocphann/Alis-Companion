@@ -3,7 +3,7 @@
 
 Run ONLY from a throwaway clean dev clone under the current user's
 private XDG state directory. Never runs Niri, Quickshell or wdotool;
-never changes the user's original Hadalis checkout. No force pushes.
+never changes the user's original Alis checkout. No force pushes.
 """
 import json
 import os
@@ -21,12 +21,12 @@ DIAGNOSTIC = "scripts/aqua-private-pointer-drift-diagnostic.py"
 DIAGNOSTIC_BLOB = "91c2207e7d96aa8852f6d6f8df0ea1cb28d647d2"
 TARGET = "docs/aqua-pointer-drift-20261001T170950Z-105fd7a8-1518db798d10.json"
 SAFE_REMOTES = {
-    "https://github.com/llocphann/Hadalis",
-    "https://github.com/llocphann/Hadalis.git",
-    "git@github.com:llocphann/Hadalis",
-    "git@github.com:llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
-    "ssh://git@github.com:llocphann/Hadalis.git",
+    "https://github.com/llocphann/Alis",
+    "https://github.com/llocphann/Alis.git",
+    "git@github.com:llocphann/Alis",
+    "git@github.com:llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
+    "ssh://git@github.com:llocphann/Alis.git",
 }
 ALLOWED = {
     "offset_bucket": {
@@ -59,7 +59,7 @@ def controlled_checkout(state):
     if (Path.cwd().resolve() != ROOT
             or git("symbolic-ref", "--short", "HEAD") != "dev"
             or not no_changes()
-            or ROOT.parent.parent.resolve() != (state / "hadalis").resolve()
+            or ROOT.parent.parent.resolve() != (state / "alis").resolve()
             or not ROOT.parent.name.startswith("aqua-drift-publish.")
             or ROOT.name != "repo"
             or stat.S_IMODE(ROOT.parent.stat().st_mode) & 0o077):
@@ -96,7 +96,7 @@ def private_classification(state):
     parsed = match["NAME"].fullmatch(REPORT)
     if parsed is None:
         stop("public_report_identity_unverified")
-    session = state / "hadalis" / (
+    session = state / "alis" / (
         "aqua-pointer-" + parsed.group(1) + "-" + parsed.group(2))
     log = session / "nested/child/underlay/quickshell.private.log"
     if (not session.is_dir() or session.is_symlink()

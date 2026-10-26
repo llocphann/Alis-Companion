@@ -373,5 +373,11 @@ function ride(scene, point, previous) {
             }
         }
     }
+    if (!edges.includes(previous.support.key) && edges.includes(edge)
+            && !scene.surfaces.some(s=>s.key===previous.support.key)) {
+        const center=horizontal ? point.x+oldW/2 : point.y+oldH/2
+        const edgeCandidate=edgePoint(scene,edge,center/(horizontal ? scene.width : scene.height))
+        if (edgeCandidate.qualified) return edgeCandidate
+    }
     return {qualified:false}
 }

@@ -73,7 +73,7 @@ assert set(runner["REQUIRED"]) == {
     (str(path.relative_to(ROOT)), sha) for path, sha in EXPECTED.items()
     if path not in (RUNNER,)
 }
-assert runner["ORIGIN"] == "https://github.com/llocphann/Hadalis.git"
+assert runner["ORIGIN"] == "https://github.com/llocphann/Alis.git"
 assert runner["MAX_LOG"] <= 1024 * 1024
 assert runner["MAX_IMAGE"] <= 24 * 1024 * 1024
 assert runner["TIMEOUT_SCREENSHOT"] <= 16
@@ -167,7 +167,7 @@ os.environ["WAYLAND_SOCKET"] = "inherited-host-fd"
 try:
     private = runner["private_qt_env"](
         Path("/private/xdg"), Path("/runtime/niri-private.sock"),
-        "wayland-private", Path("/private/release/inir-companiond"))
+        "wayland-private", Path("/private/release/alis-companiond"))
 finally:
     if old_socket is None:
         del os.environ["WAYLAND_SOCKET"]
@@ -175,7 +175,7 @@ finally:
         os.environ["WAYLAND_SOCKET"] = old_socket
 assert private["NIRI_SOCKET"] == "/runtime/niri-private.sock"
 assert private["WAYLAND_DISPLAY"] == "wayland-private"
-assert private["INIR_COMPANIOND"] == "/private/release/inir-companiond"
+assert private["ALIS_COMPANIOND"] == "/private/release/alis-companiond"
 assert "WAYLAND_SOCKET" not in private
 
 # Even a caller-supplied full fake environment must NEVER screen-capture

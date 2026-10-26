@@ -95,7 +95,7 @@ class Tests(unittest.TestCase):
 
     def test_persistent_quick_chat_history_is_paged_and_clearable(self):
         with tempfile.TemporaryDirectory(prefix='aqua-history-') as temporary, patch.dict(
-                os.environ, {'INIR_AQUA_HISTORY_DB':str(Path(temporary)/'chat.sqlite3')}):
+                os.environ, {'ALIS_AQUA_HISTORY_DB':str(Path(temporary)/'chat.sqlite3')}):
             self.assertTrue(mind.clear_chat_history()['cleared'])
             first=mind.chat({'endpoint':self.base,'model':'tiny:local','prompt':'First','persistHistory':True})
             self.assertTrue(first['historySaved'])
@@ -140,7 +140,7 @@ class Tests(unittest.TestCase):
             json.dumps({'text':'I have changed your wallpaper.','expression':'happy'}),
         ]
         with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ,
-                {'INIR_AQUA_HISTORY_DB':str(Path(temporary)/'chat.sqlite3')}):
+                {'ALIS_AQUA_HISTORY_DB':str(Path(temporary)/'chat.sqlite3')}):
             baseline=mind.chat({'endpoint':self.base,'model':'tiny:local','prompt':'Keep me','persistHistory':True})
             self.assertTrue(baseline['historySaved'])
             before=mind.chat_history({'limit':20})['messages']
@@ -153,7 +153,7 @@ class Tests(unittest.TestCase):
 
     def test_shared_history_guard_preserves_user_text(self):
         with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ,
-                {'INIR_AQUA_HISTORY_DB':str(Path(temporary)/'chat.sqlite3')}):
+                {'ALIS_AQUA_HISTORY_DB':str(Path(temporary)/'chat.sqlite3')}):
             target=Path(temporary)/'chat.sqlite3'
             for reply in ['<think>secret</think>', '<|channel|>analysis',
                           '<|eot_id', '<start_of_turn>model', '<<SYS>>internal']:
@@ -170,7 +170,7 @@ class Tests(unittest.TestCase):
 
     def test_forget_reply_keeps_legacy_transcript_and_explicit_clear_controls(self):
         with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ,
-                {'INIR_AQUA_HISTORY_DB':str(Path(temporary)/'chat.sqlite3')}):
+                {'ALIS_AQUA_HISTORY_DB':str(Path(temporary)/'chat.sqlite3')}):
             target=Path(temporary)/'chat.sqlite3'
             old=[(101,'user','Keep my original words.',43,'old-model'),
                  (102,'assistant','I do not retain past messages.',44,'old-model')]
@@ -244,11 +244,11 @@ class Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             folder=Path(temporary);host=folder/'host'
             shutil.copytree(mind.HOST/'scripts/ai',host/'scripts/ai')
-            for name in ('alis-intergration-status.py','hadalird-status.py'):
+            for name in ('alis-intergration-status.py','alis-intergration-status.py'):
                 inspector=mind.HOST/'scripts'/name
                 if inspector.is_file():shutil.copy2(inspector,host/'scripts'/name)
-            env=dict(os.environ,HADALIS_ROOT=str(host),XDG_DATA_HOME=str(folder/'data'),
-                     INIR_AQUA_HISTORY_DB=str(folder/'chat.sqlite3'))
+            env=dict(os.environ,ALIS_ROOT=str(host),XDG_DATA_HOME=str(folder/'data'),
+                     ALIS_AQUA_HISTORY_DB=str(folder/'chat.sqlite3'))
             def call(payload):
                 result=subprocess.run([sys.executable,str(ROOT/'scripts/aqua/local_mind.py')],
                     input=json.dumps(payload)+'\n',capture_output=True,text=True,env=env,timeout=5)
@@ -261,9 +261,9 @@ class Tests(unittest.TestCase):
             missing=call(request)
             self.assertFalse(missing['ok']);self.assertEqual(missing['error']['code'],'integration_unavailable')
             self.assertFalse((folder/'unread-vault').exists())
-            package=mind.HOST/'optional/hadalird'
+            package=mind.HOST/'optional/alis-intergration'
             if package.is_dir():
-                copied=host/'optional/hadalird';shutil.copytree(package,copied)
+                copied=host/'optional/alis-intergration';shutil.copytree(package,copied)
                 (copied/'scripts/todo/obsidian_todo.py').write_text("raise RuntimeError('modified helper executed')\n")
                 tampered=call(request)
                 self.assertFalse(tampered['ok']);self.assertEqual(tampered['error']['code'],'integration_unavailable')

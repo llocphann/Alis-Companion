@@ -69,7 +69,7 @@ for marker in (
     'outputs[0][1].get("y") != 0',
     'no_keyboard_focus',
     '/ os.environ["WAYLAND_DISPLAY"]).is_socket()',
-    'namespaced(niri_json(niri, "layers"), "hadalis:abyss-perimeter")',
+    'namespaced(niri_json(niri, "layers"), "alis:abyss-perimeter")',
     '"NIRI_SOCKET"',
     '"WAYLAND_DISPLAY"',
     'shutil.which("wdotool")',

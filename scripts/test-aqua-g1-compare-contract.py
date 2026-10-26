@@ -15,7 +15,7 @@ spec.loader.exec_module(m)
 def receipt(state, run):
     cpu = 1.0 + run if state == "off" else 2.0 + run
     return dict(schema=1, status="COLLECTED_RESOURCE_ONLY",
-                alis_companion_sha="a"*40, hadalis_sha="b"*40,
+                alis_companion_sha="a"*40, alis_sha="b"*40,
                 backend="opengl", role="shell", state=state,
                 duration_target_s=30.0, interval_target_s=1.0, warmup_target_s=5.0,
                 summary=dict(sample_count=31, cpu_percent_one_core=cpu,

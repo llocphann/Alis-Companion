@@ -26,7 +26,7 @@ if proposal:
 if not shutil.which("qs"):
     print("SKIP: Aqua allocation oracle requires native Quickshell/QV4")
     raise SystemExit(0)
-with tempfile.TemporaryDirectory(prefix="hadalis-aqua-segment-") as directory:
+with tempfile.TemporaryDirectory(prefix="alis-aqua-segment-") as directory:
     root = Path(directory)
     (root / "Before.js").write_text(source[:start]+fixture["function"]+source[end:])
     (root / "After.js").write_text(source[:start]+candidate+source[end:])
@@ -85,7 +85,7 @@ function run(old, now) {
  return cases;
 }
 ''')
-    (root / "shell.qml").write_text(r'''//@ pragma ShellId hadalis-aqua-segment-oracle
+    (root / "shell.qml").write_text(r'''//@ pragma ShellId alis-aqua-segment-oracle
 import QtQuick
 import Quickshell
 import "Before.js" as Before

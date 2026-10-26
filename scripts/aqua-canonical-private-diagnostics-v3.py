@@ -96,7 +96,7 @@ def main():
         "XDG_STATE_HOME",str(Path.home()/".local/state"))).expanduser()
     need(base.is_absolute() and not base.is_symlink(),
          "EVIDENCE_SCOPE_UNQUALIFIED")
-    private=base/"hadalis-automation"/"worker"/"actions"/ORIGINAL/"action-0.json"
+    private=base/"alis-automation"/"worker"/"actions"/ORIGINAL/"action-0.json"
     owned(private,64*1024,True)
     ledger=json.loads(private.read_bytes())
     result=ledger.get("result",{})
@@ -118,7 +118,7 @@ def main():
     # paths printed by untrusted process output; do not resolve symlinks.
     need(target.parent==Path(tempfile.gettempdir()).resolve()
          and re.fullmatch(
-             r"hadalis-maintainer-validation-[0-9-]{8}-[0-9]{6}\.log",
+             r"alis-maintainer-validation-[0-9-]{8}-[0-9]{6}\.log",
              target.name) is not None,"PRIVATE_LOG_SCOPE_UNQUALIFIED")
     # The original validator ran BEFORE the newly added owner-only umask.
     # This one OLD, exact-worker-verified log may have permissive mode;

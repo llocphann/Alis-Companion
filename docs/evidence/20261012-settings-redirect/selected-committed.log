@@ -1,6 +1,6 @@
 Alis-Companion source: 7ba1529ccf1f3f5b2940883f7e83777230b89018 committed
-Hadalis source: ed48ca3b673c73f3804c55d4ea83955ded2ad8b9 WORKING TREE
-Hadalird source: 7c3623da5cf8741a0b82cb4d3d8054017dfa99d0 committed
+Alis source: ed48ca3b673c73f3804c55d4ea83955ded2ad8b9 WORKING TREE
+Alis-Intergration source: 7c3623da5cf8741a0b82cb4d3d8054017dfa99d0 committed
 PASS test-aqua-companion-settings.py
 AQUA_PREFERENCES_NORMALIZATION_AND_BRIDGE_BEHAVIOR_PASS
 Settings v11 information architecture, routing and ownership: OK

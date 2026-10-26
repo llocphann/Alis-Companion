@@ -11,7 +11,7 @@ ast.parse(source)
 for required in (
     'sys.argv[1:] != ["--acknowledge-idle-measurement"]',
     '"CARGO_TARGET_DIR"] = str(private / "cargo-target")',
-    '"native/Cargo.toml"', '"inir-companiond"',
+    '"native/Cargo.toml"', '"alis-companiond"',
     'proc.stdin.write(b\'{"v":1,"seq":1,"type":"event","event":"show"}',
     'proc.stdin.write(b\'{"v":1,"seq":2,"type":"event","event":"hide"}',
     'result["sample_count"] = len(samples)',

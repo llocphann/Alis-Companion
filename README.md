@@ -1,8 +1,8 @@
 # Alis-Companion
 
-Aqua and Octo, expressive 3D desktop companions for [Hadalis](https://github.com/llocphann/Hadalis). Companion is an optional installation, disabled by default in Hadalis.
+Aqua and Octo, expressive 3D desktop companions for [Alis](https://github.com/llocphann/Alis). Companion is an optional installation, disabled by default in Alis.
 
-This repository owns the procedural liquid renderer, Blender models and motion curves, behavior daemon, expressions, movement, curiosity, alternating characters, orbital cloud actions, chat, check-ins and Companion settings. Hadalis supplies the Abyss surfaces, theme, shared AI transport, Obsidian/Todo integration and a small optional host adapter.
+This repository owns the procedural liquid renderer, Blender models and motion curves, behavior daemon, expressions, movement, curiosity, alternating characters, orbital cloud actions, chat, check-ins and Companion settings. Alis supplies the Abyss surfaces, theme, shared AI transport, Obsidian/Todo integration and a small optional host adapter.
 
 ## Integrated installation via Alis
 
@@ -31,42 +31,42 @@ For development and release testing of the standalone source checkout:
 git clone https://github.com/llocphann/Alis-Companion.git
 cd Alis-Companion
 make install
-inir ipc alis-companion refresh
+alis ipc alis-companion refresh
 ```
 
 Normal Alis users should use its integrated setup/update lifecycle instead.
 
-The runtime is installed to `${XDG_DATA_HOME:-$HOME/.local/share}/alis-companion/releases/<commit>`. An atomic `current` link selects a release. The payload excludes Blender files, tests, documentation and models. Hadalis discovers this user installation without modifying its source tree or a system package.
+The runtime is installed to `${XDG_DATA_HOME:-$HOME/.local/share}/alis-companion/releases/<commit>`. An atomic `current` link selects a release. The payload excludes Blender files, tests, documentation and models. Alis discovers this user installation without modifying its source tree or a system package.
 
 ## Update and remove
 
 ```sh
 git pull --ff-only
 make install
-inir ipc alis-companion refresh
+alis ipc alis-companion refresh
 
 make uninstall
-inir ipc alis-companion refresh
+alis ipc alis-companion refresh
 ```
 
-Uninstall detaches the runtime. Preferences, chat history, Obsidian notes and previous releases remain intact. Alis's managed setup/update now installs its pinned Companion revision automatically; standalone development remains manual. The `abyss.companion` / `abyss.companionMind` preferences, `aqua` IPC target, transcript path and `inir-companiond` binary name remain compatible during extraction.
+Uninstall detaches the runtime. Preferences, chat history, Obsidian notes and previous releases remain intact. Alis's managed setup/update now installs its pinned Companion revision automatically; standalone development remains manual. The `abyss.companion` / `abyss.companionMind` preferences, `aqua` IPC target, transcript path and `alis-companiond` binary name remain compatible during extraction.
 
 ## Development
 
 ```sh
 make build
-make test HADALIS_ROOT=/path/to/Hadalis
+make test ALIS_ROOT=/path/to/Alis
 # Include the optional Obsidian package for journal regression checks:
-make test HADALIS_ROOT=/path/to/Hadalis HADALIRD_ROOT=/path/to/Hadalird
+make test ALIS_ROOT=/path/to/Alis ALIS_INTERGRATION_ROOT=/path/to/Alis-Intergration
 ```
 
-With current Hadalis hosts, Obsidian helpers belong to the optional Hadalird
+With current Alis hosts, Obsidian helpers belong to the optional Alis-Intergration
 package. Journal checks can stage its committed source privately:
-`python3 scripts/validate.py --hadalis-root /clean/Hadalis --hadalird-root /clean/Hadalird --require-clean --only test-aqua-local-mind.py test-aqua-shared-ai-runtime.py test-aqua-journal-ui.py AquaMind.qml`.
+`python3 scripts/validate.py --alis-root /clean/Alis --alis-intergration-root /clean/Alis-Intergration --require-clean --only test-aqua-local-mind.py test-aqua-shared-ai-runtime.py test-aqua-journal-ui.py AquaMind.qml`.
 This builds no resident service, installs nothing and changes no user settings.
 Chat/history do not require Obsidian; missing journal integration returns a
 bounded error only when a journal action is explicitly requested.
 
-Validation uses an isolated host checkout and fake inference fixtures; it does not modify the live desktop or call a real LLM. See the [documentation index](docs/README.md) for host API, extraction provenance, renderer runbooks and Mochi × Mak1zu × Hadalis decisions. **Companion tasks and milestones are managed in [Alis-Companion GitHub Issues](https://github.com/llocphann/Alis-Companion/issues?q=is%3Aissue+is%3Aopen)**; the former visual/AI TODO links are compatibility pointers and historical receipts remain at the source-pinned pre-centralization commit; [imported historical milestones](to-do/archive/README.md) and [retired research](docs/archive/README.md) are frozen archives, not current implementation instructions. Historical Hadalis evidence remains source-pinned and is not a test result for this repository.
+Validation uses an isolated host checkout and fake inference fixtures; it does not modify the live desktop or call a real LLM. See the [documentation index](docs/README.md) for host API, extraction provenance, renderer runbooks and Mochi × Mak1zu × Alis decisions. **Companion tasks and milestones are managed in [Alis-Companion GitHub Issues](https://github.com/llocphann/Alis-Companion/issues?q=is%3Aissue+is%3Aopen)**; the former visual/AI TODO links are compatibility pointers and historical receipts remain at the source-pinned pre-centralization commit; [imported historical milestones](to-do/archive/README.md) and [retired research](docs/archive/README.md) are frozen archives, not current implementation instructions. Historical Alis evidence remains source-pinned and is not a test result for this repository.
 
 License: GPL-3.0-or-later; imported source attribution is retained.

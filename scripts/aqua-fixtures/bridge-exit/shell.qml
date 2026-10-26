@@ -23,7 +23,7 @@ ShellRoot {
     Companion.CompanionBridge {
         id: bridge
         // Match the production host's guarded development binary override.
-        binaryPath: root.backendOn ? (Quickshell.env("INIR_COMPANIOND") ?? "") : ""
+        binaryPath: root.backendOn ? (Quickshell.env("ALIS_COMPANIOND") ?? "") : ""
         useNativeDispatcher: root.backendOn
         onStateAccepted: (_sequence) => {
             if (root.stage === "initial" && bridge.visibility === "present") {

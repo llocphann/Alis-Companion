@@ -57,7 +57,7 @@ DEFAULTS = "defaults/config.json"
 DEFAULTS_BLOB = "e10d98c0f26d3e47c51cb8452bcd0d2cea735501"
 RELAY = "scripts/aqua-fixtures/pointer-underlay/companion-relay.py"
 RELAY_BLOB = "7e450db1db23e3c250859b0271a655d6325f0bc8"
-ORIGIN = "https://github.com/llocphann/Hadalis.git"
+ORIGIN = "https://github.com/llocphann/Alis.git"
 REQUIRED = (
     (BORROW, BORROW_BLOB), (SHADOW, SHADOW_BLOB),
     (PRIOR_VISUAL, PRIOR_VISUAL_BLOB), (LAYOUT, LAYOUT_BLOB),
@@ -199,7 +199,7 @@ def one_output(binary, ipc):
 def native_layer(binary, ipc, name, *, count):
     items = niri_json(binary, ipc, "layers")
     selected = [x for x in items if isinstance(x, dict)
-                and x.get("namespace") == "hadalis:abyss-perimeter"]
+                and x.get("namespace") == "alis:abyss-perimeter"]
     if count == 0:
         need(not selected, "NESTED_PRODUCTION_LAYER_PREEXISTING")
         return
@@ -368,11 +368,11 @@ def stage_shell(private, mode, cfg, shadow):
 def private_qt_env(xdg, ipc, display, binary):
     env = dict(os.environ)
     for key in ("QS_CONFIG_PATH", "QS_CONFIG_NAME", "QS_MANIFEST",
-                "INIR_COMPANIOND", "WAYLAND_SOCKET"):
+                "ALIS_COMPANIOND", "WAYLAND_SOCKET"):
         env.pop(key, None)
     env.update({
         "WAYLAND_DISPLAY": display, "NIRI_SOCKET": str(ipc),
-        "INIR_COMPANIOND": str(binary),
+        "ALIS_COMPANIOND": str(binary),
         "XDG_CONFIG_HOME": str(xdg / "config"),
         "XDG_CACHE_HOME": str(xdg / "cache"),
         "XDG_DATA_HOME": str(xdg / "data"),
@@ -419,7 +419,7 @@ def capture_once(niri, ipc, display, runtime, output, dims, qs, dbus,
                  "NESTED_OUTPUT_CHANGED_DURING_QT")
             layers = niri_json(niri, ipc, "layers")
             present = [x for x in layers if isinstance(x, dict)
-                       and x.get("namespace") == "hadalis:abyss-perimeter"]
+                       and x.get("namespace") == "alis:abyss-perimeter"]
             need(len(present) <= 1, "NESTED_DUPLICATE_PERIMETER_LAYER")
             if present:
                 native_layer(niri, ipc, output, count=1)
@@ -509,13 +509,13 @@ def main():
     need(ROOT != state and ROOT not in state.parents and
          state != ROOT.parent and ROOT.parent not in state.parents,
          "PRIVATE_STATE_OVERLAPS_CHECKOUT")
-    private = state / "hadalis" / (
+    private = state / "alis" / (
         "aqua-nested-visual-" + secrets.token_hex(8))
     private.mkdir(parents=True, mode=0o700, exist_ok=False)
     private.chmod(0o700)
     nested = None
     nested_ipc = None
-    binary = private / "cargo-target" / "release" / "inir-companiond"
+    binary = private / "cargo-target" / "release" / "alis-companiond"
     nested_log = private / "nested.private.log"
     phases = 0
     stop_clean = False
@@ -540,7 +540,7 @@ def main():
                     built = subprocess.run(
                         [cargo, "build", "--locked", "--release",
                          "--manifest-path", str(ROOT / "native/Cargo.toml"),
-                         "-p", "inir-companiond"],
+                         "-p", "alis-companiond"],
                         cwd=ROOT, env=build_env, stdin=subprocess.DEVNULL,
                         stdout=stream, stderr=subprocess.STDOUT, timeout=900)
                 except subprocess.TimeoutExpired:

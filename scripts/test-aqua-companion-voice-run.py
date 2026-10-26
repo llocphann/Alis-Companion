@@ -13,7 +13,7 @@ import tempfile
 import time
 
 ROOT=Path(__file__).resolve().parents[1]
-HOST=Path(os.environ.get("HADALIS_ROOT",ROOT.parent/"Hadalis"))
+HOST=Path(os.environ.get("ALIS_ROOT",ROOT.parent/"Alis"))
 spec=importlib.util.spec_from_file_location("voice_run",ROOT/"scripts/aqua-companion-voice-run.py")
 runner=importlib.util.module_from_spec(spec);spec.loader.exec_module(runner)
 # Exercise read-only imports even if the outer validator suppresses bytecode.

@@ -30,7 +30,7 @@ assert.equal(typeof layout.localSurfaces, "function");
 assert.equal(typeof slot.slot, "function");
 assert.equal(typeof geo.barZones, "function");
 assert.equal(typeof host.alongPosition, "function");
-const output = read("optional/alis-companion/HadalisOutput.qml");
+const output = read("optional/alis-companion/AlisOutput.qml");
 assert.ok(output.includes("AquaScene.fromParticipants("));
 assert.ok(output.includes("bar.layoutRecords.map(record=>({"));
 assert.ok(perimeter.replace(/\s+/g, "").includes("ModuleLayout.clearanceInsets(nativeInsets,bar.visible?bar.deformations:[],edge,along,span,ownLauncherKind)"));

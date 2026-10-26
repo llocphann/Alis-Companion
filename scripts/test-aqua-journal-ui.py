@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Focused real Mood/Energy buttons and owned daily-note writes without AI.
 
-The validator supplies the private Wayland host and optional Hadalird payload.
+The validator supplies the private Wayland host and optional Alis-Intergration payload.
 No model, real vault, live Companion or desktop hook is enabled.
 """
 from datetime import datetime
@@ -82,7 +82,7 @@ with tempfile.TemporaryDirectory(prefix='alis-companion-journal-ui-') as tempora
     env.update(QT_QPA_PLATFORM='wayland',WAYLAND_DISPLAY=os.environ['WAYLAND_DISPLAY'],
                XDG_RUNTIME_DIR=os.environ['XDG_RUNTIME_DIR'],QT_QUICK_BACKEND='software',
                QT_QUICK_CONTROLS_STYLE='Basic',QT_NO_XDG_DESKTOP_PORTAL='1',
-               INIR_GGUF_ROOTS='[]',JOURNAL_FIXTURE_VAULT=str(vault))
+               ALIS_GGUF_ROOTS='[]',JOURNAL_FIXTURE_VAULT=str(vault))
     with (private/'run.log').open('w') as log:
         process=subprocess.Popen(['dbus-run-session','--','qs','--path',str(shell/'shell.qml')],
             cwd=ROOT,env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)

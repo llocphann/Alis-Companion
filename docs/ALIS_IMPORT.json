@@ -1,5 +1,5 @@
 {
-  "repository": "https://github.com/llocphann/Hadalis",
+  "repository": "https://github.com/llocphann/Alis",
   "sourceSha": "b3e05cb4e59cd266a78057fbe4ae95ca679f316f",
   "date": "2026-10-08",
   "files": [
@@ -176,15 +176,15 @@
       "sha256": "471cf29d26596b236881ba721d4b0116842e012bd2421cfc9657018ee1a54bf3"
     },
     {
-      "path": "native/inir-companiond/Cargo.toml",
+      "path": "native/alis-companiond/Cargo.toml",
       "sha256": "480511df6ecc94a501dc43ec614932096d536725003d96712296000f48160fd9"
     },
     {
-      "path": "native/inir-companiond/src/lib.rs",
+      "path": "native/alis-companiond/src/lib.rs",
       "sha256": "e89c5751dfa949387c9032123366373ca1ed13a11d995a62dc5620b1b90e4ad5"
     },
     {
-      "path": "native/inir-companiond/src/main.rs",
+      "path": "native/alis-companiond/src/main.rs",
       "sha256": "cbc2d16da67714e87b0f88c6056cdd67cd7dbee70d05069af55c2e2642ebb8cd"
     },
     {

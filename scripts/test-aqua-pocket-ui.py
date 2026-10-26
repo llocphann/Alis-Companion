@@ -129,7 +129,7 @@ with tempfile.TemporaryDirectory(prefix='companion-pocket-ui-') as temporary:
     env.update(QT_QPA_PLATFORM='wayland',WAYLAND_DISPLAY=os.environ['WAYLAND_DISPLAY'],
                XDG_RUNTIME_DIR=os.environ['XDG_RUNTIME_DIR'],QT_QUICK_BACKEND='software',
                QT_QUICK_CONTROLS_STYLE='Basic',QT_QPA_PLATFORMTHEME='generic',QT_NO_XDG_DESKTOP_PORTAL='1',
-               INIR_GGUF_ROOTS='[]',INIR_AQUA_HISTORY_DB=str(protected[0]),INIR_AQUA_MEMORY_DB=str(protected[1]),
+               ALIS_GGUF_ROOTS='[]',ALIS_AQUA_HISTORY_DB=str(protected[0]),ALIS_AQUA_MEMORY_DB=str(protected[1]),
                POCKET_FILE_ONE=files[0].as_uri(),POCKET_FILE_TWO=files[1].as_uri())
     with (private/'run.log').open('w') as log:
         process=subprocess.Popen(['dbus-run-session','--','qs','--path',str(shell/'shell.qml')],

@@ -80,7 +80,7 @@ for token in (
     'signal.signal(signal.SIGTERM, stop_signal)',
     'checked_clone_layout()',
     '"FRACTIONAL_INHERITED_SOURCE_AUDIT_REJECTED"',
-    '"https://github.com/llocphann/Hadalis.git"',
+    '"https://github.com/llocphann/Alis.git"',
     'call("diff", "--cached", "--name-only") == relative',
     '"AQUA_FRACTIONAL_BAND_DIR"',
     '"GIT_TERMINAL_PROMPT": "0"',
@@ -223,7 +223,7 @@ with tempfile.TemporaryDirectory(prefix="aqua-paint-canary.") as tmp:
     runner["checked_clone_layout"](clone, clone)
     denied(runner["Stop"], "FRACTIONAL_CLONE_LAYOUT_INVALID",
            runner["checked_clone_layout"], clone, scratch)
-    wrong_name = scratch / "Hadalis"
+    wrong_name = scratch / "Alis"
     wrong_name.mkdir(mode=0o700)
     denied(runner["Stop"], "FRACTIONAL_CLONE_LAYOUT_INVALID",
            runner["checked_clone_layout"], wrong_name, wrong_name)

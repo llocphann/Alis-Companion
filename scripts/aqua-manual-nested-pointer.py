@@ -25,12 +25,12 @@ INITIAL_SELF_BLOB = "1f86887e515045c65e33336f3df8ca80a0cc3e4c"
 CHILD = "scripts/aqua-manual-pointer-child.py"
 NESTED_HELPER = "scripts/aqua-manual-nested-niri.py"
 SAFE_REMOTES = {
-    "https://github.com/llocphann/Hadalis",
-    "https://github.com/llocphann/Hadalis.git",
-    "git@github.com:llocphann/Hadalis",
-    "git@github.com:llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
-    "ssh://git@github.com:llocphann/Hadalis.git",
+    "https://github.com/llocphann/Alis",
+    "https://github.com/llocphann/Alis.git",
+    "git@github.com:llocphann/Alis",
+    "git@github.com:llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
+    "ssh://git@github.com:llocphann/Alis.git",
 }
 # SHA-pinned implementation and real production interfaces. A changed
 # source dependency must be re-reviewed, never silently accepted as PASS.
@@ -105,7 +105,7 @@ def audit(source):
         raise RuntimeError("unreviewed_pointer_coordinator_revision")
     # A Rust dependency change would invalidate the pre-run source review.
     diffs = git("diff", "--name-only", BASE, source).splitlines()
-    if any(part.startswith("native/inir-companiond/") or part in (
+    if any(part.startswith("native/alis-companiond/") or part in (
             "native/Cargo.toml", "native/Cargo.lock", "AGENTS.md",
             "scripts/native-dispatch") for part in diffs):
         raise RuntimeError("native_or_agent_dependency_changed_after_review")
@@ -250,7 +250,7 @@ def run_nested(niri, private, host_display, host_ipc, host_outputs, *,
             data["child_reason"] = "nested_layer_inventory_missing"
             return data
         if any(isinstance(x, dict) and x.get("namespace") in (
-                "hadalis:abyss-perimeter", "hadalis:aqua-pointer-underlay")
+                "alis:abyss-perimeter", "alis:aqua-pointer-underlay")
                for x in layers):
             data["child_reason"] = "nested_layer_namespace_already_claimed"
             return data
@@ -400,7 +400,7 @@ def main():
         "%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(4)
     state = Path(os.environ.get("XDG_STATE_HOME",
                 str(Path.home() / ".local/state"))).resolve()
-    private = state / "hadalis" / ("aqua-pointer-" + identifier)
+    private = state / "alis" / ("aqua-pointer-" + identifier)
     if private == ROOT or ROOT in private.parents:
         raise RuntimeError("private_diagnostics_inside_repository")
     private.mkdir(parents=True, exist_ok=False, mode=0o700)

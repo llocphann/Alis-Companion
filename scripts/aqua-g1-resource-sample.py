@@ -154,7 +154,7 @@ def main():
     parser.add_argument("--state", choices=STATES, required=True)
     parser.add_argument("--backend", choices=("opengl", "vulkan", "software"), required=True)
     parser.add_argument("--output", type=Path, required=True, help="new evidence directory")
-    parser.add_argument("--hadalis-root", type=Path, help="compatible Hadalis host git checkout; required for qualifying paired baselines")
+    parser.add_argument("--alis-root", type=Path, help="compatible Alis host git checkout; required for qualifying paired baselines")
     parser.add_argument("--duration", type=float, default=30.0)
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--warmup", type=float, default=5.0)
@@ -170,13 +170,13 @@ def main():
         parser.error("output_already_exists")
     try:
         own_sha = git_sha(ROOT)
-        host_sha = git_sha(args.hadalis_root) if args.hadalis_root else None
+        host_sha = git_sha(args.alis_root) if args.alis_root else None
         first = read_process(args.pid)
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
         parser.exit(2, "ALIS_COMPANION_G1_PREFLIGHT_INCONCLUSIVE: " + str(error)[:160] + "\n")
     output.mkdir(parents=True, mode=0o700)
     receipt = dict(schema=1, status="INCONCLUSIVE", role=args.role, state=args.state,
-                   backend=args.backend, alis_companion_sha=own_sha, hadalis_sha=host_sha,
+                   backend=args.backend, alis_companion_sha=own_sha, alis_sha=host_sha,
                    pid=args.pid, pid_starttime=first["starttime"],
                    duration_target_s=args.duration, interval_target_s=args.interval,
                    warmup_target_s=args.warmup,
@@ -192,7 +192,7 @@ def main():
         hz = os.sysconf("SC_CLK_TCK")
         receipt["summary"] = summarize(readings, hz)
         receipt["samples"] = [{k: v for k, v in x.items() if k != "identity"} for x in readings]
-        if git_sha(ROOT) != own_sha or (args.hadalis_root and git_sha(args.hadalis_root) != host_sha):
+        if git_sha(ROOT) != own_sha or (args.alis_root and git_sha(args.alis_root) != host_sha):
             raise RuntimeError("source_changed_during_sampling")
         receipt["status"] = ("COLLECTED_RESOURCE_ONLY" if host_sha else
                              "PARTIAL_HOST_IDENTITY_NOT_PROVIDED")

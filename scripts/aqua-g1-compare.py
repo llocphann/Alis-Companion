@@ -21,7 +21,7 @@ def check_sample(path):
     obj = json.loads(raw)
     if obj.get("schema") != 1 or obj.get("status") != "COLLECTED_RESOURCE_ONLY":
         raise ValueError("unqualified_sample_status")
-    if any(not obj.get(k) for k in ("alis_companion_sha", "hadalis_sha", "backend", "role", "state")):
+    if any(not obj.get(k) for k in ("alis_companion_sha", "alis_sha", "backend", "role", "state")):
         raise ValueError("missing_sample_identity")
     sm = obj.get("summary")
     if not isinstance(sm, dict) or sm.get("sample_count", 0) < 3:
@@ -46,7 +46,7 @@ def analyze(loaded, reference, observed, min_repeats=3):
         raise ValueError("identical_states")
     if min_repeats < 3:
         raise ValueError("insufficient_repetitions")
-    keys = ("alis_companion_sha", "hadalis_sha", "backend", "role", "duration_target_s",
+    keys = ("alis_companion_sha", "alis_sha", "backend", "role", "duration_target_s",
             "interval_target_s", "warmup_target_s")
     base = loaded[0]["obj"]
     if any(any(s["obj"].get(k) != base.get(k) for k in keys) for s in loaded):

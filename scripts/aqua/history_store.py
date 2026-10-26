@@ -22,11 +22,11 @@ class HistoryError(Exception):
 
 
 def path() -> Path:
-    override = os.environ.get("INIR_AQUA_HISTORY_DB")
+    override = os.environ.get("ALIS_AQUA_HISTORY_DB")
     if override:
         return Path(override).expanduser()
     base = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
-    return base / "inir/aqua/chat.sqlite3"
+    return base / "alis/aqua/chat.sqlite3"
 
 
 def _connect() -> sqlite3.Connection:

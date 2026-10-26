@@ -22,12 +22,12 @@ CONTRACT = "scripts/test-aqua-idle-resource-contract.py"
 DURATION = 60
 MAX_LOG = 1048576
 ORIGINS = {
-    "https://github.com/llocphann/Hadalis",
-    "https://github.com/llocphann/Hadalis.git",
-    "git@github.com:llocphann/Hadalis",
-    "git@github.com:llocphann/Hadalis.git",
-    "ssh://git@github.com/llocphann/Hadalis",
-    "ssh://git@github.com/llocphann/Hadalis.git",
+    "https://github.com/llocphann/Alis",
+    "https://github.com/llocphann/Alis.git",
+    "git@github.com:llocphann/Alis",
+    "git@github.com:llocphann/Alis.git",
+    "ssh://git@github.com/llocphann/Alis",
+    "ssh://git@github.com/llocphann/Alis.git",
 }
 
 
@@ -55,7 +55,7 @@ def audit(commit):
     changes = set(git("diff", "--name-only", BASE, commit).splitlines())
     sensitive = [
         p for p in changes
-        if p.startswith("native/inir-companiond/")
+        if p.startswith("native/alis-companiond/")
         or p in ("native/Cargo.toml", "native/Cargo.lock",
                  "scripts/native-dispatch", "AGENTS.md")
     ]
@@ -340,13 +340,13 @@ def main():
     state = Path(os.environ.get(
         "XDG_STATE_HOME", str(Path.home() / ".local/state")
     )).resolve()
-    private = state / "hadalis" / ("aqua-hidden-idle-" + uid)
+    private = state / "alis" / ("aqua-hidden-idle-" + uid)
     if root == private or root in private.parents:
         raise RuntimeError("Private logs must be outside the checkout")
     private.mkdir(mode=0o700, parents=True, exist_ok=False)
     print("EXACT_SOURCE_SHA:", source, flush=True)
     print("PRIVATE_LOG_DIRECTORY:", private, flush=True)
-    binary = private / "cargo-target" / "release" / "inir-companiond"
+    binary = private / "cargo-target" / "release" / "alis-companiond"
     result = None
     cargo = shutil.which("cargo")
     if not sys.platform.startswith("linux") or cargo is None:
@@ -360,7 +360,7 @@ def main():
                 build = subprocess.run(
                     [cargo, "build", "--locked", "--release",
                      "--manifest-path", "native/Cargo.toml",
-                     "-p", "inir-companiond"],
+                     "-p", "alis-companiond"],
                     env=build_env, stdout=log, stderr=subprocess.STDOUT,
                     timeout=900
                 )

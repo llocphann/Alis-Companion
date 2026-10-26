@@ -28,8 +28,8 @@ PNG = RELATIVE / "curated-nested-field-four-edge.png"
 PROVENANCE = RELATIVE / "curated-provenance.json"
 MANIFEST = ROOT / RELATIVE / "manifest.json"
 RECEIPT = ROOT / "automation/results" / (OLD_JOB + ".json")
-REMOTE = "https://github.com/llocphann/Hadalis.git"
-SSH_REMOTE = "git@github.com:llocphann/Hadalis.git"
+REMOTE = "https://github.com/llocphann/Alis.git"
+SSH_REMOTE = "git@github.com:llocphann/Alis.git"
 MAX_SAFE = 512 * 1024
 ROIS = ((8,8,232,232),(280,8,504,232),(8,280,232,504),(280,280,504,504))
 EXACT_QT_STAGES = ("BOOT","REAL_FIELD_FOUR_HOSTS_READY","PNG_SAVED")
@@ -105,7 +105,7 @@ def private_original():
         "XDG_STATE_HOME",str(Path.home()/".local/state"))).expanduser()
     need(root.is_absolute() and not root.is_symlink(),
          "OWNER_PRIVATE_UNQUALIFIED")
-    collection=root/"hadalis-aqua-nested-field-private"
+    collection=root/"alis-aqua-nested-field-private"
     owner_only(collection,True)
     candidates=[p for p in collection.iterdir()
                 if p.name.startswith("field-"+SOURCE[:12]+"-")
@@ -132,7 +132,7 @@ def private_original():
 def check_original_digest(raw):
     state=Path(os.environ.get(
         "XDG_STATE_HOME",str(Path.home()/".local/state"))).expanduser()
-    receipt=state/"hadalis-automation"/"worker"/"actions"/OLD_JOB/"action-2.json"
+    receipt=state/"alis-automation"/"worker"/"actions"/OLD_JOB/"action-2.json"
     owner_only(receipt,False)
     record=json.loads(receipt.read_bytes())
     value=record.get("result",{})
@@ -215,7 +215,7 @@ def publish_curated(curated, proof):
     staged = command(["git", "diff", "--cached", "--name-only"])
     need(staged.returncode == 0 and set(staged.stdout.splitlines()) ==
          {str(PNG), str(PROVENANCE)}, "PUBLIC_STAGE_UNQUALIFIED")
-    authored = command(["git", "-c", "user.name=Hadalis-Aqua-Evidence",
+    authored = command(["git", "-c", "user.name=Alis-Aqua-Evidence",
                         "-c", "user.email=actions@users.noreply.github.com",
                         "commit", "-m",
                         "test(aqua): publish curated synthetic-only exact-source visual sheet"])

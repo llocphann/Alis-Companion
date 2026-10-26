@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["inir-companiond"]
+members = ["alis-companiond"]
 
 [workspace.package]
 edition = "2024"
