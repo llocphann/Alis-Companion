@@ -443,8 +443,10 @@ Singleton {
         if(pending?.automatic) cancel()
     }
     function clearConversation(): void {
-        cancel();history=[];historyLoaded=true;historyHasMore=false;text=""
+        cancel();history=[];historyLoaded=true;historyHasMore=false;text="";errorMessage="";toolNotice=""
+        pendingDeletePath="";pendingDeleteStage=0
         historyClearPending=true;historyClearRetry.restart()
+        touchConversation()
     }
     function resolvePendingUser(id = 0, failed = false): void {
         const items=history.slice()
@@ -458,7 +460,12 @@ Singleton {
     }
     function sendMessage(message): bool {
         const prompt=String(message).trim().slice(0,1200)
-        if (!prompt || busy || draining || historyClearPending) return false
+        if (!prompt) return false
+        if (/^\/clear(?:\s+.*)?$/i.test(prompt)) {
+            clearConversation()
+            return true
+        }
+        if (busy || draining) return false
         if (tryHandleAgentCommand(prompt)) return true
         ensureAi()
         if (!available) {
@@ -466,6 +473,7 @@ Singleton {
             errorMessage=localOnly ? "Choose an available local model in AI settings." : "Choose an available model or provider in AI settings."
             return false
         }
+        if (historyClearPending) return false
         if(memoryEnabled && !memoriesLoaded && ModelPolicy.isLocal(Ai.models[model])) {
             refreshMemory();errorMessage="Loading saved memories. Send again when they are ready."
             return false

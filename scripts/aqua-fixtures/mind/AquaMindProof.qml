@@ -161,7 +161,10 @@ Window {
                 AquaMind.closeChat();AquaMind.conversationIdleTimeout=160;AquaMind.openChat();wait(260)
                 check(!AquaMind.conversationOpen,"idle quick chat kept proactive reminders blocked")
                 AquaMind.conversationIdleTimeout=120000
-                AquaMind.clearConversation();check(AquaMind.history.length===0,"clear retained history")
+                AquaMind.memories=[{id:1,text:"Remember tea",scope:"shared",expires_ms:0}];AquaMind.memoriesLoaded=true
+                check(AquaMind.sendMessage("/clear"),"/clear command rejected")
+                check(AquaMind.history.length===0 && AquaMind.memories.length===1,"clear retained history or erased memories")
+                AquaMind.memories=[];AquaMind.memoriesLoaded=false
                 tryCompare(AquaMind,"historyClearPending",false,3000);tryCompare(AquaMind,"busy",false,3000)
                 check(AquaMind.sendMessage("slow reply"),"cancellation request rejected")
                 wait(45);const stale=AquaMind.epoch;AquaMind.cancel()
