@@ -487,6 +487,9 @@ Singleton {
         const memories=memoryContext(Date.now())
         const agentData={}
         if(agentToolsEnabled && ModelPolicy.isLocal(Ai.models[model])) {
+            if(!Quickshell.env("AQUA_TEST_ENDPOINT")) {
+                agentData.companionRole="You are Alis-Companion (Companion), the user's Desktop Assistant. Available chat commands: access <path|screen>, edit <file>: <text>, copy <src> -> <dst>, cut <src> -> <dst>, delete <path> (2x confirm), run <script/command>, and /clear."
+            }
             const activeSnap=lastActiveAppContext ?? (lastToolMetadata?.kind==="active_app" ? lastToolMetadata : null)
             if(agentAppContextEnabled && activeSnap) {
                 agentData.activeApplication={
