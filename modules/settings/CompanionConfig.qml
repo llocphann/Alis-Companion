@@ -16,6 +16,7 @@ ContentPage {
     settingsPageIndex: 37
     settingsPageName: Translation.tr("Companion")
     property string activeSection: "overview"
+    readonly property bool isOverviewTab: activeSection !== "ai"
     onActiveSectionChanged: if (activeSection === "ai") Ai.ensureInitialized()
     property string previewExpression: "idle"
     property string previewMotion: ""
@@ -243,8 +244,9 @@ ContentPage {
         }
     }
 
-    component PercentageRow: ColumnLayout {
+    component PercentageRow: RowLayout {
         id: percentage
+        property string iconName: "tune"
         property string label: ""
         property string description: ""
         property real value: 1
@@ -252,57 +254,89 @@ ContentPage {
         property real maximum: 1
         signal moved(real value)
         Layout.fillWidth: true
-        spacing: 4
-        RowLayout {
-            Layout.fillWidth: true
-            StyledText { Layout.fillWidth: true; text: percentage.label }
-            StyledText { text: Math.round(percentage.value * 100) + "%"; color: Appearance.colors.colPrimary }
+        spacing: 10
+        implicitHeight: Math.round(36 * Appearance.fontSizeScale)
+        MaterialSymbol {
+            text: percentage.iconName
+            iconSize: 18
+            color: Appearance.colors.colSubtext
+            Layout.alignment: Qt.AlignVCenter
         }
         StyledText {
-            Layout.fillWidth: true
-            text: percentage.description
-            color: Appearance.colors.colSubtext
-            font.pixelSize: Appearance.font.pixelSize.smaller
-            wrapMode: Text.WordWrap
+            Layout.preferredWidth: 132 * Appearance.fontSizeScale
+            Layout.minimumWidth: 88 * Appearance.fontSizeScale
+            Layout.alignment: Qt.AlignVCenter
+            text: percentage.label
+            elide: Text.ElideRight
+            color: Appearance.colors.colOnSurface
+            font.pixelSize: Appearance.font.pixelSize.small
         }
         StyledSlider {
+            id: percentageSlider
             objectName: percentage.objectName + "Control"
+            Layout.fillWidth: true
+            Layout.minimumWidth: 72 * Appearance.fontSizeScale
+            Layout.alignment: Qt.AlignVCenter
+            configuration: StyledSlider.Configuration.S
             from: percentage.minimum
             to: percentage.maximum
             stepSize: 0.01
             value: percentage.value
-            tooltipContent: Math.round(value * 100) + "%"
+            tooltipContent: Math.round(value * 100) + "%" + (percentage.description.length > 0 ? " · " + percentage.description : "")
             settingsSearchLabel: percentage.label
             settingsSearchDescription: percentage.description
             onMoved: percentage.moved(value)
         }
+        StyledText {
+            Layout.preferredWidth: 46 * Appearance.fontSizeScale
+            Layout.alignment: Qt.AlignVCenter
+            horizontalAlignment: Text.AlignRight
+            text: Math.round(percentage.value * 100) + "%"
+            color: Appearance.colors.colPrimary
+            font.pixelSize: Appearance.font.pixelSize.small
+        }
+    }
+
+    SettingsTaskNavigator {
+        showIntro: false
+        currentValue: root.isOverviewTab ? "overview" : "ai"
+        onSelected: value => root.activeSection = value
+        options: [
+            { displayName: Translation.tr("Overview"), icon: "water_drop", value: "overview" },
+            { displayName: Translation.tr("AI"), icon: "chat", value: "ai" }
+        ]
     }
 
     Rectangle {
         Layout.fillWidth: true
-        implicitHeight: hero.implicitHeight + 32
+        visible: root.isOverviewTab
+        implicitHeight: hero.implicitHeight + 28
         radius: SettingsMaterialPreset.cardRadius
-        color: AbyssStyle.surface
+        color: Appearance.colors.colLayer1
         border.width: 1
-        border.color: Qt.alpha(AbyssStyle.accent, 0.18)
+        border.color: Appearance.colors.colLayer0Border
         GridLayout {
             id: hero
             anchors.fill: parent
-            anchors.margins: 16
-            columns: width > 600 ? 2 : 1
-            columnSpacing: 24
-            rowSpacing: 8
-            Item {
-                Layout.fillWidth: true
-                Layout.preferredWidth: 260
-                Layout.preferredHeight: 232
+            anchors.margins: 14
+            columns: width > 560 ? 2 : 1
+            columnSpacing: 20
+            rowSpacing: 10
+            Rectangle {
+                Layout.fillWidth: hero.columns === 1
+                Layout.preferredWidth: 210
+                Layout.preferredHeight: 168
+                radius: SettingsMaterialPreset.groupRadius
+                color: AbyssStyle.surface
+                border.width: 1
+                border.color: Qt.alpha(AbyssStyle.accent, 0.22)
                 WaterDropletBody {
                     id: preview
                     character: root.preferences.character
                     objectName: "companionPreview"
                     anchors.centerIn: parent
                     width: 76; height: 92
-                    scale: Math.min(2, 1.8 * root.preferences.size)
+                    scale: Math.min(1.75, 1.45 * root.preferences.size)
                     transformOrigin: Item.Center
                     expression: root.previewExpression
                     motionAction: root.previewMotion
@@ -317,302 +351,327 @@ ContentPage {
             }
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: 12
-                StyledText { text: root.preferences.character === "octo" ? "Octo" : "Aqua"; font.pixelSize: 26; font.weight: Font.DemiBold }
-                StyledText {
+                spacing: 8
+                RowLayout {
                     Layout.fillWidth: true
-                    text: Translation.tr("A little liquid companion for your desktop.")
-                    wrapMode: Text.WordWrap
+                    spacing: 8
+                    StyledText {
+                        Layout.fillWidth: true
+                        text: root.preferences.character === "octo" ? "Octo" : "Aqua"
+                        font.pixelSize: 22
+                        font.weight: Font.DemiBold
+                    }
+                    CompactIconButton {
+                        objectName: "companionReset"
+                        enabled: Config.ready
+                        iconName: "restart_alt"
+                        tooltipText: Translation.tr("Reset Companion settings")
+                        onClicked: root.resetPreferences()
+                    }
                 }
                 StyledText {
                     Layout.fillWidth: true
-                    text: Translation.tr("Color and reflections follow Abyss Panel Style automatically.")
+                    text: Translation.tr("A little liquid companion for your desktop.") + " " + Translation.tr("Color and reflections follow Abyss Panel Style automatically.")
                     font.pixelSize: Appearance.font.pixelSize.smaller
                     color: Appearance.colors.colSubtext
                     wrapMode: Text.WordWrap
                 }
-                ChoiceRow {
-                    objectName: "companionPreviewExpression"
-                    label: Translation.tr("Preview expression")
-                    options: root.expressionOptions
-                    currentValue: root.previewExpression
-                    onSelected: value => root.previewExpression = value
-                }
-                ChoiceRow {
-                    objectName: "companionPreviewMotion"
-                    label: Translation.tr("Preview movement")
-                    options: root.motionOptions
-                    currentValue: root.previewMotion
-                    onSelected: value => root.previewMotion = value
-                }
-            }
-        }
-    }
-
-    SettingsTaskNavigator {
-        showIntro: false
-        currentValue: root.activeSection
-        onSelected: value => root.activeSection = value
-        options: [
-            { displayName: Translation.tr("Overview"), icon: "water_drop", value: "overview" },
-            { displayName: Translation.tr("Behavior"), icon: "sentiment_satisfied", value: "behavior" },
-            { displayName: Translation.tr("Rendering"), icon: "diamond", value: "rendering" },
-            { displayName: Translation.tr("AI"), icon: "chat", value: "ai" }
-        ]
-    }
-
-    SettingsCardSection {
-        settingsTaskSection: "overview"
-        visible: root.activeSection === "overview"
-        title: Translation.tr("Overview")
-        icon: "water_drop"
-        SettingsGroup {
-            enabled: Config.ready
-            ChoiceRow {
-                objectName: "companionCharacter"
-                label: Translation.tr("Companion")
-                options: [{displayName:"Aqua",value:"aqua"},{displayName:"Octo",value:"octo"}]
-                currentValue: root.preferences.character
-                onSelected: value => root.setPreference("character",value)
-            }
-            GridLayout {
-                objectName: "companionOverviewTogglesGrid"
-                Layout.fillWidth: true
-                columns: root.availableRowWidth > 440 ? 2 : 1
-                columnSpacing: 12; rowSpacing: 8
-                CompactToggle {
-                    objectName: "companionEnabled"
-                    buttonIcon: "visibility"
-                    text: Translation.tr("Enable Companion")
-                    tooltipText: Translation.tr("Let your companion join the desktop. Right-click to open these settings.")
-                    checked: root.preferences.enabled
-                    onToggledByUser: checked => root.setPreference("enabled", checked)
-                }
-                CompactToggle {
-                    objectName: "companionAlternate"
-                    buttonIcon: "swap_horiz"
-                    text: Translation.tr("Take turns on the desktop")
-                    tooltipText: "Alternate between Aqua and Octo across desktop visits."
-                    checked: root.preferences.alternateCompanions
-                    onToggledByUser: checked => root.setPreference("alternateCompanions",checked)
-                }
-                CompactToggle {
-                    objectName: "companionInteractive"
-                    buttonIcon: "touch_app"
-                    text: Translation.tr("Respond to pointer interactions")
-                    tooltipText: Translation.tr("Highlight on hover, react to clicks, and drag your companion around the screen.")
-                    checked: root.preferences.interactive
-                    onToggledByUser: checked => root.setPreference("interactive", checked)
-                }
-                CompactToggle {
-                    objectName: "companionFullscreen"
-                    buttonIcon: "fullscreen_exit"
-                    text: Translation.tr("Always hide in fullscreen")
-                    tooltipText: Translation.tr("Otherwise, follow the screen edge fullscreen setting.")
-                    checked: root.preferences.hideInFullscreen
-                    onToggledByUser: checked => root.setPreference("hideInFullscreen", checked)
+                GridLayout {
+                    Layout.fillWidth: true
+                    columns: width > 360 ? 2 : 1
+                    uniformCellWidths: columns > 1
+                    columnSpacing: 12
+                    rowSpacing: 8
+                    CompactChoice {
+                        objectName: "companionPreviewExpression"
+                        label: Translation.tr("Preview expression")
+                        options: root.expressionOptions
+                        currentValue: root.previewExpression
+                        onSelected: value => root.previewExpression = value
+                    }
+                    CompactChoice {
+                        objectName: "companionPreviewMotion"
+                        label: Translation.tr("Preview movement")
+                        options: root.motionOptions
+                        currentValue: root.previewMotion
+                        onSelected: value => root.previewMotion = value
+                    }
                 }
             }
         }
     }
 
-    SettingsCardSection {
-        settingsTaskSection: "behavior"
-        visible: root.activeSection === "behavior"
-        title: Translation.tr("Behavior")
-        icon: "sentiment_satisfied"
-        SettingsGroup {
-            enabled: Config.ready
-            GridLayout {
-                objectName: "companionBehaviorChoicesGrid"
-                Layout.fillWidth: true
-                columns: root.availableRowWidth > 480 ? 2 : 1
-                uniformCellWidths: columns > 1
-                columnSpacing: 16; rowSpacing: 8
+    GridLayout {
+        id: unifiedOverviewGrid
+        objectName: "companionUnifiedOverviewGrid"
+        Layout.fillWidth: true
+        visible: root.isOverviewTab
+        columns: root.availableRowWidth >= 560 ? 2 : 1
+        uniformCellWidths: columns === 2
+        columnSpacing: 14
+        rowSpacing: 14
+
+        SettingsCardSection {
+            id: overviewCard
+            Layout.preferredWidth: 1
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.alignment: Qt.AlignTop
+            settingsTaskSection: "overview"
+            visible: true
+            expanded: true
+            title: Translation.tr("Overview")
+            icon: "water_drop"
+            SettingsGroup {
+                enabled: Config.ready
                 CompactChoice {
-                    objectName: "companionPersonality"
-                    label: Translation.tr("Personality")
-                    description: Translation.tr("Calm moves gently. Balanced feels natural. Energetic reacts with bigger movements and more frequent expressions.")
-                    options: root.personalityOptions
-                    currentValue: root.preferences.personality
-                    onSelected: value => root.setPreference("personality", value)
+                    objectName: "companionCharacter"
+                    label: Translation.tr("Companion")
+                    options: [{displayName:"Aqua",value:"aqua"},{displayName:"Octo",value:"octo"}]
+                    currentValue: root.preferences.character
+                    onSelected: value => root.setPreference("character",value)
                 }
+                GridLayout {
+                    objectName: "companionOverviewTogglesGrid"
+                    Layout.fillWidth: true
+                    columns: overviewCard.width > 420 ? 2 : 1
+                    uniformCellWidths: columns > 1
+                    columnSpacing: 10; rowSpacing: 8
+                    CompactToggle {
+                        objectName: "companionEnabled"
+                        buttonIcon: "visibility"
+                        text: Translation.tr("Enable Companion")
+                        tooltipText: Translation.tr("Let your companion join the desktop. Right-click to open these settings.")
+                        checked: root.preferences.enabled
+                        onToggledByUser: checked => root.setPreference("enabled", checked)
+                    }
+                    CompactToggle {
+                        objectName: "companionAlternate"
+                        buttonIcon: "swap_horiz"
+                        text: Translation.tr("Take turns on the desktop")
+                        tooltipText: "Alternate between Aqua and Octo across desktop visits."
+                        checked: root.preferences.alternateCompanions
+                        onToggledByUser: checked => root.setPreference("alternateCompanions",checked)
+                    }
+                    CompactToggle {
+                        objectName: "companionInteractive"
+                        buttonIcon: "touch_app"
+                        text: Translation.tr("Respond to pointer interactions")
+                        tooltipText: Translation.tr("Highlight on hover, react to clicks, and drag your companion around the screen.")
+                        checked: root.preferences.interactive
+                        onToggledByUser: checked => root.setPreference("interactive", checked)
+                    }
+                    CompactToggle {
+                        objectName: "companionFullscreen"
+                        buttonIcon: "fullscreen_exit"
+                        text: Translation.tr("Always hide in fullscreen")
+                        tooltipText: Translation.tr("Otherwise, follow the screen edge fullscreen setting.")
+                        checked: root.preferences.hideInFullscreen
+                        onToggledByUser: checked => root.setPreference("hideInFullscreen", checked)
+                    }
+                }
+            }
+        }
+
+        SettingsCardSection {
+            id: renderingCard
+            Layout.preferredWidth: 1
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.alignment: Qt.AlignTop
+            settingsTaskSection: "rendering"
+            visible: true
+            expanded: true
+            title: Translation.tr("Rendering")
+            icon: "diamond"
+            SettingsGroup {
+                enabled: Config.ready
                 CompactChoice {
-                    objectName: "companionFrequency"
-                    label: Translation.tr("Appearance frequency")
-                    description: Translation.tr("Scheduled visits last 20 seconds. Your companion stays while you interact or a task is running.")
-                    options: root.frequencyOptions
-                    currentValue: root.preferences.appearanceFrequency
-                    onSelected: value => root.setPreference("appearanceFrequency", value)
+                    objectName: "companionQuality"
+                    label: Translation.tr("Rendering quality") + " (" + Translation.tr("Current render quality") + ": " + AbyssRenderPolicy.wullQualityLabel + ")"
+                    enabled: !root.preferences.autoQuality
+                    options: root.qualityOptions
+                    currentValue: root.preferences.renderQuality
+                    onSelected: value => root.setPreference("renderQuality", value)
                 }
-            }
-            GridLayout {
-                objectName: "companionBehaviorTogglesGrid"
-                Layout.fillWidth: true
-                columns: root.availableRowWidth > 560 ? 2 : 1
-                uniformCellWidths: columns > 1
-                columnSpacing: 12; rowSpacing: 8
-                CompactToggle {
-                    objectName: "companionMotion"
-                    buttonIcon: "animation"
-                    text: Translation.tr("Companion animations")
-                    tooltipText: Translation.tr("Walk on surfaces, float through open space, and react naturally. Respects the shell motion setting.")
-                    checked: root.preferences.animationsEnabled
-                    onToggledByUser: checked => root.setPreference("animationsEnabled", checked)
+                ColumnLayout {
+                    objectName: "companionRenderingSlidersGrid"
+                    Layout.fillWidth: true
+                    spacing: 4
+                    PercentageRow {
+                        objectName: "companionSize"
+                        iconName: "open_in_full"
+                        label: Translation.tr("Companion size")
+                        description: Translation.tr("Keep your companion small or give it a little more room.")
+                        value: root.preferences.size
+                        minimum: 0.65; maximum: 1.5
+                        onMoved: value => root.setPreference("size", value)
+                    }
+                    PercentageRow {
+                        objectName: "companionTranslucency"
+                        iconName: "opacity"
+                        label: Translation.tr("Translucency")
+                        description: Translation.tr("Let a little of the background show through the liquid. Eyes and bright reflections stay clear.")
+                        value: root.preferences.translucency
+                        minimum: 0
+                        maximum: 0.35
+                        onMoved: value => root.setPreference("translucency", value)
+                    }
                 }
-                CompactToggle {
-                    objectName: "companionExploreFeatures"
-                    buttonIcon: "explore"
-                    text: Translation.tr("Explore Abyss features")
-                    tooltipText: Translation.tr("Occasionally open and explore panels, then close them. Your companion leaves them open when you start using them.")
-                    checked: root.preferences.exploreFeatures
-                    onToggledByUser: checked => root.setPreference("exploreFeatures", checked)
-                }
-                CompactToggle {
-                    objectName: "companionPocket"
-                    buttonIcon: "inventory_2"
-                    text: Translation.tr("Enable Pocket")
-                    tooltipText: Translation.tr("Save local file names, paths, sizes and dates when you choose or drop files. File contents are never read or sent to AI. Removing a reference keeps the original file.")
-                    checked: root.preferences.pocketEnabled
-                    onToggledByUser: checked => root.setPreference("pocketEnabled", checked)
-                }
-                CompactToggle {
-                    objectName: "companionContext"
-                    buttonIcon: "sensors"
-                    text: Translation.tr("Share coarse activity with Companion")
-                    tooltipText: Translation.tr("Off by default. Shares only the categories and states you choose below. Stops while locked, fullscreen or Do Not Disturb.")
-                    checked: root.preferences.contextEnabled
-                    onToggledByUser: checked => root.setPreference("contextEnabled", checked)
-                }
-                CompactToggle {
-                    objectName: "companionContextFocus"
-                    buttonIcon: "terminal"
-                    text: Translation.tr("Share the focused app category")
-                    tooltipText: Translation.tr("Only terminal, editor or other. Window titles, files and app content stay private.")
-                    enabled: root.preferences.contextEnabled
-                    checked: root.preferences.contextFocusEnabled
-                    onToggledByUser: checked => root.setPreference("contextFocusEnabled", checked)
-                }
-                CompactToggle {
-                    objectName: "companionContextAi"
-                    buttonIcon: "psychology"
-                    text: Translation.tr("Share Alis AI activity")
-                    tooltipText: Translation.tr("Only working, waiting for approval and finished. No prompts, replies, tools or permission grants.")
-                    enabled: root.preferences.contextEnabled
-                    checked: root.preferences.contextAiEnabled
-                    onToggledByUser: checked => root.setPreference("contextAiEnabled", checked)
-                }
-                CompactToggle {
-                    objectName: "companionAmbient"
-                    buttonIcon: "auto_awesome"
-                    text: Translation.tr("Quiet ambient reactions")
-                    tooltipText: Translation.tr("Small expressions, at most once every two minutes.")
-                    checked: root.preferences.ambientEnabled
-                    onToggledByUser: checked => root.setPreference("ambientEnabled", checked)
-                }
-                CompactToggle {
-                    objectName: "companionAmbientFocus"
-                    buttonIcon: "timer"
-                    text: Translation.tr("Follow Focus sessions")
-                    tooltipText: Translation.tr("Uses the existing Focus timer; stays quiet during work.")
-                    enabled: root.preferences.ambientEnabled
-                    checked: root.preferences.ambientFocusEnabled
-                    onToggledByUser: checked => root.setPreference("ambientFocusEnabled", checked)
-                }
-                CompactToggle {
-                    objectName: "companionAmbientBattery"
-                    buttonIcon: "battery_charging_full"
-                    text: Translation.tr("React to battery state")
-                    tooltipText: Translation.tr("Only low battery or charging; no device details.")
-                    enabled: root.preferences.ambientEnabled
-                    checked: root.preferences.ambientBatteryEnabled
-                    onToggledByUser: checked => root.setPreference("ambientBatteryEnabled", checked)
-                }
-                CompactToggle {
-                    objectName: "companionAmbientMedia"
-                    buttonIcon: "music_note"
-                    text: Translation.tr("React to playback state")
-                    tooltipText: Translation.tr("Only playing or paused; no titles, artists or media control.")
-                    enabled: root.preferences.ambientEnabled
-                    checked: root.preferences.ambientMediaEnabled
-                    onToggledByUser: checked => root.setPreference("ambientMediaEnabled", checked)
+                GridLayout {
+                    objectName: "companionRenderingTogglesGrid"
+                    Layout.fillWidth: true
+                    columns: renderingCard.width > 420 ? 2 : 1
+                    uniformCellWidths: columns > 1
+                    columnSpacing: 10; rowSpacing: 8
+                    CompactToggle {
+                        buttonIcon: "bolt"
+                        text: Translation.tr("Follow power profile")
+                        tooltipText: Translation.tr("Use Performance in Power Saver and Balanced in other power profiles.")
+                        checked: root.preferences.autoQuality
+                        onToggledByUser: checked => root.setPreference("autoQuality",checked)
+                    }
+                    CompactToggle {
+                        objectName: "companionEffects"
+                        buttonIcon: "auto_fix_high"
+                        text: Translation.tr("Bubbles and floor reflections")
+                        tooltipText: Translation.tr("Add floating bubbles, sparkle and the liquid reflection beneath your companion. Performance uses a simpler floor effect. Respects the shell effects setting.")
+                        checked: root.preferences.effectsEnabled
+                        onToggledByUser: checked => root.setPreference("effectsEnabled", checked)
+                    }
                 }
             }
         }
-    }
 
-    SettingsCardSection {
-        settingsTaskSection: "rendering"
-        visible: root.activeSection === "rendering"
-        title: Translation.tr("Rendering")
-        icon: "diamond"
-        SettingsGroup {
-            enabled: Config.ready
-            GridLayout {
-                objectName: "companionRenderingSlidersGrid"
-                Layout.fillWidth: true
-                columns: root.availableRowWidth > 520 ? 2 : 1
-                uniformCellWidths: columns > 1
-                columnSpacing: 16; rowSpacing: 8
-                PercentageRow {
-                    objectName: "companionSize"
-                    label: Translation.tr("Companion size")
-                    description: Translation.tr("Keep your companion small or give it a little more room.")
-                    value: root.preferences.size
-                    minimum: 0.65; maximum: 1.5
-                    onMoved: value => root.setPreference("size", value)
+        SettingsCardSection {
+            id: behaviorCard
+            Layout.columnSpan: unifiedOverviewGrid.columns
+            Layout.fillWidth: true
+            Layout.alignment: Qt.AlignTop
+            settingsTaskSection: "behavior"
+            visible: true
+            expanded: true
+            title: Translation.tr("Behavior")
+            icon: "sentiment_satisfied"
+            SettingsGroup {
+                enabled: Config.ready
+                GridLayout {
+                    objectName: "companionBehaviorChoicesGrid"
+                    Layout.fillWidth: true
+                    columns: root.availableRowWidth > 480 ? 2 : 1
+                    uniformCellWidths: columns > 1
+                    columnSpacing: 14; rowSpacing: 8
+                    CompactChoice {
+                        objectName: "companionPersonality"
+                        label: Translation.tr("Personality")
+                        description: Translation.tr("Calm moves gently. Balanced feels natural. Energetic reacts with bigger movements and more frequent expressions.")
+                        options: root.personalityOptions
+                        currentValue: root.preferences.personality
+                        onSelected: value => root.setPreference("personality", value)
+                    }
+                    CompactChoice {
+                        objectName: "companionFrequency"
+                        label: Translation.tr("Appearance frequency")
+                        description: Translation.tr("Scheduled visits last 20 seconds. Your companion stays while you interact or a task is running.")
+                        options: root.frequencyOptions
+                        currentValue: root.preferences.appearanceFrequency
+                        onSelected: value => root.setPreference("appearanceFrequency", value)
+                    }
                 }
-                PercentageRow {
-                    objectName: "companionTranslucency"
-                    label: Translation.tr("Translucency")
-                    description: Translation.tr("Let a little of the background show through the liquid. Eyes and bright reflections stay clear.")
-                    value: root.preferences.translucency
-                    minimum: 0
-                    maximum: 0.35
-                    onMoved: value => root.setPreference("translucency", value)
-                }
-            }
-            ChoiceRow {
-                objectName: "companionQuality"
-                label: Translation.tr("Rendering quality")
-                description: Translation.tr("Current render quality") + ": " + AbyssRenderPolicy.wullQualityLabel
-                enabled: !root.preferences.autoQuality
-                options: root.qualityOptions
-                currentValue: root.preferences.renderQuality
-                onSelected: value => root.setPreference("renderQuality", value)
-            }
-            GridLayout {
-                objectName: "companionRenderingTogglesGrid"
-                Layout.fillWidth: true
-                columns: root.availableRowWidth > 440 ? 2 : 1
-                uniformCellWidths: columns > 1
-                columnSpacing: 12; rowSpacing: 8
-                CompactToggle {
-                    buttonIcon: "bolt"
-                    text: Translation.tr("Follow power profile")
-                    tooltipText: Translation.tr("Use Performance in Power Saver and Balanced in other power profiles.")
-                    checked: root.preferences.autoQuality
-                    onToggledByUser: checked => root.setPreference("autoQuality",checked)
-                }
-                CompactToggle {
-                    objectName: "companionEffects"
-                    buttonIcon: "auto_fix_high"
-                    text: Translation.tr("Bubbles and floor reflections")
-                    tooltipText: Translation.tr("Add floating bubbles, sparkle and the liquid reflection beneath your companion. Performance uses a simpler floor effect. Respects the shell effects setting.")
-                    checked: root.preferences.effectsEnabled
-                    onToggledByUser: checked => root.setPreference("effectsEnabled", checked)
+                GridLayout {
+                    objectName: "companionBehaviorTogglesGrid"
+                    Layout.fillWidth: true
+                    columns: root.availableRowWidth > 520 ? 2 : 1
+                    uniformCellWidths: columns > 1
+                    columnSpacing: 12; rowSpacing: 8
+                    CompactToggle {
+                        objectName: "companionMotion"
+                        buttonIcon: "animation"
+                        text: Translation.tr("Companion animations")
+                        tooltipText: Translation.tr("Walk on surfaces, float through open space, and react naturally. Respects the shell motion setting.")
+                        checked: root.preferences.animationsEnabled
+                        onToggledByUser: checked => root.setPreference("animationsEnabled", checked)
+                    }
+                    CompactToggle {
+                        objectName: "companionExploreFeatures"
+                        buttonIcon: "explore"
+                        text: Translation.tr("Explore Abyss features")
+                        tooltipText: Translation.tr("Occasionally open and explore panels, then close them. Your companion leaves them open when you start using them.")
+                        checked: root.preferences.exploreFeatures
+                        onToggledByUser: checked => root.setPreference("exploreFeatures", checked)
+                    }
+                    CompactToggle {
+                        objectName: "companionPocket"
+                        buttonIcon: "inventory_2"
+                        text: Translation.tr("Enable Pocket")
+                        tooltipText: Translation.tr("Save local file names, paths, sizes and dates when you choose or drop files. File contents are never read or sent to AI. Removing a reference keeps the original file.")
+                        checked: root.preferences.pocketEnabled
+                        onToggledByUser: checked => root.setPreference("pocketEnabled", checked)
+                    }
+                    CompactToggle {
+                        objectName: "companionContext"
+                        buttonIcon: "sensors"
+                        text: Translation.tr("Share coarse activity with Companion")
+                        tooltipText: Translation.tr("Off by default. Shares only the categories and states you choose below. Stops while locked, fullscreen or Do Not Disturb.")
+                        checked: root.preferences.contextEnabled
+                        onToggledByUser: checked => root.setPreference("contextEnabled", checked)
+                    }
+                    CompactToggle {
+                        objectName: "companionContextFocus"
+                        buttonIcon: "terminal"
+                        text: Translation.tr("Share the focused app category")
+                        tooltipText: Translation.tr("Only terminal, editor or other. Window titles, files and app content stay private.")
+                        enabled: root.preferences.contextEnabled
+                        checked: root.preferences.contextFocusEnabled
+                        onToggledByUser: checked => root.setPreference("contextFocusEnabled", checked)
+                    }
+                    CompactToggle {
+                        objectName: "companionContextAi"
+                        buttonIcon: "psychology"
+                        text: Translation.tr("Share Alis AI activity")
+                        tooltipText: Translation.tr("Only working, waiting for approval and finished. No prompts, replies, tools or permission grants.")
+                        enabled: root.preferences.contextEnabled
+                        checked: root.preferences.contextAiEnabled
+                        onToggledByUser: checked => root.setPreference("contextAiEnabled", checked)
+                    }
+                    CompactToggle {
+                        objectName: "companionAmbient"
+                        buttonIcon: "auto_awesome"
+                        text: Translation.tr("Quiet ambient reactions")
+                        tooltipText: Translation.tr("Small expressions, at most once every two minutes.")
+                        checked: root.preferences.ambientEnabled
+                        onToggledByUser: checked => root.setPreference("ambientEnabled", checked)
+                    }
+                    CompactToggle {
+                        objectName: "companionAmbientFocus"
+                        buttonIcon: "timer"
+                        text: Translation.tr("Follow Focus sessions")
+                        tooltipText: Translation.tr("Uses the existing Focus timer; stays quiet during work.")
+                        enabled: root.preferences.ambientEnabled
+                        checked: root.preferences.ambientFocusEnabled
+                        onToggledByUser: checked => root.setPreference("ambientFocusEnabled", checked)
+                    }
+                    CompactToggle {
+                        objectName: "companionAmbientBattery"
+                        buttonIcon: "battery_charging_full"
+                        text: Translation.tr("React to battery state")
+                        tooltipText: Translation.tr("Only low battery or charging; no device details.")
+                        enabled: root.preferences.ambientEnabled
+                        checked: root.preferences.ambientBatteryEnabled
+                        onToggledByUser: checked => root.setPreference("ambientBatteryEnabled", checked)
+                    }
+                    CompactToggle {
+                        objectName: "companionAmbientMedia"
+                        buttonIcon: "music_note"
+                        text: Translation.tr("React to playback state")
+                        tooltipText: Translation.tr("Only playing or paused; no titles, artists or media control.")
+                        enabled: root.preferences.ambientEnabled
+                        checked: root.preferences.ambientMediaEnabled
+                        onToggledByUser: checked => root.setPreference("ambientMediaEnabled", checked)
+                    }
                 }
             }
         }
-    }
-
-    CompactIconButton {
-        objectName: "companionReset"
-        Layout.alignment: Qt.AlignRight
-        enabled: Config.ready
-        iconName: "restart_alt"
-        tooltipText: Translation.tr("Reset Companion settings")
-        onClicked: root.resetPreferences()
     }
     SettingsCardSection {
         settingsTaskSection:"ai"

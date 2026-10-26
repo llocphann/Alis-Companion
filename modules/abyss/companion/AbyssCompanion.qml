@@ -125,6 +125,9 @@ Item {
     readonly property bool gesturing: gestureTween.running
     readonly property real viewCos: Math.cos(standingAngle*Math.PI/180)
     readonly property real viewSin: Math.sin(standingAngle*Math.PI/180)
+    readonly property real baseViewYaw: (moving || portalWalking)
+        ? (walking ? tangentDirection : travelDirection) * (walking ? 32 : 20)
+        : peeking ? emergenceEdge==="left" ? 22 : emergenceEdge==="right" ? -22 : 0 : -15
     readonly property var attention: Attention.resolve(moving || portalWalking || dragging,
         travelDirection*viewCos+travelDirectionY*viewSin, -travelDirection*viewSin+travelDirectionY*viewCos,
         pointerFresh || hovered,
@@ -132,7 +135,7 @@ Item {
         hovered ? droplet.hoverGazeY : -pointerX*viewSin+pointerY*viewCos,
         peeking && emergenceEdge==="left" ? .4 : peeking && emergenceEdge==="right" ? -.4 : gazeX,
         peeking && emergenceEdge==="top" ? .3 : peeking && emergenceEdge==="bottom" ? -.3 : gazeY,
-        faceExpression,(moving || portalWalking) ? tangentDirection : Math.abs(droplet.viewYaw)>=25 ? droplet.viewYaw : 0)
+        faceExpression,(moving || portalWalking) ? tangentDirection : Math.abs(baseViewYaw)>=25 ? baseViewYaw : 0)
     readonly property real emergenceNormal: leaving
         ? curves.sample(activeHideClip, "normal", 1-presentation)
         : curves.sample(peeking ? "emerge" : activeAppearClip, "normal", presentation)
@@ -151,6 +154,10 @@ Item {
     function stopGesture(): void { gestureTween.stop(); gesture="";gesturePhase=1 }
     function swallowPocketFiles(count = 1, px = 38, py = 8): void {
         droplet.triggerPocketSwallow(count, px, py)
+    }
+    function swallowPocketFilesFromItem(sourceItem, count = 1, px = 38, py = 8): void {
+        const pt = sourceItem ? droplet.mapFromItem(sourceItem, px, py) : Qt.point(px, py)
+        droplet.triggerPocketSwallow(count, pt.x, pt.y)
     }
     function perform(action): bool {
         if (!visible || !motionEnabled || !curves.clips[action] || dragging || moving) return false
@@ -400,9 +407,10 @@ Item {
             pocketDragActive: root.pocketDragActive
             walkingDirection: (root.upright ? root.tangentDirection : root.travelDirection) * (root.upright || root.edge === "top" || root.edge === "left" ? 1 : -1)
             viewYaw: root.pocketDragActive ? root.dragFaceX * 28
-                : (root.moving || root.portalWalking) ? (root.walking ? root.tangentDirection : root.travelDirection) * (root.walking ? 32 : 20)
-                : root.peeking ? root.emergenceEdge==="left" ? 22 : root.emergenceEdge==="right" ? -22 : 0 : -15
-            viewPitch: root.pocketDragActive ? -root.dragFaceY * 16 : 0
+                : (root.moving || root.portalWalking || root.peeking) ? root.baseViewYaw
+                : root.attention.source === "pointer" ? root.attention.x * 22 : root.baseViewYaw
+            viewPitch: root.pocketDragActive ? root.dragFaceY * 16
+                : root.attention.source === "pointer" ? root.attention.y * 12 : 0
             effectsEnabled: root.effectsEnabled
             stateSquash: root.motionEnabled ? root.bodySquash : 0
             stateStretch: root.motionEnabled ? root.bodyStretch : 0

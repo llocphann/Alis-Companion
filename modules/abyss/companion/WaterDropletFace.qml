@@ -31,7 +31,7 @@ Item {
     // set of bindings so gaze/yaw updates do not duplicate JS/vector work.
     readonly property real viewYawSin: Math.sin(viewYaw * Math.PI / 180)
     readonly property color corneaSpecular: ColorUtils.colorWithLightness(accent, 0.85)
-    readonly property vector4d corneaOpticsUniform: Qt.vector4d(0, 2, pupilX, pupilY)
+    readonly property vector4d corneaOpticsUniform: Qt.vector4d(0, 2, pupilX, -pupilY)
     readonly property vector4d corneaRenderingUniform: Qt.vector4d(qualityLevel, 0, 0, 0)
     readonly property vector4d zeroShaderUniform: Qt.vector4d(0, 0, 0, 0)
     readonly property var profile: Expressions.profile(expression)
@@ -42,8 +42,8 @@ Item {
         Item {
             id: eye
             required property int index
-            x: (index === 0 ? 18 : 44) * root.unit
-            y: 46 * root.unit
+            x: ((index === 0 ? 18 : 44) + root.pupilX * 3.2) * root.unit
+            y: (46 + root.pupilY * 2.8) * root.unit
             width: 14 * root.unit; height: 16 * root.unit
             rotation: root.profile.angry ? (index === 0 ? -15 : 15) : root.profile.worried ? (index === 0 ? 13 : -13) : 0
             scale: root.profile.eyeScale * (root.feedingOpen ? 0.93 : 0.83) * (1 + (index === 0 ? 1 : -1) * root.viewYawSin * 0.25)
@@ -77,6 +77,35 @@ Item {
                     property vector4d rendering: root.corneaRenderingUniform
                     property vector4d pose: root.zeroShaderUniform
                     fragmentShader: Qt.resolvedUrl("WaterDropletMaterial.frag.qsb")
+                }
+                Item {
+                    anchors.fill: parent
+                    visible: cornea.visible
+                    Rectangle {
+                        x: (4.1 + root.pupilX * 2.5) * root.unit
+                        y: (4.6 + root.pupilY * 2.3) * root.unit
+                        width: 5.8 * root.unit
+                        height: 6.6 * root.unit
+                        radius: width * 0.5
+                        color: Qt.alpha(root.ink, 0.76)
+                    }
+                    Rectangle {
+                        x: (2.6 + root.pupilX * 2.4) * root.unit
+                        y: (2.4 + root.pupilY * 2.2) * root.unit
+                        width: 3.9 * root.unit
+                        height: 3.1 * root.unit
+                        radius: width * 0.5
+                        rotation: -25
+                        color: "#f4feff"
+                    }
+                    Rectangle {
+                        x: (8.6 + root.pupilX * 2.0) * root.unit
+                        y: (9.8 + root.pupilY * 1.8) * root.unit
+                        width: 2.1 * root.unit
+                        height: width
+                        radius: width * 0.5
+                        color: "#d6faff"
+                    }
                 }
                 Item {
                     anchors.fill: parent

@@ -139,8 +139,8 @@ Item {
     }
     function triggerPocketSwallow(count = 1, startX = 38, startY = 8): void {
         swallowCount = Math.max(1, Math.min(4, Number(count) || 1))
-        swallowStartX = Math.max(4, Math.min(width - 4, Number.isFinite(startX) ? startX : 38))
-        swallowStartY = Math.max(-14, Math.min(height * 0.65, Number.isFinite(startY) ? startY : 8))
+        swallowStartX = Math.max(-640, Math.min(width + 640, Number.isFinite(startX) ? startX : 38))
+        swallowStartY = Math.max(-640, Math.min(height + 640, Number.isFinite(startY) ? startY : 8))
         if (!motionEnabled) {
             swallowPhase = 1
             chompPhase = 0
@@ -492,24 +492,35 @@ Item {
     }
     Repeater {
         objectName: "wullPocketSwallowItems"
-        model: root.swallowPhase < 0.72 ? root.swallowCount : 0
+        model: root.swallowPhase < 0.88 ? root.swallowCount : 0
         Item {
             id: swallowItem
             required property int index
-            readonly property real progress: Math.max(0, Math.min(1, (root.swallowPhase - index * 0.08) / 0.62))
+            readonly property real progress: Math.max(0, Math.min(1, (root.swallowPhase - index * 0.07) / 0.76))
+            readonly property real flightT: Math.min(1, progress / 0.72)
+            readonly property real bellyT: Math.max(0, (progress - 0.72) / 0.28)
             readonly property real mouthX: 38 + (root.octopus ? 3.8 : 0)
             readonly property real mouthY: 60.5 + (root.octopus ? -1.6 : 0) + gait.lift + root.reactionLift * root.motionAmount
+            readonly property real bellyX: 38 + (root.octopus ? 2.0 : 0)
+            readonly property real bellyY: 74 + (root.octopus ? -2.0 : 0) + gait.lift
             readonly property real originX: root.swallowStartX + (index - (root.swallowCount - 1) * 0.5) * 9
             readonly property real originY: root.swallowStartY - index * 5
-            readonly property real arcLift: Math.sin(progress * Math.PI) * 14
+            readonly property real distToMouth: Math.hypot(mouthX - originX, mouthY - originY)
+            readonly property real arcLift: Math.sin(flightT * Math.PI) * Math.min(28, 10 + distToMouth * 0.1)
             width: 13
             height: 16
             z: 5
-            x: originX + (mouthX - originX) * progress - width * 0.5
-            y: originY + (mouthY - originY) * (progress * progress) - arcLift - height * 0.5
-            scale: (1 - progress * 0.78) * (progress > 0.01 ? 1 : 0)
-            rotation: (index % 2 === 0 ? -18 : 18) * (1 - progress) + progress * 25
-            opacity: progress < 0.85 ? 1 : Math.max(0, (1 - progress) / 0.15)
+            x: (progress < 0.72
+                ? originX + (mouthX - originX) * flightT
+                : mouthX + (bellyX - mouthX) * bellyT) - width * 0.5
+            y: (progress < 0.72
+                ? originY + (mouthY - originY) * (flightT * (0.4 + 0.6 * flightT)) - arcLift
+                : mouthY + (bellyY - mouthY) * bellyT) - height * 0.5
+            scale: progress < 0.72
+                ? (1 - flightT * 0.45) * (root.swallowPhase >= index * 0.07 ? 1 : 0)
+                : Math.max(0.08, 0.55 * (1 - bellyT * 0.82))
+            rotation: (index % 2 === 0 ? -18 : 18) * (1 - flightT) + progress * 28
+            opacity: progress < 0.78 ? (root.swallowPhase >= index * 0.07 ? 1 : 0) : Math.max(0, (1 - progress) / 0.22)
             Shape {
                 anchors.fill: parent
                 antialiasing: true

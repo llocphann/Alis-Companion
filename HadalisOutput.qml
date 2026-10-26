@@ -293,7 +293,7 @@ Item {
                 companionPointerExpiry.restart()
                 companionCuriosity.pointerMoved(root.companionPointerX,root.companionPointerY)
             }
-            onHoveredChanged: if (!hovered) root.companionPointerFresh=false
+            onHoveredChanged: if (!hovered) companionPointerExpiry.restart()
         }
         PointHandler {
             enabled: root.companionHostActive && session.companionInteractive
@@ -371,8 +371,8 @@ Item {
         reveal: companionPresence.renderedReveal
         pointerFresh: root.companionPointerFresh
             && Math.hypot(root.companionPointerX-(x+width/2),root.companionPointerY-(y+height/2))<companionPresence.pointerNoticeRadius
-        pointerX: (root.companionPointerX-(x+width/2))/(140*scale)
-        pointerY: (root.companionPointerY-(y+height/2))/(140*scale)
+        pointerX: (root.companionPointerX-(x+width/2))/Math.max(55*scale,Math.hypot(root.companionPointerX-(x+width/2),root.companionPointerY-(y+height/2)))
+        pointerY: (root.companionPointerY-(y+height/2))/Math.max(55*scale,Math.hypot(root.companionPointerX-(x+width/2),root.companionPointerY-(y+height/2)))
         gazeX: companionBridge.gazeX
         gazeY: companionBridge.gazeY
         energy: companionBridge.energy
@@ -412,6 +412,7 @@ Item {
     }
     WullPocketDrop {
         id:pocketDrop;parent:companion;actor:companion
+        outputWidth:host.width;outputHeight:host.height
         allowed:root.companionHostActive && session.companionInteractive && !WullMind.busy
     }
     WullCloudActions {
@@ -424,6 +425,16 @@ Item {
     readonly property bool companionRimInputActive: host.presented && field.ready
         && WullHostPolicy.acceptsInput(root.companionHostActive,companion.interactive,companion.visible && companion.inputReady)
     readonly property real companionRimThickness: Math.min(AbyssStyle.perimeterThickness,host.width/2,host.height/2)
+    readonly property bool pocketSensorActive: root.companionRimInputActive && pocketDrop.enabled && pocketDrop.expandedZone
+    readonly property int pocketZoneX: Math.max(0, Math.round(companion.x + companion.width * 0.5 - pocketDrop.dragRadius))
+    readonly property int pocketZoneY: Math.max(0, Math.round(companion.y + companion.height * 0.5 - pocketDrop.dragRadius))
+    readonly property int pocketZoneW: Math.max(0, Math.min(host.width - pocketZoneX, Math.round(companion.x + companion.width * 0.5 + pocketDrop.dragRadius) - pocketZoneX))
+    readonly property int pocketZoneH: Math.max(0, Math.min(host.height - pocketZoneY, Math.round(companion.y + companion.height * 0.5 + pocketDrop.dragRadius) - pocketZoneY))
+    readonly property int pocketMidRadius: Math.round(pocketDrop.dragRadius * 0.55)
+    readonly property int pocketMidX: Math.max(0, Math.round(companion.x + companion.width * 0.5 - pocketMidRadius))
+    readonly property int pocketMidY: Math.max(0, Math.round(companion.y + companion.height * 0.5 - pocketMidRadius))
+    readonly property int pocketMidW: Math.max(0, Math.min(host.width - pocketMidX, Math.round(companion.x + companion.width * 0.5 + pocketMidRadius) - pocketMidX))
+    readonly property int pocketMidH: Math.max(0, Math.min(host.height - pocketMidY, Math.round(companion.y + companion.height * 0.5 + pocketMidRadius) - pocketMidY))
     // Observe Wull's surrounding water on all four painted rims. The
     // interior desktop retains its existing pass-through/input owners.
     readonly property Region companionRimInputMask: Region {
@@ -431,6 +442,15 @@ Item {
         Region { x:0; y:host.height-root.companionRimThickness; width:root.companionRimInputActive ? host.width : 0; height:root.companionRimThickness }
         Region { x:0; y:0; width:root.companionRimInputActive ? root.companionRimThickness : 0; height:host.height }
         Region { x:host.width-root.companionRimThickness; y:0; width:root.companionRimInputActive ? root.companionRimThickness : 0; height:host.height }
+        Region { x:root.pocketZoneX; y:root.pocketZoneY; width:pocketDrop.containsDrag ? root.pocketZoneW : 0; height:pocketDrop.containsDrag ? root.pocketZoneH : 0 }
+        Region { x:root.pocketZoneX; y:root.pocketZoneY; width:root.pocketSensorActive ? root.pocketZoneW : 0; height:2 }
+        Region { x:root.pocketZoneX; y:root.pocketZoneY+root.pocketZoneH-2; width:root.pocketSensorActive ? root.pocketZoneW : 0; height:2 }
+        Region { x:root.pocketZoneX; y:root.pocketZoneY; width:2; height:root.pocketSensorActive ? root.pocketZoneH : 0 }
+        Region { x:root.pocketZoneX+root.pocketZoneW-2; y:root.pocketZoneY; width:2; height:root.pocketSensorActive ? root.pocketZoneH : 0 }
+        Region { x:root.pocketMidX; y:root.pocketMidY; width:root.pocketSensorActive ? root.pocketMidW : 0; height:2 }
+        Region { x:root.pocketMidX; y:root.pocketMidY+root.pocketMidH-2; width:root.pocketSensorActive ? root.pocketMidW : 0; height:2 }
+        Region { x:root.pocketMidX; y:root.pocketMidY; width:2; height:root.pocketSensorActive ? root.pocketMidH : 0 }
+        Region { x:root.pocketMidX+root.pocketMidW-2; y:root.pocketMidY; width:2; height:root.pocketSensorActive ? root.pocketMidH : 0 }
     }
 
     readonly property bool editing: talkCloud.editing

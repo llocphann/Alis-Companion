@@ -38,13 +38,11 @@ Item {
     readonly property real laptopHinge: pose?.laptopHinge ?? 0
     readonly property real laptopSlide: pose?.laptopSlide ?? 0
     readonly property real laptopLift: pose?.laptopLift ?? 0
-    readonly property real screenPulse: pose?.screenPulse ?? 0.55
-    readonly property real typingPulse: Math.max(
-        Math.abs((pose?.arm0Z ?? -14) + 14) / 3,
-        Math.abs((pose?.arm1Z ?? -14) + 14) / 3,
+    readonly property real screenPulse: Math.max(0, Math.min(1, pose?.screenPulse ?? 0.55))
+    readonly property real typingPulse: Math.max(0, Math.min(1, Math.max(
         (pose?.laptopTap0 ?? 0) / 3,
         (pose?.laptopTap1 ?? 0) / 3
-    )
+    )))
     readonly property real hingeFactor: Math.max(0, Math.min(1.03, laptopHinge / 106))
     readonly property var deckAnchor: body
         ? body.project(0, -25 + laptopLift, 21 - laptopSlide * 0.45)
