@@ -48,17 +48,23 @@ function layout(outputWidth, outputHeight, actor) {
                 const a = node(axis-spread,radius), b = node(axis+spread,radius);
                 if (fits(a) && fits(b) && !overlaps(a,b,4)) {
                     let pocketValid = null, pomValid = null;
-                    outerInner:
-                    for (const [rMult, inSpread] of [[1.04, 0.34], [1.08, 0.36], [1.22, 0.34], [1.38, 0.32]]) {
-                        const pk = node(axis - inSpread, radius * rMult);
-                        const pm = node(axis + inSpread, radius * rMult);
+                    const innerPairs = [
+                        { rMult: 1.04, inSpread: 0.34 },
+                        { rMult: 1.08, inSpread: 0.36 },
+                        { rMult: 1.22, inSpread: 0.34 },
+                        { rMult: 1.38, inSpread: 0.32 }
+                    ];
+                    for (let i = 0; i < innerPairs.length; ++i) {
+                        const pair = innerPairs[i];
+                        const pk = node(axis - pair.inSpread, radius * pair.rMult);
+                        const pm = node(axis + pair.inSpread, radius * pair.rMult);
                         if (fits(pk) && fits(pm) && !overlaps(pk, pm, 3)
                             && !overlaps(a, pk, 2) && !overlaps(b, pk, 2)
                             && !overlaps(a, pm, 2) && !overlaps(b, pm, 2)
                             && !overlaps(pk, centerPt, 2) && !overlaps(pm, centerPt, 2)) {
                             pocketValid = pk;
                             pomValid = pm;
-                            break outerInner;
+                            break;
                         }
                     }
                     if (!pocketValid) {

@@ -77,9 +77,9 @@ Window {
                     const pom=actions.pomodoroTarget,pomExpand=findChild(pom,"wullPomodoroExpand"),pomAction=findChild(pom,"wullPomodoroAction"),pomReset=findChild(pom,"wullPomodoroReset")
                     check(pom?.visible && !actions.pomodoroExpanded && pomExpand?.visible && !pomAction?.visible,"Pomodoro did not start as collapsed icon bubble on "+edge)
                     mouseMove(board,pom.x+pom.width/2,pom.y+pom.height/2);wait(50)
-                    mouseClick(board,pom.x+pom.width/2,pom.y+pom.height/2);wait(180)
+                    mouseClick(board,pom.x+pom.width/2,pom.y+pom.height/2);wait(60)
                     check(actions.pomodoroExpanded && pomAction?.visible && pomReset?.visible && !pomExpand?.visible,"Pomodoro icon bubble did not expand on click on "+edge)
-                    actions.pomodoroExpanded=false;wait(180)
+                    actions.pomodoroExpanded=false;wait(40)
                     mouseMove(board,a.x+a.width/2,a.y+a.height/2);wait(50)
                     check(actions.hovered,"cloud hover did not hold its orbit "+JSON.stringify({
                         edge:edge,visible:actions.visible,eligible:actions.eligible,revealed:actions.revealed,

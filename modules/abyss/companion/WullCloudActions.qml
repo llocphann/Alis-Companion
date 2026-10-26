@@ -191,10 +191,6 @@ Item {
         y: root.pomodoroExpanded ? (placement?.expandedY ?? placement?.y ?? 0) : (placement?.y ?? 0)
         width: root.pomodoroExpanded ? (placement?.expandedWidth ?? 116) : (placement?.width ?? 38)
         height: root.pomodoroExpanded ? (placement?.expandedHeight ?? 36) : (placement?.height ?? 33.25)
-        Behavior on x { enabled: AbyssStyle.motionEnabled; NumberAnimation { duration: AbyssStyle.motionFast; easing.type: Easing.OutCubic } }
-        Behavior on y { enabled: AbyssStyle.motionEnabled; NumberAnimation { duration: AbyssStyle.motionFast; easing.type: Easing.OutCubic } }
-        Behavior on width { enabled: AbyssStyle.motionEnabled; NumberAnimation { duration: AbyssStyle.motionFast; easing.type: Easing.OutCubic } }
-        Behavior on height { enabled: AbyssStyle.motionEnabled; NumberAnimation { duration: AbyssStyle.motionFast; easing.type: Easing.OutCubic } }
         HoverHandler { id: pomHover; enabled: root.visible; blocking: false; cursorShape: Qt.PointingHandCursor }
 
         // Main Screen-Edge-matched capsule
