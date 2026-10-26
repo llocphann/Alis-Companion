@@ -422,11 +422,29 @@ Item {
                         height: 36
                         Layout.fillWidth: true
                         spacing: 6
-                        DialogButton {
+                        RippleButton {
                             id: pocketBtn
-                            objectName:"wullChatPocket";buttonText:Translation.tr("Pocket")
-                            visible:WullPocket.permitted;enabled:WullPocket.canSelect && !WullMind.busy
-                            onClicked:root.openPocket()
+                            objectName: "wullChatPocket"
+                            y: 3
+                            Layout.preferredWidth: 30
+                            Layout.preferredHeight: 30
+                            implicitWidth: 30
+                            implicitHeight: 30
+                            visible: WullPocket.permitted
+                            enabled: WullPocket.canSelect && !WullMind.busy
+                            buttonRadius: 15
+                            Accessible.name: Translation.tr("Pocket")
+                            onClicked: root.openPocket()
+                            StyledToolTip {
+                                extraVisibleCondition: pocketBtn.buttonHovered
+                                text: "Pocket (" + WullPocket.items.length + "/32)"
+                            }
+                            contentItem: MaterialSymbol {
+                                anchors.centerIn: parent
+                                text: "inventory_2"
+                                iconSize: 17
+                                color: Appearance.colors.colPrimary
+                            }
                         }
                         RippleButton {
                             objectName: "wullModelEffort"

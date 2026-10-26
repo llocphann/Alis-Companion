@@ -4,6 +4,7 @@ import QtQuick.Shapes
 import Quickshell
 import qs.services
 import "../../../services"
+import qs.modules.common
 import qs.modules.common.widgets
 import qs.modules.abyss.looks
 import "WullCloudOrbit.js" as Orbit
@@ -15,15 +16,20 @@ Item {
     required property real outputHeight
     property bool allowed: false
     property bool revealed: false
-    readonly property bool hovered: obsidian.hovered || ai.hovered
+    readonly property bool hovered: obsidian.hovered || ai.hovered || (pomodoro.visible && pomodoro.hovered)
     readonly property Item obsidianTarget: obsidian
     readonly property Item aiTarget: ai
+    readonly property Item pomodoroTarget: pomodoro
+    readonly property string pomodoroTimeText: {
+        const secs = Math.max(0, Number(TimerService.pomodoroSecondsLeft ?? TimerService.focusTime ?? 1500))
+        return String(Math.floor(secs / 60)).padStart(2, "0") + ":" + String(secs % 60).padStart(2, "0")
+    }
     readonly property bool eligible: allowed && actor.visible && actor.inputReady && revealed
         && !WullMind.conversationOpen && !WullMind.contextOpen
     readonly property var orbit: eligible ? Orbit.layout(outputWidth,outputHeight,{
         x:actor.x,y:actor.y,width:actor.width,height:actor.height,scale:actor.scale,
         sideAlignment:actor.sideAlignment ?? 0,floorAlignment:actor.floorAlignment ?? 0,
-        edge:actor.edge ?? "bottom"}) : {available:false,nodes:[]}
+        edge:actor.edge ?? "bottom"}) : {available:false,nodes:[],pomodoroNode:null}
     width: outputWidth; height: outputHeight
     z: 241
     visible: eligible && orbit.available
@@ -41,14 +47,15 @@ Item {
         id:cloud
         required property string kind
         required property int orbitIndex
-        readonly property var placement: root.orbit.nodes[orbitIndex]
+        readonly property var placement: cloud.kind==="pomodoro" ? root.orbit.pomodoroNode : root.orbit.nodes[orbitIndex]
         readonly property bool hovered: nodeHover.hovered || button.buttonHovered
         readonly property color paintInk: glyphLoader.item?.color ?? AbyssStyle.accent
+        visible: !!placement && (placement.width ?? 0) > 0
         x: placement?.x ?? 0; y: placement?.y ?? 0
         width: placement?.width ?? 38; height: placement?.height ?? 33.25
         HoverHandler { id:nodeHover;enabled:root.visible;blocking:false;cursorShape:Qt.PointingHandCursor }
         Shape {
-            objectName: cloud.kind==="obsidian" ? "wullObsidianCloudShape" : "wullAiCloudShape"
+            objectName: cloud.kind==="obsidian" ? "wullObsidianCloudShape" : cloud.kind==="pomodoro" ? "wullPomodoroCloudShape" : "wullAiCloudShape"
             anchors.centerIn:parent
             width:48; height:42; scale:cloud.width/48
             // Reflect only the cloud paint across the orbit's bisector. The
@@ -63,8 +70,8 @@ Item {
                     : Qt.matrix4x4(1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1)
             }
             ShapePath {
-                strokeWidth:1.1
-                strokeColor:Qt.alpha(AbyssStyle.accent,cloud.hovered ? .88 : .48)
+                strokeWidth: cloud.kind==="pomodoro" && TimerService.pomodoroRunning ? 1.5 : 1.1
+                strokeColor: Qt.alpha(AbyssStyle.accent, cloud.hovered || (cloud.kind==="pomodoro" && TimerService.pomodoroRunning) ? .92 : .48)
                 fillGradient: LinearGradient {
                     x1:0; y1:6; x2:0; y2:39
                     GradientStop { position:0; color:Qt.alpha(AbyssStyle.surfaceRaised,cloud.hovered ? 1 : .94) }
@@ -83,17 +90,28 @@ Item {
             }
         }
         RippleButton {
-            id:button;objectName:cloud.kind==="obsidian" ? "wullObsidianAction" : "wullAiAction"
+            id:button
+            objectName: cloud.kind==="obsidian" ? "wullObsidianAction" : cloud.kind==="pomodoro" ? "wullPomodoroAction" : "wullAiAction"
             anchors.fill:parent;buttonRadius:height/2
             colBackground:"transparent";colBackgroundHover:"transparent";colRipple:AbyssStyle.accent
-            Accessible.name:cloud.kind==="obsidian" ? "Daily check-in and schedule" : "AI chat"
-            onClicked:cloud.kind==="obsidian" ? WullMind.openContext() : WullMind.openChat()
+            Accessible.name: cloud.kind==="obsidian" ? "Daily check-in and schedule"
+                : cloud.kind==="pomodoro" ? "Pomodoro timer" : "AI chat"
+            onClicked: {
+                if (cloud.kind === "obsidian") WullMind.openContext()
+                else if (cloud.kind === "pomodoro") TimerService.togglePomodoro()
+                else WullMind.openChat()
+            }
+            TapHandler {
+                enabled: cloud.kind === "pomodoro"
+                acceptedButtons: Qt.RightButton
+                onTapped: if (TimerService.pomodoroRunning || TimerService.pomodoroBreak) TimerService.resetPomodoro()
+            }
             contentItem:Item {
                 Loader {
                     id:glyphLoader
                     anchors.centerIn:parent
                     width:cloud.width*.4;height:width
-                    sourceComponent:cloud.kind==="obsidian" ? obsidianGlyph : aiGlyph
+                    sourceComponent: cloud.kind==="obsidian" ? obsidianGlyph : cloud.kind==="pomodoro" ? pomodoroGlyph : aiGlyph
                     Component {
                         id:obsidianGlyph
                         // Reuse AI's animated ink, so both glyphs follow the
@@ -104,10 +122,34 @@ Item {
                         id:aiGlyph
                         MaterialSymbol {objectName:"wullAiGlyph";iconSize:cloud.width*.4;color:AbyssStyle.accent;text:"auto_awesome"}
                     }
+                    Component {
+                        id:pomodoroGlyph
+                        Item {
+                            objectName: "wullPomodoroGlyph"
+                            property color color: ai?.paintInk ?? AbyssStyle.accent
+                            MaterialSymbol {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                y: TimerService.pomodoroRunning ? -3 : 0
+                                iconSize: TimerService.pomodoroRunning ? cloud.width * 0.30 : cloud.width * 0.40
+                                color: parent.color
+                                text: TimerService.pomodoroRunning && TimerService.pomodoroPaused ? "pause"
+                                    : TimerService.pomodoroBreak ? "coffee" : "timer"
+                            }
+                            StyledText {
+                                visible: TimerService.pomodoroRunning
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                y: parent.height * 0.54
+                                text: root.pomodoroTimeText
+                                font.pixelSize: 8
+                                color: parent.color
+                            }
+                        }
+                    }
                 }
             }
         }
     }
     Cloud { id:obsidian;kind:"obsidian";orbitIndex:0 }
     Cloud { id:ai;kind:"ai";orbitIndex:1 }
+    Cloud { id:pomodoro;kind:"pomodoro";orbitIndex:2 }
 }

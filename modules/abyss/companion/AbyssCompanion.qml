@@ -63,6 +63,8 @@ Item {
     property string ambientProp: ""
     property var coworkPose: null
     property bool coworkPropVisible: false
+    property bool pocketDragActive: false
+    readonly property real swallowPhase: droplet.swallowPhase
     readonly property real tangentDirection: travelDirection*Math.cos(standingAngle*Math.PI/180)+travelDirectionY*Math.sin(standingAngle*Math.PI/180)
     property real travelPhase: 0
     property real travelFromX: 0
@@ -140,6 +142,9 @@ Item {
     signal gestureCompleted(string action)
     function stopTravel(): void { travelTween.stop() }
     function stopGesture(): void { gestureTween.stop(); gesture="";gesturePhase=1 }
+    function swallowPocketFiles(count = 1, px = 38, py = 8): void {
+        droplet.triggerPocketSwallow(count, px, py)
+    }
     function perform(action): bool {
         if (!visible || !motionEnabled || !curves.clips[action] || dragging || moving) return false
         stopGesture();gesture=action;gesturePhase=0
@@ -385,6 +390,7 @@ Item {
             ambientProp: root.presentation > 0.99 && !root.leaving && !root.peeking && !root.moving && !root.portalWalking && !root.dragging ? root.ambientProp : ""
             coworkPose: root.presentation > 0.99 && !root.leaving && !root.peeking && !root.moving && !root.portalWalking && !root.dragging ? root.coworkPose : null
             coworkPropVisible: root.presentation > 0.99 && !root.leaving && !root.peeking && !root.moving && !root.portalWalking && !root.dragging && root.coworkPropVisible
+            pocketDragActive: root.pocketDragActive
             walkingDirection: (root.upright ? root.tangentDirection : root.travelDirection) * (root.upright || root.edge === "top" || root.edge === "left" ? 1 : -1)
             viewYaw: (root.moving || root.portalWalking) ? (root.walking ? root.tangentDirection : root.travelDirection) * (root.walking ? 32 : 20)
                 : root.peeking ? root.emergenceEdge==="left" ? 22 : root.emergenceEdge==="right" ? -22 : 0 : -15

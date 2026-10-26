@@ -244,8 +244,9 @@ class Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             folder=Path(temporary);host=folder/'host'
             shutil.copytree(mind.HOST/'scripts/ai',host/'scripts/ai')
-            inspector=mind.HOST/'scripts/hadalird-status.py'
-            if inspector.is_file():shutil.copy2(inspector,host/'scripts/hadalird-status.py')
+            for name in ('alis-intergration-status.py','hadalird-status.py'):
+                inspector=mind.HOST/'scripts'/name
+                if inspector.is_file():shutil.copy2(inspector,host/'scripts'/name)
             env=dict(os.environ,HADALIS_ROOT=str(host),XDG_DATA_HOME=str(folder/'data'),
                      INIR_WULL_HISTORY_DB=str(folder/'chat.sqlite3'))
             def call(payload):

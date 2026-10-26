@@ -50,7 +50,8 @@ def journal_modules():
     if daily is not None:return daily,core
     folder=HOST/'scripts/todo'
     if not all((folder/name).is_file() for name in ('obsidian_daily_todo.py','obsidian_todo.py')):
-        inspector=HOST/'scripts/hadalird-status.py'
+        inspector=HOST/'scripts/alis-intergration-status.py'
+        if not inspector.is_file():inspector=HOST/'scripts/hadalird-status.py'
         if not inspector.is_file():raise MindError('integration_unavailable','Obsidian integration is not installed.')
         spec=importlib.util.spec_from_file_location('hadalird_status',inspector)
         status=importlib.util.module_from_spec(spec);spec.loader.exec_module(status)

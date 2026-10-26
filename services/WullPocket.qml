@@ -20,6 +20,7 @@ Singleton {
     property var pending: null
     property int epoch: 0
     readonly property bool canSelect: permitted && !busy && !draining
+    signal filesSwallowed(int count)
 
     function close(): void {opened=false}
     function revoke(): void {
@@ -47,6 +48,7 @@ Singleton {
         }
         if (!dispatch("add",{urls:selection,source:source})) return false
         opened=true
+        filesSwallowed(selection.length)
         return true
     }
     function remove(id): bool {

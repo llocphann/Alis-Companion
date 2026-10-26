@@ -128,6 +128,27 @@ ContentPage {
         }
     }
 
+    component CompactIconButton: RippleButton {
+        id: iconBtn
+        property string iconName: ""
+        property string tooltipText: ""
+        implicitWidth: 34; implicitHeight: 34; buttonRadius: 17
+        activeFocusOnTab: true
+        colBackground: Appearance.colors.colLayer2
+        colBackgroundHover: Appearance.colors.colLayer2Hover
+        Accessible.name: tooltipText
+        contentItem: MaterialSymbol {
+            anchors.centerIn: parent
+            text: iconBtn.iconName
+            iconSize: 18
+            color: iconBtn.enabled ? Appearance.colors.colOnLayer1 : Appearance.colors.colSubtext
+        }
+        StyledToolTip {
+            text: iconBtn.tooltipText
+            extraVisibleCondition: iconBtn.hovered && text.length > 0
+        }
+    }
+
     component CompactChoice: ColumnLayout {
         id: compactChoice
         property string label: ""
@@ -289,36 +310,43 @@ ContentPage {
                 currentValue: root.preferences.character
                 onSelected: value => root.setPreference("character",value)
             }
-            SettingsSwitch {
-                objectName: "companionAlternate"
-                text: Translation.tr("Take turns on the desktop")
-                autoToggle: false
-                checked: root.preferences.alternateCompanions
-                onToggledByUser: checked => root.setPreference("alternateCompanions",checked)
-            }
-            SettingsSwitch {
-                objectName: "companionEnabled"
-                text: Translation.tr("Enable Companion")
-                description: Translation.tr("Let your companion join the desktop. Right-click to open these settings.")
-                autoToggle: false
-                checked: root.preferences.enabled
-                onToggledByUser: checked => root.setPreference("enabled", checked)
-            }
-            SettingsSwitch {
-                objectName: "companionInteractive"
-                text: Translation.tr("Respond to pointer interactions")
-                description: Translation.tr("Highlight on hover, react to clicks, and drag your companion around the screen.")
-                autoToggle: false
-                checked: root.preferences.interactive
-                onToggledByUser: checked => root.setPreference("interactive", checked)
-            }
-            SettingsSwitch {
-                objectName: "companionFullscreen"
-                text: Translation.tr("Always hide in fullscreen")
-                description: Translation.tr("Otherwise, follow the screen edge fullscreen setting.")
-                autoToggle: false
-                checked: root.preferences.hideInFullscreen
-                onToggledByUser: checked => root.setPreference("hideInFullscreen", checked)
+            GridLayout {
+                objectName: "companionOverviewTogglesGrid"
+                Layout.fillWidth: true
+                columns: root.availableRowWidth > 440 ? 2 : 1
+                columnSpacing: 12; rowSpacing: 8
+                CompactToggle {
+                    objectName: "companionEnabled"
+                    buttonIcon: "visibility"
+                    text: Translation.tr("Enable Companion")
+                    tooltipText: Translation.tr("Let your companion join the desktop. Right-click to open these settings.")
+                    checked: root.preferences.enabled
+                    onToggledByUser: checked => root.setPreference("enabled", checked)
+                }
+                CompactToggle {
+                    objectName: "companionAlternate"
+                    buttonIcon: "swap_horiz"
+                    text: Translation.tr("Take turns on the desktop")
+                    tooltipText: "Alternate between Aqua and Octo across desktop visits."
+                    checked: root.preferences.alternateCompanions
+                    onToggledByUser: checked => root.setPreference("alternateCompanions",checked)
+                }
+                CompactToggle {
+                    objectName: "companionInteractive"
+                    buttonIcon: "touch_app"
+                    text: Translation.tr("Respond to pointer interactions")
+                    tooltipText: Translation.tr("Highlight on hover, react to clicks, and drag your companion around the screen.")
+                    checked: root.preferences.interactive
+                    onToggledByUser: checked => root.setPreference("interactive", checked)
+                }
+                CompactToggle {
+                    objectName: "companionFullscreen"
+                    buttonIcon: "fullscreen_exit"
+                    text: Translation.tr("Always hide in fullscreen")
+                    tooltipText: Translation.tr("Otherwise, follow the screen edge fullscreen setting.")
+                    checked: root.preferences.hideInFullscreen
+                    onToggledByUser: checked => root.setPreference("hideInFullscreen", checked)
+                }
             }
         }
     }
@@ -330,98 +358,118 @@ ContentPage {
         icon: "sentiment_satisfied"
         SettingsGroup {
             enabled: Config.ready
-            ChoiceRow {
-                objectName: "companionPersonality"
-                label: Translation.tr("Personality")
-                description: Translation.tr("Calm moves gently. Balanced feels natural. Energetic reacts with bigger movements and more frequent expressions.")
-                options: root.personalityOptions
-                currentValue: root.preferences.personality
-                onSelected: value => root.setPreference("personality", value)
+            GridLayout {
+                objectName: "companionBehaviorChoicesGrid"
+                Layout.fillWidth: true
+                columns: root.availableRowWidth > 480 ? 2 : 1
+                columnSpacing: 16; rowSpacing: 8
+                CompactChoice {
+                    objectName: "companionPersonality"
+                    label: Translation.tr("Personality")
+                    description: Translation.tr("Calm moves gently. Balanced feels natural. Energetic reacts with bigger movements and more frequent expressions.")
+                    options: root.personalityOptions
+                    currentValue: root.preferences.personality
+                    onSelected: value => root.setPreference("personality", value)
+                }
+                CompactChoice {
+                    objectName: "companionFrequency"
+                    label: Translation.tr("Appearance frequency")
+                    description: Translation.tr("Scheduled visits last 20 seconds. Your companion stays while you interact or a task is running.")
+                    options: root.frequencyOptions
+                    currentValue: root.preferences.appearanceFrequency
+                    onSelected: value => root.setPreference("appearanceFrequency", value)
+                }
             }
-            ChoiceRow {
-                objectName: "companionFrequency"
-                label: Translation.tr("Appearance frequency")
-                description: Translation.tr("Scheduled visits last 20 seconds. Your companion stays while you interact or a task is running.")
-                options: root.frequencyOptions
-                currentValue: root.preferences.appearanceFrequency
-                onSelected: value => root.setPreference("appearanceFrequency", value)
-            }
-            SettingsSwitch {
-                objectName: "companionExploreFeatures"
-                text: Translation.tr("Explore Abyss features")
-                description: Translation.tr("Occasionally open and explore panels, then close them. Your companion leaves them open when you start using them.")
-                autoToggle: false
-                checked: root.preferences.exploreFeatures
-                onToggledByUser: checked => root.setPreference("exploreFeatures", checked)
-            }
-            SettingsSwitch {
-                objectName: "companionMotion"
-                text: Translation.tr("Companion animations")
-                description: Translation.tr("Walk on surfaces, float through open space, and react naturally. Respects the shell motion setting.")
-                autoToggle: false
-                checked: root.preferences.animationsEnabled
-                onToggledByUser: checked => root.setPreference("animationsEnabled", checked)
-            }
-            SettingsSwitch {
-                objectName:"companionContext"
-                text:Translation.tr("Share coarse activity with Companion")
-                description:Translation.tr("Off by default. Shares only the categories and states you choose below. Stops while locked, fullscreen or Do Not Disturb.")
-                autoToggle:false;checked:root.preferences.contextEnabled
-                onToggledByUser:checked=>root.setPreference("contextEnabled",checked)
-            }
-            SettingsSwitch {
-                objectName:"companionPocket"
-                text:Translation.tr("Enable Pocket")
-                description:Translation.tr("Save local file names, paths, sizes and dates when you choose or drop files. File contents are never read or sent to AI. Removing a reference keeps the original file.")
-                autoToggle:false;checked:root.preferences.pocketEnabled
-                onToggledByUser:checked=>root.setPreference("pocketEnabled",checked)
-            }
-            SettingsSwitch {
-                objectName:"companionContextFocus"
-                text:Translation.tr("Share the focused app category")
-                description:Translation.tr("Only terminal, editor or other. Window titles, files and app content stay private.")
-                enabled:root.preferences.contextEnabled
-                autoToggle:false;checked:root.preferences.contextFocusEnabled
-                onToggledByUser:checked=>root.setPreference("contextFocusEnabled",checked)
-            }
-            SettingsSwitch {
-                objectName:"companionContextAi"
-                text:Translation.tr("Share Alis AI activity")
-                description:Translation.tr("Only working, waiting for approval and finished. No prompts, replies, tools or permission grants.")
-                enabled:root.preferences.contextEnabled
-                autoToggle:false;checked:root.preferences.contextAiEnabled
-                onToggledByUser:checked=>root.setPreference("contextAiEnabled",checked)
-            }
-            SettingsSwitch {
-                objectName:"companionAmbient"
-                text:Translation.tr("Quiet ambient reactions")
-                description:Translation.tr("Small expressions, at most once every two minutes.")
-                autoToggle:false;checked:root.preferences.ambientEnabled
-                onToggledByUser:checked=>root.setPreference("ambientEnabled",checked)
-            }
-            SettingsSwitch {
-                objectName:"companionAmbientFocus"
-                text:Translation.tr("Follow Focus sessions")
-                description:Translation.tr("Uses the existing Focus timer; stays quiet during work.")
-                enabled:root.preferences.ambientEnabled
-                autoToggle:false;checked:root.preferences.ambientFocusEnabled
-                onToggledByUser:checked=>root.setPreference("ambientFocusEnabled",checked)
-            }
-            SettingsSwitch {
-                objectName:"companionAmbientBattery"
-                text:Translation.tr("React to battery state")
-                description:Translation.tr("Only low battery or charging; no device details.")
-                enabled:root.preferences.ambientEnabled
-                autoToggle:false;checked:root.preferences.ambientBatteryEnabled
-                onToggledByUser:checked=>root.setPreference("ambientBatteryEnabled",checked)
-            }
-            SettingsSwitch {
-                objectName:"companionAmbientMedia"
-                text:Translation.tr("React to playback state")
-                description:Translation.tr("Only playing or paused; no titles, artists or media control.")
-                enabled:root.preferences.ambientEnabled
-                autoToggle:false;checked:root.preferences.ambientMediaEnabled
-                onToggledByUser:checked=>root.setPreference("ambientMediaEnabled",checked)
+            GridLayout {
+                objectName: "companionBehaviorTogglesGrid"
+                Layout.fillWidth: true
+                columns: root.availableRowWidth > 560 ? 2 : 1
+                columnSpacing: 12; rowSpacing: 8
+                CompactToggle {
+                    objectName: "companionMotion"
+                    buttonIcon: "animation"
+                    text: Translation.tr("Companion animations")
+                    tooltipText: Translation.tr("Walk on surfaces, float through open space, and react naturally. Respects the shell motion setting.")
+                    checked: root.preferences.animationsEnabled
+                    onToggledByUser: checked => root.setPreference("animationsEnabled", checked)
+                }
+                CompactToggle {
+                    objectName: "companionExploreFeatures"
+                    buttonIcon: "explore"
+                    text: Translation.tr("Explore Abyss features")
+                    tooltipText: Translation.tr("Occasionally open and explore panels, then close them. Your companion leaves them open when you start using them.")
+                    checked: root.preferences.exploreFeatures
+                    onToggledByUser: checked => root.setPreference("exploreFeatures", checked)
+                }
+                CompactToggle {
+                    objectName: "companionPocket"
+                    buttonIcon: "inventory_2"
+                    text: Translation.tr("Enable Pocket")
+                    tooltipText: Translation.tr("Save local file names, paths, sizes and dates when you choose or drop files. File contents are never read or sent to AI. Removing a reference keeps the original file.")
+                    checked: root.preferences.pocketEnabled
+                    onToggledByUser: checked => root.setPreference("pocketEnabled", checked)
+                }
+                CompactToggle {
+                    objectName: "companionContext"
+                    buttonIcon: "sensors"
+                    text: Translation.tr("Share coarse activity with Companion")
+                    tooltipText: Translation.tr("Off by default. Shares only the categories and states you choose below. Stops while locked, fullscreen or Do Not Disturb.")
+                    checked: root.preferences.contextEnabled
+                    onToggledByUser: checked => root.setPreference("contextEnabled", checked)
+                }
+                CompactToggle {
+                    objectName: "companionContextFocus"
+                    buttonIcon: "terminal"
+                    text: Translation.tr("Share the focused app category")
+                    tooltipText: Translation.tr("Only terminal, editor or other. Window titles, files and app content stay private.")
+                    enabled: root.preferences.contextEnabled
+                    checked: root.preferences.contextFocusEnabled
+                    onToggledByUser: checked => root.setPreference("contextFocusEnabled", checked)
+                }
+                CompactToggle {
+                    objectName: "companionContextAi"
+                    buttonIcon: "psychology"
+                    text: Translation.tr("Share Alis AI activity")
+                    tooltipText: Translation.tr("Only working, waiting for approval and finished. No prompts, replies, tools or permission grants.")
+                    enabled: root.preferences.contextEnabled
+                    checked: root.preferences.contextAiEnabled
+                    onToggledByUser: checked => root.setPreference("contextAiEnabled", checked)
+                }
+                CompactToggle {
+                    objectName: "companionAmbient"
+                    buttonIcon: "auto_awesome"
+                    text: Translation.tr("Quiet ambient reactions")
+                    tooltipText: Translation.tr("Small expressions, at most once every two minutes.")
+                    checked: root.preferences.ambientEnabled
+                    onToggledByUser: checked => root.setPreference("ambientEnabled", checked)
+                }
+                CompactToggle {
+                    objectName: "companionAmbientFocus"
+                    buttonIcon: "timer"
+                    text: Translation.tr("Follow Focus sessions")
+                    tooltipText: Translation.tr("Uses the existing Focus timer; stays quiet during work.")
+                    enabled: root.preferences.ambientEnabled
+                    checked: root.preferences.ambientFocusEnabled
+                    onToggledByUser: checked => root.setPreference("ambientFocusEnabled", checked)
+                }
+                CompactToggle {
+                    objectName: "companionAmbientBattery"
+                    buttonIcon: "battery_charging_full"
+                    text: Translation.tr("React to battery state")
+                    tooltipText: Translation.tr("Only low battery or charging; no device details.")
+                    enabled: root.preferences.ambientEnabled
+                    checked: root.preferences.ambientBatteryEnabled
+                    onToggledByUser: checked => root.setPreference("ambientBatteryEnabled", checked)
+                }
+                CompactToggle {
+                    objectName: "companionAmbientMedia"
+                    buttonIcon: "music_note"
+                    text: Translation.tr("React to playback state")
+                    tooltipText: Translation.tr("Only playing or paused; no titles, artists or media control.")
+                    enabled: root.preferences.ambientEnabled
+                    checked: root.preferences.ambientMediaEnabled
+                    onToggledByUser: checked => root.setPreference("ambientMediaEnabled", checked)
+                }
             }
         }
     }
@@ -433,59 +481,68 @@ ContentPage {
         icon: "diamond"
         SettingsGroup {
             enabled: Config.ready
-            PercentageRow {
-                objectName: "companionSize"
-                label: Translation.tr("Companion size")
-                description: Translation.tr("Keep your companion small or give it a little more room.")
-                value: root.preferences.size
-                minimum: 0.65; maximum: 1.5
-                onMoved: value => root.setPreference("size", value)
+            GridLayout {
+                objectName: "companionRenderingSlidersGrid"
+                Layout.fillWidth: true
+                columns: root.availableRowWidth > 520 ? 2 : 1
+                columnSpacing: 16; rowSpacing: 8
+                PercentageRow {
+                    objectName: "companionSize"
+                    label: Translation.tr("Companion size")
+                    description: Translation.tr("Keep your companion small or give it a little more room.")
+                    value: root.preferences.size
+                    minimum: 0.65; maximum: 1.5
+                    onMoved: value => root.setPreference("size", value)
+                }
+                PercentageRow {
+                    objectName: "companionTranslucency"
+                    label: Translation.tr("Translucency")
+                    description: Translation.tr("Let a little of the background show through the liquid. Eyes and bright reflections stay clear.")
+                    value: root.preferences.translucency
+                    minimum: 0
+                    maximum: 0.35
+                    onMoved: value => root.setPreference("translucency", value)
+                }
             }
             ChoiceRow {
                 objectName: "companionQuality"
                 label: Translation.tr("Rendering quality")
-                description: Translation.tr("Performance uses simpler lighting. Balanced adds liquid detail. Quality adds deeper reflections.")
+                description: Translation.tr("Current render quality") + ": " + AbyssRenderPolicy.wullQualityLabel
                 enabled: !root.preferences.autoQuality
                 options: root.qualityOptions
                 currentValue: root.preferences.renderQuality
                 onSelected: value => root.setPreference("renderQuality", value)
             }
-            SettingsSwitch {
-                text: Translation.tr("Follow power profile")
-                description: Translation.tr("Use Performance in Power Saver and Balanced in other power profiles.")
-                autoToggle: false
-                checked: root.preferences.autoQuality
-                onToggledByUser: checked => root.setPreference("autoQuality",checked)
-            }
-            StyledText {
-                text: Translation.tr("Current render quality")+": "+AbyssRenderPolicy.wullQualityLabel
-                color: Appearance.colors.colSubtext
-            }
-            PercentageRow {
-                objectName: "companionTranslucency"
-                label: Translation.tr("Translucency")
-                description: Translation.tr("Let a little of the background show through the liquid. Eyes and bright reflections stay clear.")
-                value: root.preferences.translucency
-                minimum: 0
-                maximum: 0.35
-                onMoved: value => root.setPreference("translucency", value)
-            }
-            SettingsSwitch {
-                objectName: "companionEffects"
-                text: Translation.tr("Bubbles and floor reflections")
-                description: Translation.tr("Add floating bubbles, sparkle and the liquid reflection beneath your companion. Performance uses a simpler floor effect. Respects the shell effects setting.")
-                autoToggle: false
-                checked: root.preferences.effectsEnabled
-                onToggledByUser: checked => root.setPreference("effectsEnabled", checked)
+            GridLayout {
+                objectName: "companionRenderingTogglesGrid"
+                Layout.fillWidth: true
+                columns: root.availableRowWidth > 440 ? 2 : 1
+                columnSpacing: 12; rowSpacing: 8
+                CompactToggle {
+                    buttonIcon: "bolt"
+                    text: Translation.tr("Follow power profile")
+                    tooltipText: Translation.tr("Use Performance in Power Saver and Balanced in other power profiles.")
+                    checked: root.preferences.autoQuality
+                    onToggledByUser: checked => root.setPreference("autoQuality",checked)
+                }
+                CompactToggle {
+                    objectName: "companionEffects"
+                    buttonIcon: "auto_fix_high"
+                    text: Translation.tr("Bubbles and floor reflections")
+                    tooltipText: Translation.tr("Add floating bubbles, sparkle and the liquid reflection beneath your companion. Performance uses a simpler floor effect. Respects the shell effects setting.")
+                    checked: root.preferences.effectsEnabled
+                    onToggledByUser: checked => root.setPreference("effectsEnabled", checked)
+                }
             }
         }
     }
 
-    DialogButton {
+    CompactIconButton {
         objectName: "companionReset"
         Layout.alignment: Qt.AlignRight
         enabled: Config.ready
-        buttonText: Translation.tr("Reset Companion settings")
+        iconName: "restart_alt"
+        tooltipText: Translation.tr("Reset Companion settings")
         onClicked: root.resetPreferences()
     }
     SettingsCardSection {
@@ -516,19 +573,38 @@ ContentPage {
                     checked:!WullMind.localOnly
                     onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.localOnly",!checked)
                 }
-                ColumnLayout {
-                    Layout.fillWidth:true;spacing:2
-                    StyledText {
-                        objectName:"wullAiPrivacyStatus"
-                        Layout.fillWidth:true
-                        text:WullMind.localOnly ? "Local only" : "Cloud models allowed"
-                        color:Appearance.colors.colPrimary
+                RowLayout {
+                    Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:8
+                    Rectangle {
+                        Layout.fillWidth:true;implicitHeight:34;radius:10
+                        color:Appearance.colors.colLayer2
+                        RowLayout {
+                            anchors.fill:parent;anchors.leftMargin:10;anchors.rightMargin:10;spacing:6
+                            MaterialSymbol {
+                                text:WullMind.localOnly ? "verified_user" : "cloud_done"
+                                iconSize:16;color:Appearance.colors.colPrimary
+                            }
+                            StyledText {
+                                objectName:"wullAiPrivacyStatus"
+                                Layout.fillWidth:true;elide:Text.ElideRight
+                                text:WullMind.localOnly ? "Local only" : "Cloud models allowed"
+                                color:Appearance.colors.colPrimary
+                                font.pixelSize:Appearance.font.pixelSize.smaller
+                            }
+                        }
+                        MouseArea {
+                            id:privacyHover;anchors.fill:parent;hoverEnabled:true;acceptedButtons:Qt.NoButton
+                        }
+                        StyledToolTip {
+                            text:Translation.tr("Providers and connections are shared with AI settings.")
+                            extraVisibleCondition:privacyHover.containsMouse
+                        }
                     }
-                    StyledText {
-                        Layout.fillWidth:true;wrapMode:Text.WordWrap
-                        text:Translation.tr("Providers and connections are shared with AI settings.")
-                        color:Appearance.colors.colSubtext
-                        font.pixelSize:Appearance.font.pixelSize.smaller
+                    CompactIconButton {
+                        objectName:"wullClearConversation"
+                        iconName:"delete_sweep"
+                        tooltipText:Translation.tr("Clear conversation")
+                        onClicked:WullMind.clearConversation()
                     }
                 }
             }
@@ -538,7 +614,7 @@ ContentPage {
                 columns:root.availableRowWidth>520 ? 2 : 1
                 columnSpacing:16;rowSpacing:8
                 ColumnLayout {
-                    Layout.fillWidth:true;spacing:4
+                    Layout.fillWidth:true;Layout.alignment:Qt.AlignTop;spacing:4
                     StyledText {
                         Layout.fillWidth:true
                         text:"Model"
@@ -559,7 +635,7 @@ ContentPage {
                     }
                 }
                 ColumnLayout {
-                    Layout.fillWidth:true;spacing:4
+                    Layout.fillWidth:true;Layout.alignment:Qt.AlignTop;spacing:4
                     RowLayout {
                         Layout.fillWidth:true
                         StyledText {Layout.fillWidth:true;text:"Thinking effort";color:Appearance.colors.colSubtext;font.pixelSize:Appearance.font.pixelSize.smaller}
@@ -577,25 +653,13 @@ ContentPage {
                             WullMind.setThinkingEffort(levels[Math.max(0,Math.min(3,Math.round(value)))])
                         }
                     }
-                    StyledText {
-                        visible:WullMind.model.length>0 && !WullMind.thinkingSupported
-                        Layout.fillWidth:true;wrapMode:Text.WordWrap
-                        text:Translation.tr("This model uses its provider default. Choose a supported reasoning model to set effort.")
-                        color:Appearance.colors.colSubtext
-                        font.pixelSize:Appearance.font.pixelSize.smaller
-                    }
                 }
-            }
-            RowLayout {
-                spacing:8
-                DialogButton {buttonText:Translation.tr("Open chat");enabled:root.preferences.enabled;onClicked:WullMind.openChat()}
-                DialogButton {buttonText:Translation.tr("Clear conversation");onClicked:WullMind.clearConversation()}
             }
             CompactToggle {
                 objectName:"wullEnableProactive"
                 buttonIcon:"notifications_active"
                 text:Translation.tr("Allow proactive check-ins and reminders")
-                description:Translation.tr("Off by default. Pauses during Focus, fullscreen, games, dialogs and quiet hours. Repeatedly ignored offers pause until you interact or the next day.")
+                tooltipText:Translation.tr("Off by default. Pauses during Focus, fullscreen, games, dialogs and quiet hours. Repeatedly ignored offers pause until you interact or the next day.")
                 checked:WullMind.options.proactiveEnabled === true
                 enabled:WullMind.options.proactiveEnabled !== undefined
                 onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.proactiveEnabled",checked)
@@ -640,6 +704,7 @@ ContentPage {
                 columnSpacing:12;rowSpacing:8
                 CompactToggle {
                     objectName:"wullQuietHoursToggle"
+                    Layout.alignment:Qt.AlignBottom
                     buttonIcon:"bedtime"
                     text:Translation.tr("Quiet hours")
                     tooltipText:"Pause automatic check-ins and reminders during your quiet hours."
@@ -648,14 +713,14 @@ ContentPage {
                 }
                 CompactChoice {
                     objectName:"wullQuietHoursStart"
-                    label:Translation.tr("Quiet hours start")
+                    label:"Start"
                     options:[{displayName:"20:00",value:1200},{displayName:"22:00",value:1320},{displayName:"00:00",value:0}]
                     currentValue:WullMind.options.proactiveQuietStart ?? 1320
                     onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveQuietStart",value)
                 }
                 CompactChoice {
                     objectName:"wullQuietHoursEnd"
-                    label:Translation.tr("Quiet hours end")
+                    label:"End"
                     options:[{displayName:"06:00",value:360},{displayName:"08:00",value:480},{displayName:"10:00",value:600}]
                     currentValue:WullMind.options.proactiveQuietEnd ?? 480
                     onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveQuietEnd",value)
@@ -669,7 +734,7 @@ ContentPage {
                 CompactToggle {
                     objectName:"wullPlannerReminders"
                     buttonIcon:"event_upcoming"
-                    text:"Read Weekly Planner events for reminders"
+                    text:"Read Weekly Planner events"
                     tooltipText:"Use scheduled events from your Alis Weekly Planner for proactive reminders. Off by default."
                     checked:WullMind.plannerRemindersEnabled
                     onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.calendarRemindersEnabled",checked)
@@ -696,7 +761,7 @@ ContentPage {
                 objectName:"wullDialogueConsent"
                 buttonIcon:"mood"
                 text:Translation.tr("Personalize local dialogue")
-                description:Translation.tr("Use your chosen tone and today's explicit check-in for local replies. Familiarity is your choice. No relationship score, penalties for absence or pressure to return.")
+                tooltipText:Translation.tr("Use your chosen tone and today's explicit check-in for local replies. Familiarity is your choice. No relationship score, penalties for absence or pressure to return.")
                 checked:WullMind.options.bondEnabled===true
                 enabled:WullMind.options.bondEnabled!==undefined
                 onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.bondEnabled",checked)
@@ -722,11 +787,14 @@ ContentPage {
                     currentValue:WullMind.options.familiarity ?? "neutral"
                     onSelected:value=>Config.setNestedValue("abyss.companionMind.familiarity",value)
                 }
-                DialogButton {
-                    objectName:"wullResetDialogue"
-                    Layout.alignment:Qt.AlignBottom
-                    buttonText:Translation.tr("Reset dialogue preferences")
-                    onClicked:WullMind.resetDialogue()
+                RowLayout {
+                    Layout.fillWidth:true;Layout.alignment:Qt.AlignBottom;spacing:8
+                    CompactIconButton {
+                        objectName:"wullResetDialogue"
+                        iconName:"restart_alt"
+                        tooltipText:Translation.tr("Reset dialogue preferences")
+                        onClicked:WullMind.resetDialogue()
+                    }
                 }
             }
             GridLayout {
@@ -742,18 +810,119 @@ ContentPage {
                     checked:WullMind.obsidianEnabled
                     onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.obsidianEnabled",checked)
                 }
-                ColumnLayout {
-                    Layout.fillWidth:true;spacing:6
+                RowLayout {
+                    Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:8
                     StyledText {
-                        Layout.fillWidth:true;wrapMode:Text.WordWrap
+                        Layout.fillWidth:true;elide:Text.ElideMiddle
                         text:Translation.tr("Obsidian vault")+": "+(Todo.sharedVaultPath || Translation.tr("Not configured"))
                         font.pixelSize:Appearance.font.pixelSize.smaller
                         color:Appearance.colors.colSubtext
                     }
-                    RowLayout {
-                        spacing:8
-                        DialogButton {buttonText:Translation.tr("Read today's context");enabled:WullMind.obsidianEnabled && !WullMind.busy;onClicked:WullMind.refreshJournal()}
-                        DialogButton {buttonText:Translation.tr("Open journal");enabled:!!WullMind.journal.journalPath;onClicked:WullMind.openJournal()}
+                    CompactIconButton {
+                        iconName:"refresh"
+                        tooltipText:Translation.tr("Read today's context")
+                        enabled:WullMind.obsidianEnabled && !WullMind.busy
+                        onClicked:WullMind.refreshJournal()
+                    }
+                    CompactIconButton {
+                        iconName:"open_in_new"
+                        tooltipText:Translation.tr("Open journal")
+                        enabled:!!WullMind.journal.journalPath
+                        onClicked:WullMind.openJournal()
+                    }
+                }
+            }
+            GridLayout {
+                objectName:"wullAgentToolsGrid"
+                Layout.fillWidth:true
+                columns:root.availableRowWidth>560 ? 3 : root.availableRowWidth>380 ? 2 : 1
+                columnSpacing:12;rowSpacing:8
+                CompactToggle {
+                    objectName:"wullAgentToolsToggle"
+                    buttonIcon:"smart_toy"
+                    text:"Enable local Agent tools"
+                    tooltipText:"Allow local models to read consented Weekly Planner, Todo, Pocket filenames and inspected metadata in chat."
+                    checked:WullMind.agentToolsEnabled
+                    onToggledByUser:checked=>WullMind.agentToolsEnabled=checked
+                }
+                CompactToggle {
+                    objectName:"wullAgentDocRagToggle"
+                    buttonIcon:"library_books"
+                    text:"Local docs RAG in chat"
+                    tooltipText:"Allow local models to retrieve local Companion documentation snippets when relevant."
+                    enabled:WullMind.agentToolsEnabled
+                    checked:WullMind.agentDocRagEnabled
+                    onToggledByUser:checked=>{
+                        WullMind.agentDocRagEnabled=checked
+                        if(checked)WullMind.evaluateToolRouting("How does Companion architecture work?",true)
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:6
+                    CompactIconButton {
+                        objectName:"wullAgentInspectHost"
+                        iconName:"info"
+                        tooltipText:"Inspect host & package metadata"
+                        enabled:WullMind.agentToolsEnabled && !WullMind.busy
+                        onClicked:WullMind.inspectToolMetadata("host_metadata")
+                    }
+                    CompactIconButton {
+                        objectName:"wullAgentProposeTone"
+                        iconName:"tune"
+                        tooltipText:"Propose dialogue tone edit (requires confirmation)"
+                        enabled:WullMind.agentToolsEnabled && !WullMind.busy
+                        onClicked:{
+                            const cur=String(WullMind.options.dialogueTone ?? "gentle")
+                            const next=cur==="gentle" ? "playful" : "gentle"
+                            WullMind.proposePreferenceEdit("dialogueTone",cur,next)
+                        }
+                    }
+                    CompactIconButton {
+                        objectName:"wullAgentConfirmProposal"
+                        visible:WullMind.lastToolProposal!==null
+                        iconName:"check"
+                        tooltipText:"Confirm pending Agent proposal"
+                        enabled:!WullMind.busy && WullMind.lastToolProposal!==null
+                        onClicked:if(WullMind.lastToolProposal)WullMind.confirmToolProposal(String(WullMind.lastToolProposal.proposalId))
+                    }
+                    CompactIconButton {
+                        objectName:"wullAgentCancelProposal"
+                        visible:WullMind.lastToolProposal!==null
+                        iconName:"close"
+                        tooltipText:"Cancel pending Agent proposal"
+                        enabled:!WullMind.busy && WullMind.lastToolProposal!==null
+                        onClicked:if(WullMind.lastToolProposal)WullMind.cancelToolProposal(String(WullMind.lastToolProposal.proposalId))
+                    }
+                    CompactIconButton {
+                        objectName:"wullAgentRefreshReceipts"
+                        iconName:"receipt_long"
+                        tooltipText:"Refresh Agent tool receipts"
+                        enabled:WullMind.agentToolsEnabled && !WullMind.busy
+                        onClicked:WullMind.refreshToolReceipts()
+                    }
+                    StyledText {
+                        Layout.fillWidth:true;elide:Text.ElideRight
+                        text:WullMind.toolNotice || (WullMind.lastToolMetadata ? "Host localOnly=" + String(WullMind.lastToolMetadata.localOnlyDefault) : "Agent ready")
+                        font.pixelSize:Appearance.font.pixelSize.smaller
+                        color:Appearance.colors.colSubtext
+                    }
+                }
+            }
+            Repeater {
+                model:WullMind.toolReceipts
+                RowLayout {
+                    required property var modelData
+                    Layout.fillWidth:true;spacing:8
+                    StyledText {
+                        Layout.fillWidth:true;elide:Text.ElideRight;textFormat:Text.PlainText
+                        font.pixelSize:Appearance.font.pixelSize.smaller;color:Appearance.colors.colSubtext
+                        text:modelData.field+": "+modelData.beforeValue+" → "+modelData.afterValue+(modelData.rolledBack ? " (rolled back)" : "")
+                    }
+                    CompactIconButton {
+                        iconName:"undo"
+                        tooltipText:"Rollback preference update"
+                        enabled:!WullMind.busy && !modelData.rolledBack
+                        onClicked:WullMind.rollbackToolReceipt(String(modelData.receiptId))
                     }
                 }
             }
@@ -761,32 +930,10 @@ ContentPage {
                 objectName:"wullEnableMemory"
                 buttonIcon:"bookmark"
                 text:Translation.tr("Use saved memories with local models")
-                description:Translation.tr("Only entries you save here are remembered. No automatic extraction from chat. Turning this off stops use and keeps your records available for review or deletion.")
+                tooltipText:Translation.tr("Only entries you save here are remembered. No automatic extraction from chat. Turning this off stops use and keeps your records available for review or deletion.")
                 checked:WullMind.memoryEnabled
                 enabled:WullMind.options.memoryEnabled !== undefined && !WullMind.busy
                 onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.memoryEnabled",checked)
-            }
-            Rectangle {
-                Layout.fillWidth:true
-                implicitHeight:48;radius:10
-                color:Appearance.colors.colLayer1
-                border.width:1;border.color:Qt.alpha(Appearance.colors.colPrimary,memoryInput.activeFocus ? .8 : .3)
-                StyledTextInput {
-                    id:memoryInput
-                    objectName:"wullMemoryDraft"
-                    anchors.fill:parent;anchors.margins:12
-                    enabled:WullMind.memoryEnabled && !WullMind.busy
-                    clip:true;selectByMouse:true;activeFocusOnTab:true
-                    Accessible.name:Translation.tr("An explicit preference to remember")
-                    maximumLength:320;text:root.memoryDraft
-                    onTextEdited:root.memoryDraft=text
-                }
-                StyledText {
-                    anchors.fill:memoryInput;verticalAlignment:Text.AlignVCenter
-                    visible:!memoryInput.text;elide:Text.ElideRight
-                    text:Translation.tr("An explicit preference to remember")
-                    color:Appearance.colors.colSubtext
-                }
             }
             GridLayout {
                 objectName:"wullMemoryOptionsGrid"
@@ -809,23 +956,51 @@ ContentPage {
                 }
             }
             RowLayout {
-                spacing:8
-                DialogButton {
+                Layout.fillWidth:true;spacing:8
+                Rectangle {
+                    Layout.fillWidth:true
+                    implicitHeight:38;radius:10
+                    color:Appearance.colors.colLayer1
+                    border.width:1;border.color:Qt.alpha(Appearance.colors.colPrimary,memoryInput.activeFocus ? .8 : .3)
+                    StyledTextInput {
+                        id:memoryInput
+                        objectName:"wullMemoryDraft"
+                        anchors.fill:parent;anchors.leftMargin:10;anchors.rightMargin:10
+                        verticalAlignment:Text.AlignVCenter
+                        enabled:WullMind.memoryEnabled && !WullMind.busy
+                        clip:true;selectByMouse:true;activeFocusOnTab:true
+                        Accessible.name:Translation.tr("An explicit preference to remember")
+                        maximumLength:320;text:root.memoryDraft
+                        onTextEdited:root.memoryDraft=text
+                    }
+                    StyledText {
+                        anchors.fill:memoryInput;verticalAlignment:Text.AlignVCenter
+                        visible:!memoryInput.text;elide:Text.ElideRight
+                        text:Translation.tr("An explicit preference to remember")
+                        color:Appearance.colors.colSubtext
+                        font.pixelSize:Appearance.font.pixelSize.smaller
+                    }
+                }
+                CompactIconButton {
                     objectName:"wullSaveMemory"
-                    buttonText:root.memoryEditingId ? Translation.tr("Save memory changes") : Translation.tr("Save memory")
+                    iconName:root.memoryEditingId ? "save" : "add"
+                    tooltipText:root.memoryEditingId ? Translation.tr("Save memory changes") : Translation.tr("Save memory")
                     enabled:WullMind.memoryEnabled && !WullMind.busy && root.memoryDraft.trim().length>0
                     onClicked:if(WullMind.saveMemory(root.memoryDraft,root.memoryScope,root.memoryTtlDays,root.memoryEditingId)) {
                         root.memoryDraft="";root.memoryEditingId=0
                     }
                 }
-                DialogButton {
+                CompactIconButton {
                     objectName:"wullReviewMemory"
-                    buttonText:Translation.tr("Review saved memories");enabled:!WullMind.busy
+                    iconName:"refresh"
+                    tooltipText:Translation.tr("Review saved memories")
+                    enabled:!WullMind.busy
                     onClicked:WullMind.refreshMemory()
                 }
-                DialogButton {
+                CompactIconButton {
                     objectName:"wullForgetAllMemory"
-                    buttonText:root.confirmForgetMemories ? Translation.tr("Confirm forgetting all saved memories") : Translation.tr("Forget all saved memories")
+                    iconName:root.confirmForgetMemories ? "warning" : "delete_sweep"
+                    tooltipText:root.confirmForgetMemories ? Translation.tr("Confirm forgetting all saved memories") : Translation.tr("Forget all saved memories")
                     enabled:!WullMind.busy && WullMind.memories.length>0
                     onClicked:{
                         if(root.confirmForgetMemories){WullMind.forgetAllMemories();root.confirmForgetMemories=false}
@@ -834,34 +1009,39 @@ ContentPage {
                 }
             }
             StyledText {
+                visible:WullMind.memoryNotice.length>0
                 Layout.fillWidth:true;wrapMode:Text.WordWrap;textFormat:Text.PlainText
-                text:WullMind.memoryNotice || Translation.tr("Up to 128 entries. Expiry stops use. Forgetting removes logical records; backups, chat and Obsidian copies may remain.")
+                text:WullMind.memoryNotice
+                font.pixelSize:Appearance.font.pixelSize.smaller
                 color:Appearance.colors.colSubtext
             }
             Repeater {
                 model:WullMind.memories
-                ColumnLayout {
+                RowLayout {
                     required property var modelData
-                    Layout.fillWidth:true
+                    Layout.fillWidth:true;spacing:8
                     StyledText {
-                        Layout.fillWidth:true;wrapMode:Text.WordWrap;textFormat:Text.PlainText
+                        Layout.fillWidth:true;elide:Text.ElideRight;textFormat:Text.PlainText
                         text:modelData.scope+" · "+modelData.text
                     }
                     StyledText {
-                        Layout.fillWidth:true;textFormat:Text.PlainText;color:Appearance.colors.colSubtext
+                        textFormat:Text.PlainText;color:Appearance.colors.colSubtext
+                        font.pixelSize:Appearance.font.pixelSize.smaller
                         text:modelData.expires_ms===0 ? Translation.tr("Until forgotten")
                             : (modelData.expires_ms<=Date.now() ? Translation.tr("Expired") : Translation.tr("Expires"))
                                 +" · "+Qt.formatDateTime(new Date(modelData.expires_ms),"yyyy-MM-dd")
                     }
-                    RowLayout {
-                        DialogButton {
-                            buttonText:Translation.tr("Edit");enabled:WullMind.memoryEnabled && !WullMind.busy
-                            onClicked:{root.memoryDraft=modelData.text;root.memoryScope=modelData.scope;root.memoryEditingId=modelData.id}
-                        }
-                        DialogButton {
-                            buttonText:Translation.tr("Forget");enabled:!WullMind.busy
-                            onClicked:WullMind.forgetMemory(modelData.id)
-                        }
+                    CompactIconButton {
+                        iconName:"edit"
+                        tooltipText:Translation.tr("Edit")
+                        enabled:WullMind.memoryEnabled && !WullMind.busy
+                        onClicked:{root.memoryDraft=modelData.text;root.memoryScope=modelData.scope;root.memoryEditingId=modelData.id}
+                    }
+                    CompactIconButton {
+                        iconName:"delete"
+                        tooltipText:Translation.tr("Forget")
+                        enabled:!WullMind.busy
+                        onClicked:WullMind.forgetMemory(modelData.id)
                     }
                 }
             }

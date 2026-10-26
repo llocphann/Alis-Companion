@@ -19,7 +19,24 @@ DropArea {
     onPositionChanged:drag=> {drag.accepted=false;if(accepts(drag))drag.accept(Qt.CopyAction)}
     onDropped:drop=> {
         drop.accepted=false
-        if (accepts(drop) && WullPocket.addFiles(Array.from(drop.urls,value=>String(value)),"drop"))
+        const urls = Array.from(drop.urls, value => String(value))
+        if (accepts(drop) && WullPocket.addFiles(urls, "drop")) {
             drop.accept(Qt.CopyAction)
+            if (typeof actor.swallowPocketFiles === "function")
+                actor.swallowPocketFiles(urls.length, drop.x - (actor.width - 76) * 0.5, drop.y - (actor.height - 92) * 0.5)
+        }
+    }
+    Binding {
+        target: root.actor
+        property: "pocketDragActive"
+        value: root.containsDrag
+        when: !!root.actor && root.actor.hasOwnProperty("pocketDragActive")
+    }
+    Connections {
+        target: WullPocket
+        function onFilesSwallowed(count): void {
+            if (root.actor && typeof root.actor.swallowPocketFiles === "function" && root.actor.swallowPhase >= 0.99)
+                root.actor.swallowPocketFiles(count, 38, 6)
+        }
     }
 }

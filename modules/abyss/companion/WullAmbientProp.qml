@@ -14,7 +14,7 @@ Item {
     height: 92
     visible: propKind === "book" || propKind === "coffee" || propKind === "thought"
 
-    readonly property var bookAnchor: body ? body.project(0, -17, 20) : ({ x: 0, y: -17, z: 20, scale: 1 })
+    readonly property var bookAnchor: body ? body.project(-2, -23, 21) : ({ x: -2, y: -23, z: 21, scale: 1 })
     readonly property var coffeeAnchor: body ? body.project(14, -14, 19) : ({ x: 14, y: -14, z: 19, scale: 1 })
     readonly property var thoughtAnchor: body ? body.project(23, 24, 14) : ({ x: 23, y: 24, z: 14, scale: 1 })
 
@@ -22,80 +22,133 @@ Item {
         id: bookProp
         objectName: "wullAmbientBook"
         visible: root.propKind === "book"
-        width: 34
-        height: 22
+        width: 38
+        height: 25
         x: 38 + root.bookAnchor.x - width * 0.5
-        y: 46.14 - root.bookAnchor.y - height * 0.5 + root.lift + (root.shimmer - 0.5) * 1.8
+        y: 46.14 - root.bookAnchor.y - height * 0.5 + root.lift + (root.shimmer - 0.5) * 1.6
         scale: Math.max(0.88, Math.min(1.2, root.bookAnchor.scale ?? 1.05))
-        rotation: (root.shimmer - 0.5) * 4.5
-        Rectangle {
-            x: 3
-            y: 16
-            width: 28
-            height: 5
-            radius: 2.5
-            color: "#55020812"
-        }
+        rotation: -6 + (root.shimmer - 0.5) * 3.5
+
+        // Soft drop shadow under the 3/4 angled open book
         Shape {
             anchors.fill: parent
             antialiasing: true
             preferredRendererType: Shape.CurveRenderer
             ShapePath {
-                strokeWidth: 1.1
-                strokeColor: "#ffd88a"
-                fillColor: "#8f3b2f"
-                startX: 1.5; startY: 4.5
-                PathQuad { x: 17; y: 7.2; controlX: 9; controlY: 2.8 }
-                PathQuad { x: 32.5; y: 4.5; controlX: 25; controlY: 2.8 }
-                PathLine { x: 31.2; y: 18.5 }
-                PathQuad { x: 17; y: 20.5; controlX: 24.5; controlY: 17.5 }
-                PathQuad { x: 2.8; y: 18.5; controlX: 9.5; controlY: 17.5 }
-                PathLine { x: 1.5; y: 4.5 }
-            }
-            ShapePath {
-                strokeWidth: 0.75
-                strokeColor: "#d9b478"
-                fillColor: "#fff9ec"
-                startX: 3.2; startY: 3.2
-                PathQuad { x: 17; y: 6.2; controlX: 10; controlY: 1.6 }
-                PathQuad { x: 30.8; y: 3.2; controlX: 24; controlY: 1.6 }
-                PathLine { x: 29.8; y: 16.6 }
-                PathQuad { x: 17; y: 18.8; controlX: 23.6; controlY: 15.6 }
-                PathQuad { x: 4.2; y: 16.6; controlX: 10.4; controlY: 15.6 }
-                PathLine { x: 3.2; y: 3.2 }
-            }
-            ShapePath {
-                strokeWidth: 1.0
-                strokeColor: "#b87d4b"
-                fillColor: "transparent"
-                startX: 17; startY: 6.0
-                PathLine { x: 17; y: 18.8 }
-            }
-            ShapePath {
-                strokeWidth: 0.7
-                strokeColor: "#355570"
-                fillColor: "transparent"
-                startX: 6.2; startY: 6.8
-                PathLine { x: 14.4; y: 7.8 }
-                PathMove { x: 6.0; y: 9.6 }
-                PathLine { x: 14.2; y: 10.6 }
-                PathMove { x: 5.8; y: 12.4 }
-                PathLine { x: 13.6; y: 13.3 }
-                PathMove { x: 19.6; y: 7.8 }
-                PathLine { x: 27.8; y: 6.8 }
-                PathMove { x: 19.8; y: 10.6 }
-                PathLine { x: 28.0; y: 9.6 }
-                PathMove { x: 20.4; y: 13.3 }
-                PathLine { x: 28.2; y: 12.4 }
+                strokeWidth: 0
+                fillColor: "#55020812"
+                startX: 3; startY: 18
+                PathLine { x: 19; y: 22.5 }
+                PathLine { x: 35; y: 17.5 }
+                PathLine { x: 20; y: 14 }
+                PathLine { x: 3; y: 18 }
             }
         }
-        Rectangle {
+
+        Shape {
+            anchors.fill: parent
+            antialiasing: true
+            preferredRendererType: Shape.CurveRenderer
+
+            // 1. Inner right page & fanned V-page block facing Wull (top/right 3/4 view)
+            ShapePath {
+                strokeWidth: 0.85
+                strokeColor: "#d9b478"
+                fillColor: "#fff9ec"
+                startX: 4.2; startY: 5.2
+                PathQuad { x: 16.5; y: 6.8; controlX: 10.5; controlY: 2.2 }
+                PathQuad { x: 33.8; y: 2.2; controlX: 25.0; controlY: 0.8 }
+                PathLine { x: 35.2; y: 14.2 }
+                PathQuad { x: 18.2; y: 18.5; controlX: 27.5; controlY: 14.5 }
+                PathLine { x: 4.2; y: 5.2 }
+            }
+
+            // Subtle inner page text lines facing Wull (visible on the 3/4 right wing)
+            ShapePath {
+                strokeWidth: 0.7
+                strokeColor: "#466885"
+                fillColor: "transparent"
+                startX: 20.5; startY: 6.4
+                PathLine { x: 31.2; y: 4.5 }
+                PathMove { x: 21.0; y: 8.9 }
+                PathLine { x: 31.6; y: 7.0 }
+                PathMove { x: 21.5; y: 11.4 }
+                PathLine { x: 30.8; y: 9.7 }
+            }
+
+            // 2. Outer hardcover boards facing the viewer in 3/4 perspective
+            // Right-back cover board (angled away)
+            ShapePath {
+                strokeWidth: 1.05
+                strokeColor: "#ffd88a"
+                fillColor: "#7a2f24"
+                startX: 16.5; startY: 7.4
+                PathQuad { x: 31.8; y: 4.4; controlX: 24.2; controlY: 4.6 }
+                PathLine { x: 33.2; y: 16.4 }
+                PathQuad { x: 18.0; y: 20.4; controlX: 25.8; controlY: 17.6 }
+                PathLine { x: 16.5; y: 7.4 }
+            }
+
+            // Left-front cover board (facing viewer at 3/4 slant, hiding the left page face)
+            ShapePath {
+                strokeWidth: 1.1
+                strokeColor: "#ffd88a"
+                fillGradient: LinearGradient {
+                    x1: 2; y1: 5; x2: 18; y2: 20
+                    GradientStop { position: 0; color: "#a44537" }
+                    GradientStop { position: 1; color: "#7c3025" }
+                }
+                startX: 2.2; startY: 5.8
+                PathQuad { x: 16.5; y: 7.4; controlX: 9.2; controlY: 4.8 }
+                PathLine { x: 18.0; y: 20.4 }
+                PathQuad { x: 3.6; y: 17.8; controlX: 10.5; controlY: 17.4 }
+                PathLine { x: 2.2; y: 5.8 }
+            }
+
+            // 3. Central 3D book spine ridge facing outward toward viewer
+            ShapePath {
+                strokeWidth: 0.9
+                strokeColor: "#ffd88a"
+                fillColor: "#591e16"
+                startX: 15.2; startY: 7.1
+                PathLine { x: 17.8; y: 7.2 }
+                PathLine { x: 19.3; y: 20.6 }
+                PathLine { x: 16.7; y: 20.5 }
+                PathLine { x: 15.2; y: 7.1 }
+            }
+
+            // Gold decorative emblem on the outer front-left cover facing the viewer
+            ShapePath {
+                strokeWidth: 0.85
+                strokeColor: "#ffe39e"
+                fillColor: "#ffd88a"
+                startX: 9.4; startY: 10.2
+                PathLine { x: 11.8; y: 12.4 }
+                PathLine { x: 9.6; y: 14.6 }
+                PathLine { x: 7.2; y: 12.4 }
+                PathLine { x: 9.4; y: 10.2 }
+            }
+        }
+
+        // Hanging red bookmark ribbon from the bottom of the spine
+        Shape {
             x: 16.2
-            y: 17.5
-            width: 1.8
-            height: 3.5
-            radius: 0.6
-            color: "#ff5c6c"
+            y: 19.5
+            width: 5
+            height: 5
+            antialiasing: true
+            preferredRendererType: Shape.CurveRenderer
+            ShapePath {
+                strokeWidth: 0.5
+                strokeColor: "#ffd88a"
+                fillColor: "#ff5c6c"
+                startX: 0.8; startY: 0
+                PathLine { x: 2.8; y: 0.2 }
+                PathLine { x: 3.8; y: 4.2 }
+                PathLine { x: 2.1; y: 3.2 }
+                PathLine { x: 0.6; y: 4.4 }
+                PathLine { x: 0.8; y: 0 }
+            }
         }
     }
 

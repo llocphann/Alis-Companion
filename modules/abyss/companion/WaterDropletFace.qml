@@ -22,6 +22,8 @@ Item {
     Behavior on gazeY { enabled: root.motionEnabled; SmoothedAnimation { velocity: 7; maximumEasingTime: 80 } }
     property real viewYaw: 0
     property real pulse: 0
+    property bool feedingOpen: false
+    property real chompPhase: 0
     property color accent: AbyssStyle.accent
     property bool motionEnabled: true
     property int qualityLevel: 1
@@ -202,17 +204,34 @@ Item {
     }
     Item {
         id: mouth
-        x: 31 * root.unit; y: 58 * root.unit
+        objectName: "wullMouth"
+        x: 31 * root.unit; y: (root.feedingOpen ? 55.5 : 58) * root.unit
         width: 14 * root.unit; height: 10 * root.unit
-        scale: root.profile.openMouth || root.expression === "surprised" ? 0.80 : 0.55
+        scale: root.feedingOpen
+            ? (1.18 - 0.32 * Math.abs(Math.sin(root.chompPhase * Math.PI * 2)))
+            : (root.profile.openMouth || root.expression === "surprised" ? 0.80 : 0.55)
+        Behavior on scale { enabled: root.motionEnabled; NumberAnimation { duration: 120; easing.type: Easing.OutBack } }
         Rectangle {
             anchors.horizontalCenter: parent.horizontalCenter
-            width: 6 * root.unit; height: 8 * root.unit; radius: width / 2
-            color: root.ink; visible: root.expression === "surprised"
+            width: (root.feedingOpen ? 11.5 : 6) * root.unit
+            height: (root.feedingOpen ? 10.5 : 8) * root.unit
+            radius: width / 2
+            color: root.ink
+            visible: root.feedingOpen || root.expression === "surprised"
+            Rectangle {
+                visible: root.feedingOpen
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 1.0 * root.unit
+                width: 7.2 * root.unit
+                height: 4.2 * root.unit
+                radius: height / 2
+                color: "#ff94c2"
+            }
         }
         Shape {
             anchors.fill: parent
-            visible: root.expression !== "surprised"; antialiasing: true
+            visible: !root.feedingOpen && root.expression !== "surprised"; antialiasing: true
             preferredRendererType: Shape.CurveRenderer
             ShapePath {
                 fillColor: root.profile.openMouth ? root.ink : "transparent"
@@ -231,7 +250,7 @@ Item {
         Rectangle {
             x: 5 * root.unit; y: 5 * root.unit
             width: 5 * root.unit; height: 2.5 * root.unit; radius: height / 2
-            color: "#ee8abb"; visible: root.profile.openMouth && root.expression !== "surprised"
+            color: "#ee8abb"; visible: !root.feedingOpen && root.profile.openMouth && root.expression !== "surprised"
         }
     }
     Text {

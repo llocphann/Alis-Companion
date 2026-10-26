@@ -302,8 +302,11 @@ Item {
                 if (companionCuriosity.containsPoint(point.scenePosition.x,point.scenePosition.y))
                     companionCuriosity.yieldToUser()
                 else companionCuriosity.interrupt()
-                if (!talkCloud.containsScenePoint(point.scenePosition))
+                if (!talkCloud.containsScenePoint(point.scenePosition)) {
+                    if (WullPocket.opened && !GlobalStates.settingsNativeDialogOpen)
+                        WullPocket.close()
                     companionPresence.nearbyClick(point.scenePosition.x,point.scenePosition.y)
+                }
             }
         }
     }
@@ -444,7 +447,11 @@ Item {
     readonly property var inputRegions: [companionInputMask,companionRimInputMask,talkRegion,obsidianRegion,aiRegion]
     Region { id:talkRegion;item:talkCloud.visible ? talkCloud : emptyInput }
     Region { id:obsidianRegion;item:cloudActions.visible ? cloudActions.obsidianTarget : emptyInput }
-    Region { id:aiRegion;item:cloudActions.visible ? cloudActions.aiTarget : emptyInput }
+    Region {
+        id:aiRegion
+        item:cloudActions.visible ? cloudActions.aiTarget : emptyInput
+        Region { item:cloudActions.visible && cloudActions.pomodoroTarget?.visible ? cloudActions.pomodoroTarget : emptyInput }
+    }
     function yieldToUser(): void {companionCuriosity.yieldToUser()}
     Component.onDestruction: {
         companionCuriosity.interrupt()

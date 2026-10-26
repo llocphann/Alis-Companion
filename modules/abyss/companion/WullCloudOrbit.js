@@ -15,7 +15,7 @@ function layout(outputWidth, outputHeight, actor) {
     const nodeHeight = nodeWidth*42/48;
     const body = {x:cx-width/2,y:cy-height/2,width:width,height:height};
     const empty = {available:false,nodes:[{x:0,y:0,width:nodeWidth,height:nodeHeight},
-        {x:0,y:0,width:nodeWidth,height:nodeHeight}]};
+        {x:0,y:0,width:nodeWidth,height:nodeHeight}],pomodoroNode:{x:0,y:0,width:nodeWidth,height:nodeHeight}};
     let edge = actor.edge;
     if (!["top","bottom","left","right"].includes(edge)) {
         const distances = [cy,outputHeight-cy,cx,outputWidth-cx];
@@ -42,8 +42,12 @@ function layout(outputWidth, outputHeight, actor) {
             for (const spread of [.8,1.05,.65,.5,.4]) {
                 const axis = normal+turn;
                 const a = node(axis-spread,radius), b = node(axis+spread,radius);
-                if (fits(a) && fits(b) && !overlaps(a,b,4))
-                    return {available:true,nodes:[a,b],axisAngle:axis};
+                if (fits(a) && fits(b) && !overlaps(a,b,4)) {
+                    let c = node(axis,radius);
+                    if (!fits(c) || overlaps(a,c,2) || overlaps(b,c,2))
+                        c = node(axis,radius+0.25);
+                    return {available:true,nodes:[a,b],pomodoroNode:fits(c) && !overlaps(a,c,2) && !overlaps(b,c,2) ? c : null,axisAngle:axis};
+                }
             }
         }
     }

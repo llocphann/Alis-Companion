@@ -71,7 +71,7 @@ Item {
     readonly property vector4d smallMaterialRenderingUniform: Qt.vector4d(0, translucency, 0, 0)
     readonly property vector4d limbMotionUniform: Qt.vector4d(shimmer, 0, pulse, effectsEnabled ? 1 : 0)
     readonly property vector4d limbOpticsUniform: Qt.vector4d(modelYawRadians, 3, 0, 0)
-    readonly property vector4d handPoseUniform: Qt.vector4d(modelPitchRadians, modelRollRadians, 0.04, 0.92)
+    readonly property vector4d handPoseUniform: Qt.vector4d(modelPitchRadians, modelRollRadians, 0.14, 1.38)
     readonly property vector4d footPoseUniform: Qt.vector4d(modelPitchRadians, modelRollRadians, 0.06, 0.72)
     readonly property vector4d limbPoseUniform: footPoseUniform
     readonly property vector4d dropletMotionUniform: Qt.vector4d(shimmer, 0, pulse, 0)
@@ -101,6 +101,12 @@ Item {
     property real tapPulse: 0
     property real tapX: 38
     property real tapY: 48
+    property bool pocketDragActive: false
+    property real swallowPhase: 1
+    property real chompPhase: 0
+    property int swallowCount: 1
+    property real swallowStartX: 38
+    property real swallowStartY: 8
     readonly property var expressionProfile: Expressions.profile(expression)
     property real expressionSquash: expressionProfile.squash
     readonly property real motionAmount: motionEnabled ? AbyssStyle.motionIntensity * motionScale : 0
@@ -130,6 +136,20 @@ Item {
         tapX=Math.max(8,Math.min(width-8,px)); tapY=Math.max(12,Math.min(height-12,py))
         squashBurst.restart(); tapBurst.restart()
         reactionBounce.restart()
+    }
+    function triggerPocketSwallow(count = 1, startX = 38, startY = 8): void {
+        swallowCount = Math.max(1, Math.min(4, Number(count) || 1))
+        swallowStartX = Math.max(4, Math.min(width - 4, Number.isFinite(startX) ? startX : 38))
+        swallowStartY = Math.max(-14, Math.min(height * 0.65, Number.isFinite(startY) ? startY : 8))
+        if (!motionEnabled) {
+            swallowPhase = 1
+            chompPhase = 0
+            return
+        }
+        swallowBurst.restart()
+        squashBurst.restart()
+        reactionBounce.restart()
+        if (effectsEnabled) shineBurst.restart()
     }
 
     WullMotion {
@@ -263,14 +283,14 @@ Item {
                 readonly property real coworkArmX: hand ? (root.coworkPose ? (root.coworkPose["arm"+index+"X"] ?? 0)*.45 : root.ambientProp==="book" ? (index===0 ? 8.5 : -8.5) : root.ambientProp==="coffee" && index===1 ? -7.5 : 0) : 0
                 readonly property real coworkArmY: hand ? (root.coworkPose ? -(root.coworkPose["arm"+index+"Y"] ?? 0)*.35 : (root.ambientProp==="book" || (root.ambientProp==="coffee" && index===1)) ? 10 : 0) : 0
                 readonly property real coworkArmZ: hand ? (root.coworkPose ? (root.coworkPose["arm"+index+"Z"] ?? 0)*.65 : root.ambientProp==="book" ? -6.5 : root.ambientProp==="coffee" && index===1 ? -4.5 : 0) : 0
-                readonly property var spatial: root.project(side*(hand ? 32.5 : 19.5)+stepX+coworkArmX,
-                    46.14-(hand ? 52.5 : 77.2)+stepZ+coworkArmZ,8+coworkArmY)
+                readonly property var spatial: root.project(side*(hand ? 35.0 : 19.5)+stepX+coworkArmX,
+                    46.14-(hand ? 51.5 : 77.2)+stepZ+coworkArmZ,(hand ? 14 : 8)+coworkArmY)
                 readonly property real depth: spatial.z
-                width: hand ? 16.5 : 19.5
-                height: hand ? 15.5 : 16.5
+                width: hand ? 21.5 : 19.5
+                height: hand ? 21.5 : 16.5
                 x:38+spatial.x-width/2
                 y:46.14-spatial.y-height/2+root.reactionLift*root.motionAmount+gait.lift
-                z: depth >= 0 ? 1 : -1
+                z: (hand ? depth >= -6 : depth >= 0) ? 1 : -1
                 ShaderEffect {
                     anchors.fill: parent
                     visible: !root.softwareFallback && material.status !== ShaderEffect.Error
@@ -289,7 +309,7 @@ Item {
                     antialiasing: true
                     preferredRendererType: Shape.CurveRenderer
                     ShapePath {
-                        strokeWidth: 0.45; strokeColor: root.reflectionColor
+                        strokeWidth: 0.55; strokeColor: root.reflectionColor
                         fillGradient: LinearGradient {
                             x1: 0; y1: 0; x2: 0; y2: waterFoot.height
                             GradientStop { position: 0; color: Qt.darker(root.liquidAccent, 1.4) }
@@ -298,8 +318,8 @@ Item {
                             GradientStop { position: 1; color: root.reflectionColor }
                         }
                         startX: waterFoot.width * 0.05; startY: waterFoot.height * 0.5
-                        PathArc { x: waterFoot.width * 0.95; y: waterFoot.height * 0.5; radiusX: waterFoot.width * 0.45; radiusY: waterFoot.height * (waterFoot.hand ? 0.35 : 0.31) }
-                        PathArc { x: waterFoot.width * 0.05; y: waterFoot.height * 0.5; radiusX: waterFoot.width * 0.45; radiusY: waterFoot.height * (waterFoot.hand ? 0.35 : 0.31) }
+                        PathArc { x: waterFoot.width * 0.95; y: waterFoot.height * 0.5; radiusX: waterFoot.width * 0.45; radiusY: waterFoot.height * (waterFoot.hand ? 0.45 : 0.31) }
+                        PathArc { x: waterFoot.width * 0.05; y: waterFoot.height * 0.5; radiusX: waterFoot.width * 0.45; radiusY: waterFoot.height * (waterFoot.hand ? 0.45 : 0.31) }
                     }
                 }
             }
@@ -462,9 +482,65 @@ Item {
                     microX: root.motionEnabled && !root.traveling ? root.sway*.16 : 0
                     microY: root.motionEnabled && !root.traveling ? root.bob*.055 : 0
                     pulse: root.pulse
+                    feedingOpen: root.pocketDragActive || root.swallowPhase < 0.88
+                    chompPhase: root.chompPhase
                     motionEnabled: root.motionEnabled
                     qualityLevel: root.qualityLevel
                 }
+            }
+        }
+    }
+    Repeater {
+        objectName: "wullPocketSwallowItems"
+        model: root.swallowPhase < 0.72 ? root.swallowCount : 0
+        Item {
+            id: swallowItem
+            required property int index
+            readonly property real progress: Math.max(0, Math.min(1, (root.swallowPhase - index * 0.08) / 0.62))
+            readonly property real mouthX: 38 + (root.octopus ? 3.8 : 0)
+            readonly property real mouthY: 60.5 + (root.octopus ? -1.6 : 0) + gait.lift + root.reactionLift * root.motionAmount
+            readonly property real originX: root.swallowStartX + (index - (root.swallowCount - 1) * 0.5) * 9
+            readonly property real originY: root.swallowStartY - index * 5
+            readonly property real arcLift: Math.sin(progress * Math.PI) * 14
+            width: 13
+            height: 16
+            z: 5
+            x: originX + (mouthX - originX) * progress - width * 0.5
+            y: originY + (mouthY - originY) * (progress * progress) - arcLift - height * 0.5
+            scale: (1 - progress * 0.78) * (progress > 0.01 ? 1 : 0)
+            rotation: (index % 2 === 0 ? -18 : 18) * (1 - progress) + progress * 25
+            opacity: progress < 0.85 ? 1 : Math.max(0, (1 - progress) / 0.15)
+            Shape {
+                anchors.fill: parent
+                antialiasing: true
+                preferredRendererType: Shape.CurveRenderer
+                ShapePath {
+                    strokeWidth: 0.9
+                    strokeColor: root.accentColor
+                    fillColor: "#f4fcff"
+                    startX: 1; startY: 1
+                    PathLine { x: 8.5; y: 1 }
+                    PathLine { x: 12; y: 4.5 }
+                    PathLine { x: 12; y: 15 }
+                    PathLine { x: 1; y: 15 }
+                    PathLine { x: 1; y: 1 }
+                }
+                ShapePath {
+                    strokeWidth: 0.7
+                    strokeColor: root.accentColor
+                    fillColor: "#bfefff"
+                    startX: 8.5; startY: 1
+                    PathLine { x: 8.5; y: 4.5 }
+                    PathLine { x: 12; y: 4.5 }
+                }
+            }
+            Rectangle {
+                x: 3; y: 6.5; width: 6.5; height: 1.2; radius: 0.6
+                color: "#3d7a99"
+            }
+            Rectangle {
+                x: 3; y: 9.2; width: 5.0; height: 1.2; radius: 0.6
+                color: "#3d7a99"
             }
         }
     }
@@ -578,8 +654,8 @@ Item {
     }
     onMotionEnabledChanged: {
         if (!motionEnabled) {
-            squashBurst.stop(); reactionBounce.stop(); shineBurst.stop(); tapBurst.stop()
-            squash = 0; bob = 0; sway = 0; orbitPhase = 0; reactionPhase = 1; reactionRipple = 0; shine = 0; tapPhase = 1; tapPulse = 0
+            squashBurst.stop(); reactionBounce.stop(); shineBurst.stop(); tapBurst.stop(); swallowBurst.stop()
+            squash = 0; bob = 0; sway = 0; orbitPhase = 0; reactionPhase = 1; reactionRipple = 0; shine = 0; tapPhase = 1; tapPulse = 0; swallowPhase = 1; chompPhase = 0
         }
     }
     onExpressionChanged: {
@@ -619,6 +695,15 @@ Item {
         id: shineBurst
         NumberAnimation { target: root; property: "shine"; to: 1; duration: 160 }
         NumberAnimation { target: root; property: "shine"; to: 0; duration: 850 }
+    }
+    ParallelAnimation {
+        id: swallowBurst
+        NumberAnimation { target: root; property: "swallowPhase"; from: 0; to: 1; duration: 680; easing.type: Easing.InOutQuad }
+        SequentialAnimation {
+            PauseAnimation { duration: 240 }
+            NumberAnimation { target: root; property: "chompPhase"; from: 0; to: 1.5; duration: 420; easing.type: Easing.InOutSine }
+            PropertyAction { target: root; property: "chompPhase"; value: 0 }
+        }
     }
     SequentialAnimation on bob {
         running: root.motionEnabled && root.visible && !gait.active; loops: Animation.Infinite
