@@ -2,7 +2,7 @@
 .import "AquaMotionData.js" as Aqua
 .import "OctoMotionData.js" as Octo
 
-// Preserve the public wull IPC/config/history namespace while naming the cast
+// Preserve the public aqua IPC/config/history namespace while naming the cast
 // Aqua/Octo. The curves are authored by Blender, not runtime sprite assets.
 function retired(action) {
     return ["fall", "faceplant", "buttplant", "fallVanish", "ice", "roll"].includes(action)

@@ -1,64 +1,64 @@
 BROAD LOCAL SOURCE: preserved 74 PASS / 1 FAIL / 0 SKIP
-Hadanion source: c7a78998fea7424a597a5acbc483d1ea6d3ad2cf committed
+Alis-Companion source: c7a78998fea7424a597a5acbc483d1ea6d3ad2cf committed
 Hadalis source: 442f645b02b50e88f1d417d2fc374b45b6ec02ab committed
 Hadalird source: d03f4b5e6d8dc70bfd062a2e80c2cddf32bc56c4 committed
 PASS test-companion-cast.cjs
 PASS test-companion-retired-fall.cjs
 COMPANION_RETIRED_FALL_PASS cast=2 preserved_samples=2385 no_asset_mutation
-FAIL test-wull-actual-panel-layout.cjs
-PASS test-wull-airborne.cjs
-PASS test-wull-behavior-director.cjs
-PASS test-wull-cloud-orbit.cjs
-PASS test-wull-context-protocol.cjs
-PASS test-wull-cowork-performance.cjs
-PASS test-wull-curiosity-adapter.cjs
-PASS test-wull-expressions.cjs
-PASS test-wull-helper-reply-guard.cjs
-PASS test-wull-laptop-motion.cjs
-PASS test-wull-model-policy.cjs
-PASS test-wull-motion.cjs
-PASS test-wull-persona.cjs
-PASS test-wull-preferences.cjs
-PASS test-wull-private-bar-free-slot.cjs
-PASS test-wull-proactive-policy.cjs
-PASS test-wull-production-surface-slot.cjs
-PASS test-wull-reply-guard.cjs
-PASS test-wull-scene.cjs
-PASS test-wull-spatial.cjs
-PASS test-wull-travel.cjs
-PASS test-wull-water.cjs
+FAIL test-aqua-actual-panel-layout.cjs
+PASS test-aqua-airborne.cjs
+PASS test-aqua-behavior-director.cjs
+PASS test-aqua-cloud-orbit.cjs
+PASS test-aqua-context-protocol.cjs
+PASS test-aqua-cowork-performance.cjs
+PASS test-aqua-curiosity-adapter.cjs
+PASS test-aqua-expressions.cjs
+PASS test-aqua-helper-reply-guard.cjs
+PASS test-aqua-laptop-motion.cjs
+PASS test-aqua-model-policy.cjs
+PASS test-aqua-motion.cjs
+PASS test-aqua-persona.cjs
+PASS test-aqua-preferences.cjs
+PASS test-aqua-private-bar-free-slot.cjs
+PASS test-aqua-proactive-policy.cjs
+PASS test-aqua-production-surface-slot.cjs
+PASS test-aqua-reply-guard.cjs
+PASS test-aqua-scene.cjs
+PASS test-aqua-spatial.cjs
+PASS test-aqua-travel.cjs
+PASS test-aqua-water.cjs
 PASS test-package-lifecycle.py
 PASS test-host-runtime.py
 PASS test-module-hover-runtime.py
-PASS test-wull-local-mind.py
-PASS test-wull-gguf-ui.py
-PASS test-wull-shared-ai-runtime.py
-PASS test-wull-abyss-water.py
-PASS test-wull-portal-runtime.py
-PASS test-wull-presence-interaction.py
-PASS test-wull-alive-reactions.py
+PASS test-aqua-local-mind.py
+PASS test-aqua-gguf-ui.py
+PASS test-aqua-shared-ai-runtime.py
+PASS test-aqua-abyss-water.py
+PASS test-aqua-portal-runtime.py
+PASS test-aqua-presence-interaction.py
+PASS test-aqua-alive-reactions.py
 PASS aqua fourRimOrientation rotatedFaceGaze slowerWalk formerWalkRun popupCarry balanceNoFall supportRecovery gentleRelease recoveryCancel recoveryDisable retiredActions legacyFallback widerClick passiveNotice noticeCooldown leaveCancel chatHold startleEvade annoyance shakeBreak peekOnly finiteRetreat archivalCurves
 PASS octo fourRimOrientation rotatedFaceGaze slowerWalk formerWalkRun popupCarry balanceNoFall supportRecovery gentleRelease recoveryCancel recoveryDisable retiredActions legacyFallback widerClick passiveNotice noticeCooldown leaveCancel chatHold startleEvade annoyance shakeBreak peekOnly finiteRetreat archivalCurves
-PASS test-wull-mature-popup.py
+PASS test-aqua-mature-popup.py
 PASS test-companion-airborne-orientation.py
 PASS test-companion-volume.py
-PASS test-wull-shader-ab-contract.py
-PASS test-wull-shader-sequence-contract.py
-PASS test-wull-g1-resource-contract.py
-PASS test-wull-g1-compare-contract.py
-PASS test-wull-companion-voice-eval.py
-PASS test-wull-reply-guard-local.py
-PASS test-wull-memory-store.py
-PASS test-wull-local-persona.py
-PASS test-wull-companion-voice-run.py
-PASS test-wull-companion-settings.py
-PASS test-wull-quality-ui.py
-PASS test-wull-mind-ui.py
-PASS test-wull-journal-ui.py
-PASS test-wull-immersion-runtime.py
-PASS test-wull-cloud-orbit.py
-PASS test-wull-cowork-qml.py
-PASS test-wull-cowork-native.py
+PASS test-aqua-shader-ab-contract.py
+PASS test-aqua-shader-sequence-contract.py
+PASS test-aqua-g1-resource-contract.py
+PASS test-aqua-g1-compare-contract.py
+PASS test-aqua-companion-voice-eval.py
+PASS test-aqua-reply-guard-local.py
+PASS test-aqua-memory-store.py
+PASS test-aqua-local-persona.py
+PASS test-aqua-companion-voice-run.py
+PASS test-aqua-companion-settings.py
+PASS test-aqua-quality-ui.py
+PASS test-aqua-mind-ui.py
+PASS test-aqua-journal-ui.py
+PASS test-aqua-immersion-runtime.py
+PASS test-aqua-cloud-orbit.py
+PASS test-aqua-cowork-qml.py
+PASS test-aqua-cowork-native.py
 PASS HadalisOutput.qml
 PASS HadalisSession.qml
 PASS AbyssCompanion.qml
@@ -69,56 +69,56 @@ PASS CompanionTurns.qml
 PASS OctoTentacles.qml
 PASS WaterDropletBody.qml
 PASS WaterDropletFace.qml
-PASS WullAbyssLink.qml
-PASS WullCloudActions.qml
-PASS WullCuriosity.qml
-PASS WullMotion.qml
-PASS WullObsidianIcon.qml
-PASS WullPortals.qml
-PASS WullPresence.qml
-PASS WullTalkCloud.qml
+PASS AquaAbyssLink.qml
+PASS AquaCloudActions.qml
+PASS AquaCuriosity.qml
+PASS AquaMotion.qml
+PASS AquaObsidianIcon.qml
+PASS AquaPortals.qml
+PASS AquaPresence.qml
+PASS AquaTalkCloud.qml
 PASS CompanionConfig.qml
-PASS WullMind.qml
-Hadanion checks: 74 PASS / 1 FAIL / 0 SKIP
+PASS AquaMind.qml
+Alis-Companion checks: 74 PASS / 1 FAIL / 0 SKIP
 
 FOLLOW-UP CONTRACT: exact local source
-Hadanion source: d38cdfe08e0f07a78c7a664127a6e7a9bdc453f3 committed
+Alis-Companion source: d38cdfe08e0f07a78c7a664127a6e7a9bdc453f3 committed
 Hadalis source: 442f645b02b50e88f1d417d2fc374b45b6ec02ab committed
 Hadalird source: d03f4b5e6d8dc70bfd062a2e80c2cddf32bc56c4 committed
-PASS test-wull-actual-panel-layout.cjs
-WULL_ACTUAL_PANEL_LAYOUT_GATE=PASS
+PASS test-aqua-actual-panel-layout.cjs
+AQUA_ACTUAL_PANEL_LAYOUT_GATE=PASS
 REAL_SOURCE_CASES=8
 REAL_SOURCE_ASSERTIONS=96
-Hadanion checks: 1 PASS / 0 FAIL / 0 SKIP
+Alis-Companion checks: 1 PASS / 0 FAIL / 0 SKIP
 
 PUBLISHED SOURCE: exact committed SHA
-Hadanion source: ea5967fb48ea2f7a3ae6df6f6751024e25277865 committed
+Alis-Companion source: ea5967fb48ea2f7a3ae6df6f6751024e25277865 committed
 Hadalis source: 442f645b02b50e88f1d417d2fc374b45b6ec02ab committed
 Hadalird source: d03f4b5e6d8dc70bfd062a2e80c2cddf32bc56c4 committed
 PASS test-companion-cast.cjs
 PASS test-companion-retired-fall.cjs
 COMPANION_RETIRED_FALL_PASS cast=2 preserved_samples=2385 no_asset_mutation
-PASS test-wull-actual-panel-layout.cjs
-WULL_ACTUAL_PANEL_LAYOUT_GATE=PASS
+PASS test-aqua-actual-panel-layout.cjs
+AQUA_ACTUAL_PANEL_LAYOUT_GATE=PASS
 REAL_SOURCE_CASES=8
 REAL_SOURCE_ASSERTIONS=96
 PASS test-package-lifecycle.py
 PASS test-host-runtime.py
-PASS test-wull-portal-runtime.py
-PASS test-wull-presence-interaction.py
-PASS test-wull-alive-reactions.py
+PASS test-aqua-portal-runtime.py
+PASS test-aqua-presence-interaction.py
+PASS test-aqua-alive-reactions.py
 PASS aqua fourRimOrientation rotatedFaceGaze slowerWalk formerWalkRun popupCarry balanceNoFall supportRecovery gentleRelease recoveryCancel recoveryDisable retiredActions legacyFallback widerClick passiveNotice noticeCooldown leaveCancel chatHold startleEvade annoyance shakeBreak peekOnly finiteRetreat archivalCurves
 PASS octo fourRimOrientation rotatedFaceGaze slowerWalk formerWalkRun popupCarry balanceNoFall supportRecovery gentleRelease recoveryCancel recoveryDisable retiredActions legacyFallback widerClick passiveNotice noticeCooldown leaveCancel chatHold startleEvade annoyance shakeBreak peekOnly finiteRetreat archivalCurves
 PASS test-companion-volume.py
 PASS AbyssCompanion.qml
-PASS WullCuriosity.qml
-PASS WullPresence.qml
+PASS AquaCuriosity.qml
+PASS AquaPresence.qml
 PASS CompanionConfig.qml
-Hadanion checks: 13 PASS / 0 FAIL / 0 SKIP
+Alis-Companion checks: 13 PASS / 0 FAIL / 0 SKIP
 
 EXTRA OWNED SPATIAL VOLUME
 Companion source: c7a78998fea7424a597a5acbc483d1ea6d3ad2cf
-WULL_SPATIAL_GPU_VOLUME_PASS areas=[48181, 48346, 48619, 48465]
+AQUA_SPATIAL_GPU_VOLUME_PASS areas=[48181, 48346, 48619, 48465]
 
 HOST CANONICAL: STOPPED; no final exit/summary; remaining checks UNRUN
 [01] host tool preflight                                        PASS

@@ -17,7 +17,7 @@ Re-author into a **new** output directory using the existing authoring cache:
 
 ```sh
 uv run --offline --python 3.11 --with bpy==4.3.0 --with 'numpy<2' python scripts/companion-author-laptop.py --output /new/owned/bundle
-node scripts/test-wull-laptop-motion.cjs
+node scripts/test-aqua-laptop-motion.cjs
 uv run --offline --python 3.11 --with bpy==4.3.0 --with 'numpy<2' python scripts/companion-verify-laptop.py --output /new/owned/proof --render
 ```
 
@@ -57,7 +57,7 @@ three-dimensional; no sprites or planar falling poses are substituted.
 
 ```sh
 uv run --offline --python 3.11 --with bpy==4.3.0 --with 'numpy<2' python scripts/companion-export-cowork-native.py --output /new/owned/export
-python3 scripts/test-wull-cowork-native.py --bundle /new/owned/export --output /new/owned/proof --hadalis-root /clean/Hadalis
+python3 scripts/test-aqua-cowork-native.py --bundle /new/owned/export --output /new/owned/proof --hadalis-root /clean/Hadalis
 ```
 
 The fixed 40-frame schedule checks all paired clips, independent hand/tentacle
@@ -120,7 +120,7 @@ Optional `--smooth-eyes` smooths the two outer glossy eye meshes in the unsaved
 export. An offline comparison with a prior export using the same other options
 checks exact oriented Float32 surface/UV/morph data, materials, parents and all
 animation keys despite glTF vertex merging. Only outer eye normals may differ:
-`python3 scripts/test-wull-cowork-native.py --bundle /new/smooth-export --reference-bundle /preserved/face-export --output /new/owned/audit`.
+`python3 scripts/test-aqua-cowork-native.py --bundle /new/smooth-export --reference-bundle /preserved/face-export --output /new/owned/audit`.
 This command opens no compositor and establishes no native visual, shipping,
 concept, G0/G1 or resource acceptance.
 

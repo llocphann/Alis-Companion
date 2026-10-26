@@ -1,7 +1,7 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const folder='modules/abyss/companion/';
 function load(name){const api=vm.createContext({});vm.runInContext(fs.readFileSync(folder+name,'utf8').replace(/^\.pragma library\s*/,''),api);return api}
-const aqua=load('AquaMotionData.js'),octo=load('OctoMotionData.js'),rig=load('OctoRig.js'),prefs=load('WullPreferences.js');
+const aqua=load('AquaMotionData.js'),octo=load('OctoMotionData.js'),rig=load('OctoRig.js'),prefs=load('AquaPreferences.js');
 assert.equal(Object.keys(aqua.clips).length,30);assert.equal(Object.keys(octo.clips).length,30);
 assert.equal(aqua.clips.sink,undefined);assert.equal(aqua.clips.pulled.duration,octo.clips.sink.duration);
 assert.equal(octo.clips.sink.duration,5600);assert.equal(aqua.clips.push.duration,5600);assert.equal(octo.clips.pull.duration,5600);

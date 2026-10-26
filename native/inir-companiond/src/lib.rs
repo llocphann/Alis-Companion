@@ -821,7 +821,7 @@ impl Engine {
         }
         self.preferences = preferences;
         // A settings change can preempt a temporary AI overlay, but never a
-        // waiting task, hover lease or the shell's permission to show Wull.
+        // waiting task, hover lease or the shell's permission to show Aqua.
         self.restore_intent();
         if !self.session_visible {
             return;

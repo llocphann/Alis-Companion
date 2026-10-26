@@ -7,15 +7,15 @@ import qs.modules.common
 import qs.modules.abyss.looks
 import "services"
 import "modules/abyss/companion"
-import "modules/abyss/companion/WullPreferences.js" as WullPreferences
-import "modules/abyss/companion/WullContextProtocol.js" as ContextProtocol
-import "modules/abyss/companion/WullBehaviorDirector.js" as Director
+import "modules/abyss/companion/AquaPreferences.js" as AquaPreferences
+import "modules/abyss/companion/AquaContextProtocol.js" as ContextProtocol
+import "modules/abyss/companion/AquaBehaviorDirector.js" as Director
 
 Item {
     id: root
     required property var host
     readonly property var outputHosts: host.outputs
-    readonly property var mind: WullMind
+    readonly property var mind: AquaMind
     readonly property var bridge: companionBridge
     property var contextState:ContextProtocol.newState()
     property var contextConnection:null
@@ -45,8 +45,8 @@ Item {
             enabled:companionEnabled,visible:companionSessionVisible,
             optedIn:contextConnected,locked:GlobalStates.screenLocked,
             fullscreen:GameMode.hasFullscreenOnOutput(companionTargetOutput),
-            gameMode:Appearance.gameModeMinimal,chatOpen:WullMind.conversationOpen,
-            modalOpen:WullMind.hostBlocked,dnd:Notifications.notificationPolicyActive,
+            gameMode:Appearance.gameModeMinimal,chatOpen:AquaMind.conversationOpen,
+            modalOpen:AquaMind.hostBlocked,dnd:Notifications.notificationPolicyActive,
             quiet:!AbyssStyle.motionEnabled || companionPreferences?.animationsEnabled!==true,
             idle:false},Date.now())
         if(!contextState.enabled)contextConnected=false
@@ -148,7 +148,7 @@ Item {
         }
     }
     Connections {
-        target:WullMind
+        target:AquaMind
         function onConversationOpenChanged(): void {root.evaluateContext()}
         function onHostBlockedChanged(): void {root.evaluateContext()}
     }
@@ -158,11 +158,11 @@ Item {
         function onSessionChanged(): void {contextConnect.restart()}
     }
     readonly property var companionOptions: Config.options?.abyss?.companion
-    readonly property var companionPreferences: WullPreferences.normalize(companionOptions)
+    readonly property var companionPreferences: AquaPreferences.normalize(companionOptions)
     readonly property string selectedCompanion: companionPreferences.character
     readonly property bool alternatingCompanions: companionPreferences.alternateCompanions
     property string companionCharacter: selectedCompanion
-    Binding {target:WullMind;property:"character";value:root.companionCharacter}
+    Binding {target:AquaMind;property:"character";value:root.companionCharacter}
     function resetCompanionCast(): void {
         companionCharacter=selectedCompanion
         for (const window of root.outputHosts) window.resetCompanionCast()
@@ -170,18 +170,18 @@ Item {
     onSelectedCompanionChanged: Qt.callLater(root.resetCompanionCast)
     onAlternatingCompanionsChanged: if (!alternatingCompanions) Qt.callLater(root.resetCompanionCast)
     readonly property bool companionEnabled: Config.ready && companionPreferences.enabled
-    Binding {target:WullPocket;property:"hostAvailable";value:root.companionSessionVisible && root.companionInteractive}
-    Binding {target:WullMind;property:"hostVisible";value:root.companionSessionVisible && companionBridge.ready && companionBridge.visibility==="present"}
-    Binding {target:WullMind;property:"hostIdle";value:companionBridge.activity==="idle"}
+    Binding {target:AquaPocket;property:"hostAvailable";value:root.companionSessionVisible && root.companionInteractive}
+    Binding {target:AquaMind;property:"hostVisible";value:root.companionSessionVisible && companionBridge.ready && companionBridge.visibility==="present"}
+    Binding {target:AquaMind;property:"hostIdle";value:companionBridge.activity==="idle"}
     Binding {
-        target:WullMind;property:"hostBlocked"
+        target:AquaMind;property:"hostBlocked"
         value:!root.companionSessionVisible || !root.companionPreferences.animationsEnabled
             || !AbyssStyle.motionEnabled || Notifications.notificationPolicyActive
             || GameMode.hasFullscreenOnOutput(root.companionTargetOutput)
             || root.outputHosts.find(window=>window.outputName===root.companionTargetOutput)?.extension?.ambientBlocked !== false
     }
     Connections {
-        target:WullMind
+        target:AquaMind
         function onReactionRequested(expression): void {
             root.presentAiExpression(expression)
         }
@@ -194,10 +194,10 @@ Item {
             visible:root.companionSessionVisible && companionBridge.visibility==="present",
             locked:GlobalStates.screenLocked,gameMode:Appearance.gameModeMinimal,
             fullscreen:GameMode.hasFullscreenOnOutput(root.companionTargetOutput),
-            dnd:Notifications.notificationPolicyActive,chatOpen:WullMind.conversationOpen,
+            dnd:Notifications.notificationPolicyActive,chatOpen:AquaMind.conversationOpen,
             ambientOptIn:root.companionPreferences.ambientEnabled
                 && (root.companionPreferences.ambientFocusEnabled || root.companionPreferences.ambientBatteryEnabled
-                    || root.companionPreferences.ambientMediaEnabled),idle:WullMind.hostIdle || root.readingFocusActive || ambientController.activeProp.length>0,
+                    || root.companionPreferences.ambientMediaEnabled),idle:AquaMind.hostIdle || root.readingFocusActive || ambientController.activeProp.length>0,
             motionEnabled:root.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled})
     }
     function coworkHostContext(): var {
@@ -220,7 +220,7 @@ Item {
     readonly property bool companionCoworkPropVisible: coworkController.renderProp
     readonly property string companionCoworkClip: coworkController.clip
     readonly property string companionCoworkPhase: coworkController.phase
-    WullCoworkController {
+    AquaCoworkController {
         id:coworkController
         objectName:"companionCoworkController"
         character:root.companionCharacter
@@ -248,7 +248,7 @@ Item {
     }
     readonly property string companionAmbientProp: root.previewAmbientProp.length>0 ? root.previewAmbientProp : ambientController.activeProp
     readonly property string companionAmbientActivity: root.previewAmbientProp.length>0 ? root.previewAmbientProp : ambientController.activeActivity
-    WullAmbientController {
+    AquaAmbientController {
         id:ambientController
         objectName:"companionAmbientController"
         permitted:root.companionEnabled && root.companionPreferences.ambientEnabled
@@ -273,7 +273,7 @@ Item {
             ? !MprisController.activePlayer ? "unavailable"
                 : MprisController.activePlayer.isPlaying ? "playing" : "paused" : "unavailable"
         idleState:permitted && root.companionPreferences.ambientFocusEnabled
-            ? (WullMind.hostIdle && (root.quietIdle || (root.contextState.frame?.idle ?? false)) ? "idle" : "active") : "unavailable"
+            ? (AquaMind.hostIdle && (root.quietIdle || (root.contextState.frame?.idle ?? false)) ? "idle" : "active") : "unavailable"
         resultCategory:permitted && root.companionPreferences.ambientFocusEnabled
             ? (["none","success","failure"].includes(root.contextState.frame?.result ?? "")
                 ? root.contextState.frame.result : "none") : "unavailable"
@@ -311,16 +311,16 @@ Item {
         appearanceFrequency: root.companionPreferences.appearanceFrequency
     }
 function chat(): void {
-    if (!root.companionSessionVisible || !root.companionInteractive || !WullMind.talkEnabled) return
-    if (WullMind.conversationOpen) {WullMind.cancel();WullMind.dismiss();return}
+    if (!root.companionSessionVisible || !root.companionInteractive || !AquaMind.talkEnabled) return
+    if (AquaMind.conversationOpen) {AquaMind.cancel();AquaMind.dismiss();return}
     companionBridge.show()
     companionBridge.sendEvent("hover",true)
     for (const window of root.outputHosts)
         if(window.outputName===root.companionTargetOutput)window.requestCompanionChat()
 }
 function pocket(): void {
-    if (!root.companionSessionVisible || !root.companionInteractive || !WullPocket.permitted) return
-    if (WullPocket.opened) {WullPocket.close();return}
+    if (!root.companionSessionVisible || !root.companionInteractive || !AquaPocket.permitted) return
+    if (AquaPocket.opened) {AquaPocket.close();return}
     companionBridge.show()
     companionBridge.sendEvent("hover",true)
     for (const window of root.outputHosts)
@@ -362,8 +362,8 @@ function status(): string {
         context:{connected:root.contextConnected,mode:root.contextIntent.mode,
             reason:root.contextIntent.reason,epoch:root.contextIntent.epoch,
             focus:root.contextState.director?.focus ?? "none"},
-        pocket:{permitted:WullPocket.permitted,opened:WullPocket.opened,
-            busy:WullPocket.busy,count:WullPocket.items.length},
+        pocket:{permitted:AquaPocket.permitted,opened:AquaPocket.opened,
+            busy:AquaPocket.busy,count:AquaPocket.items.length},
         cowork:{active:coworkController.active,phase:coworkController.phase,
             clip:coworkController.clip,renderProp:coworkController.renderProp},
         ambient:{prop:root.companionAmbientProp,activity:root.companionAmbientActivity,
@@ -379,14 +379,14 @@ function status(): string {
 
     Component.onCompleted: {root.syncCompanionVisibility();contextConnect.start()}
     Component.onDestruction: {
-        WullPocket.hostAvailable=false
-        WullPocket.revoke()
+        AquaPocket.hostAvailable=false
+        AquaPocket.revoke()
         root.disconnectContext()
-        WullMind.hostVisible=false
-        WullMind.hostIdle=false
-        WullMind.hostBlocked=true
-        WullMind.cancel()
-        WullMind.dismiss()
+        AquaMind.hostVisible=false
+        AquaMind.hostIdle=false
+        AquaMind.hostBlocked=true
+        AquaMind.cancel()
+        AquaMind.dismiss()
         companionBridge.hide()
     }
 }

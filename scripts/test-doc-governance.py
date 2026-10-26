@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed offline guard for active/retired Hadanion documentation.
+"""Fail-closed offline guard for active/retired Alis-Companion documentation.
 
 No network or dependencies. Checks curated active Markdown links and that
 pre-cleanup imports stay byte-identical in the archive, not active roadmaps.
@@ -10,19 +10,19 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 VISUAL = Path("to-do/cloud-bot/ABYSS_WATER_DROPLET_COMPANION.md")
-AI = Path("to-do/cloud-bot/WULL_LOCAL_AI.md")
+AI = Path("to-do/cloud-bot/AQUA_LOCAL_AI.md")
 ARCHIVES = {
     "to-do/archive/ABYSS_WATER_DROPLET_COMPANION_PRE_CLEANUP_20261009.md":
-        "411532f45e330b8a9ed3bcf19ea39e227bb26390",
-    "to-do/archive/WULL_LOCAL_AI_PRE_CLEANUP_20261009.md":
-        "69882457bdf83b17f9a981ad6c99ca975bb0c728",
+        "e1168b49067a987ce4381a246f6472b15114a081",
+    "to-do/archive/AQUA_LOCAL_AI_PRE_CLEANUP_20261009.md":
+        "8b74c31a918d41e2aa9ceec5fe2315325fac1db4",
     "docs/archive/COMPANION_MAK1ZU_RESEARCH_20261008.md":
-        "7d7c2575ea4274fc8d1c0674ea2a56fabe994579",
+        "f21c38fe3563c6994156eb32749dee6cafbe29ca",
 }
 ACTIVE = (
     "README.md", "docs/README.md", "docs/HADALIS_EXTRACTION.md",
-    "docs/HADANION_COMPANION_SYNTHESIS_20261009.md",
-    "docs/HADANION_RENDERER_OPTIMIZATION_DECISION_20261008.md",
+    "docs/ALIS_COMPANION_COMPANION_SYNTHESIS_20261009.md",
+    "docs/ALIS_COMPANION_RENDERER_OPTIMIZATION_DECISION_20261008.md",
     "to-do/README.md", "to-do/cloud-bot/README.md",
     str(VISUAL), str(AI),
     "to-do/archive/README.md", "docs/archive/README.md",
@@ -81,8 +81,8 @@ def main():
                 "legacy Mak1zu research must not be promoted to an active task"
     for rel in (str(VISUAL), str(AI)):
         source = (ROOT / rel).read_text(encoding="utf-8")
-        assert "git clone" not in source or "Hadanion" in source
-    print("HADANION_DOC_GOVERNANCE_PASS (2 GitHub Issue redirects; 3 immutable archives; "
+        assert "git clone" not in source or "Alis-Companion" in source
+    print("ALIS_COMPANION_DOC_GOVERNANCE_PASS (2 GitHub Issue redirects; 3 immutable archives; "
           + str(len(ACTIVE)) + " checked entrypoints)")
 
 

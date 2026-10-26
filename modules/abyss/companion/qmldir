@@ -1,4 +1,4 @@
-module qs.optional.hadanion.modules.abyss.companion
+module qs.optional.alis_companion.modules.abyss.companion
 OctoTentacles 1.0 OctoTentacles.qml
 CompanionTurns 1.0 CompanionTurns.qml
 CompanionChallenger 1.0 CompanionChallenger.qml
@@ -7,15 +7,15 @@ AbyssCompanionProof 1.0 AbyssCompanionProof.qml
 CompanionBridge 1.0 CompanionBridge.qml
 WaterDropletBody 1.0 WaterDropletBody.qml
 WaterDropletFace 1.0 WaterDropletFace.qml
-WullMotion 1.0 WullMotion.qml
-WullPresence 1.0 WullPresence.qml
-WullPortals 1.0 WullPortals.qml
-WullCuriosity 1.0 WullCuriosity.qml
-WullAbyssLink 1.0 WullAbyssLink.qml
-WullTalkCloud 1.0 WullTalkCloud.qml
-WullPocketDrop 1.0 WullPocketDrop.qml
-WullPocketPane 1.0 WullPocketPane.qml
-WullCloudActions 1.0 WullCloudActions.qml
-WullObsidianIcon 1.0 WullObsidianIcon.qml
-WullAmbientProp 1.0 WullAmbientProp.qml
-WullLaptopProp 1.0 WullLaptopProp.qml
+AquaMotion 1.0 AquaMotion.qml
+AquaPresence 1.0 AquaPresence.qml
+AquaPortals 1.0 AquaPortals.qml
+AquaCuriosity 1.0 AquaCuriosity.qml
+AquaAbyssLink 1.0 AquaAbyssLink.qml
+AquaTalkCloud 1.0 AquaTalkCloud.qml
+AquaPocketDrop 1.0 AquaPocketDrop.qml
+AquaPocketPane 1.0 AquaPocketPane.qml
+AquaCloudActions 1.0 AquaCloudActions.qml
+AquaObsidianIcon 1.0 AquaObsidianIcon.qml
+AquaAmbientProp 1.0 AquaAmbientProp.qml
+AquaLaptopProp 1.0 AquaLaptopProp.qml

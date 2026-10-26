@@ -106,7 +106,7 @@ def verify(bundle, output, render):
                     error = max(error, abs(f.evaluate(1+t*clip["duration"]*.06)-linear(keys, t)))
                     samples += 1
         assert error < .0001
-        prop = [o for o in bpy.data.objects if o.get("hadanion_original_prop")]
+        prop = [o for o in bpy.data.objects if o.get("alis_companion_original_prop")]
         assert len(prop) == 29
         set_phase(rig, character, clips, "laptop_open", 0)
         assert all(o.hide_render for o in prop)

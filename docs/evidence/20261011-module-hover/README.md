@@ -39,7 +39,7 @@ Commands:
 
 ```sh
 cargo build --locked --release --workspace --manifest-path native/Cargo.toml
-HADANION_TEST_HOST=/path/to/Alis python3 scripts/test-module-hover-runtime.py
+ALIS_COMPANION_TEST_HOST=/path/to/Alis python3 scripts/test-module-hover-runtime.py
 python3 scripts/validate.py --hadalis-root /path/to/Alis \
   --only test-module-hover-runtime.py --require-clean
 ```

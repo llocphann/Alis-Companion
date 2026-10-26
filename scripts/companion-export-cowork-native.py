@@ -70,7 +70,7 @@ def export(output, smooth_bubbles=False, concept_face=False, smooth_eyes=False):
                 for polygon in obj.data.polygons:polygon.use_smooth=True
             if smooth_eyes and obj.type=="MESH" and obj.name.startswith("Glossy eye"):
                 for polygon in obj.data.polygons:polygon.use_smooth=True
-            if obj.get("hadanion_original_prop"):
+            if obj.get("alis_companion_original_prop"):
                 obj.driver_remove("hide_render")
                 obj.driver_remove("hide_viewport")
                 obj.hide_render = obj.hide_viewport = False

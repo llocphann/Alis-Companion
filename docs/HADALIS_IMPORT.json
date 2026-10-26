@@ -16,7 +16,7 @@
       "sha256": "f3e29e4a40f1d91d93ef4ea92016b7086181bacb7ddfb45a867a8c14a0db811f"
     },
     {
-      "path": "assets/wull/WullMotion.blend",
+      "path": "assets/aqua/AquaMotion.blend",
       "sha256": "280e25999296311543ca2abca0b1e2561e481672b3d5cab3510e7df55b0fb318"
     },
     {
@@ -96,75 +96,75 @@
       "sha256": "b15d54e8e0e3b54b91986cf5478b4e0f5bd503f1423bfca65c6207320c83d125"
     },
     {
-      "path": "modules/abyss/companion/WullAbyssLink.qml",
+      "path": "modules/abyss/companion/AquaAbyssLink.qml",
       "sha256": "fc52caca127356d338e1e0976d09bc92b949343126574b45e793c250e074cc34"
     },
     {
-      "path": "modules/abyss/companion/WullAttention.js",
+      "path": "modules/abyss/companion/AquaAttention.js",
       "sha256": "dd5bd572b0a7854844a7e9fd62aaaeb4a97688bc6aee5a99329f2c78b0f91406"
     },
     {
-      "path": "modules/abyss/companion/WullCloudActions.qml",
+      "path": "modules/abyss/companion/AquaCloudActions.qml",
       "sha256": "e98a1df4765e2b7164e51a7652f0f85a1e76b74006668b190c47b25820f9b5b4"
     },
     {
-      "path": "modules/abyss/companion/WullCloudOrbit.js",
+      "path": "modules/abyss/companion/AquaCloudOrbit.js",
       "sha256": "0c16cd5c70bd2a5cb2fecf6d3d139bc97a8f5b4d0fbeb5a4fcbba472745ac1f9"
     },
     {
-      "path": "modules/abyss/companion/WullCuriosity.qml",
+      "path": "modules/abyss/companion/AquaCuriosity.qml",
       "sha256": "ca5cdd2f9979e66a6e9c7f61d7e99159ef18137eb3bc762a35fd78d0464df5a4"
     },
     {
-      "path": "modules/abyss/companion/WullExpressions.js",
+      "path": "modules/abyss/companion/AquaExpressions.js",
       "sha256": "33c790e249ec8e6d916407c64f516ee8fed76c2ea8252da9b782a5bfc06e332f"
     },
     {
-      "path": "modules/abyss/companion/WullHostPolicy.js",
+      "path": "modules/abyss/companion/AquaHostPolicy.js",
       "sha256": "ef8ecee76baa320eb771d22bbc0225decdf8e0416595c07f52e539a4e17060f2"
     },
     {
-      "path": "modules/abyss/companion/WullMotion.qml",
+      "path": "modules/abyss/companion/AquaMotion.qml",
       "sha256": "99c6a05a1393bfeecc564ba0831c5d8e8d5b0776f08dc7394677c31f6f41bbb2"
     },
     {
-      "path": "modules/abyss/companion/WullMotionData.js",
+      "path": "modules/abyss/companion/AquaMotionData.js",
       "sha256": "e0827b924cef471cefa04115d0870120505e02a53912f1b3f2d1ba7a75146771"
     },
     {
-      "path": "modules/abyss/companion/WullObsidianIcon.qml",
+      "path": "modules/abyss/companion/AquaObsidianIcon.qml",
       "sha256": "38db83c7a5ce28de29a0fd5a98ac19614eede64498804cdb65a89784da7eefba"
     },
     {
-      "path": "modules/abyss/companion/WullPortals.qml",
+      "path": "modules/abyss/companion/AquaPortals.qml",
       "sha256": "5aec6820b8faee37859f7944c64121ce5f5b80efb85520d6bc2454155a202067"
     },
     {
-      "path": "modules/abyss/companion/WullPose.js",
+      "path": "modules/abyss/companion/AquaPose.js",
       "sha256": "cc10a3b1bdb8440b99efc9c83456d8df76e28c74c6d627e9cc5aea741314c994"
     },
     {
-      "path": "modules/abyss/companion/WullPreferences.js",
+      "path": "modules/abyss/companion/AquaPreferences.js",
       "sha256": "870539eacc6160a1806481988a37fb416edb44c2e3da38283c55ec38a18d3847"
     },
     {
-      "path": "modules/abyss/companion/WullPresence.qml",
+      "path": "modules/abyss/companion/AquaPresence.qml",
       "sha256": "cf6e7c347476351500c6ac2dabce152cbc2dd89b4c081b4130dbb4fdc0c1956a"
     },
     {
-      "path": "modules/abyss/companion/WullScene.js",
+      "path": "modules/abyss/companion/AquaScene.js",
       "sha256": "b86a98ea4c0e3d4defa6c76893f13e571810b53ff971afdb135215fd50a256c1"
     },
     {
-      "path": "modules/abyss/companion/WullSurfacePlacement.js",
+      "path": "modules/abyss/companion/AquaSurfacePlacement.js",
       "sha256": "a5fbb0d54f83ce99c8feff4f3eba224c7b6222a6bbbb34b95d4f81a906792581"
     },
     {
-      "path": "modules/abyss/companion/WullTalkCloud.qml",
+      "path": "modules/abyss/companion/AquaTalkCloud.qml",
       "sha256": "95c87cd7a76d1510fda4722462fe617cb125dee8320a055e7e34b5af4287a060"
     },
     {
-      "path": "modules/abyss/companion/WullTravel.js",
+      "path": "modules/abyss/companion/AquaTravel.js",
       "sha256": "fd8fabb0ac91727f7d1ed4a8d8582aa2b1ec94605e150d43d06efc56e76088dd"
     },
     {
@@ -188,7 +188,7 @@
       "sha256": "cbc2d16da67714e87b0f88c6056cdd67cd7dbee70d05069af55c2e2642ebb8cd"
     },
     {
-      "path": "scripts/build-wull-material-candidate.py",
+      "path": "scripts/build-aqua-material-candidate.py",
       "sha256": "b1e5e3b489468dfd0c7730449f3172e6819733c7757de88a658de69d446ac30a"
     },
     {
@@ -200,7 +200,7 @@
       "sha256": "1dda4918bd07bba146408af369883451abf8f28ad5850ba42204e7887d25345e"
     },
     {
-      "path": "scripts/fixtures/wull-clear-segment.json",
+      "path": "scripts/fixtures/aqua-clear-segment.json",
       "sha256": "e83817b76cace674fa3f4c77f2aeee802ce77d0c16814b11a04546cecfb94381"
     },
     {
@@ -224,1051 +224,1051 @@
       "sha256": "f97b09c9c6968af63162a4f3c8c0bae2a22dba4caa3c6506b27f5c5614c74bfd"
     },
     {
-      "path": "scripts/test-wull-abyss-water.py",
+      "path": "scripts/test-aqua-abyss-water.py",
       "sha256": "11ba1534be35e08b2d9b1fe934d4559f4698193fcafad83d215a62f3271148ab"
     },
     {
-      "path": "scripts/test-wull-actual-panel-layout.cjs",
+      "path": "scripts/test-aqua-actual-panel-layout.cjs",
       "sha256": "a9d49cb79a8d0ed6e80d72c9f3e98af9fb4f306d45f52a15f21dd36906f67cb0"
     },
     {
-      "path": "scripts/test-wull-airborne.cjs",
+      "path": "scripts/test-aqua-airborne.cjs",
       "sha256": "a3ef86f5c8b1de118c8a5e2543d2d764399f3bf85ef51d44894d0b1623c0fbb7"
     },
     {
-      "path": "scripts/test-wull-alive-reactions.py",
+      "path": "scripts/test-aqua-alive-reactions.py",
       "sha256": "7d0eaceb611a292a8002a238f599f4d370dcb7c1fc62e95b345b2c33c0da36ee"
     },
     {
-      "path": "scripts/test-wull-canonical-private-diagnostics-fake-only.py",
+      "path": "scripts/test-aqua-canonical-private-diagnostics-fake-only.py",
       "sha256": "78320ebc6da5d825760c36c5f7354d8f28009f70959460ae440118763dbbdd77"
     },
     {
-      "path": "scripts/test-wull-canonical-private-diagnostics-v2-fake-only.py",
+      "path": "scripts/test-aqua-canonical-private-diagnostics-v2-fake-only.py",
       "sha256": "200956ff09f240745f5d20768ba77e260407e329c5da50520c88e7daf8e4c948"
     },
     {
-      "path": "scripts/test-wull-canonical-private-diagnostics-v3-fake-only.py",
+      "path": "scripts/test-aqua-canonical-private-diagnostics-v3-fake-only.py",
       "sha256": "9c00aacd02ec3633875a43c2f599a26e3aadf3a4c16b2b3b11b483b52c8f2bbc"
     },
     {
-      "path": "scripts/test-wull-centered-prototype-contract.py",
+      "path": "scripts/test-aqua-centered-prototype-contract.py",
       "sha256": "467d54a29ebdcd48f0e16d406023c11a16d6c3331f4b31b63da4abe85d8f53c9"
     },
     {
-      "path": "scripts/test-wull-classify-inspection-receipt.py",
+      "path": "scripts/test-aqua-classify-inspection-receipt.py",
       "sha256": "b6c6353bcb92eca4840cd498de10689ea972cf4ddc08e86dffce9d523b46ced5"
     },
     {
-      "path": "scripts/test-wull-cloud-orbit.cjs",
+      "path": "scripts/test-aqua-cloud-orbit.cjs",
       "sha256": "c1d9bcf92e9f8d585cf2ab77e1a35a01ec1a43162d1e1dbb227376297f05950e"
     },
     {
-      "path": "scripts/test-wull-cloud-orbit.py",
+      "path": "scripts/test-aqua-cloud-orbit.py",
       "sha256": "7e413df6355c250f0917599009009d842d48359de0a7367dbf1523773144da43"
     },
     {
-      "path": "scripts/test-wull-collapsed-bar.py",
+      "path": "scripts/test-aqua-collapsed-bar.py",
       "sha256": "0b9a8efa2820481142003b41e5b6b96464703e15bef21c1c0a1bce6788a3bd16"
     },
     {
-      "path": "scripts/test-wull-companion-settings.py",
+      "path": "scripts/test-aqua-companion-settings.py",
       "sha256": "edc65b722531bb562fed0e2d1ae11c49303085cfc9e148959f1faf57d38c65af"
     },
     {
-      "path": "scripts/test-wull-curated-matrix-export-fake-only.py",
+      "path": "scripts/test-aqua-curated-matrix-export-fake-only.py",
       "sha256": "9da6d8ea0f812051ed86147dbb7368166cc6264eb2864aa76865ed868c04ce28"
     },
     {
-      "path": "scripts/test-wull-curated-matrix-export-v2-fake-only.py",
+      "path": "scripts/test-aqua-curated-matrix-export-v2-fake-only.py",
       "sha256": "827c7ad5e6a6294475875f317140eec32ccba411804eec7f44e75d452e911b69"
     },
     {
-      "path": "scripts/test-wull-curated-matrix-export-v3-fake-only.py",
+      "path": "scripts/test-aqua-curated-matrix-export-v3-fake-only.py",
       "sha256": "0c36c2484f8d29d04709102116c6a6ad08e610552ed072dab23739ed5a770394"
     },
     {
-      "path": "scripts/test-wull-curated-nested-field-export-fake-only.py",
+      "path": "scripts/test-aqua-curated-nested-field-export-fake-only.py",
       "sha256": "1558f6f6643303836027257bae4708c78a6d82bfd09c591ee3b2c370be5f6db3"
     },
     {
-      "path": "scripts/test-wull-curated-nested-field-export-v2-fake-only.py",
+      "path": "scripts/test-aqua-curated-nested-field-export-v2-fake-only.py",
       "sha256": "f8f98fb9e75e0f92d2592e570e9b2f2e9d72736ccea2aed65808960536e512e5"
     },
     {
-      "path": "scripts/test-wull-curated-nested-field-export-v3-fake-only.py",
+      "path": "scripts/test-aqua-curated-nested-field-export-v3-fake-only.py",
       "sha256": "07bc9d0c1169492fd940ff8a2f3b9efb6a8143ed08690a527718f0a9e480d627"
     },
     {
-      "path": "scripts/test-wull-curated-real-bar-fake-only.py",
+      "path": "scripts/test-aqua-curated-real-bar-fake-only.py",
       "sha256": "a3251997cb396f504efec1d75457ea649b59d6e592eb53b02bd79fad71144088"
     },
     {
-      "path": "scripts/test-wull-curated-real-bar-v2-fake-only.py",
+      "path": "scripts/test-aqua-curated-real-bar-v2-fake-only.py",
       "sha256": "7d23a7f54b1ea8fe392cd7457f6c9b009f78f48f719339b053e4c054e801008e"
     },
     {
-      "path": "scripts/test-wull-curiosity-adapter.cjs",
+      "path": "scripts/test-aqua-curiosity-adapter.cjs",
       "sha256": "f9b94f45eb2c774e35c8dc725bc80b757e62f4b056c37e035eba3645e63a7e11"
     },
     {
-      "path": "scripts/test-wull-existing-layer-contract.py",
+      "path": "scripts/test-aqua-existing-layer-contract.py",
       "sha256": "d8b668cba5fdcda1cbac292717b79d84e7921e3edb2441e7eb9164a1bf249ef4"
     },
     {
-      "path": "scripts/test-wull-existing-matrix-evidence.py",
+      "path": "scripts/test-aqua-existing-matrix-evidence.py",
       "sha256": "6c7cb5636c5f390f12853e65f6e5f2c8a178b1dbe6c37f92adc8e8e7d15c5751"
     },
     {
-      "path": "scripts/test-wull-expressions.cjs",
+      "path": "scripts/test-aqua-expressions.cjs",
       "sha256": "b061ab10bae1bd91ce09c24887c82224395e72e56d7c1a0c108e03e2537dcd5c"
     },
     {
-      "path": "scripts/test-wull-footprint-contract.py",
+      "path": "scripts/test-aqua-footprint-contract.py",
       "sha256": "aae25d5ec47752bc4de3ecf602d642eb8232fa340bd639f7a59163eef6472ef8"
     },
     {
-      "path": "scripts/test-wull-gguf-ui.py",
+      "path": "scripts/test-aqua-gguf-ui.py",
       "sha256": "5e0fcc743e5d6cc33ba38d1e591dc20fd06f25b2a5f4fbebfe20d51b7e827977"
     },
     {
-      "path": "scripts/test-wull-host-policy.py",
+      "path": "scripts/test-aqua-host-policy.py",
       "sha256": "4b197ab57adec53d757e017880aa6a9e8f554d7ce05a6e29dbf6fab066fb3052"
     },
     {
-      "path": "scripts/test-wull-idle-resource-contract.py",
+      "path": "scripts/test-aqua-idle-resource-contract.py",
       "sha256": "24f8321dbbe7c1e5bef1531381466a48f860d64bc934fa3e793b8cd9a0e8d798"
     },
     {
-      "path": "scripts/test-wull-immersion-runtime.py",
+      "path": "scripts/test-aqua-immersion-runtime.py",
       "sha256": "962ffff16207f79f1a3439e0875c19589201b77ea29319545abf61da10dead73"
     },
     {
-      "path": "scripts/test-wull-lively-motion.py",
+      "path": "scripts/test-aqua-lively-motion.py",
       "sha256": "d8b6e17179745a9f2238b760b9e774bdeaa0d2222d930ec4e12fc0fd1704464d"
     },
     {
-      "path": "scripts/test-wull-local-mind.py",
+      "path": "scripts/test-aqua-local-mind.py",
       "sha256": "f09578f68cdf8b0af3a8cec2198a92b7abf40e4f038ca665ca2c822160511164"
     },
     {
-      "path": "scripts/test-wull-manual-perimeter.py",
+      "path": "scripts/test-aqua-manual-perimeter.py",
       "sha256": "187ca1724489a057613b425e44047b1cf09a225ffce955a256736be320f580f3"
     },
     {
-      "path": "scripts/test-wull-mature-popup.py",
+      "path": "scripts/test-aqua-mature-popup.py",
       "sha256": "1155c1fb0170549f7a162025f72ccedcbbae8a598ce7e5dea7471e1b7d42c3e9"
     },
     {
-      "path": "scripts/test-wull-mind-ui.py",
+      "path": "scripts/test-aqua-mind-ui.py",
       "sha256": "11c952f33de91a5e6354696f11a7a7f50515b9e0b40b2f0c6b0df3da00ad99d9"
     },
     {
-      "path": "scripts/test-wull-motion-footprint-feasibility.py",
+      "path": "scripts/test-aqua-motion-footprint-feasibility.py",
       "sha256": "46b3793ac254d062b4e176bd6c8f9a9040e9cf28981d10f75b5396c99b291a23"
     },
     {
-      "path": "scripts/test-wull-motion-inert-publish-contract.py",
+      "path": "scripts/test-aqua-motion-inert-publish-contract.py",
       "sha256": "4d7d9a7a3ab374fcc583648de4f5fc9aa0294061dfe8c9ccbc91a0a917b73b6f"
     },
     {
-      "path": "scripts/test-wull-motion.cjs",
+      "path": "scripts/test-aqua-motion.cjs",
       "sha256": "105e64f9620b5d41f8b9d538c20e8159d1e79788a908664cf9a72ee274bebacd"
     },
     {
-      "path": "scripts/test-wull-nested-field-capture-fake-only.py",
+      "path": "scripts/test-aqua-nested-field-capture-fake-only.py",
       "sha256": "894c74909a8184b849042763404bf255d11861a21ef16df0f0ec9feeba8500e6"
     },
     {
-      "path": "scripts/test-wull-nested-isolation-smoke-fake-only.py",
+      "path": "scripts/test-aqua-nested-isolation-smoke-fake-only.py",
       "sha256": "7e9a5e153f0c900d9dbda70a352bf7a773a969b442570df193543b7ded71ba37"
     },
     {
-      "path": "scripts/test-wull-nested-niri-contract.py",
+      "path": "scripts/test-aqua-nested-niri-contract.py",
       "sha256": "5e40346581dc4470c8e423a14ffd4c6c3ef7d6f7f8d9def2aa13576597692b36"
     },
     {
-      "path": "scripts/test-wull-nested-pointer-contract.py",
+      "path": "scripts/test-aqua-nested-pointer-contract.py",
       "sha256": "63c9ca814e320e45ad36bad70a9174ec2cc05f4abdc63269843637dcbeaa1732"
     },
     {
-      "path": "scripts/test-wull-nested-production-bar-fake-only.py",
+      "path": "scripts/test-aqua-nested-production-bar-fake-only.py",
       "sha256": "49846014bac6774ecf3a731101011c103da514c842bc2b1d9210978d5bc853a7"
     },
     {
-      "path": "scripts/test-wull-nested-render-capability-fake-only.py",
+      "path": "scripts/test-aqua-nested-render-capability-fake-only.py",
       "sha256": "ed4bfd7b17ef4a00489342a981c1bd37d3c7393a6776aa8c0b57dc83dd48652f"
     },
     {
-      "path": "scripts/test-wull-offscreen-dynamic-geometry-contract.py",
+      "path": "scripts/test-aqua-offscreen-dynamic-geometry-contract.py",
       "sha256": "3cc452865c9d90fe68f208faace1de09e3cacd0cb5d678217f92d8b480503c80"
     },
     {
-      "path": "scripts/test-wull-offscreen-motion-geometry-contract.py",
+      "path": "scripts/test-aqua-offscreen-motion-geometry-contract.py",
       "sha256": "bbff92d16681b7930504be7eccc11275f29db481fbd4c9138b5c2405912a2fff"
     },
     {
-      "path": "scripts/test-wull-original-reference-assets.py",
+      "path": "scripts/test-aqua-original-reference-assets.py",
       "sha256": "19706d5ea5b0ce0e09fd246c61b822eb6b8bbbdab10c242e50d6abba03ef393d"
     },
     {
-      "path": "scripts/test-wull-pointer-underlay-contract.py",
+      "path": "scripts/test-aqua-pointer-underlay-contract.py",
       "sha256": "3975024bd7137c34b97774d20df68e5e39d84541a5b11de7d4a75f058625553a"
     },
     {
-      "path": "scripts/test-wull-portal-runtime.py",
+      "path": "scripts/test-aqua-portal-runtime.py",
       "sha256": "9b5b5e1ecde4e8ae1eb369e7378bfecbe0eca1b98217ff29915dc8895f460b4e"
     },
     {
-      "path": "scripts/test-wull-preferences.cjs",
+      "path": "scripts/test-aqua-preferences.cjs",
       "sha256": "64018c9864ddc4e18aff4c7203910b545432814c412f1760fecb8c6b7f067538"
     },
     {
-      "path": "scripts/test-wull-presence-interaction.py",
+      "path": "scripts/test-aqua-presence-interaction.py",
       "sha256": "62411dd786e15b60d04d31499580d75f57a5b4b83912a3089d0c704feb1df5a4"
     },
     {
-      "path": "scripts/test-wull-private-bar-free-slot.cjs",
+      "path": "scripts/test-aqua-private-bar-free-slot.cjs",
       "sha256": "006ede7aeb225265166bc51ba70d5256b9ddf319bd96fdc183b9c04c3b6e3bb9"
     },
     {
-      "path": "scripts/test-wull-private-bottom-edge-band-contract.py",
+      "path": "scripts/test-aqua-private-bottom-edge-band-contract.py",
       "sha256": "f6ab244222c02bd16245a3e69f31542a7b243336945e4b64f30680f269eed941"
     },
     {
-      "path": "scripts/test-wull-private-bottom-fractional-band-contract.py",
+      "path": "scripts/test-aqua-private-bottom-fractional-band-contract.py",
       "sha256": "8b25e79000118c8161c5ebf08e484e5609ce369000cd2c6620abe8918124ed81"
     },
     {
-      "path": "scripts/test-wull-private-bottom-inset-contract.py",
+      "path": "scripts/test-aqua-private-bottom-inset-contract.py",
       "sha256": "3063292b25a53fa96cf3c1b1769a5d13502185df1dbcd9d63db86e9f41a03a79"
     },
     {
-      "path": "scripts/test-wull-private-bottom-static-source-contract.py",
+      "path": "scripts/test-aqua-private-bottom-static-source-contract.py",
       "sha256": "c3a74f65f439d039ef51355266f84bdd9d0d9cca449fff8a1f29f3a28a514f89"
     },
     {
-      "path": "scripts/test-wull-private-dynamic-core-contract.py",
+      "path": "scripts/test-aqua-private-dynamic-core-contract.py",
       "sha256": "475701db780006608910686a0f3a8bc4786f1f676c394b9764b5a2488ae4abc3"
     },
     {
-      "path": "scripts/test-wull-private-dynamic-paint-observed-contract.py",
+      "path": "scripts/test-aqua-private-dynamic-paint-observed-contract.py",
       "sha256": "8477a20d336df763f0af28d11da00d11d060cbde5d0e70702cb79124c3a45bab"
     },
     {
-      "path": "scripts/test-wull-private-dynamic-paint-pilot-contract.py",
+      "path": "scripts/test-aqua-private-dynamic-paint-pilot-contract.py",
       "sha256": "212e0904d7a850dc8c41692b493f5bb2fb420950fcbfe5da10d5dcc8b964830b"
     },
     {
-      "path": "scripts/test-wull-private-dynamic-parser-postmortem.py",
+      "path": "scripts/test-aqua-private-dynamic-parser-postmortem.py",
       "sha256": "cca1a5b847ffb12074159c5f5c1ce6e80c30be0d67ab4e21daa3ea9e228fcfee"
     },
     {
-      "path": "scripts/test-wull-private-dynamic-pilot-diagnostic-contract.py",
+      "path": "scripts/test-aqua-private-dynamic-pilot-diagnostic-contract.py",
       "sha256": "1bedd4c84507572cdbea50a147d2147d0d1ef8c5e0f551fe0a2b4e7281ad222b"
     },
     {
-      "path": "scripts/test-wull-private-field-rim-attachment.py",
+      "path": "scripts/test-aqua-private-field-rim-attachment.py",
       "sha256": "a67983b70f6b3525d5c56291d9c2f52d5f059371e02f18bdca5d7c6eedbe57cf"
     },
     {
-      "path": "scripts/test-wull-private-field-rim-visual.py",
+      "path": "scripts/test-aqua-private-field-rim-visual.py",
       "sha256": "e769120bc92048141e62bb9ebb2730023daaa07ff4117f4aa22849330175c304"
     },
     {
-      "path": "scripts/test-wull-private-left-margin-diagnostic.py",
+      "path": "scripts/test-aqua-private-left-margin-diagnostic.py",
       "sha256": "b7e26b28a865de27f731200160f94b11e7306eb5a6b98c1fa06301c615ff0f97"
     },
     {
-      "path": "scripts/test-wull-private-left-margin-publish-contract.py",
+      "path": "scripts/test-aqua-private-left-margin-publish-contract.py",
       "sha256": "adbb0a05e3f14d715faf20c388e179e9323308c13abefdd68e0c50fce53e8069"
     },
     {
-      "path": "scripts/test-wull-private-mask-candidate-contract.py",
+      "path": "scripts/test-aqua-private-mask-candidate-contract.py",
       "sha256": "7bdf30737329e70c24fb30246841346ee4af7e96a43ba8adbf4cb365bed33622"
     },
     {
-      "path": "scripts/test-wull-private-minimal-boot-log-review.py",
+      "path": "scripts/test-aqua-private-minimal-boot-log-review.py",
       "sha256": "0fd99b71dd9dc45cec5ffbb13d83a047ec9e8ef02b5a5dbf4848c745d2bfbc4f"
     },
     {
-      "path": "scripts/test-wull-private-minimal-qs-bootstrap.py",
+      "path": "scripts/test-aqua-private-minimal-qs-bootstrap.py",
       "sha256": "6139793b2702f4757939f48393252b6d3885fb3fd2a83f045e7524c1b2354485"
     },
     {
-      "path": "scripts/test-wull-private-moving-bottom-inset-contract.py",
+      "path": "scripts/test-aqua-private-moving-bottom-inset-contract.py",
       "sha256": "be4b47792468b9bf8845639f6bcb35a45631e12bacff1284a73056cf099acc2b"
     },
     {
-      "path": "scripts/test-wull-private-moving-bottom-quarter-band-contract.py",
+      "path": "scripts/test-aqua-private-moving-bottom-quarter-band-contract.py",
       "sha256": "dbb1921981d1175a4e33d3e5e99ca2a63b0a4423ae894a07172c0c4847e5f3b4"
     },
     {
-      "path": "scripts/test-wull-private-nested-quarter-visual.py",
+      "path": "scripts/test-aqua-private-nested-quarter-visual.py",
       "sha256": "e922b5bf8d5f682c325fe2eef82273c9ee05c5c1d699ef2d4b8981cb6a22db82"
     },
     {
-      "path": "scripts/test-wull-private-offscreen-boot-controls.py",
+      "path": "scripts/test-aqua-private-offscreen-boot-controls.py",
       "sha256": "6686bb16ade798bdb7db02a094ad6e3901460a253763f257a9c8488df077a638"
     },
     {
-      "path": "scripts/test-wull-private-offscreen-boot-fingerprint.py",
+      "path": "scripts/test-aqua-private-offscreen-boot-fingerprint.py",
       "sha256": "456fbf10a6400ef3e434d924fad90401e26ec9d486c6a3590a2cad4cee065188"
     },
     {
-      "path": "scripts/test-wull-private-paint-canary-contract.py",
+      "path": "scripts/test-aqua-private-paint-canary-contract.py",
       "sha256": "43e457087f41a822a0c87505d00bbef901b594f58ee0a9b48a4ed73eaae946ce"
     },
     {
-      "path": "scripts/test-wull-private-paint-core-contract.py",
+      "path": "scripts/test-aqua-private-paint-core-contract.py",
       "sha256": "a383169c993bb2202bb2b55f35427919bed7ae3697f1f7115dfa63ef02215b9c"
     },
     {
-      "path": "scripts/test-wull-private-paint-paired-contract.py",
+      "path": "scripts/test-aqua-private-paint-paired-contract.py",
       "sha256": "4568b086cd2a385bd587e2a88b61d88f351c2bffe789b5c528a81735bc0a0e8b"
     },
     {
-      "path": "scripts/test-wull-private-paint-shadow-contract.py",
+      "path": "scripts/test-aqua-private-paint-shadow-contract.py",
       "sha256": "0d33e5c50a128b1df62cb597a0f4f659e8cab1218f43ea2f68ce44e92be5e2d7"
     },
     {
-      "path": "scripts/test-wull-private-painted-alpha-model.py",
+      "path": "scripts/test-aqua-private-painted-alpha-model.py",
       "sha256": "f70aa9b577469cedb02e96f34a7a947fdbb215585e927905a3c3aa4a44863fa9"
     },
     {
-      "path": "scripts/test-wull-private-paired-static-matrix-contract.py",
+      "path": "scripts/test-aqua-private-paired-static-matrix-contract.py",
       "sha256": "ad016610c9b7b89a77399158a9b872e4d803267620a6bc9e6a5ad4a628bbec8d"
     },
     {
-      "path": "scripts/test-wull-private-panel-quarter-shadow.py",
+      "path": "scripts/test-aqua-private-panel-quarter-shadow.py",
       "sha256": "602d6946ee85f0156be4eac7558f99aa2ec03ff6201186dd983a0fbacca5d0b5"
     },
     {
-      "path": "scripts/test-wull-private-pointer-drift-diagnostic.py",
+      "path": "scripts/test-aqua-private-pointer-drift-diagnostic.py",
       "sha256": "3debeb69f4d0e0d4352f6b24628dd72baa07413f79a3235e0ce13cf851189a99"
     },
     {
-      "path": "scripts/test-wull-private-pointer-drift-publish-contract.py",
+      "path": "scripts/test-aqua-private-pointer-drift-publish-contract.py",
       "sha256": "9d93d75cb6a1214123296c450a84a2690a736958c9b7e0601af25479519d125f"
     },
     {
-      "path": "scripts/test-wull-private-qs-signal-gate.py",
+      "path": "scripts/test-aqua-private-qs-signal-gate.py",
       "sha256": "f566769ab6fbf75d6edd310f925e5515ad18414f6772d18027f16307f3b04378"
     },
     {
-      "path": "scripts/test-wull-private-qslog-postmortem.py",
+      "path": "scripts/test-aqua-private-qslog-postmortem.py",
       "sha256": "95dafc8ef650bd56d77a0a228a7db8a13372a360940c83654fca0eb0671dcd82"
     },
     {
-      "path": "scripts/test-wull-private-relay-contract.py",
+      "path": "scripts/test-aqua-private-relay-contract.py",
       "sha256": "ac1321eb24059e8ccc57ae93a459455e4085caf26bf730a9964cf5ec5a4ba156"
     },
     {
-      "path": "scripts/test-wull-private-static-matrix-runner-contract.py",
+      "path": "scripts/test-aqua-private-static-matrix-runner-contract.py",
       "sha256": "ae1c82b4d07514c06e1dd7a53634e52c13266571f9a8ddf43b5d301539c6c2f9"
     },
     {
-      "path": "scripts/test-wull-procedural-visual-contract.py",
+      "path": "scripts/test-aqua-procedural-visual-contract.py",
       "sha256": "fdefa28e9cafaf55e65a11ec7e729bdce4aac65d96ef551b480ae3361bf35db0"
     },
     {
-      "path": "scripts/test-wull-production-contract.py",
+      "path": "scripts/test-aqua-production-contract.py",
       "sha256": "9ebbd4f661b9d402cc909a512d5b291a7ef9f4c6b23dbe733879b8606b5f68e6"
     },
     {
-      "path": "scripts/test-wull-production-geometry-contract.py",
+      "path": "scripts/test-aqua-production-geometry-contract.py",
       "sha256": "36294b29d69c0da388ec0509f896bf2c9565c8632b3c99d36b772282b2093b8c"
     },
     {
-      "path": "scripts/test-wull-production-layer-contract.py",
+      "path": "scripts/test-aqua-production-layer-contract.py",
       "sha256": "1e8b002660cecfa0b2c3e3007f77f75fcc31b9403b70991528cbb683b836830a"
     },
     {
-      "path": "scripts/test-wull-production-surface-integration.py",
+      "path": "scripts/test-aqua-production-surface-integration.py",
       "sha256": "89c7bfcbc8b053d19654b284a48d486d7de77083f7d34739d43f790cf9f54884"
     },
     {
-      "path": "scripts/test-wull-production-surface-slot.cjs",
+      "path": "scripts/test-aqua-production-surface-slot.cjs",
       "sha256": "d87f6a95d0e85fb691dd4b75f1eeee1d023107e0ae1b01df1cd72980ce181a7f"
     },
     {
-      "path": "scripts/test-wull-qt-backend-matrix-fake-only.py",
+      "path": "scripts/test-aqua-qt-backend-matrix-fake-only.py",
       "sha256": "4c296527298f7bcf28467d66064d4bcc2323d079f8813bd1f7ef69b37a824809"
     },
     {
-      "path": "scripts/test-wull-real-field-canary-fake-only.py",
+      "path": "scripts/test-aqua-real-field-canary-fake-only.py",
       "sha256": "907d698d8415601443e496e277c67c6361cb0843d55dedbd6fb0eba3d0d19986"
     },
     {
-      "path": "scripts/test-wull-reference-preview-fake-only.py",
+      "path": "scripts/test-aqua-reference-preview-fake-only.py",
       "sha256": "a41407b1b62cfeeea4b65ca0f814798d0d931da77282dfadfa7cb17e4874f48a"
     },
     {
-      "path": "scripts/test-wull-render-cost-contract.py",
+      "path": "scripts/test-aqua-render-cost-contract.py",
       "sha256": "a0c43588e314d1fca149b8e179f76cc6a07d791515801dd21d9506f817106655"
     },
     {
-      "path": "scripts/test-wull-retained-dynamic-receipt-contract.py",
+      "path": "scripts/test-aqua-retained-dynamic-receipt-contract.py",
       "sha256": "cec935db3b12808dd1c6cd979a94231cb116dabab5c9a71f46020bf0cd4e3f3f"
     },
     {
-      "path": "scripts/test-wull-scene.cjs",
+      "path": "scripts/test-aqua-scene.cjs",
       "sha256": "48b3fde2f3c7aa5d731215bebd3d041cb3e51e935770e410e151ee79e02d9df7"
     },
     {
-      "path": "scripts/test-wull-segment-allocations.py",
+      "path": "scripts/test-aqua-segment-allocations.py",
       "sha256": "e0e41d783af7d5c506ec65aa2869ab382e9e687087d5ddccd50caad8607998d5"
     },
     {
-      "path": "scripts/test-wull-shared-ai-runtime.py",
+      "path": "scripts/test-aqua-shared-ai-runtime.py",
       "sha256": "b2181f2e677a3dbc3d1b16f841c43bb3ef646f5187c9e008358b65fcba595e64"
     },
     {
-      "path": "scripts/test-wull-shared-input.py",
+      "path": "scripts/test-aqua-shared-input.py",
       "sha256": "bbd40887155e102458765da70a2db5e5a20b9211ae86fa4f4d26c762fb8b8a5c"
     },
     {
-      "path": "scripts/test-wull-silhouette-band-prototype.py",
+      "path": "scripts/test-aqua-silhouette-band-prototype.py",
       "sha256": "88cbe9432d31087631d2129ca65885579d701e9ce026538ecf3ec8a160e13b77"
     },
     {
-      "path": "scripts/test-wull-spatial-volume.py",
+      "path": "scripts/test-aqua-spatial-volume.py",
       "sha256": "f841fe52bd6ad99bc1b614fd28283c82dfa85521eed3f3f49bd7139bb51e79a4"
     },
     {
-      "path": "scripts/test-wull-spatial.cjs",
+      "path": "scripts/test-aqua-spatial.cjs",
       "sha256": "832fa92d71b2844761455f5c613e62e530a312a7711dc627a89654675a6ab1ef"
     },
     {
-      "path": "scripts/test-wull-travel.cjs",
+      "path": "scripts/test-aqua-travel.cjs",
       "sha256": "bd8fc269cb16a31b39844437acdabfafe6a5b72d96c02b27d9afb7cfa088555f"
     },
     {
-      "path": "scripts/test-wull-visual-matrix-fake-only.py",
+      "path": "scripts/test-aqua-visual-matrix-fake-only.py",
       "sha256": "b64a66e1abba42b88ca50d999673b4c258c64abf48cbb3183ddede4a89d1b1a4"
     },
     {
-      "path": "scripts/test-wull-water.cjs",
+      "path": "scripts/test-aqua-water.cjs",
       "sha256": "05290fe6a1505373decccc367195bb7c1fa29fd02a846c4994be3fd852698208"
     },
     {
-      "path": "scripts/wull-author-motion.py",
+      "path": "scripts/aqua-author-motion.py",
       "sha256": "686f82ace527ad983f4a4774c64251d5e1d8d26e0a05e83ee7258c155326e0a2"
     },
     {
-      "path": "scripts/wull-canonical-failure-receipt.py",
+      "path": "scripts/aqua-canonical-failure-receipt.py",
       "sha256": "3f8ce66de019dd01516967d6d191aa1942e6aa696296d77e45591c93a069d2fc"
     },
     {
-      "path": "scripts/wull-canonical-private-diagnostics-v2.py",
+      "path": "scripts/aqua-canonical-private-diagnostics-v2.py",
       "sha256": "3c1140cccbe597356d8fbc0b2ae0521d5111b95ae420da35816d5c2c859b4bed"
     },
     {
-      "path": "scripts/wull-canonical-private-diagnostics-v3.py",
+      "path": "scripts/aqua-canonical-private-diagnostics-v3.py",
       "sha256": "b60e76a422596d300cbbade72b79d6766eca9854a2aa62677d32534a725908b1"
     },
     {
-      "path": "scripts/wull-canonical-private-diagnostics.py",
+      "path": "scripts/aqua-canonical-private-diagnostics.py",
       "sha256": "3b7400486cc0911a5bb234ca501da9c9b72cb911c3f0fc433bbd11ac63fc6a00"
     },
     {
-      "path": "scripts/wull-check-presence.py",
+      "path": "scripts/aqua-check-presence.py",
       "sha256": "fe0528eb15bbfe056c691ddd838b4919eeeb91b35f032ecc0d127a924b9f9105"
     },
     {
-      "path": "scripts/wull-check-settings-bridge.py",
+      "path": "scripts/aqua-check-settings-bridge.py",
       "sha256": "4415a4bc4686de1c411652463fc895e9a7c696c034934c30fefd4fb6fa77412e"
     },
     {
-      "path": "scripts/wull-classify-inspection-receipt.py",
+      "path": "scripts/aqua-classify-inspection-receipt.py",
       "sha256": "172a60303d03b68258db07ec46ca09c237fc80f1d7b3481abe513a1d92e545d6"
     },
     {
-      "path": "scripts/wull-curated-matrix-export-v2.py",
+      "path": "scripts/aqua-curated-matrix-export-v2.py",
       "sha256": "ba5b1c7f098766beada39890fee41f984dedea17b97c4e7e4e119869a95d5980"
     },
     {
-      "path": "scripts/wull-curated-matrix-export-v3.py",
+      "path": "scripts/aqua-curated-matrix-export-v3.py",
       "sha256": "0e8236bf246772f7d85ac298d988948dad439e9b4e172e9a04cbe31965778ef0"
     },
     {
-      "path": "scripts/wull-curated-matrix-export.py",
+      "path": "scripts/aqua-curated-matrix-export.py",
       "sha256": "37e76e6b3b211bc34d1ad73f9b9e8270b410cab0f2e1d1bee9cd64ca1fd3a74c"
     },
     {
-      "path": "scripts/wull-curated-nested-field-export-v2.py",
+      "path": "scripts/aqua-curated-nested-field-export-v2.py",
       "sha256": "b54f755979680a15c93218508abd88688c596d8599da92295b80969fe5f45916"
     },
     {
-      "path": "scripts/wull-curated-nested-field-export-v3.py",
+      "path": "scripts/aqua-curated-nested-field-export-v3.py",
       "sha256": "91e4edbcb9bbeed5d73f883457c5f9c03b30a88a62ef356e53d1d869d77b3b5a"
     },
     {
-      "path": "scripts/wull-curated-nested-field-export.py",
+      "path": "scripts/aqua-curated-nested-field-export.py",
       "sha256": "7945c23b81cfaaf30c882185582ad7a17973aa95b7807320edcd98652b40c6e1"
     },
     {
-      "path": "scripts/wull-curated-real-bar-export-v2.py",
+      "path": "scripts/aqua-curated-real-bar-export-v2.py",
       "sha256": "5df6e8d095f6a18a2743556137e5a8ff00797bbb61f055b38919b52aeb327cce"
     },
     {
-      "path": "scripts/wull-curated-real-bar-export.py",
+      "path": "scripts/aqua-curated-real-bar-export.py",
       "sha256": "e7e3acd398959679093a5c5cbf585ae2c66125161175ad21717fe93c7fa9d4ed"
     },
     {
-      "path": "scripts/wull-existing-matrix-evidence-v2.py",
+      "path": "scripts/aqua-existing-matrix-evidence-v2.py",
       "sha256": "720b650f26b8f0b82f54ee8c19ce09f6e70e283ecd5f28a40ffce3fea19583b6"
     },
     {
-      "path": "scripts/wull-existing-matrix-evidence-v3.py",
+      "path": "scripts/aqua-existing-matrix-evidence-v3.py",
       "sha256": "7dde84204b5ea884a1fb62ad37b7fa3ebc68ab270b7b1afa16b8011af5338de2"
     },
     {
-      "path": "scripts/wull-existing-matrix-evidence.py",
+      "path": "scripts/aqua-existing-matrix-evidence.py",
       "sha256": "6b6ceb30010c2e46b5652866acc2e8ae299ea5f4801004b480de46127cb4af7e"
     },
     {
-      "path": "scripts/wull-fixtures/abyss-water/WullAbyssPreview.qml",
+      "path": "scripts/aqua-fixtures/abyss-water/AquaAbyssPreview.qml",
       "sha256": "bde9bf97743c133d1147d7de735e1bb12e5e817ef7cc3666b7fb6032e2e46ed9"
     },
     {
-      "path": "scripts/wull-fixtures/alive/WullAliveProof.qml",
+      "path": "scripts/aqua-fixtures/alive/AquaAliveProof.qml",
       "sha256": "ecdf0008863ddf3168c1ef2eaf0076f8db5f62debf29feec016f8ea70436eb8e"
     },
     {
-      "path": "scripts/wull-fixtures/alive/WullVolumeProof.qml",
+      "path": "scripts/aqua-fixtures/alive/AquaVolumeProof.qml",
       "sha256": "704c5f1fdfee5ede7fa83a89b1870fad59d718f3373b6d3623b6ef5e7b61a26f"
     },
     {
-      "path": "scripts/wull-fixtures/bridge-exit/fake-dispatch.py",
+      "path": "scripts/aqua-fixtures/bridge-exit/fake-dispatch.py",
       "sha256": "8f412a79c190b8b4419c2358b65fe96e42f0f8d285572947cac3083716da042c"
     },
     {
-      "path": "scripts/wull-fixtures/bridge-exit/shell.qml",
+      "path": "scripts/aqua-fixtures/bridge-exit/shell.qml",
       "sha256": "3e89ad6109e07106afd7474ea00477252f692a277136926677c292f112d93f1f"
     },
     {
-      "path": "scripts/wull-fixtures/centered-prototype/shell.qml",
+      "path": "scripts/aqua-fixtures/centered-prototype/shell.qml",
       "sha256": "80d06029d7d38c7ce7bd0fa7d80cde168a7225d4a74b689750a259fa58ba4ae2"
     },
     {
-      "path": "scripts/wull-fixtures/companions/CompanionPreview.qml",
+      "path": "scripts/aqua-fixtures/companions/CompanionPreview.qml",
       "sha256": "a7de9840415aaac1ba3ca08410bdcfcefdea777f94ee97b3e806dbdfdf95f48e"
     },
     {
-      "path": "scripts/wull-fixtures/companions/CompanionTurnPreview.qml",
+      "path": "scripts/aqua-fixtures/companions/CompanionTurnPreview.qml",
       "sha256": "25c13923e59620b7d367535c2ae4d2bb7b2238ae1c5a5d82f8f367752314075a"
     },
     {
-      "path": "scripts/wull-fixtures/companions/CompanionTurnsProof.qml",
+      "path": "scripts/aqua-fixtures/companions/CompanionTurnsProof.qml",
       "sha256": "d39b64be578a5cc34cf5afc0946edeb9b276479631721c4bdaa184d2c95ce1d7"
     },
     {
-      "path": "scripts/wull-fixtures/companions/CompanionVolumeProof.qml",
+      "path": "scripts/aqua-fixtures/companions/CompanionVolumeProof.qml",
       "sha256": "eb8e6da3f5c4b123e3317958a4098a8d77fd26df31f398fb45db05fff32a45ee"
     },
     {
-      "path": "scripts/wull-fixtures/design-gallery/WullDesignGallery.qml",
+      "path": "scripts/aqua-fixtures/design-gallery/AquaDesignGallery.qml",
       "sha256": "aa8177554ac9658cb5e971abd5e1a567461957e07a9a1a9ebc9855402d798e73"
     },
     {
-      "path": "scripts/wull-fixtures/footprint/shell.qml",
+      "path": "scripts/aqua-fixtures/footprint/shell.qml",
       "sha256": "06d8ab24bac4e08d5ff961f7e421c4db8e8d15a54b45e1d3185fc3a318aac76b"
     },
     {
-      "path": "scripts/wull-fixtures/historical/pre-companion-settings-defaults.snapshot",
+      "path": "scripts/aqua-fixtures/historical/pre-companion-settings-defaults.snapshot",
       "sha256": "dcb5e02c312e4526a149abe71d4e674e3392a1760fd20c8b25275270e0d422cb"
     },
     {
-      "path": "scripts/wull-fixtures/historical/pre-edge-width-layout.snapshot",
+      "path": "scripts/aqua-fixtures/historical/pre-edge-width-layout.snapshot",
       "sha256": "428181ebdd45497bf2fbfce15802928e76fce85122b80cca306eddd48e2da01e"
     },
     {
-      "path": "scripts/wull-fixtures/historical/pre-locomotion-companion.snapshot",
+      "path": "scripts/aqua-fixtures/historical/pre-locomotion-companion.snapshot",
       "sha256": "bee0268a75bf33ecb525e9e7faaf52d48752def1dda6f00186917b016d5dcb09"
     },
     {
-      "path": "scripts/wull-fixtures/historical/pre-locomotion-perimeter.snapshot",
+      "path": "scripts/aqua-fixtures/historical/pre-locomotion-perimeter.snapshot",
       "sha256": "2715ce3e014d6dc1f0c67f792fea0d26e8f525c3f257ae5de66348c67be9a174"
     },
     {
-      "path": "scripts/wull-fixtures/historical/pre-power-profile-style.snapshot",
+      "path": "scripts/aqua-fixtures/historical/pre-power-profile-style.snapshot",
       "sha256": "f355ed6599233bd2196723c20941f2ab24955854a63af980324379ced006668e"
     },
     {
-      "path": "scripts/wull-fixtures/historical/pre-shared-water-field-frag.snapshot",
+      "path": "scripts/aqua-fixtures/historical/pre-shared-water-field-frag.snapshot",
       "sha256": "bcd21a385b2465948fab7e82e38dd2d7008568373ec36dc6a4249d99c997f74c"
     },
     {
-      "path": "scripts/wull-fixtures/historical/pre-shared-water-field-qml.snapshot",
+      "path": "scripts/aqua-fixtures/historical/pre-shared-water-field-qml.snapshot",
       "sha256": "ca91e259964707a1204fce058a70bb3e37bf40240edd3daa40f85a2fc3149701"
     },
     {
-      "path": "scripts/wull-fixtures/historical/pre-shared-water-field-qsb.snapshot",
+      "path": "scripts/aqua-fixtures/historical/pre-shared-water-field-qsb.snapshot",
       "sha256": "f83964d6f92de43c570b020a685f5bfdd5de4786830c20fff4e0d3bdf0052849"
     },
     {
-      "path": "scripts/wull-fixtures/historical/pre-surface-attachment-companion.snapshot",
+      "path": "scripts/aqua-fixtures/historical/pre-surface-attachment-companion.snapshot",
       "sha256": "90be056654a9d8c1d54b31c9b8314f8af29cb1528b786768b656161ff2b82626"
     },
     {
-      "path": "scripts/wull-fixtures/historical/pre-surface-attachment-perimeter.snapshot",
+      "path": "scripts/aqua-fixtures/historical/pre-surface-attachment-perimeter.snapshot",
       "sha256": "058f69f3f098d01e4131d24bed9b9b3c116419c5d8d387d533934006edf1f22b"
     },
     {
-      "path": "scripts/wull-fixtures/lively/WullActionsBoard.qml",
+      "path": "scripts/aqua-fixtures/lively/AquaActionsBoard.qml",
       "sha256": "759ae4ec50caf8efb461773508d5a9ddfd78daa88b306bc0fe8f1fc6542998a8"
     },
     {
-      "path": "scripts/wull-fixtures/lively/WullLivelyPreview.qml",
+      "path": "scripts/aqua-fixtures/lively/AquaLivelyPreview.qml",
       "sha256": "af8d55d9f3ddfcd0b7c30f8e2d1c5bc5159bf6f8a9bfcd0fd8a7182c50f9a1b0"
     },
     {
-      "path": "scripts/wull-fixtures/lively/WullRichBoard.qml",
+      "path": "scripts/aqua-fixtures/lively/AquaRichBoard.qml",
       "sha256": "2ec02b4f38bc5a94309db627527ed81ce0959193b7cef005590f0e84688f8e15"
     },
     {
-      "path": "scripts/wull-fixtures/locomotion/WullMotionPreview.qml",
+      "path": "scripts/aqua-fixtures/locomotion/AquaMotionPreview.qml",
       "sha256": "b910f19333227c963fb3426447d2ed979d7e3c8784e73e1ffbc1248a308215d3"
     },
     {
-      "path": "scripts/wull-fixtures/mature-popup/WullPopupProof.qml",
+      "path": "scripts/aqua-fixtures/mature-popup/AquaPopupProof.qml",
       "sha256": "c22a5e5cffee2ac275bf0509ec3311d8b14c70f360dc877c2061704e337e4a41"
     },
     {
-      "path": "scripts/wull-fixtures/mind/WullCloudOrbitProof.qml",
+      "path": "scripts/aqua-fixtures/mind/AquaCloudOrbitProof.qml",
       "sha256": "5b837a222d9262436d570b957ccc8eb63e4e88296b7fa23bc454c6000c012027"
     },
     {
-      "path": "scripts/wull-fixtures/mind/WullLocalModelProof.qml",
+      "path": "scripts/aqua-fixtures/mind/AquaLocalModelProof.qml",
       "sha256": "403d0ffd709e31dff163b7fbf2be37c1a6706add88724dbe53d78bb90f58f9a6"
     },
     {
-      "path": "scripts/wull-fixtures/mind/WullMindProof.qml",
+      "path": "scripts/aqua-fixtures/mind/AquaMindProof.qml",
       "sha256": "b6fd1ea8be85186177326cdfb19c74b412ec9b3a45da0f6b4987122d26e85cb1"
     },
     {
-      "path": "scripts/wull-fixtures/motion-envelope/shell.qml",
+      "path": "scripts/aqua-fixtures/motion-envelope/shell.qml",
       "sha256": "e8bd8b6994b6e258235e8b59802682c387b3defa39f9b8517c771deda96630a6"
     },
     {
-      "path": "scripts/wull-fixtures/motion-geometry/shell.qml",
+      "path": "scripts/aqua-fixtures/motion-geometry/shell.qml",
       "sha256": "c0c0cdaf11800a8f4b71a2e5a2416ab99f031768a47179bda2b570ba51be5061"
     },
     {
-      "path": "scripts/wull-fixtures/paint-alpha-canary/shell.qml",
+      "path": "scripts/aqua-fixtures/paint-alpha-canary/shell.qml",
       "sha256": "65009bd7a91cfea55839a7a71d4a4184a9ec25da8cb0b1a203cc4b8730831a13"
     },
     {
-      "path": "scripts/wull-fixtures/paint-alpha-core/shell.qml",
+      "path": "scripts/aqua-fixtures/paint-alpha-core/shell.qml",
       "sha256": "a6802204acb3e01efd4e7c065303a497d2f6d574151056b8725d2bd007cadd3d"
     },
     {
-      "path": "scripts/wull-fixtures/paint-alpha-paired/shell.qml",
+      "path": "scripts/aqua-fixtures/paint-alpha-paired/shell.qml",
       "sha256": "12849458416512d9b3e3f8b980fa0ca7f7a90c8d9e8bcb01ec978804e5cf2de7"
     },
     {
-      "path": "scripts/wull-fixtures/paint-alpha-shadow/shell.qml",
+      "path": "scripts/aqua-fixtures/paint-alpha-shadow/shell.qml",
       "sha256": "0fad033e230c0775e8785804bf2ffc5b3b759cfa1a13f9e6ca072fc4e46debb2"
     },
     {
-      "path": "scripts/wull-fixtures/paint-bottom-fractional-band/shell.qml",
+      "path": "scripts/aqua-fixtures/paint-bottom-fractional-band/shell.qml",
       "sha256": "e91125fecf26d821a725ade89a8342c50f34d2ac9441ab739bbfd2a92d09479b"
     },
     {
-      "path": "scripts/wull-fixtures/paint-bottom-inset/shell.qml",
+      "path": "scripts/aqua-fixtures/paint-bottom-inset/shell.qml",
       "sha256": "1858b9336823d980b830d5d273b143d65e141aedd308f6bbfe72ebb5d9ecd167"
     },
     {
-      "path": "scripts/wull-fixtures/paint-bottom-source/shell.qml",
+      "path": "scripts/aqua-fixtures/paint-bottom-source/shell.qml",
       "sha256": "6c11c84bba83d4d4673e019f39a0c0216f58ad8f985b4649efe56a1b0a54da8a"
     },
     {
-      "path": "scripts/wull-fixtures/paint-dynamic-core/shell.qml",
+      "path": "scripts/aqua-fixtures/paint-dynamic-core/shell.qml",
       "sha256": "783049f20ae68889a3dc81663c8314c51a9d926f4806954a211fb4eefe95addb"
     },
     {
-      "path": "scripts/wull-fixtures/paint-dynamic-observed/shell.qml",
+      "path": "scripts/aqua-fixtures/paint-dynamic-observed/shell.qml",
       "sha256": "39a4c39affffd08fe276baa59f14905adf59d43b3044d393729f99deeea9461e"
     },
     {
-      "path": "scripts/wull-fixtures/paint-dynamic-pilot/shell.qml",
+      "path": "scripts/aqua-fixtures/paint-dynamic-pilot/shell.qml",
       "sha256": "27cdf5365b2d99121b6ed9de62c36239c7cfbdb90f4a40b0bdd034b3aaade827"
     },
     {
-      "path": "scripts/wull-fixtures/paint-moving-bottom-inset/shell.qml",
+      "path": "scripts/aqua-fixtures/paint-moving-bottom-inset/shell.qml",
       "sha256": "3c4f6cfe86c19701f729d3adffc794c4f3f802cd1f886c2009961f1b9f8a1a57"
     },
     {
-      "path": "scripts/wull-fixtures/paint-moving-bottom-quarter/shell.qml",
+      "path": "scripts/aqua-fixtures/paint-moving-bottom-quarter/shell.qml",
       "sha256": "55c8aa21c225203604f2bb20583c4704987d7a50db5362ecab04c928b8c340bc"
     },
     {
-      "path": "scripts/wull-fixtures/paint-static-matrix/shell.qml",
+      "path": "scripts/aqua-fixtures/paint-static-matrix/shell.qml",
       "sha256": "b8f226cc6b403baf7bec7fad583c403161ed1114690f386011d98a1b53b65150"
     },
     {
-      "path": "scripts/wull-fixtures/pointer-underlay/companion-relay.py",
+      "path": "scripts/aqua-fixtures/pointer-underlay/companion-relay.py",
       "sha256": "19ea5ae640657861426196e99907149b0cfcf089b2376fcd6d11c40a5caa39c7"
     },
     {
-      "path": "scripts/wull-fixtures/pointer-underlay/shell.qml",
+      "path": "scripts/aqua-fixtures/pointer-underlay/shell.qml",
       "sha256": "6ee24f78df7e4142a17ab18f9d5cca567edb21be45d59e2930104fd5aa65db3a"
     },
     {
-      "path": "scripts/wull-fixtures/presence/WullPresencePreview.qml",
+      "path": "scripts/aqua-fixtures/presence/AquaPresencePreview.qml",
       "sha256": "c0b2755e268df4cffe46c4793d22ef96c72654837fc11ff259f2622b7d202b27"
     },
     {
-      "path": "scripts/wull-fixtures/production-bar-field/shell.qml",
+      "path": "scripts/aqua-fixtures/production-bar-field/shell.qml",
       "sha256": "2b32810d92ed16bbaad4acd08f1dd3ea4d328b5afe87ae0ece83659d9a53d54f"
     },
     {
-      "path": "scripts/wull-fixtures/production-layer/shell.qml",
+      "path": "scripts/aqua-fixtures/production-layer/shell.qml",
       "sha256": "cf41a6645fa1ef40856595528784f63cac995388dc3a9952a8b4fc40db03c4ba"
     },
     {
-      "path": "scripts/wull-fixtures/qt-backend-probe/shell.qml",
+      "path": "scripts/aqua-fixtures/qt-backend-probe/shell.qml",
       "sha256": "2e001c7c120529664b93b5def8c98ca00bf6150876d78e2fd53b6af1415bfb32"
     },
     {
-      "path": "scripts/wull-fixtures/real-field-canary/shell.qml",
+      "path": "scripts/aqua-fixtures/real-field-canary/shell.qml",
       "sha256": "1329fe88e4600da037fb76d7021aeac5b1d92ec389b08148a804c18f8f29f95d"
     },
     {
-      "path": "scripts/wull-fixtures/settings/CompanionSettingsPreview.qml",
+      "path": "scripts/aqua-fixtures/settings/CompanionSettingsPreview.qml",
       "sha256": "95feab5e6ef9d3c71aa5aa416c9115d98c5b1412e916f17cf463af6d2a32a82e"
     },
     {
-      "path": "scripts/wull-fixtures/settings/MaterialQualityPreview.qml",
+      "path": "scripts/aqua-fixtures/settings/MaterialQualityPreview.qml",
       "sha256": "1638e359edfe1918f8365a86f0bf98f84f6270c7d049144ca1dacdf15bdb443b"
     },
     {
-      "path": "scripts/wull-fixtures/settings/PreferencesBridgeProof.qml",
+      "path": "scripts/aqua-fixtures/settings/PreferencesBridgeProof.qml",
       "sha256": "4f47074e1883474f4bc5f40af8546f150df456ec1374c574047ac3cb4e5252ba"
     },
     {
-      "path": "scripts/wull-fixtures/visual-matrix/shell.qml",
+      "path": "scripts/aqua-fixtures/visual-matrix/shell.qml",
       "sha256": "b7fa451df7e845714ba6497600a19cccdad74a302975c685aa3a6ab1fa67fc61"
     },
     {
-      "path": "scripts/wull-manual-bridge-smoke.py",
+      "path": "scripts/aqua-manual-bridge-smoke.py",
       "sha256": "6ac684cd6aac534118f7f30beeb9f174dd9cc260de81bbb01f6312eb3b1d04b7"
     },
     {
-      "path": "scripts/wull-manual-centered-prototype.py",
+      "path": "scripts/aqua-manual-centered-prototype.py",
       "sha256": "fce6148ff59c10a44340a2b7ca29b06647c3db743bba43e4d8521bb8cfcf5625"
     },
     {
-      "path": "scripts/wull-manual-existing-layer.py",
+      "path": "scripts/aqua-manual-existing-layer.py",
       "sha256": "cd431aad9d844912eba9a6b1eb2cbf64bb9edd9d8f2fbbfb34c83c2fd4a1b39e"
     },
     {
-      "path": "scripts/wull-manual-footprint.py",
+      "path": "scripts/aqua-manual-footprint.py",
       "sha256": "d1118a2c92e0774be161b27db6953ff222b5b00082ab8eedec02e6b4202a90ca"
     },
     {
-      "path": "scripts/wull-manual-idle-resource.py",
+      "path": "scripts/aqua-manual-idle-resource.py",
       "sha256": "fd20cb6e8e6ff0c81f25265ede6851156f145d2e0c583fb7f8f37dd1a9c10e87"
     },
     {
-      "path": "scripts/wull-manual-nested-field-capture.py",
+      "path": "scripts/aqua-manual-nested-field-capture.py",
       "sha256": "633fa9f47a79609d4c579d37125d2a1075b12a13f86925a0ab7b31efd832e7b2"
     },
     {
-      "path": "scripts/wull-manual-nested-niri.py",
+      "path": "scripts/aqua-manual-nested-niri.py",
       "sha256": "c7d3a517d57b3e6bcef47b1a5f98fbc91397b4e4644ed7a1551f119c87794545"
     },
     {
-      "path": "scripts/wull-manual-nested-pointer.py",
+      "path": "scripts/aqua-manual-nested-pointer.py",
       "sha256": "75f5fc1728e8898d481d076d7035de3fa3aab5b03475ec49497354ae3c21f9be"
     },
     {
-      "path": "scripts/wull-manual-nested-production-bar.py",
+      "path": "scripts/aqua-manual-nested-production-bar.py",
       "sha256": "b3dcc9144f39fd5b11962f619cf3a8fe75e622e23db7b363abaab09bf021f0eb"
     },
     {
-      "path": "scripts/wull-manual-niri-proof.py",
+      "path": "scripts/aqua-manual-niri-proof.py",
       "sha256": "bcf78644319806aef8b6116174a1857e7b173dee890e72001185264eeaef3f5e"
     },
     {
-      "path": "scripts/wull-manual-offscreen-dynamic-geometry.py",
+      "path": "scripts/aqua-manual-offscreen-dynamic-geometry.py",
       "sha256": "9f17178286bc87c5d4b199b27f1e906aab7dc4d3a687b15d6d774e719ccbf5d2"
     },
     {
-      "path": "scripts/wull-manual-offscreen-motion-geometry.py",
+      "path": "scripts/aqua-manual-offscreen-motion-geometry.py",
       "sha256": "33e9c72e480f2833accd621b05db09d6d51dd6da7a6e17726757298ff5af9a65"
     },
     {
-      "path": "scripts/wull-manual-pointer-child.py",
+      "path": "scripts/aqua-manual-pointer-child.py",
       "sha256": "b17a432ddb898dce23bb8a4562d7ad878b3bfbbe453d6b3a18646c6c4edb41e5"
     },
     {
-      "path": "scripts/wull-manual-private-bottom-edge-band.py",
+      "path": "scripts/aqua-manual-private-bottom-edge-band.py",
       "sha256": "b9fd6413bd10c902b83fd844477a7618f6918a89efea71a83b466a80b79346d1"
     },
     {
-      "path": "scripts/wull-manual-private-bottom-fractional-band.py",
+      "path": "scripts/aqua-manual-private-bottom-fractional-band.py",
       "sha256": "24361b5eb103222393e538f3d2dbdedd3ba5171ca785eb3c3163a2fc74d082b5"
     },
     {
-      "path": "scripts/wull-manual-private-bottom-inset.py",
+      "path": "scripts/aqua-manual-private-bottom-inset.py",
       "sha256": "7429be1aa178172782193209345e6be4e67407bb1cd743e023558ee21dcecae2"
     },
     {
-      "path": "scripts/wull-manual-private-bottom-source.py",
+      "path": "scripts/aqua-manual-private-bottom-source.py",
       "sha256": "59a39f92d76ff2736552dc3a3bc907421f9a3060dea81ae952cde32673c99974"
     },
     {
-      "path": "scripts/wull-manual-private-dynamic-core.py",
+      "path": "scripts/aqua-manual-private-dynamic-core.py",
       "sha256": "e85eed03fa7c9017a5c6efa0f92ea460ae9cf36a392220abe8d6c94ffe5f2465"
     },
     {
-      "path": "scripts/wull-manual-private-dynamic-paint-observed.py",
+      "path": "scripts/aqua-manual-private-dynamic-paint-observed.py",
       "sha256": "61a41db7294423a042908c1fc461279a13130de9ef9428863fcffeca8083de42"
     },
     {
-      "path": "scripts/wull-manual-private-dynamic-paint-pilot.py",
+      "path": "scripts/aqua-manual-private-dynamic-paint-pilot.py",
       "sha256": "a3848ee2b088405eb180e78fcfa40428c556c0e9a124d6bd62d1edc2030a3762"
     },
     {
-      "path": "scripts/wull-manual-private-field-rim-visual.py",
+      "path": "scripts/aqua-manual-private-field-rim-visual.py",
       "sha256": "823e9648fb44dc0231ec6e1d775a77ae0b75a6950bb8166dcd9309b9fc9c8a63"
     },
     {
-      "path": "scripts/wull-manual-private-moving-bottom-inset.py",
+      "path": "scripts/aqua-manual-private-moving-bottom-inset.py",
       "sha256": "276ab6eab9d3b307ddd6ba58857e9c7d66700a8499b3b27899590bf36a2171a2"
     },
     {
-      "path": "scripts/wull-manual-private-moving-bottom-quarter-band.py",
+      "path": "scripts/aqua-manual-private-moving-bottom-quarter-band.py",
       "sha256": "124702516c7c40f01e2a570fc9f9c4e186aeb60c1eb240f286a9308bff05826a"
     },
     {
-      "path": "scripts/wull-manual-private-nested-quarter-visual.py",
+      "path": "scripts/aqua-manual-private-nested-quarter-visual.py",
       "sha256": "4cf6a9aba92351de31a5b856407279948d33111a15051099395335f41e70f433"
     },
     {
-      "path": "scripts/wull-manual-private-paint-canary.py",
+      "path": "scripts/aqua-manual-private-paint-canary.py",
       "sha256": "bf406349f92e8172e909be8733d44ab8e87b60d9d11997a59a6f01141cbeaa22"
     },
     {
-      "path": "scripts/wull-manual-private-paint-core.py",
+      "path": "scripts/aqua-manual-private-paint-core.py",
       "sha256": "64a876fd2fc4853bc39c93585560493815761dd53b3becb7e308996947a1da05"
     },
     {
-      "path": "scripts/wull-manual-private-paint-paired.py",
+      "path": "scripts/aqua-manual-private-paint-paired.py",
       "sha256": "22c3839e9c756ce02eabff7704ea2deef9884cf08a910503b93b5eb8db622391"
     },
     {
-      "path": "scripts/wull-manual-private-paint-shadow.py",
+      "path": "scripts/aqua-manual-private-paint-shadow.py",
       "sha256": "9d00ebd25cf510c53ccd18b91e48b724a02a59dcb2d6806d5fc729d955578be4"
     },
     {
-      "path": "scripts/wull-manual-private-paired-static-matrix.py",
+      "path": "scripts/aqua-manual-private-paired-static-matrix.py",
       "sha256": "134b145d01327d95de8e1541fd9445b00eb59a0f6d6de782e5b056bdb9165d83"
     },
     {
-      "path": "scripts/wull-manual-production-geometry.py",
+      "path": "scripts/aqua-manual-production-geometry.py",
       "sha256": "5227bc13d727d0f7a65401fe8c88dc5da010a6c53d6b42cc5663132043c38c3a"
     },
     {
-      "path": "scripts/wull-manual-production-layer.py",
+      "path": "scripts/aqua-manual-production-layer.py",
       "sha256": "a9273ad716b08bf04db723e1c3c648d1179e99b257ddc46ae07a0f8f879b8c5a"
     },
     {
-      "path": "scripts/wull-manual-qualification.py",
+      "path": "scripts/aqua-manual-qualification.py",
       "sha256": "a0f41a144a7782c511d658cb8377d513f401253c4633f9b82c6eefecf01c5b26"
     },
     {
-      "path": "scripts/wull-manual-real-field-canary.py",
+      "path": "scripts/aqua-manual-real-field-canary.py",
       "sha256": "42e847f936e964d0207435a897783cc8c7f35a76451e4e9eece5319c23a03a93"
     },
     {
-      "path": "scripts/wull-manual-visual-matrix.py",
+      "path": "scripts/aqua-manual-visual-matrix.py",
       "sha256": "a62e2b9a920c088b82a84a62513e2ed27b77c044498ffaa9473024c6a7c79c23"
     },
     {
-      "path": "scripts/wull-motion-footprint-feasibility.py",
+      "path": "scripts/aqua-motion-footprint-feasibility.py",
       "sha256": "fa797fe27680b0bd6aabe977d09d52f0e2caedbae692aa1ab920674b5e1c003a"
     },
     {
-      "path": "scripts/wull-motion-inert-publish.py",
+      "path": "scripts/aqua-motion-inert-publish.py",
       "sha256": "df751d1e7a0989bc9d853e7510efd389de8caccbbf4b18d41b372d84aed72e57"
     },
     {
-      "path": "scripts/wull-nested-isolation-smoke.py",
+      "path": "scripts/aqua-nested-isolation-smoke.py",
       "sha256": "a900f7d49cb72580186ffd402424d520647f1b75b79b5696da9890ee66dfdf97"
     },
     {
-      "path": "scripts/wull-nested-render-capability.py",
+      "path": "scripts/aqua-nested-render-capability.py",
       "sha256": "ea4c6233e10620ffea0686915a5f966442b0e33841d35155b43844ec3401887a"
     },
     {
-      "path": "scripts/wull-original-metadata-projection.py",
+      "path": "scripts/aqua-original-metadata-projection.py",
       "sha256": "a52cb90db5d26f883f96e7ef7890fdc806ebabd798b1e2b12873c182238eef7f"
     },
     {
-      "path": "scripts/wull-original-reference-previews.py",
+      "path": "scripts/aqua-original-reference-previews.py",
       "sha256": "23e84c79b62fcba31e4603d908d6c1bae7aed03ac9e07b69d083ef909b1ad7ef"
     },
     {
-      "path": "scripts/wull-pointer-targets.py",
+      "path": "scripts/aqua-pointer-targets.py",
       "sha256": "0d4bb8adfb0bb8766ef78d0141d751c5d94f6fd07f3887dcbf1febedc852a04d"
     },
     {
-      "path": "scripts/wull-preview-actions.py",
+      "path": "scripts/aqua-preview-actions.py",
       "sha256": "54a6837d80ed12c8a16a73aaa4353d992b63f3ddc3111ed06cf8e7fe9b93de63"
     },
     {
-      "path": "scripts/wull-preview-material.py",
+      "path": "scripts/aqua-preview-material.py",
       "sha256": "3e3b5ff14527c840559e5b7d32125e720effceeb3f8b2a9ab0f5aa78ea69fc88"
     },
     {
-      "path": "scripts/wull-preview-settings.py",
+      "path": "scripts/aqua-preview-settings.py",
       "sha256": "cf6ae241b915bae2565c1ec9776bdd21dafe8b9ee7206274fbb0f1414c48e88c"
     },
     {
-      "path": "scripts/wull-private-bar-free-slot.js",
+      "path": "scripts/aqua-private-bar-free-slot.js",
       "sha256": "dc572578359525e029342100c31e80044aca8c1ad84844c8a8a4581ac9c7ac21"
     },
     {
-      "path": "scripts/wull-private-bottom-cradle-inset-model.py",
+      "path": "scripts/aqua-private-bottom-cradle-inset-model.py",
       "sha256": "3d70c614aba9fa09f791ed2d5d759682bf798f5d941273b9c4a95647d3785e4c"
     },
     {
-      "path": "scripts/wull-private-bottom-edge-band-model.py",
+      "path": "scripts/aqua-private-bottom-edge-band-model.py",
       "sha256": "a8c53a6f1af0df3f02b20ade14bc025b35fa2fec767c5d4e339cf18c231367ce"
     },
     {
-      "path": "scripts/wull-private-bottom-fractional-band-model.py",
+      "path": "scripts/aqua-private-bottom-fractional-band-model.py",
       "sha256": "68802b9a485b40a27baad10b0eb21f2a5203bea09370c1874203bac4ddda4238"
     },
     {
-      "path": "scripts/wull-private-bottom-static-source-model.py",
+      "path": "scripts/aqua-private-bottom-static-source-model.py",
       "sha256": "105fd567df3de409e2bee48f2c294a3a210e71b6a70648dbc2c3cb687eb5897d"
     },
     {
-      "path": "scripts/wull-private-dynamic-bottom-inset-model.py",
+      "path": "scripts/aqua-private-dynamic-bottom-inset-model.py",
       "sha256": "9cea178ffd47804efd282bb93d8894017422c8b3c5200ad01dc0c5a170457639"
     },
     {
-      "path": "scripts/wull-private-dynamic-bottom-quarter-band-model.py",
+      "path": "scripts/aqua-private-dynamic-bottom-quarter-band-model.py",
       "sha256": "387a6b96662bd3aed29abf46ec19688647ac4c78af84e5734545e32f8fc3dfa0"
     },
     {
-      "path": "scripts/wull-private-dynamic-core-model.py",
+      "path": "scripts/aqua-private-dynamic-core-model.py",
       "sha256": "5350cc806aef3f625715fb3095d1bf2d642708086492394898f97c3583c6eef9"
     },
     {
-      "path": "scripts/wull-private-dynamic-paint-pilot-model.py",
+      "path": "scripts/aqua-private-dynamic-paint-pilot-model.py",
       "sha256": "70ba62601f0f2ffddd1d50f328f9069cd210515d2a2e8818df7dea9be26fcdca"
     },
     {
-      "path": "scripts/wull-private-dynamic-parser-postmortem.py",
+      "path": "scripts/aqua-private-dynamic-parser-postmortem.py",
       "sha256": "17d5bac26c32cae6704b61a687e1d0b00849ab8443e00eaa51d6c0b312ce6e7e"
     },
     {
-      "path": "scripts/wull-private-dynamic-pilot-diagnose.py",
+      "path": "scripts/aqua-private-dynamic-pilot-diagnose.py",
       "sha256": "d031c91c579d7d346ef5209925056be95fdab019d04be3aa349617c08fab3f97"
     },
     {
-      "path": "scripts/wull-private-field-rim-attachment.py",
+      "path": "scripts/aqua-private-field-rim-attachment.py",
       "sha256": "7e9c5225519948841daf1a089d5843fbd259167a1f7a1610a6d19df3a4a0d634"
     },
     {
-      "path": "scripts/wull-private-left-margin-diagnostic.py",
+      "path": "scripts/aqua-private-left-margin-diagnostic.py",
       "sha256": "7f8d8e76af0d71a8a8513a505b4b1b95deadebec171721763835f6c33e0e7e9c"
     },
     {
-      "path": "scripts/wull-private-left-margin-publish.py",
+      "path": "scripts/aqua-private-left-margin-publish.py",
       "sha256": "804b21741391e0cccbbf44a026d9c7573a6085ab441e313702808f3f4404e111"
     },
     {
-      "path": "scripts/wull-private-mask-candidate.py",
+      "path": "scripts/aqua-private-mask-candidate.py",
       "sha256": "5ca1e80650a136e035e1d1dc30c412ff6e0a5c369a1e5e0d31f5130d3c2b90ec"
     },
     {
-      "path": "scripts/wull-private-minimal-boot-log-review.py",
+      "path": "scripts/aqua-private-minimal-boot-log-review.py",
       "sha256": "f6fa9f2baa639dd70a2bbb61a4ccbf5d7204b712bf716a6aab744f42495a4fca"
     },
     {
-      "path": "scripts/wull-private-minimal-qs-bootstrap.py",
+      "path": "scripts/aqua-private-minimal-qs-bootstrap.py",
       "sha256": "2a3e5fd3eb9313e4c11881b3b3c43b5f54f2853b64c98d7f6161609c4617325a"
     },
     {
-      "path": "scripts/wull-private-nested-visual-prerequisites.py",
+      "path": "scripts/aqua-private-nested-visual-prerequisites.py",
       "sha256": "229a89d25c73c1cec2738e037e692bd713d9109fddd3f517d549f032fbcc94a8"
     },
     {
-      "path": "scripts/wull-private-offscreen-boot-controls.py",
+      "path": "scripts/aqua-private-offscreen-boot-controls.py",
       "sha256": "3a9a15c558bd51aeb67bc1f7f040af2471d3fc9f1e46022d460bbff198ba30fe"
     },
     {
-      "path": "scripts/wull-private-offscreen-boot-fingerprint.py",
+      "path": "scripts/aqua-private-offscreen-boot-fingerprint.py",
       "sha256": "4026d3e8717c0a8874e5e383330d256b02ea4ee3b55a9c1eb889c42a08adb570"
     },
     {
-      "path": "scripts/wull-private-painted-alpha-model.py",
+      "path": "scripts/aqua-private-painted-alpha-model.py",
       "sha256": "70449a4f33c8d7f32a8adb2bb36126cbf95799e50a035aaf961c6d396bc5de96"
     },
     {
-      "path": "scripts/wull-private-panel-quarter-shadow.py",
+      "path": "scripts/aqua-private-panel-quarter-shadow.py",
       "sha256": "303ba69a66d7105955677be176866c54a12aea4946c4e4ac3ea7d0b73bf26875"
     },
     {
-      "path": "scripts/wull-private-pointer-drift-diagnostic.py",
+      "path": "scripts/aqua-private-pointer-drift-diagnostic.py",
       "sha256": "380d562cfed8f595aefee26a5aa1bc12511a5b88d3cb4ac3a3216aae446c0a19"
     },
     {
-      "path": "scripts/wull-private-pointer-drift-publish.py",
+      "path": "scripts/aqua-private-pointer-drift-publish.py",
       "sha256": "a10e2f0e44c4cd41787688d71551e5078fd34f8b6d8a1695c61bf11c3138d2f8"
     },
     {
-      "path": "scripts/wull-private-qs-signal-gate.py",
+      "path": "scripts/aqua-private-qs-signal-gate.py",
       "sha256": "8d2626db6b4d13e06da111cc27e70702b91bd68de2ed0539dc8044c1f7a0862c"
     },
     {
-      "path": "scripts/wull-private-qslog-postmortem.py",
+      "path": "scripts/aqua-private-qslog-postmortem.py",
       "sha256": "a464c0121ab6a552cfb17c17b2364cc09ea0cf23a800be9ec37d7a2f3542ce83"
     },
     {
-      "path": "scripts/wull-private-static-paired-matrix-model.py",
+      "path": "scripts/aqua-private-static-paired-matrix-model.py",
       "sha256": "ab776f646647a52322a38a5d761cd56e82ce691f9f7a2026a7a549fa2ebc58ce"
     },
     {
-      "path": "scripts/wull-publish-retained-dynamic-receipt.py",
+      "path": "scripts/aqua-publish-retained-dynamic-receipt.py",
       "sha256": "1a2b656f85706f06d106be8282bbe3f0e1e26ff4c7891853bfd08b1877da7d2e"
     },
     {
-      "path": "scripts/wull-qt-offscreen-backend-matrix.py",
+      "path": "scripts/aqua-qt-offscreen-backend-matrix.py",
       "sha256": "4d000b4b9d4d4a6c270c1865f46a7f38de040599a4449d3b745d1d0764c5f50d"
     },
     {
-      "path": "scripts/wull-reference-assets-bounded-diagnostic.py",
+      "path": "scripts/aqua-reference-assets-bounded-diagnostic.py",
       "sha256": "2ed14916af133edf5c0c5b0572a8a1eb2aae2f888cb7928a78f0652a8b0b0bb5"
     },
     {
-      "path": "scripts/wull-render-design.py",
+      "path": "scripts/aqua-render-design.py",
       "sha256": "1baf5081342a5111555a7e921549968f88c63d8ef52ad11e88b579354eee8ecd"
     },
     {
-      "path": "scripts/wull-silhouette-band-prototype.py",
+      "path": "scripts/aqua-silhouette-band-prototype.py",
       "sha256": "3d4126880c6752f5200039de980c759b1f68787c524dbc307a3acf6541f47b0e"
     },
     {
-      "path": "scripts/wull-verify-lossless-render.py",
+      "path": "scripts/aqua-verify-lossless-render.py",
       "sha256": "9acebce0212433341e85d26cfbdbd4f12ae8a54809fba853cb0ec10c96e86c6f"
     },
     {
-      "path": "scripts/wull/history_store.py",
+      "path": "scripts/aqua/history_store.py",
       "sha256": "2df10011f0ceb4c32aa389d515419896c48bacc3d0fd408bfcd8554b9df55523"
     },
     {
-      "path": "scripts/wull/local_mind.py",
+      "path": "scripts/aqua/local_mind.py",
       "sha256": "e5931aea1a00096df194e74e0b2f2d306e3511eee7e5608678ed97b681b95bc9"
     },
     {
-      "path": "services/WullMind.qml",
+      "path": "services/AquaMind.qml",
       "sha256": "badc9e32b16b0a1dbfa230b1cb89e688f14b01e93e020f13948b1d7ece95e89f"
     },
     {
@@ -1276,27 +1276,27 @@
       "sha256": "07f7429fabf6786fd90c1f2ec86eb7b76e5648c7b0e8fb6acb2e5acb600c32cb"
     },
     {
-      "path": "to-do/cloud-bot/WULL_LOCAL_AI.md",
+      "path": "to-do/cloud-bot/AQUA_LOCAL_AI.md",
       "sha256": "40ae2b1ef5b9d01f3dc7a3eb969d5422335c1e26c5cbc328d62449b4cb177492"
     },
     {
-      "path": "wullAbyss.qml",
+      "path": "aquaAbyss.qml",
       "sha256": "64a4c742450e6b1d225f17afd8b224e731c2d7d67f49f4b052993fd25bd77604"
     },
     {
-      "path": "wullDesign.qml",
+      "path": "aquaDesign.qml",
       "sha256": "8b0cd255cb935f6ee9859d8fd72cf832ecdbcdf7fad11d252d0f69eddf2740b8"
     },
     {
-      "path": "wullMotion.qml",
+      "path": "aquaMotion.qml",
       "sha256": "de4a9a229dad88b5094a3eb27521a755b8a3ffde0115b430234ed5f5229878b4"
     },
     {
-      "path": "wullPresence.qml",
+      "path": "aquaPresence.qml",
       "sha256": "04dbe851c15fc0f079cec504642713b3e55356916adf5c93428e36574c4db07d"
     },
     {
-      "path": "wullProof.qml",
+      "path": "aquaProof.qml",
       "sha256": "fa5a57af669679056814fb354f92ecfa80456eb21036319dcd8e1b7f48e1231f"
     }
   ]

@@ -36,7 +36,7 @@
   INFO qml: COMPANION_HANDLER_DISABLED QQuickHoverHandler(0x7f2e6ee44100) {"requested":false,"module":false,"anchor":false}
   INFO qml: COMPANION_HANDLER_DISABLED QQuickTapHandler(0x7f2e69348a40) {"requested":false,"module":false,"anchor":false}
   INFO qml: COMPANION_HANDLER_DISABLED QQuickTapHandler(0x7f2e69348b80) {"requested":false,"module":false,"anchor":false}
-  INFO qml: COMPANION_HANDLER_DISABLED QQuickDragHandler(0x7f2e7b2fc980, "wullDragHandler") {"requested":false,"module":false,"anchor":false}
+  INFO qml: COMPANION_HANDLER_DISABLED QQuickDragHandler(0x7f2e7b2fc980, "aquaDragHandler") {"requested":false,"module":false,"anchor":false}
  ERROR qml: COMPANION_HOVER_FAIL bounded single-handler isolation complete; original hover repro remains open runChecks@qs:@/qs/shell.qml:85
 expression for onTriggered@qs:@/qs/shell.qml:105
 

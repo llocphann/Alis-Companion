@@ -139,11 +139,11 @@ if(typeof module!=="undefined")module.exports={clips,sample};
     path.write_text('.pragma library\n// Blender '+bpy.app.version_string+'; exact LINEAR keys from assets/'+label.lower()+'/'+label+'Motion.blend.\nvar clips='+json.dumps(clips,sort_keys=True,separators=(',',':'))+';\n'+sampler)
 
 def main(receipt):
-    spec=importlib.util.spec_from_file_location('original',ROOT/'scripts/wull-author-motion.py');original=importlib.util.module_from_spec(spec);spec.loader.exec_module(original)
+    spec=importlib.util.spec_from_file_location('original',ROOT/'scripts/aqua-author-motion.py');original=importlib.util.module_from_spec(spec);spec.loader.exec_module(original)
     with tempfile.TemporaryDirectory(prefix='companion-author-') as temporary:
         private=Path(temporary);original.author(private/'source.blend',private/'curves.js',None)
         base=json.loads(re.search(r'var clips = (.*);', (private/'curves.js').read_text())[1])
-        rig=bpy.data.objects['Wull Motion Controls'];rig.name='Aqua Motion Controls'
+        rig=bpy.data.objects['Aqua Motion Controls'];rig.name='Aqua Motion Controls'
         for action in list(bpy.data.actions):bpy.data.actions.remove(action)
         aqua=json.loads(json.dumps(base));aqua.pop('sink')
         aqua['pulled']={'duration':HANDOFF,'tracks':{

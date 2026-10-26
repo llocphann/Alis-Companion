@@ -3,11 +3,11 @@ import QtQuick.Shapes
 import QtQuick.Window
 import qs.modules.abyss.looks
 import qs.modules.common.functions
-import "WullExpressions.js" as Expressions
+import "AquaExpressions.js" as Expressions
 
 Item {
     id: root
-    objectName: "wullFace"
+    objectName: "aquaFace"
     property string expression: "idle"
     property bool cheeksVisible: true
     property real eyeOpen: 1
@@ -233,7 +233,7 @@ Item {
     }
     Item {
         id: mouth
-        objectName: "wullMouth"
+        objectName: "aquaMouth"
         x: (31 + (root.feedingOpen ? root.pupilX * 2.2 : 0)) * root.unit
         y: (root.feedingOpen ? 53.5 + root.pupilY * 1.4 : 58) * root.unit
         width: 14 * root.unit; height: 12 * root.unit

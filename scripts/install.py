@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install an immutable Hadanion payload independently of the Hadalis runtime."""
+"""Install an immutable Alis-Companion payload independently of the Hadalis runtime."""
 import argparse
 import fcntl
 import hashlib
@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME_DIRS = ("modules/abyss/companion", "modules/settings", "services", "scripts/wull")
+RUNTIME_DIRS = ("modules/abyss/companion", "modules/settings", "services", "scripts/aqua")
 RUNTIME_FILES = ("manifest.json", "qmldir", "HadalisSession.qml", "HadalisOutput.qml", "scripts/native-dispatch", "LICENSE")
 
 
@@ -66,7 +66,7 @@ def install(data_root, source=ROOT, binary=None):
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
     dirty = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=source, text=True)
     if dirty:
-        raise ValueError("Commit source changes before installing an exact Hadanion revision")
+        raise ValueError("Commit source changes before installing an exact Alis-Companion revision")
     binary = Path(binary or source / "native/target/release/inir-companiond")
     if not binary.is_file() or not os.access(binary, os.X_OK):
         raise ValueError("Build the native runtime with make build first")
@@ -102,16 +102,16 @@ def main():
     parser.add_argument("action", choices=("install", "uninstall"))
     parser.add_argument("--data-home", type=Path, default=Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")))
     args = parser.parse_args()
-    data_root = (args.data_home / "hadanion").resolve()
+    data_root = (args.data_home / "alis-companion").resolve()
     data_root.mkdir(parents=True, exist_ok=True)
     with (data_root / ".install.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if args.action == "install":
-            print(f"Installed Hadanion: {install(data_root)}")
+            print(f"Installed Alis-Companion: {install(data_root)}")
         else:
             uninstall(data_root)
-            print("Disabled the Hadanion installation; releases and user data are preserved")
-    print("Run inir ipc hadanion refresh, or restart Hadalis, to apply the change")
+            print("Disabled the Alis-Companion installation; releases and user data are preserved")
+    print("Run inir ipc alis-companion refresh, or restart Hadalis, to apply the change")
 
 
 if __name__ == "__main__":

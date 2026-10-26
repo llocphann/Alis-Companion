@@ -124,7 +124,7 @@ def box(name, size, location, material, parent, bevel=.6):
         modifier.width = bevel
         modifier.segments = 3
         obj.modifiers.new("Weighted surface normals", "WEIGHTED_NORMAL")
-    obj["hadanion_original_prop"] = True
+    obj["alis_companion_original_prop"] = True
     return obj
 
 
@@ -156,7 +156,7 @@ def laptop(rig):
             box(f"Laptop key {row+1}.{col+1}", (3.9, 2.25, .5),
                 (-14.4 + col * 4.8, -1 + row * 3.2, 6.75), dark, root, .35)
     box("Laptop trackpad", (12, 4.3, .2), (0, -8, 6.6), dark, root, .4)
-    objects = [obj for obj in bpy.data.objects if obj.get("hadanion_original_prop")]
+    objects = [obj for obj in bpy.data.objects if obj.get("alis_companion_original_prop")]
     for obj in objects:
         f = drive(obj, "hide_render", None, rig, "laptopVisible")
         f.driver.expression = "control < 0.5"

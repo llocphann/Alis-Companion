@@ -1,5 +1,5 @@
 import QtQuick
-import "WullScene.js" as Scene
+import "AquaScene.js" as Scene
 import "CompanionMotion.js" as Motion
 
 // One visible body. The next resident emerges from the same water opening

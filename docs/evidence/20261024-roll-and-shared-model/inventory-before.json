@@ -2247,13 +2247,13 @@
   ],
   "routes": [
     {
-      "caller": "WullPresence.explore",
+      "caller": "AquaPresence.explore",
       "trigger": "grounded distance >=35*scale and random gait <.18",
       "action": "roll",
       "reachability": "automatic movement"
     },
     {
-      "caller": "WullPresence.moveTo",
+      "caller": "AquaPresence.moveTo",
       "trigger": "preferredMode=roll on supported route",
       "action": "roll",
       "reachability": "manual or legacy movement"
@@ -2261,11 +2261,11 @@
     {
       "caller": "AbyssCompanion",
       "trigger": "moving + surfaceSupported + travelMode=roll",
-      "action": "WullTravel.rollingAngle",
+      "action": "AquaTravel.rollingAngle",
       "reachability": "direct actor travel mode and Presence routes"
     },
     {
-      "caller": "WullTravel.rollingAngle",
+      "caller": "AquaTravel.rollingAngle",
       "trigger": "any finite positive distance/scale",
       "formula": "360*max(1,ceil(distance/(2*pi*32*scale)))*phase*sign",
       "phaseDegrees": [
@@ -2298,17 +2298,17 @@
       "reachability": "all body pose consumers"
     },
     {
-      "caller": "CompanionMotion / WullMotion / AbyssCompanion.perform, pairedAction, activeAppearClip, activeHideClip",
+      "caller": "CompanionMotion / AquaMotion / AbyssCompanion.perform, pairedAction, activeAppearClip, activeHideClip",
       "trigger": "retired fall filters but no roll retirement",
       "reachability": "no authored action named roll currently; literal/manual requests examined"
     },
     {
-      "caller": "WullPresence.chooseAppearance / advance / beginTurn / support recovery",
+      "caller": "AquaPresence.chooseAppearance / advance / beginTurn / support recovery",
       "trigger": "entry/exit/composite/drag/release and cast handoff",
       "reachability": "stable launch, diveJump, sink, pulled, fly/land, edge support frame"
     },
     {
-      "caller": "WullPortals",
+      "caller": "AquaPortals",
       "trigger": "portal reveal/opening",
       "reachability": "effect curl rotates; actor stays in support frame, hidden handover; retain effect"
     }

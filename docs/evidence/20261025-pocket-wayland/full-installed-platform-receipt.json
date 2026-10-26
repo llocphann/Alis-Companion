@@ -15,7 +15,7 @@
   "fullGateStatus": "FAIL",
   "failedChecks": [
     "test-module-hover-runtime.py",
-    "test-wull-pocket-wayland.py"
+    "test-aqua-pocket-wayland.py"
   ],
   "privateLogSha256": "c8bd012962bfaba7b5ffdc874e7b56d5b14e079ccca89bb7a12d2787542c0a0a",
   "allSourceTreesClean": true,

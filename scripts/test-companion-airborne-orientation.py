@@ -12,13 +12,13 @@ import QtQuick
 import QtTest
 import Quickshell
 import qs.modules.common
-import qs.optional.hadanion.modules.abyss.companion
+import qs.optional.alis_companion.modules.abyss.companion
 ShellRoot {
  id:root
  property real targetX:400
  property real targetY:300
  Component.onCompleted:Quickshell.watchFiles=false
- WullPresence {id:presence;actor:actor;permitted:false}
+ AquaPresence {id:presence;actor:actor;permitted:false}
  FloatingWindow {
   visible:true;width:1000;height:700;color:"#111820"
   AbyssCompanion {

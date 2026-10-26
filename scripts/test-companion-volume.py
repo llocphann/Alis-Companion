@@ -10,13 +10,13 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 if not os.environ.get('WAYLAND_DISPLAY'):
     print('SKIP: Companion GPU proof requires Wayland');raise SystemExit(0)
-core=runpy.run_path(str(ROOT/'scripts/wull-manual-visual-matrix.py'))
-decode=runpy.run_path(str(ROOT/'scripts/wull-private-painted-alpha-model.py'))['png_alpha']
+core=runpy.run_path(str(ROOT/'scripts/aqua-manual-visual-matrix.py'))
+decode=runpy.run_path(str(ROOT/'scripts/aqua-private-painted-alpha-model.py'))['png_alpha']
 with tempfile.TemporaryDirectory(prefix='companion-volume-') as temporary:
     private=Path(temporary);shell,xdg=core['staged'](private)
     for name in ('modules','services','scripts'):
         (shell/name).unlink();shutil.copytree(ROOT/name,shell/name)
-    (shell/'shell.qml').write_text('import Quickshell\nimport "scripts/wull-fixtures/companions"\nShellRoot {CompanionVolumeProof {}}\n')
+    (shell/'shell.qml').write_text('import Quickshell\nimport "scripts/aqua-fixtures/companions"\nShellRoot {CompanionVolumeProof {}}\n')
     env=core['private_env'](xdg,private/'unused.json')
     env.update(QT_QPA_PLATFORM='wayland',WAYLAND_DISPLAY=os.environ['WAYLAND_DISPLAY'],
         XDG_RUNTIME_DIR=os.environ['XDG_RUNTIME_DIR'],QT_QUICK_BACKEND='rhi',QSG_RHI_BACKEND='opengl',
@@ -51,7 +51,7 @@ with tempfile.TemporaryDirectory(prefix='companion-volume-') as temporary:
         w,h,alpha=decode((private/f'arm-{index}.png').read_bytes())
         painted=sum(a>=128 for a in alpha);opaque=sum(a==255 for a in alpha)
         assert painted>1000 and opaque>=painted*.95,'front tentacle exposes the one behind it'
-    rgba=runpy.run_path(str(ROOT/'scripts/wull-existing-matrix-evidence.py'))['rgba_verified']
+    rgba=runpy.run_path(str(ROOT/'scripts/aqua-existing-matrix-evidence.py'))['rgba_verified']
     _,_,gripped=rgba((private/'gripped.png').read_bytes());_,_,ungripped=rgba((private/'ungripped.png').read_bytes())
     # Actual painted coils must cross the middle of the victim's opaque core.
     changed=sum(gripped[(y*512+x)*4:(y*512+x+1)*4]!=ungripped[(y*512+x)*4:(y*512+x+1)*4]

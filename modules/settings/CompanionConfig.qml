@@ -9,7 +9,7 @@ import qs.modules.common
 import qs.modules.common.widgets
 import "../abyss/companion"
 import qs.modules.abyss.looks
-import "../abyss/companion/WullPreferences.js" as Preferences
+import "../abyss/companion/AquaPreferences.js" as Preferences
 
 ContentPage {
     id: root
@@ -345,7 +345,7 @@ ContentPage {
                     motionEnabled: root.preferences.animationsEnabled && AbyssStyle.motionEnabled && visible
                     effectsEnabled: root.preferences.effectsEnabled && Appearance.effectsEnabled
                         && AbyssStyle.quality !== "performance"
-                    renderQuality: AbyssRenderPolicy.wullQuality
+                    renderQuality: AbyssRenderPolicy.aquaQuality
                     translucency: root.preferences.translucency
                 }
             }
@@ -488,7 +488,7 @@ ContentPage {
                 enabled: Config.ready
                 CompactChoice {
                     objectName: "companionQuality"
-                    label: Translation.tr("Rendering quality") + " (" + Translation.tr("Current render quality") + ": " + AbyssRenderPolicy.wullQualityLabel + ")"
+                    label: Translation.tr("Rendering quality") + " (" + Translation.tr("Current render quality") + ": " + AbyssRenderPolicy.aquaQualityLabel + ")"
                     enabled: !root.preferences.autoQuality
                     options: root.qualityOptions
                     currentValue: root.preferences.renderQuality
@@ -679,11 +679,11 @@ ContentPage {
         title:Translation.tr("AI")
         icon:"chat"
         SettingsGroup {
-            objectName:"wullAiSettingsGroup"
+            objectName:"aquaAiSettingsGroup"
 
             // ROW 1 (2 Columns): Model & Permissions (Left) | Thinking Effort & Clear (Right)
             GridLayout {
-                objectName:"wullAiModelGrid"
+                objectName:"aquaAiModelGrid"
                 Layout.fillWidth:true
                 columns:root.availableRowWidth>520 ? 2 : 1
                 uniformCellWidths:columns > 1
@@ -691,32 +691,32 @@ ContentPage {
                 RowLayout {
                     Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:8
                     CompactIconToggle {
-                        objectName:"wullTalkClouds"
+                        objectName:"aquaTalkClouds"
                         buttonIcon:"chat_bubble"
                         text:Translation.tr("Talk clouds")
                         tooltipText:"Show speech bubbles and quick chat above your companion."
-                        checked:WullMind.talkEnabled
+                        checked:AquaMind.talkEnabled
                         onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.talkEnabled",checked)
                     }
                     CompactIconToggle {
-                        objectName:"wullAllowCloudModels"
+                        objectName:"aquaAllowCloudModels"
                         buttonIcon:"cloud"
                         text:Translation.tr("Allow cloud models")
                         tooltipText:"Keep off to restrict Companion strictly to verified local models."
-                        checked:!WullMind.localOnly
+                        checked:!AquaMind.localOnly
                         onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.localOnly",!checked)
                     }
                     StyledComboBox {
-                        objectName:"wullCompanionModelSelector"
+                        objectName:"aquaCompanionModelSelector"
                         Layout.fillWidth:true
                         Layout.minimumWidth:120
-                        model:WullMind.selectableModels
+                        model:AquaMind.selectableModels
                         textRole:"label"
-                        currentIndex:Math.max(0,WullMind.selectableModels.findIndex(item=>item.name===String(Config.options?.abyss?.companionMind?.model ?? "")))
-                        displayText:currentIndex>=0 ? (WullMind.selectableModels[currentIndex].label ?? WullMind.selectableModels[currentIndex].name) : "Use the AI tab model"
+                        currentIndex:Math.max(0,AquaMind.selectableModels.findIndex(item=>item.name===String(Config.options?.abyss?.companionMind?.model ?? "")))
+                        displayText:currentIndex>=0 ? (AquaMind.selectableModels[currentIndex].label ?? AquaMind.selectableModels[currentIndex].name) : "Use the AI tab model"
                         onActivated:index=>{
-                            const item=WullMind.selectableModels[index]
-                            if(item)WullMind.selectModel(item)
+                            const item=AquaMind.selectableModels[index]
+                            if(item)AquaMind.selectModel(item)
                         }
                     }
                 }
@@ -727,18 +727,18 @@ ContentPage {
                         RowLayout {
                             Layout.fillWidth:true
                             StyledText {Layout.fillWidth:true;text:"Thinking effort";color:Appearance.colors.colSubtext;font.pixelSize:Appearance.font.pixelSize.smaller}
-                            StyledText {text:WullMind.thinkingEffortLabel;color:Appearance.colors.colPrimary;font.pixelSize:Appearance.font.pixelSize.smaller}
+                            StyledText {text:AquaMind.thinkingEffortLabel;color:Appearance.colors.colPrimary;font.pixelSize:Appearance.font.pixelSize.smaller}
                         }
                         StyledSlider {
-                            objectName:"wullCompanionThinkingEffort"
+                            objectName:"aquaCompanionThinkingEffort"
                             Layout.fillWidth:true
                             from:0;to:3;stepSize:1
-                            value:Math.max(0,WullMind.thinkingLevels.findIndex(level=>level.value===WullMind.effectiveThinkingEffort))
-                            enabled:WullMind.thinkingSupported && !WullMind.busy
-                            tooltipContent:WullMind.thinkingEffortLabel
+                            value:Math.max(0,AquaMind.thinkingLevels.findIndex(level=>level.value===AquaMind.effectiveThinkingEffort))
+                            enabled:AquaMind.thinkingSupported && !AquaMind.busy
+                            tooltipContent:AquaMind.thinkingEffortLabel
                             onMoved:{
                                 const levels=["off","low","medium","high"]
-                                WullMind.setThinkingEffort(levels[Math.max(0,Math.min(3,Math.round(value)))])
+                                AquaMind.setThinkingEffort(levels[Math.max(0,Math.min(3,Math.round(value)))])
                             }
                         }
                     }
@@ -747,34 +747,34 @@ ContentPage {
                         color:Appearance.colors.colLayer2
                         MaterialSymbol {
                             anchors.centerIn:parent
-                            text:WullMind.localOnly ? "verified_user" : "cloud_done"
+                            text:AquaMind.localOnly ? "verified_user" : "cloud_done"
                             iconSize:18;color:Appearance.colors.colPrimary
                         }
                         StyledText {
-                            objectName:"wullAiPrivacyStatus"
+                            objectName:"aquaAiPrivacyStatus"
                             visible:false
-                            text:WullMind.localOnly ? "Local only" : "Cloud models allowed"
+                            text:AquaMind.localOnly ? "Local only" : "Cloud models allowed"
                         }
                         MouseArea {
                             id:privacyHover;anchors.fill:parent;hoverEnabled:true;acceptedButtons:Qt.NoButton
                         }
                         StyledToolTip {
-                            text:(WullMind.localOnly ? "Local only" : "Cloud models allowed") + " · " + Translation.tr("Providers and connections are shared with AI settings.")
+                            text:(AquaMind.localOnly ? "Local only" : "Cloud models allowed") + " · " + Translation.tr("Providers and connections are shared with AI settings.")
                             extraVisibleCondition:privacyHover.containsMouse
                         }
                     }
                     CompactIconButton {
-                        objectName:"wullClearConversation"
+                        objectName:"aquaClearConversation"
                         iconName:"delete_sweep"
                         tooltipText:Translation.tr("Clear conversation")
-                        onClicked:WullMind.clearConversation()
+                        onClicked:AquaMind.clearConversation()
                     }
                 }
             }
 
             // ROW 2 (2 Columns): Proactive Check-ins & Sources (Left) | Quiet Hours Inline Start/End (Right)
             GridLayout {
-                objectName:"wullQuietHoursGrid"
+                objectName:"aquaQuietHoursGrid"
                 Layout.fillWidth:true
                 columns:root.availableRowWidth>520 ? 2 : 1
                 uniformCellWidths:columns > 1
@@ -782,41 +782,41 @@ ContentPage {
                 RowLayout {
                     Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:6
                     CompactIconToggle {
-                        objectName:"wullEnableProactive"
+                        objectName:"aquaEnableProactive"
                         buttonIcon:"notifications_active"
                         text:Translation.tr("Allow proactive check-ins and reminders")
                         tooltipText:Translation.tr("Off by default. Pauses during Focus, fullscreen, games, dialogs and quiet hours. Repeatedly ignored offers pause until you interact or the next day.")
-                        checked:WullMind.options.proactiveEnabled === true
-                        enabled:WullMind.options.proactiveEnabled !== undefined
+                        checked:AquaMind.options.proactiveEnabled === true
+                        enabled:AquaMind.options.proactiveEnabled !== undefined
                         onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.proactiveEnabled",checked)
                     }
                     CompactIconToggle {
-                        objectName:"wullPlannerReminders"
+                        objectName:"aquaPlannerReminders"
                         buttonIcon:"event_upcoming"
                         text:"Read Weekly Planner events"
                         tooltipText:"Use scheduled events from your Alis Weekly Planner for proactive reminders."
-                        checked:WullMind.plannerRemindersEnabled
+                        checked:AquaMind.plannerRemindersEnabled
                         onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.calendarRemindersEnabled",checked)
-                        Item { objectName:"wullCalendarReminders"; visible:false }
+                        Item { objectName:"aquaCalendarReminders"; visible:false }
                     }
                     CompactIconToggle {
-                        objectName:"wullTodoReminders"
+                        objectName:"aquaTodoReminders"
                         buttonIcon:"checklist"
                         text:Translation.tr("Read Todo items for reminders")
                         tooltipText:"Use timed tasks from your Alis Todo list for proactive reminders."
-                        checked:WullMind.todoRemindersEnabled
+                        checked:AquaMind.todoRemindersEnabled
                         onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.todoRemindersEnabled",checked)
                     }
                     CompactIconToggle {
-                        objectName:"wullReminderNotifications"
+                        objectName:"aquaReminderNotifications"
                         buttonIcon:"notifications"
                         text:Translation.tr("Show reminder notifications")
                         tooltipText:Translation.tr("Also send consented reminders to the notification center. Off by default.")
-                        checked:WullMind.reminderNotificationsEnabled
+                        checked:AquaMind.reminderNotificationsEnabled
                         onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.reminderNotificationsEnabled",checked)
                     }
                     InlineChoice {
-                        objectName:"wullProactiveFrequency"
+                        objectName:"aquaProactiveFrequency"
                         label:""
                         comboMinWidth:110
                         description:Translation.tr("Check-ins and reminders")
@@ -827,34 +827,34 @@ ContentPage {
                             {displayName:Translation.tr("Often while idle"),value:"often"},
                             {displayName:Translation.tr("Only when I chat"),value:"manual"}
                         ]
-                        currentValue:WullMind.proactive
+                        currentValue:AquaMind.proactive
                         onSelected:value=>Config.setNestedValue("abyss.companionMind.proactive",value)
                     }
                 }
                 RowLayout {
                     Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:8
                     CompactIconToggle {
-                        objectName:"wullQuietHoursToggle"
+                        objectName:"aquaQuietHoursToggle"
                         buttonIcon:"bedtime"
                         text:Translation.tr("Quiet hours")
                         tooltipText:"Pause automatic check-ins and reminders during your quiet hours."
-                        checked:WullMind.options.proactiveQuietEnabled !== false
+                        checked:AquaMind.options.proactiveQuietEnabled !== false
                         onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.proactiveQuietEnabled",checked)
                     }
                     InlineChoice {
-                        objectName:"wullQuietHoursStart"
+                        objectName:"aquaQuietHoursStart"
                         label:"Start"
                         comboMinWidth:82
                         options:[{displayName:"20:00",value:1200},{displayName:"22:00",value:1320},{displayName:"00:00",value:0}]
-                        currentValue:WullMind.options.proactiveQuietStart ?? 1320
+                        currentValue:AquaMind.options.proactiveQuietStart ?? 1320
                         onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveQuietStart",value)
                     }
                     InlineChoice {
-                        objectName:"wullQuietHoursEnd"
+                        objectName:"aquaQuietHoursEnd"
                         label:"End"
                         comboMinWidth:82
                         options:[{displayName:"06:00",value:360},{displayName:"08:00",value:480},{displayName:"10:00",value:600}]
-                        currentValue:WullMind.options.proactiveQuietEnd ?? 480
+                        currentValue:AquaMind.options.proactiveQuietEnd ?? 480
                         onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveQuietEnd",value)
                     }
                 }
@@ -862,7 +862,7 @@ ContentPage {
 
             // ROW 3 (2 Columns): Offer Quotas (Left) | Personalize Dialogue Inline (Right)
             GridLayout {
-                objectName:"wullProactiveQuotaGrid"
+                objectName:"aquaProactiveQuotaGrid"
                 Layout.fillWidth:true
                 columns:root.availableRowWidth>520 ? 2 : 1
                 uniformCellWidths:columns > 1
@@ -870,65 +870,65 @@ ContentPage {
                 RowLayout {
                     Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:10
                     InlineChoice {
-                        objectName:"wullProactiveDailyCap"
+                        objectName:"aquaProactiveDailyCap"
                         label:Translation.tr("Daily offer limit")
                         comboMinWidth:68
                         options:[{displayName:"2",value:2},{displayName:"4",value:4},{displayName:"6",value:6},{displayName:"10",value:10}]
-                        currentValue:WullMind.options.proactiveDailyCap ?? 6
+                        currentValue:AquaMind.options.proactiveDailyCap ?? 6
                         onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveDailyCap",value)
                     }
                     InlineChoice {
-                        objectName:"wullProactiveEventCap"
+                        objectName:"aquaProactiveEventCap"
                         label:Translation.tr("Limit for each kind of offer")
                         comboMinWidth:64
                         options:[{displayName:"1",value:1},{displayName:"2",value:2},{displayName:"3",value:3}]
-                        currentValue:WullMind.options.proactiveEventCap ?? 3
+                        currentValue:AquaMind.options.proactiveEventCap ?? 3
                         onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveEventCap",value)
                     }
                 }
                 RowLayout {
                     Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:8
                     CompactIconToggle {
-                        objectName:"wullDialogueConsent"
+                        objectName:"aquaDialogueConsent"
                         buttonIcon:"mood"
                         text:Translation.tr("Personalize local dialogue")
                         tooltipText:Translation.tr("Use your chosen tone and today's explicit check-in for local replies. Familiarity is your choice. No relationship score, penalties for absence or pressure to return.")
-                        checked:WullMind.options.bondEnabled===true
-                        enabled:WullMind.options.bondEnabled!==undefined
+                        checked:AquaMind.options.bondEnabled===true
+                        enabled:AquaMind.options.bondEnabled!==undefined
                         onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.bondEnabled",checked)
                     }
                     InlineChoice {
-                        objectName:"wullDialogueTone"
+                        objectName:"aquaDialogueTone"
                         label:""
                         description:Translation.tr("Dialogue tone")
                         comboMinWidth:96
                         options:[{displayName:Translation.tr("Gentle"),value:"gentle"},
                             {displayName:Translation.tr("Witty"),value:"witty"},{displayName:Translation.tr("Concise"),value:"concise"}]
-                        currentValue:WullMind.options.dialogueTone ?? "gentle"
+                        currentValue:AquaMind.options.dialogueTone ?? "gentle"
                         onSelected:value=>Config.setNestedValue("abyss.companionMind.dialogueTone",value)
                     }
                     InlineChoice {
-                        objectName:"wullDialogueFamiliarity"
+                        objectName:"aquaDialogueFamiliarity"
                         label:""
                         description:Translation.tr("Familiarity")
                         comboMinWidth:110
                         options:[{displayName:Translation.tr("Neutral"),value:"neutral"},
                             {displayName:Translation.tr("Familiar coworker"),value:"familiar"}]
-                        currentValue:WullMind.options.familiarity ?? "neutral"
+                        currentValue:AquaMind.options.familiarity ?? "neutral"
                         onSelected:value=>Config.setNestedValue("abyss.companionMind.familiarity",value)
                     }
                     CompactIconButton {
-                        objectName:"wullResetDialogue"
+                        objectName:"aquaResetDialogue"
                         iconName:"restart_alt"
                         tooltipText:Translation.tr("Reset dialogue preferences")
-                        onClicked:WullMind.resetDialogue()
+                        onClicked:AquaMind.resetDialogue()
                     }
                 }
             }
 
             // ROW 4 (2 Columns): Active-App / Screen OCR Agent (Left) | Obsidian Journal Context (Right)
             GridLayout {
-                objectName:"wullDialogueGrid"
+                objectName:"aquaDialogueGrid"
                 Layout.fillWidth:true
                 columns:root.availableRowWidth>520 ? 2 : 1
                 uniformCellWidths:columns > 1
@@ -936,80 +936,80 @@ ContentPage {
                 RowLayout {
                     Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:6
                     CompactIconToggle {
-                        objectName:"wullAgentToolsToggle"
+                        objectName:"aquaAgentToolsToggle"
                         buttonIcon:"smart_toy"
                         text:"Enable Desktop Agent"
                         tooltipText:"Allow Companion to answer questions using your focused app context or screenshot OCR."
-                        checked:WullMind.agentToolsEnabled
-                        onToggledByUser:checked=>WullMind.agentToolsEnabled=checked
+                        checked:AquaMind.agentToolsEnabled
+                        onToggledByUser:checked=>AquaMind.agentToolsEnabled=checked
                     }
                     CompactIconToggle {
-                        objectName:"wullAgentAppContextToggle"
+                        objectName:"aquaAgentAppContextToggle"
                         buttonIcon:"desktop_windows"
                         text:"Access focused app"
                         tooltipText:"Read active window metadata and open text/code file from your focused application."
-                        enabled:WullMind.agentToolsEnabled
-                        checked:WullMind.agentAppContextEnabled
-                        onToggledByUser:checked=>WullMind.agentAppContextEnabled=checked
+                        enabled:AquaMind.agentToolsEnabled
+                        checked:AquaMind.agentAppContextEnabled
+                        onToggledByUser:checked=>AquaMind.agentAppContextEnabled=checked
                     }
                     CompactIconToggle {
-                        objectName:"wullAgentScreenOcrToggle"
+                        objectName:"aquaAgentScreenOcrToggle"
                         buttonIcon:"document_scanner"
                         text:"Auto screenshot & OCR fallback"
                         tooltipText:"When an app cannot be accessed directly, automatically take a screenshot and read on-screen text via OCR."
-                        enabled:WullMind.agentToolsEnabled && WullMind.agentAppContextEnabled
-                        checked:WullMind.agentScreenFallbackEnabled
-                        onToggledByUser:checked=>WullMind.agentScreenFallbackEnabled=checked
+                        enabled:AquaMind.agentToolsEnabled && AquaMind.agentAppContextEnabled
+                        checked:AquaMind.agentScreenFallbackEnabled
+                        onToggledByUser:checked=>AquaMind.agentScreenFallbackEnabled=checked
                     }
                     CompactIconToggle {
-                        objectName:"wullAgentDocRagToggle"
+                        objectName:"aquaAgentDocRagToggle"
                         buttonIcon:"library_books"
                         text:"Local docs RAG"
                         tooltipText:"Retrieve local Companion documentation snippets when relevant."
-                        enabled:WullMind.agentToolsEnabled
-                        checked:WullMind.agentDocRagEnabled
+                        enabled:AquaMind.agentToolsEnabled
+                        checked:AquaMind.agentDocRagEnabled
                         onToggledByUser:checked=>{
-                            WullMind.agentDocRagEnabled=checked
-                            if(checked)WullMind.evaluateToolRouting("How does Companion architecture work?",true)
+                            AquaMind.agentDocRagEnabled=checked
+                            if(checked)AquaMind.evaluateToolRouting("How does Companion architecture work?",true)
                         }
                     }
                     CompactIconButton {
-                        objectName:"wullAgentCaptureApp"
+                        objectName:"aquaAgentCaptureApp"
                         iconName:"center_focus_strong"
                         tooltipText:"Capture active app / screen OCR now"
-                        enabled:WullMind.agentToolsEnabled && !WullMind.busy
-                        onClicked:WullMind.inspectToolMetadata("active_app")
+                        enabled:AquaMind.agentToolsEnabled && !AquaMind.busy
+                        onClicked:AquaMind.inspectToolMetadata("active_app")
                     }
                     CompactIconButton {
-                        objectName:"wullAgentProposeTone"
+                        objectName:"aquaAgentProposeTone"
                         iconName:"tune"
                         tooltipText:"Propose dialogue tone edit (requires confirmation)"
-                        enabled:WullMind.agentToolsEnabled && !WullMind.busy
+                        enabled:AquaMind.agentToolsEnabled && !AquaMind.busy
                         onClicked:{
-                            const cur=String(WullMind.options.dialogueTone ?? "gentle")
+                            const cur=String(AquaMind.options.dialogueTone ?? "gentle")
                             const next=cur==="gentle" ? "witty" : "gentle"
-                            WullMind.proposePreferenceEdit("dialogueTone",cur,next)
+                            AquaMind.proposePreferenceEdit("dialogueTone",cur,next)
                         }
                     }
                     CompactIconButton {
-                        objectName:"wullAgentConfirmProposal"
-                        visible:WullMind.lastToolProposal!==null
+                        objectName:"aquaAgentConfirmProposal"
+                        visible:AquaMind.lastToolProposal!==null
                         iconName:"check"
                         tooltipText:"Confirm pending Agent proposal"
-                        enabled:!WullMind.busy && WullMind.lastToolProposal!==null
-                        onClicked:if(WullMind.lastToolProposal)WullMind.confirmToolProposal(String(WullMind.lastToolProposal.proposalId))
+                        enabled:!AquaMind.busy && AquaMind.lastToolProposal!==null
+                        onClicked:if(AquaMind.lastToolProposal)AquaMind.confirmToolProposal(String(AquaMind.lastToolProposal.proposalId))
                     }
                     CompactIconButton {
-                        objectName:"wullAgentCancelProposal"
-                        visible:WullMind.lastToolProposal!==null
+                        objectName:"aquaAgentCancelProposal"
+                        visible:AquaMind.lastToolProposal!==null
                         iconName:"close"
                         tooltipText:"Cancel pending Agent proposal"
-                        enabled:!WullMind.busy && WullMind.lastToolProposal!==null
-                        onClicked:if(WullMind.lastToolProposal)WullMind.cancelToolProposal(String(WullMind.lastToolProposal.proposalId))
+                        enabled:!AquaMind.busy && AquaMind.lastToolProposal!==null
+                        onClicked:if(AquaMind.lastToolProposal)AquaMind.cancelToolProposal(String(AquaMind.lastToolProposal.proposalId))
                     }
                     StyledText {
                         Layout.fillWidth:true;elide:Text.ElideRight
-                        text:WullMind.agentStatusSummary
+                        text:AquaMind.agentStatusSummary
                         font.pixelSize:Appearance.font.pixelSize.smaller
                         color:Appearance.colors.colSubtext
                     }
@@ -1017,11 +1017,11 @@ ContentPage {
                 RowLayout {
                     Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:8
                     CompactIconToggle {
-                        objectName:"wullConnectObsidian"
+                        objectName:"aquaConnectObsidian"
                         buttonIcon:"menu_book"
                         text:Translation.tr("Connect Obsidian")
                         tooltipText:"Share read-only daily mood/energy check-in with your configured Obsidian journal."
-                        checked:WullMind.obsidianEnabled
+                        checked:AquaMind.obsidianEnabled
                         onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.obsidianEnabled",checked)
                     }
                     StyledText {
@@ -1033,21 +1033,21 @@ ContentPage {
                     CompactIconButton {
                         iconName:"refresh"
                         tooltipText:Translation.tr("Read today's context")
-                        enabled:WullMind.obsidianEnabled && !WullMind.busy
-                        onClicked:WullMind.refreshJournal()
+                        enabled:AquaMind.obsidianEnabled && !AquaMind.busy
+                        onClicked:AquaMind.refreshJournal()
                     }
                     CompactIconButton {
                         iconName:"open_in_new"
                         tooltipText:Translation.tr("Open journal")
-                        enabled:!!WullMind.journal.journalPath
-                        onClicked:WullMind.openJournal()
+                        enabled:!!AquaMind.journal.journalPath
+                        onClicked:AquaMind.openJournal()
                     }
                 }
             }
 
             // ROW 5 (2 Columns): Explicit Local Memories Policy (Left) | Memory Input & Actions (Right)
             GridLayout {
-                objectName:"wullAiPermissionsGrid"
+                objectName:"aquaAiPermissionsGrid"
                 Layout.fillWidth:true
                 columns:root.availableRowWidth>520 ? 2 : 1
                 uniformCellWidths:columns > 1
@@ -1055,16 +1055,16 @@ ContentPage {
                 RowLayout {
                     Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:8
                     CompactIconToggle {
-                        objectName:"wullEnableMemory"
+                        objectName:"aquaEnableMemory"
                         buttonIcon:"bookmark"
                         text:Translation.tr("Use saved memories with local models")
                         tooltipText:Translation.tr("Only entries you save here are remembered. No automatic extraction from chat. Turning this off stops use and keeps your records available for review or deletion.")
-                        checked:WullMind.memoryEnabled
-                        enabled:WullMind.options.memoryEnabled !== undefined && !WullMind.busy
+                        checked:AquaMind.memoryEnabled
+                        enabled:AquaMind.options.memoryEnabled !== undefined && !AquaMind.busy
                         onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.memoryEnabled",checked)
                     }
                     InlineChoice {
-                        objectName:"wullMemoryScope"
+                        objectName:"aquaMemoryScope"
                         label:Translation.tr("Remember for")
                         comboMinWidth:84
                         options:[{displayName:"Aqua",value:"aqua"},{displayName:"Octo",value:"octo"},{displayName:Translation.tr("Both"),value:"shared"}]
@@ -1072,7 +1072,7 @@ ContentPage {
                         onSelected:value=>root.memoryScope=value
                     }
                     InlineChoice {
-                        objectName:"wullMemoryTtl"
+                        objectName:"aquaMemoryTtl"
                         label:Translation.tr("Keep memory")
                         comboMinWidth:96
                         options:[{displayName:Translation.tr("7 days"),value:7},{displayName:Translation.tr("30 days"),value:30},{displayName:Translation.tr("Until I forget it"),value:0}]
@@ -1089,10 +1089,10 @@ ContentPage {
                         border.width:1;border.color:Qt.alpha(Appearance.colors.colPrimary,memoryInput.activeFocus ? .8 : .3)
                         StyledTextInput {
                             id:memoryInput
-                            objectName:"wullMemoryDraft"
+                            objectName:"aquaMemoryDraft"
                             anchors.fill:parent;anchors.leftMargin:10;anchors.rightMargin:10
                             verticalAlignment:Text.AlignVCenter
-                            enabled:WullMind.memoryEnabled && !WullMind.busy
+                            enabled:AquaMind.memoryEnabled && !AquaMind.busy
                             clip:true;selectByMouse:true;activeFocusOnTab:true
                             Accessible.name:Translation.tr("An explicit preference to remember")
                             maximumLength:320;text:root.memoryDraft
@@ -1107,28 +1107,28 @@ ContentPage {
                         }
                     }
                     CompactIconButton {
-                        objectName:"wullSaveMemory"
+                        objectName:"aquaSaveMemory"
                         iconName:root.memoryEditingId ? "save" : "add"
                         tooltipText:root.memoryEditingId ? Translation.tr("Save memory changes") : Translation.tr("Save memory")
-                        enabled:WullMind.memoryEnabled && !WullMind.busy && root.memoryDraft.trim().length>0
-                        onClicked:if(WullMind.saveMemory(root.memoryDraft,root.memoryScope,root.memoryTtlDays,root.memoryEditingId)) {
+                        enabled:AquaMind.memoryEnabled && !AquaMind.busy && root.memoryDraft.trim().length>0
+                        onClicked:if(AquaMind.saveMemory(root.memoryDraft,root.memoryScope,root.memoryTtlDays,root.memoryEditingId)) {
                             root.memoryDraft="";root.memoryEditingId=0
                         }
                     }
                     CompactIconButton {
-                        objectName:"wullReviewMemory"
+                        objectName:"aquaReviewMemory"
                         iconName:"refresh"
                         tooltipText:Translation.tr("Review saved memories")
-                        enabled:!WullMind.busy
-                        onClicked:WullMind.refreshMemory()
+                        enabled:!AquaMind.busy
+                        onClicked:AquaMind.refreshMemory()
                     }
                     CompactIconButton {
-                        objectName:"wullForgetAllMemory"
+                        objectName:"aquaForgetAllMemory"
                         iconName:root.confirmForgetMemories ? "warning" : "delete_sweep"
                         tooltipText:root.confirmForgetMemories ? Translation.tr("Confirm forgetting all saved memories") : Translation.tr("Forget all saved memories")
-                        enabled:!WullMind.busy && WullMind.memories.length>0
+                        enabled:!AquaMind.busy && AquaMind.memories.length>0
                         onClicked:{
-                            if(root.confirmForgetMemories){WullMind.forgetAllMemories();root.confirmForgetMemories=false}
+                            if(root.confirmForgetMemories){AquaMind.forgetAllMemories();root.confirmForgetMemories=false}
                             else root.confirmForgetMemories=true
                         }
                     }
@@ -1136,13 +1136,13 @@ ContentPage {
             }
 
             GridLayout {
-                objectName:"wullReminderSourcesGrid"
+                objectName:"aquaReminderSourcesGrid"
                 visible:false
                 columns:root.availableRowWidth>520 ? 2 : 1
             }
 
             Repeater {
-                model:WullMind.toolReceipts
+                model:AquaMind.toolReceipts
                 RowLayout {
                     required property var modelData
                     Layout.fillWidth:true;spacing:8
@@ -1154,20 +1154,20 @@ ContentPage {
                     CompactIconButton {
                         iconName:"undo"
                         tooltipText:"Rollback preference update"
-                        enabled:!WullMind.busy && !modelData.rolledBack
-                        onClicked:WullMind.rollbackToolReceipt(String(modelData.receiptId))
+                        enabled:!AquaMind.busy && !modelData.rolledBack
+                        onClicked:AquaMind.rollbackToolReceipt(String(modelData.receiptId))
                     }
                 }
             }
             StyledText {
-                visible:WullMind.memoryNotice.length>0
+                visible:AquaMind.memoryNotice.length>0
                 Layout.fillWidth:true;wrapMode:Text.WordWrap;textFormat:Text.PlainText
-                text:WullMind.memoryNotice
+                text:AquaMind.memoryNotice
                 font.pixelSize:Appearance.font.pixelSize.smaller
                 color:Appearance.colors.colSubtext
             }
             Repeater {
-                model:WullMind.memories
+                model:AquaMind.memories
                 RowLayout {
                     required property var modelData
                     Layout.fillWidth:true;spacing:8
@@ -1185,14 +1185,14 @@ ContentPage {
                     CompactIconButton {
                         iconName:"edit"
                         tooltipText:Translation.tr("Edit")
-                        enabled:WullMind.memoryEnabled && !WullMind.busy
+                        enabled:AquaMind.memoryEnabled && !AquaMind.busy
                         onClicked:{root.memoryDraft=modelData.text;root.memoryScope=modelData.scope;root.memoryEditingId=modelData.id}
                     }
                     CompactIconButton {
                         iconName:"delete"
                         tooltipText:Translation.tr("Forget")
-                        enabled:!WullMind.busy
-                        onClicked:WullMind.forgetMemory(modelData.id)
+                        enabled:!AquaMind.busy
+                        onClicked:AquaMind.forgetMemory(modelData.id)
                     }
                 }
             }

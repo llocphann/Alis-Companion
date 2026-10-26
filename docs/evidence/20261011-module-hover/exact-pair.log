@@ -1,4 +1,4 @@
-Hadanion source: a49284fa36cf030d3b2ab4212ecf7efebc63edf3 committed
+Alis-Companion source: a49284fa36cf030d3b2ab4212ecf7efebc63edf3 committed
 Hadalis source: b543bb7602eb74901c3c137c89c70c301e12fde4 committed
 PASS test-module-hover-runtime.py
 e":{"x":1394,"y":331.90000000000003,"width":516,"height":328},"content":{"x":1408,"y":345.90000000000003,"width":390,"height":300},"input":{"x":1394,"y":331.90000000000003,"width":418,"height":328.00000000000006,"left":1394,"right":1812,"top":331.90000000000003,"bottom":659.9000000000001}}
@@ -14,4 +14,4 @@ e":{"x":1394,"y":331.90000000000003,"width":516,"height":328},"content":{"x":140
 
 Process exit: 0
 
-Hadanion checks: 1 PASS / 0 FAIL / 0 SKIP
+Alis-Companion checks: 1 PASS / 0 FAIL / 0 SKIP

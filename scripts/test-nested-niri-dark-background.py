@@ -4,13 +4,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNERS = (
-    "scripts/wull-manual-nested-niri.py",
-    "scripts/wull-nested-isolation-smoke.py",
-    "scripts/wull-manual-nested-field-capture.py",
-    "scripts/wull-manual-nested-pointer.py",
-    "scripts/wull-manual-nested-production-bar.py",
-    "scripts/wull-manual-private-nested-quarter-visual.py",
-    "scripts/wull-manual-private-field-rim-visual.py",
+    "scripts/aqua-manual-nested-niri.py",
+    "scripts/aqua-nested-isolation-smoke.py",
+    "scripts/aqua-manual-nested-field-capture.py",
+    "scripts/aqua-manual-nested-pointer.py",
+    "scripts/aqua-manual-nested-production-bar.py",
+    "scripts/aqua-manual-private-nested-quarter-visual.py",
+    "scripts/aqua-manual-private-field-rim-visual.py",
 )
 
 for relative in RUNNERS:

@@ -2,8 +2,8 @@
 """Bounded real-package Qt hover comparison. Does not assert wl_pointer delivery."""
 import hashlib,importlib.util,json,os,subprocess,sys,tempfile
 from pathlib import Path
-PACKAGE=Path(os.environ.get('HADANION_SOURCE',str(Path(__file__).resolve().parents[1]))).resolve()
-ROOT=Path(os.environ.get('HADANION_TEST_HOST',str(PACKAGE.parent/'Alis'))).resolve()
+PACKAGE=Path(os.environ.get('ALIS_COMPANION_SOURCE',str(Path(__file__).resolve().parents[1]))).resolve()
+ROOT=Path(os.environ.get('ALIS_COMPANION_TEST_HOST',str(PACKAGE.parent/'Alis'))).resolve()
 sys.path.insert(0,str(ROOT/'scripts'))
 source_sha=subprocess.check_output(['git','rev-parse','HEAD'],cwd=PACKAGE,text=True).strip()
 status=subprocess.check_output(['git','status','--porcelain','--untracked-files=all'],cwd=PACKAGE,text=True)
@@ -82,11 +82,11 @@ ShellRoot {
    tryVerify(()=>host.nativeFieldReady,6000)
    const bar=find(host.contentItem,item=>typeof item.itemForId==="function" && item.layoutRecords!==undefined)
    check(bar!==null,"production AbyssBar missing")
-   tryCompare(Hadanion,"available",true,6000)
-   check(Hadanion.available,"private exact package unavailable: "+Hadanion.diagnostic)
-   check(Hadanion.sourceSha===Quickshell.env("ALIS_COMPANION_TEST_SHA"),"wrong private package identity")
+   tryCompare(AlisCompanion,"available",true,6000)
+   check(AlisCompanion.available,"private exact package unavailable: "+AlisCompanion.diagnostic)
+   check(AlisCompanion.sourceSha===Quickshell.env("ALIS_COMPANION_TEST_SHA"),"wrong private package identity")
    Weather.data={temp:"25°",wCode:"113",description:"Overcast",sunrise:"06:00",sunset:"18:00",hourly:Array.from({length:8},(_,i)=>({label:String(i*3).padStart(2,"0")+":00",temp:"25°",code:"113"}))}
-   const edges=(Quickshell.env("HADANION_HOVER_EDGES")??"top,bottom,left,right").split(",")
+   const edges=(Quickshell.env("ALIS_COMPANION_HOVER_EDGES")??"top,bottom,left,right").split(",")
    for(const edge of edges){
     Config.setNestedValues({"bar.vertical":["left","right"].includes(edge),"bar.bottom":["bottom","right"].includes(edge),"abyss.companion.edge":edge,
      "abyss.modules.configured":true,"abyss.modules.outputLayouts":[],"abyss.modules.placements":[{id:"clock",kind:"clock",edge:edge,position:.2},{id:"weather",kind:"weather",edge:edge,position:.45},{id:"media",kind:"media",edge:edge,position:.7}]})
@@ -96,25 +96,25 @@ ShellRoot {
      outside(host,field)
      Config.setNestedValue("abyss.companion.enabled",state!=="disabled")
      if(state==="disabled"){
-      tryVerify(()=>Hadanion.session===null,6000)
-      check(findChild(host.contentItem,"wullRimPointerObserver")===null,"disabled package retained a full-output pointer observer")
+      tryVerify(()=>AlisCompanion.session===null,6000)
+      check(findChild(host.contentItem,"aquaRimPointerObserver")===null,"disabled package retained a full-output pointer observer")
       check(find(host.contentItem,item=>typeof item.stopTravel==="function" && typeof item.carryTo==="function")===null,"disabled package retained an actor")
      }
      else{
-      tryVerify(()=>Hadanion.session?.bridge?.ready===true,6000)
-      check(Hadanion.session?.bridge?.ready,"Companion CPU actor backend did not handshake")
+      tryVerify(()=>AlisCompanion.session?.bridge?.ready===true,6000)
+      check(AlisCompanion.session?.bridge?.ready,"Companion CPU actor backend did not handshake")
       if(state==="present"){
-       Hadanion.session.bridge.show()
-       tryVerify(()=>Hadanion.outputs[0]?.extension?.actor?.inputReady===true,7000)
-       check(Hadanion.outputs[0]?.extension?.actor?.inputReady,"actor did not become present")
+       AlisCompanion.session.bridge.show()
+       tryVerify(()=>AlisCompanion.outputs[0]?.extension?.actor?.inputReady===true,7000)
+       check(AlisCompanion.outputs[0]?.extension?.actor?.inputReady,"actor did not become present")
       }else{
-       Hadanion.session.bridge.hide()
-       tryVerify(()=>Hadanion.outputs[0]?.extension?.actor?.visible===false,7000)
-       check(Hadanion.outputs[0]?.extension?.actor?.visible===false,"actor did not become absent")
+       AlisCompanion.session.bridge.hide()
+       tryVerify(()=>AlisCompanion.outputs[0]?.extension?.actor?.visible===false,7000)
+       check(AlisCompanion.outputs[0]?.extension?.actor?.visible===false,"actor did not become absent")
       }
      }
      render(field)
-     console.info("COMPANION_HOVER_STATE",edge,state,JSON.stringify({layer:host.WlrLayershell.layer,focus:host.WlrLayershell.keyboardFocus,package:Hadanion.sourceSha,status:state==="disabled"?null:Hadanion.outputs[0].extension.status()}))
+     console.info("COMPANION_HOVER_STATE",edge,state,JSON.stringify({layer:host.WlrLayershell.layer,focus:host.WlrLayershell.keyboardFocus,package:AlisCompanion.sourceSha,status:state==="disabled"?null:AlisCompanion.outputs[0].extension.status()}))
      for(const kind of ["clock","weather","media"]){
       outside(host,field)
       const module=bar.itemForId(kind)
@@ -126,8 +126,8 @@ ShellRoot {
       console.info("COMPANION_HOVER_ENTER",edge,state,kind,JSON.stringify({module:module.hovered,anchor:popup._anchorHover.hovered,requested:popup.requestedVisible,content:popup._contentHovered,lease:!!popup.companionLease,slots:bar.liquidController.activePopups.length}))
       check(popup.requestedVisible,kind+" hover did not open with "+state+" on "+edge)
       if(state!=="disabled"){
-       const observer=findChild(host.contentItem,"wullRimPointerObserver")
-       check(observer && observer.parent===Hadanion.outputs[0].overlayParent && observer.blocking===false,"observer left existing ancestor")
+       const observer=findChild(host.contentItem,"aquaRimPointerObserver")
+       check(observer && observer.parent===AlisCompanion.outputs[0].overlayParent && observer.blocking===false,"observer left existing ancestor")
        check(observer.hovered,"restored module hover lost Companion pointer tracking")
        const point=module.mapToItem(null,module.width/2,module.height/2)
        check(Math.abs(observer.point.scenePosition.x-point.x)<1 && Math.abs(observer.point.scenePosition.y-point.y)<1,"Companion pointer coordinates changed")
@@ -168,7 +168,7 @@ ShellRoot {
     }
    }
    console.info("COMPANION_HOVER_PASS",root.checks,root.frames)
-  }catch(e){console.error("COMPANION_HOVER_FAIL",e.message,e.stack,JSON.stringify({session:Hadanion.session?.status(),outputs:Hadanion.outputs.map(output=>output.extension?.status())}))}Qt.quit()}
+  }catch(e){console.error("COMPANION_HOVER_FAIL",e.message,e.stack,JSON.stringify({session:AlisCompanion.session?.status(),outputs:AlisCompanion.outputs.map(output=>output.extension?.status())}))}Qt.quit()}
  }
  Timer {interval:100;running:true;onTriggered:test.runChecks()}
 }
@@ -176,7 +176,7 @@ ShellRoot {
  with private_wayland(folder) as env:
   if env is None:raise SystemExit('SKIP: private Niri unavailable')
   # Only an isolated installation. Never mutate the owner release or defaults.
-  release=folder/'data/hadanion/releases'/identity;release.parent.mkdir(parents=True)
+  release=folder/'data/alis-companion/releases'/identity;release.parent.mkdir(parents=True)
   installer.assemble(PACKAGE,release,PACKAGE/'native/target/release/inir-companiond',identity)
   (release.parent.parent/'current').symlink_to(Path('releases')/identity)
   assert (release/'HadalisOutput.qml').read_bytes()==(PACKAGE/'HadalisOutput.qml').read_bytes(), 'private package readback mismatch'
@@ -191,7 +191,7 @@ ShellRoot {
   # Budget the complete input matrix, including unfocused native field draws;
   # keep the 2.5-second frame deadline and all pointer assertions unchanged.
   result=run_qs(folder,env,timeout=400)
-  output=os.environ.get('HADANION_HOVER_LOG')
+  output=os.environ.get('ALIS_COMPANION_HOVER_LOG')
   if output:Path(output).write_text(result.stdout+'\nprocessExit='+str(result.returncode)+'\n')
-  print('Host source:',os.environ.get('HADANION_HOVER_HOST_SHA','direct host checkout'));print('Package identity:',identity);print('Payload sha256:',hashlib.sha256((PACKAGE/'HadalisOutput.qml').read_bytes()).hexdigest());print(result.stdout);print('Process exit:',result.returncode)
+  print('Host source:',os.environ.get('ALIS_COMPANION_HOVER_HOST_SHA','direct host checkout'));print('Package identity:',identity);print('Payload sha256:',hashlib.sha256((PACKAGE/'HadalisOutput.qml').read_bytes()).hexdigest());print(result.stdout);print('Process exit:',result.returncode)
   if result.returncode or 'COMPANION_HOVER_PASS' not in result.stdout or any(x in result.stdout for x in ['COMPANION_HOVER_FAIL','TypeError:','ReferenceError:','Binding loop','Failed to load configuration']):raise SystemExit(1)

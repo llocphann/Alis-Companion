@@ -1,4 +1,4 @@
-# Hadanion
+# Alis-Companion
 
 Aqua and Octo, expressive 3D desktop companions for [Hadalis](https://github.com/llocphann/Hadalis). Companion is an optional installation, disabled by default in Hadalis.
 
@@ -31,25 +31,25 @@ For development and release testing of the standalone source checkout:
 git clone https://github.com/llocphann/Alis-Companion.git
 cd Alis-Companion
 make install
-inir ipc hadanion refresh
+inir ipc alis-companion refresh
 ```
 
 Normal Alis users should use its integrated setup/update lifecycle instead.
 
-The runtime is installed to `${XDG_DATA_HOME:-$HOME/.local/share}/hadanion/releases/<commit>`. An atomic `current` link selects a release. The payload excludes Blender files, tests, documentation and models. Hadalis discovers this user installation without modifying its source tree or a system package.
+The runtime is installed to `${XDG_DATA_HOME:-$HOME/.local/share}/alis-companion/releases/<commit>`. An atomic `current` link selects a release. The payload excludes Blender files, tests, documentation and models. Hadalis discovers this user installation without modifying its source tree or a system package.
 
 ## Update and remove
 
 ```sh
 git pull --ff-only
 make install
-inir ipc hadanion refresh
+inir ipc alis-companion refresh
 
 make uninstall
-inir ipc hadanion refresh
+inir ipc alis-companion refresh
 ```
 
-Uninstall detaches the runtime. Preferences, chat history, Obsidian notes and previous releases remain intact. Alis's managed setup/update now installs its pinned Companion revision automatically; standalone development remains manual. The `abyss.companion` / `abyss.companionMind` preferences, `wull` IPC target, transcript path and `inir-companiond` binary name remain compatible during extraction.
+Uninstall detaches the runtime. Preferences, chat history, Obsidian notes and previous releases remain intact. Alis's managed setup/update now installs its pinned Companion revision automatically; standalone development remains manual. The `abyss.companion` / `abyss.companionMind` preferences, `aqua` IPC target, transcript path and `inir-companiond` binary name remain compatible during extraction.
 
 ## Development
 
@@ -62,7 +62,7 @@ make test HADALIS_ROOT=/path/to/Hadalis HADALIRD_ROOT=/path/to/Hadalird
 
 With current Hadalis hosts, Obsidian helpers belong to the optional Hadalird
 package. Journal checks can stage its committed source privately:
-`python3 scripts/validate.py --hadalis-root /clean/Hadalis --hadalird-root /clean/Hadalird --require-clean --only test-wull-local-mind.py test-wull-shared-ai-runtime.py test-wull-journal-ui.py WullMind.qml`.
+`python3 scripts/validate.py --hadalis-root /clean/Hadalis --hadalird-root /clean/Hadalird --require-clean --only test-aqua-local-mind.py test-aqua-shared-ai-runtime.py test-aqua-journal-ui.py AquaMind.qml`.
 This builds no resident service, installs nothing and changes no user settings.
 Chat/history do not require Obsidian; missing journal integration returns a
 bounded error only when a journal action is explicitly requested.

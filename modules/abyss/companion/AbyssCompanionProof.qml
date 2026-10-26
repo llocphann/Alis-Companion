@@ -18,8 +18,8 @@ ApplicationWindow {
     visible: true
     color: AbyssStyle.surfaceDeep
     title: bridge.backendEnabled
-        ? "Wull procedural attachment proof [" + (bridge.ready ? bridge.visibility : "starting") + "]"
-        : "Wull procedural attachment proof"
+        ? "Aqua procedural attachment proof [" + (bridge.ready ? bridge.visibility : "starting") + "]"
+        : "Aqua procedural attachment proof"
 
     CompanionBridge {
         id: bridge

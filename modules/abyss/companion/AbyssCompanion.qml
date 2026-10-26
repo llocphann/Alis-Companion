@@ -2,9 +2,9 @@ import QtQuick
 import QtQuick.Shapes
 import qs.modules.abyss.looks
 import qs.modules.common
-import "WullExpressions.js" as Expressions
+import "AquaExpressions.js" as Expressions
 import "CompanionMotion.js" as Motion
-import "WullAttention.js" as Attention
+import "AquaAttention.js" as Attention
 
 Item {
     id: root
@@ -278,7 +278,7 @@ Item {
 
     DragHandler {
         id: dragHandler
-        objectName: "wullDragHandler"
+        objectName: "aquaDragHandler"
         target: null
         enabled: root.dragEnabled && root.interactive && root.inputReady
         acceptedButtons: Qt.LeftButton
@@ -340,7 +340,7 @@ Item {
 
     Item {
         id: emergenceViewport
-        objectName: "wullEmergenceViewport"
+        objectName: "aquaEmergenceViewport"
         readonly property real margin: Math.max(180,
             Math.abs(root.appearanceOffsetX)+root.width,
             Math.abs(root.appearanceOffsetY)+root.height)

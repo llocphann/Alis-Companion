@@ -1,15 +1,15 @@
 Subset extracted from whole package validation, not a separate invocation.
-PASS test-wull-persona.cjs
-PASS test-wull-proactive-policy.cjs
-PASS test-wull-proactive-runtime-policy.cjs
-PASS test-wull-reminder-policy.cjs
-PASS test-wull-local-mind.py
-PASS test-wull-shared-ai-runtime.py
-PASS test-wull-memory-store.py
-PASS test-wull-local-persona.py
-PASS test-wull-mind-ui.py
-PASS test-wull-journal-ui.py
+PASS test-aqua-persona.cjs
+PASS test-aqua-proactive-policy.cjs
+PASS test-aqua-proactive-runtime-policy.cjs
+PASS test-aqua-reminder-policy.cjs
+PASS test-aqua-local-mind.py
+PASS test-aqua-shared-ai-runtime.py
+PASS test-aqua-memory-store.py
+PASS test-aqua-local-persona.py
+PASS test-aqua-mind-ui.py
+PASS test-aqua-journal-ui.py
 PASS CompanionConfig.qml
-PASS WullMind.qml
+PASS AquaMind.qml
 Whole package: 77 PASS / 1 FAIL / 0 SKIP; exit 1.
 FAIL test-module-hover-runtime.py

@@ -1,0 +1,250 @@
+pragma ComponentBehavior: Bound
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.Dialogs
+import Quickshell
+import qs.services
+import "../../../services"
+import qs.modules.common
+import qs.modules.common.widgets
+import qs.modules.abyss.looks
+import qs.modules.settings
+
+Item {
+    id:root
+    property Item actor: null
+    property bool confirmClear:false
+    implicitHeight: layoutCol.implicitHeight
+    focus:true
+    Component.onCompleted: Qt.callLater(() => { if (root.visible) root.forceActiveFocus() })
+    Keys.onEscapePressed: AquaPocket.close()
+    DropArea {
+        id: paneDrop
+        anchors.fill:parent
+        enabled:AquaPocket.canSelect
+        function accepts(event): bool {
+            return enabled && event.hasUrls && (event.supportedActions & Qt.CopyAction)!==0
+                && event.urls.length>0 && event.urls.length<=8
+        }
+        function syncActorDrag(drag, active): void {
+            if (!root.actor) return
+            root.actor.pocketDragActive = active
+            if (active && drag) {
+                const cx = Math.max(1, paneDrop.width * 0.5)
+                const cy = Math.max(1, paneDrop.height * 0.5)
+                root.actor.pocketDragX = Math.max(-1, Math.min(1, (drag.x - cx) / cx))
+                root.actor.pocketDragY = Math.max(-1, Math.min(1, (drag.y - cy) / cy))
+            } else {
+                root.actor.pocketDragX = 0
+                root.actor.pocketDragY = 0
+            }
+        }
+        onEntered:drag=> {
+            drag.accepted=false
+            if(accepts(drag)) {
+                drag.accept(Qt.CopyAction)
+                syncActorDrag(drag, true)
+            }
+        }
+        onPositionChanged:drag=> {
+            drag.accepted=false
+            if(accepts(drag)) {
+                drag.accept(Qt.CopyAction)
+                syncActorDrag(drag, true)
+            }
+        }
+        onExited: syncActorDrag(null, false)
+        onDropped:drop=> {
+            drop.accepted=false
+            syncActorDrag(null, false)
+            if (accepts(drop) && AquaPocket.addFiles(Array.from(drop.urls,value=>String(value)),"drop"))
+                drop.accept(Qt.CopyAction)
+        }
+    }
+    ColumnLayout {
+        id: layoutCol
+        anchors.fill: parent
+        spacing: 8
+        RowLayout {
+            Layout.fillWidth:true
+            Layout.alignment: Qt.AlignTop
+            spacing:6
+            RippleButton {
+                id:chooseBtn
+                objectName:"aquaPocketChoose"
+                Layout.preferredWidth:30;Layout.preferredHeight:30
+                implicitWidth:30;implicitHeight:30
+                buttonRadius:15
+                enabled:AquaPocket.canSelect
+                Accessible.name:Translation.tr("Choose files")
+                onClicked: {root.confirmClear=false;picker.open()}
+                StyledToolTip {
+                    extraVisibleCondition:chooseBtn.buttonHovered
+                    text:Translation.tr("Choose files")
+                }
+                contentItem:MaterialSymbol {
+                    anchors.centerIn:parent
+                    text:"add"
+                    iconSize:18
+                    color:Appearance.colors.colPrimary
+                }
+            }
+            Item {
+                Layout.fillWidth:true
+                Layout.preferredHeight:30
+                Rectangle {
+                    anchors.centerIn:parent
+                    width:headerBadgeRow.implicitWidth + 18
+                    height:26
+                    radius:13
+                    color:Qt.alpha(AbyssStyle.accent, 0.12)
+                    border.width:1
+                    border.color:Qt.alpha(AbyssStyle.accent, 0.24)
+                    RowLayout {
+                        id:headerBadgeRow
+                        anchors.centerIn:parent
+                        spacing:5
+                        MaterialSymbol {
+                            text:"inventory_2"
+                            iconSize:16
+                            color:AbyssStyle.accent
+                        }
+                        StyledText {
+                            text:AquaPocket.items.length+"/32"
+                            font.pixelSize:Appearance.font.pixelSize.smaller
+                            font.weight:Font.DemiBold
+                            color:AbyssStyle.textColor
+                        }
+                    }
+                }
+            }
+            RippleButton {
+                id:clearBtn
+                objectName:"aquaPocketClear"
+                Layout.preferredWidth:30;Layout.preferredHeight:30
+                implicitWidth:30;implicitHeight:30
+                buttonRadius:15
+                enabled:AquaPocket.canSelect && AquaPocket.items.length>0
+                Accessible.name:root.confirmClear ? Translation.tr("Confirm clear") : Translation.tr("Clear")
+                onClicked: {if(root.confirmClear){AquaPocket.clear(true);root.confirmClear=false}else root.confirmClear=true}
+                StyledToolTip {
+                    extraVisibleCondition:clearBtn.buttonHovered
+                    text:root.confirmClear ? Translation.tr("Confirm clear") : Translation.tr("Clear")
+                }
+                contentItem:MaterialSymbol {
+                    anchors.centerIn:parent
+                    text:root.confirmClear ? "check" : "delete_sweep"
+                    iconSize:18
+                    color:root.confirmClear ? Appearance.colors.colError : Appearance.colors.colOnLayer1
+                }
+            }
+        }
+        ListView {
+            id:list;objectName:"aquaPocketList";Layout.fillWidth:true;Layout.fillHeight:true
+            clip:true;spacing:5;model:AquaPocket.items
+            delegate:Rectangle {
+                id:row
+                required property var modelData
+                width:list.width
+                height:40
+                radius:10
+                color:Qt.alpha(AbyssStyle.textColor, 0.05)
+                border.width:1
+                border.color:Qt.alpha(AbyssStyle.textColor, 0.08)
+                RowLayout {
+                    anchors.fill:parent
+                    anchors.leftMargin:8
+                    anchors.rightMargin:6
+                    spacing:6
+                    MaterialSymbol {
+                        text:"description"
+                        iconSize:16
+                        color:AbyssStyle.accent
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth:true;Layout.minimumWidth:0;spacing:0
+                        StyledText {
+                            Layout.fillWidth:true
+                            text:row.modelData.name
+                            textFormat:Text.PlainText
+                            elide:Text.ElideMiddle
+                            font.pixelSize:Appearance.font.pixelSize.small
+                        }
+                        StyledText {
+                            Layout.fillWidth:true
+                            text:row.modelData.path
+                            textFormat:Text.PlainText
+                            elide:Text.ElideLeft
+                            font.pixelSize:Appearance.font.pixelSize.smallest
+                            color:Appearance.colors.colSubtext
+                        }
+                    }
+                    RippleButton {
+                        id:openItemBtn
+                        Layout.preferredWidth:26;Layout.preferredHeight:26
+                        implicitWidth:26;implicitHeight:26
+                        buttonRadius:13
+                        enabled:!!row.modelData.path
+                        Accessible.name:"Open"
+                        onClicked:Quickshell.execDetached(["xdg-open",row.modelData.path])
+                        StyledToolTip {
+                            extraVisibleCondition:openItemBtn.buttonHovered
+                            text:"Open"
+                        }
+                        contentItem:MaterialSymbol {
+                            anchors.centerIn:parent
+                            text:"open_in_new"
+                            iconSize:15
+                            color:Appearance.colors.colSubtext
+                        }
+                    }
+                    RippleButton {
+                        id:removeItemBtn
+                        objectName:"aquaPocketRemove-"+row.modelData.id
+                        Layout.preferredWidth:26;Layout.preferredHeight:26
+                        implicitWidth:26;implicitHeight:26
+                        buttonRadius:13
+                        enabled:AquaPocket.canSelect
+                        Accessible.name:Translation.tr("Remove")
+                        onClicked: {root.confirmClear=false;AquaPocket.remove(row.modelData.id)}
+                        StyledToolTip {
+                            extraVisibleCondition:removeItemBtn.buttonHovered
+                            text:Translation.tr("Remove")
+                        }
+                        contentItem:MaterialSymbol {
+                            anchors.centerIn:parent
+                            text:"close"
+                            iconSize:15
+                            color:Appearance.colors.colSubtext
+                        }
+                    }
+                }
+            }
+            ColumnLayout {
+                anchors.centerIn:parent
+                visible:!AquaPocket.busy && AquaPocket.items.length===0
+                spacing:4
+                MaterialSymbol {
+                    Layout.alignment:Qt.AlignHCenter
+                    text:"place_item"
+                    iconSize:26
+                    color:Qt.alpha(AbyssStyle.textColorMuted, 0.7)
+                }
+            }
+        }
+    }
+    FileDialog {
+        id:picker;objectName:"aquaPocketFileDialog"
+        title:Translation.tr("Choose files for Pocket")
+        fileMode:FileDialog.OpenFiles
+        options:FileDialog.ReadOnly | FileDialog.DontResolveSymlinks
+        onAccepted:if(AquaPocket.permitted && AquaPocket.opened)
+            AquaPocket.addFiles(Array.from(selectedFiles,value=>String(value)),"picker")
+    }
+    SettingsNativeDialogGuard {dialog:picker;dialogKey:"companion-pocket-picker"}
+    Connections {
+        target:AquaPocket
+        function onPermittedChanged():void {if(!AquaPocket.permitted)picker.close()}
+        function onOpenedChanged():void {if(!AquaPocket.opened)picker.close()}
+    }
+}

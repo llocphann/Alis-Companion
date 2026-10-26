@@ -14,7 +14,7 @@
   "candidateOverridesManagedPin": true,
   "fullGateStatus": "FAIL",
   "failedChecks": [
-    "test-wull-pocket-wayland.py"
+    "test-aqua-pocket-wayland.py"
   ],
   "allSourceTreesClean": true,
   "privateLogSha256": "b458fb652d7251ef353ce59e53d5f668e23fc8b09394012435cc8abf33dcc173",

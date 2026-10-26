@@ -1,5 +1,5 @@
 .pragma library
-.import "../../modules/abyss/companion/WullBehaviorDirector.js" as Director
+.import "../../modules/abyss/companion/AquaBehaviorDirector.js" as Director
 
 // Staging-only presentation controller. No Timer, desktop reads, actor/window,
 // inference or IPC. The existing actor owner supplies one monotonic clock and

@@ -7,9 +7,9 @@ import qs.modules.common
 import qs.modules.abyss.looks
 import "services"
 import "modules/abyss/companion"
-import "modules/abyss/companion/WullHostPolicy.js" as WullHostPolicy
-import "modules/abyss/companion/WullScene.js" as WullScene
-import "modules/abyss/companion/WullPreferences.js" as WullPreferences
+import "modules/abyss/companion/AquaHostPolicy.js" as AquaHostPolicy
+import "modules/abyss/companion/AquaScene.js" as AquaScene
+import "modules/abyss/companion/AquaPreferences.js" as AquaPreferences
 
 Item {
     id: root
@@ -27,18 +27,18 @@ Item {
     readonly property var barHover: adapter.hostBarHover
     readonly property var revealHover: adapter.hostRevealHover
     Item { id:emptyInput;width:0;height:0 }
-    // Ordinary Abyss surfaces are Wull's habitat. Actual modal/security
+    // Ordinary Abyss surfaces are Aqua's habitat. Actual modal/security
     // owners still preempt it; moving bodies remain scene obstacles.
     readonly property bool companionOccluded: host.editorOpen
         || liquid.activeDialog || GlobalStates.settingsNativeDialogOpen
         || PolkitService.active || GlobalStates.regionSelectorOpen || host.overviewDragging
-    readonly property var companionScene: WullScene.fromParticipants({
+    readonly property var companionScene: AquaScene.fromParticipants({
         width:host.width,height:host.height,
         hostWidth:112*session.companionScale,hostHeight:98*session.companionScale,
         scale:session.companionScale,insets:host.nativeInsets,rimRadius:AbyssStyle.neckRadius},
         liquid.participants,bar.visible ? bar.layoutRecords.map(record=>({
             edge:record.edge,along:record.along,span:record.span})) : [])
-    readonly property bool companionPermission: WullHostPolicy.hostActive(
+    readonly property bool companionPermission: AquaHostPolicy.hostActive(
         session.companionSessionVisible,companionBridge.ready,
         session.companionTargetOutput,host.outputName,host.presented,field.ready)
         && !root.companionOccluded
@@ -48,14 +48,14 @@ Item {
         || companionPresence.dragging || companionPresence.traveling || companionPresence.portalActive
         || companionCuriosity.busy || talkCloud.controlsVisible
     readonly property bool companionPerformanceHeld: session.companionTargetOutput===host.outputName
-        && (session.cowork?.active===true || (session.companionAmbientProp ?? "").length>0 || WullPocket.opened)
+        && (session.cowork?.active===true || (session.companionAmbientProp ?? "").length>0 || AquaPocket.opened)
     onCompanionPerformanceHeldChanged: if (companionPerformanceHeld) Qt.callLater(() => { if (root.companionPerformanceHeld) root.ensureCompanionPresent() })
     readonly property var directorContext: ({enabled:root.companionHostActive,
         dragging:companionPresence.dragging,manualTravel:companionPresence.traveling,
         portalTravel:companionPresence.portalActive,
         grounded:companionPresence.grounded && !companion.flying && !companion.moving && !companion.relocating && companion.presentation>0.99,
         controlsVisible:talkCloud.controlsVisible,
-        modalOpen:root.companionOccluded || companionCuriosity.busy || WullPocket.opened || WullPocket.busy})
+        modalOpen:root.companionOccluded || companionCuriosity.busy || AquaPocket.opened || AquaPocket.busy})
     onDirectorContextChanged: if (session && session.companionTargetOutput===host.outputName) {
         session.evaluateContext()
         Qt.callLater(session.evaluateContext)
@@ -72,13 +72,13 @@ Item {
     function requestCompanionChat(): void {
         if(!root.companionPermission) return
         root.ensureCompanionPresent()
-        WullMind.openChat()
+        AquaMind.openChat()
     }
     function requestCompanionPocket(): void {
-        if(!root.companionPermission || !WullPocket.permitted) return
+        if(!root.companionPermission || !AquaPocket.permitted) return
         root.ensureCompanionPresent()
-        WullMind.dismiss()
-        WullPocket.show()
+        AquaMind.dismiss()
+        AquaPocket.show()
     }
     function resetCompanionCast(): void {
         companionTurns.cancel()
@@ -93,7 +93,7 @@ Item {
             field:{ready:field.ready,framePresented:field.framePresented,
                 diagnostic:String(field.diagnostic).slice(0,512),
                 records:liquid.records.length,capacity:field.capacity},
-            scene:{valid:WullScene.valid(scene),width:scene.width,height:scene.height,
+            scene:{valid:AquaScene.valid(scene),width:scene.width,height:scene.height,
                 hostWidth:scene.hostWidth,hostHeight:scene.hostHeight,insets:scene.insets,
                 records:scene.records?.slice(0,256),blockers:scene.blockers?.slice(0,128),
                 surfaces:scene.surfaces?.slice(0,40)},
@@ -117,10 +117,10 @@ Item {
                 x:companion.x,y:companion.y}}
     }
     readonly property bool companionHoverHeld: root.companionHostActive
-        && companion.interactive && (companion.hovered || cloudActions.hovered || cloudActions.visible || companion.dragging || pocketDrop.containsDrag || talkCloud.controlsVisible || WullMind.conversationOpen || root.companionPerformanceHeld)
+        && companion.interactive && (companion.hovered || cloudActions.hovered || cloudActions.visible || companion.dragging || pocketDrop.containsDrag || talkCloud.controlsVisible || AquaMind.conversationOpen || root.companionPerformanceHeld)
     onCompanionHoverHeldChanged: if (session.companionTargetOutput===host.outputName && companionBridge.ready)
         companionBridge.sendEvent("hover",root.companionHoverHeld)
-    WullPresence {
+    AquaPresence {
         id: companionPresence
         scene: root.companionScene
         actor: companion
@@ -128,12 +128,12 @@ Item {
         requestedReveal: companionBridge.visibility==="present" ? 1
             : companionBridge.visibility==="peeking" ? .46 : 0
         motionEnabled: session.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled
-        interactionHeld: companionBridge.activity!=="idle" || pocketDrop.containsDrag || WullPocket.busy || talkCloud.controlsVisible || WullMind.conversationOpen || root.companionPerformanceHeld
+        interactionHeld: companionBridge.activity!=="idle" || pocketDrop.containsDrag || AquaPocket.busy || talkCloud.controlsVisible || AquaMind.conversationOpen || root.companionPerformanceHeld
         pointerFresh: root.companionPointerFresh
         pointerX: root.companionPointerX
         pointerY: root.companionPointerY
         pointerReactionsEnabled: session.companionInteractive && !talkCloud.controlsVisible
-            && !WullMind.conversationOpen
+            && !AquaMind.conversationOpen
         personality: session.companionPreferences.personality
         travelId: companionBridge.travelId
         travelFraction: companionBridge.travelTarget
@@ -142,7 +142,7 @@ Item {
             px+(session.companionScale-1)*companion.implicitWidth/2,
             py+(session.companionScale-1)*companion.implicitHeight/2,sourceEdge)
     }
-    WullAbyssLink {
+    AquaAbyssLink {
         id: companionWater
         waveFunctions: adapter.waveFunctions
         presence: companionPresence
@@ -213,7 +213,7 @@ Item {
         if (!companionFeaturesIdle() || !feature) return false
         if (["clock","resources","battery","weather","media","quickNotes","notificationCenter"].includes(feature.kind)) {
             // Borrow the module/corner's mature StyledPopup. Its hover
-            // path and Wull share one slot, one content and one host.
+            // path and Aqua share one slot, one content and one host.
             return !!feature.popup && feature.popup.acquireCompanion(host)
         }
         if (feature.kind==="leftPanel") GlobalStates.openSidebarLeft(host.outputName,false)
@@ -246,7 +246,7 @@ Item {
     function releaseCompanionFeature(feature): void {
         if (feature?.popup) feature.popup.releaseCompanion(host)
         else if (ownsCompanionFeature(feature)) {
-            // A sidebar visited by Wull becomes an ordinary transient
+            // A sidebar visited by Aqua becomes an ordinary transient
             // hover surface after a real user hand-off, not a sticky IPC open.
             if (feature.kind==="leftPanel") GlobalStates.sidebarLeftTransient=true
             else if (feature.kind==="rightPanel") GlobalStates.sidebarRightTransient=true
@@ -260,7 +260,7 @@ Item {
         target: companionCuriosity.feature?.popup ?? null
         function onCompanionLeaseChanged(): void {companionCuriosity.checkOwnership()}
     }
-    WullCuriosity {
+    AquaCuriosity {
         id: companionCuriosity
         presence: companionPresence
         actor: companion
@@ -278,7 +278,7 @@ Item {
         anchors.fill: parent
         HoverHandler {
             id: companionPointer
-            objectName: "wullRimPointerObserver"
+            objectName: "aquaRimPointerObserver"
             // Observe from the existing host ancestor. A later full-output
             // sibling steals Qt hover from the bar's MouseAreas even when
             // this handler is non-blocking. Keep the finite native mask.
@@ -303,8 +303,8 @@ Item {
                     companionCuriosity.yieldToUser()
                 else companionCuriosity.interrupt()
                 if (!talkCloud.containsScenePoint(point.scenePosition)) {
-                    if (WullPocket.opened && !GlobalStates.settingsNativeDialogOpen)
-                        WullPocket.close()
+                    if (AquaPocket.opened && !GlobalStates.settingsNativeDialogOpen)
+                        AquaPocket.close()
                     companionPresence.nearbyClick(point.scenePosition.x,point.scenePosition.y)
                 }
             }
@@ -315,7 +315,7 @@ Item {
         interval: 1400; repeat: false
         onTriggered: root.companionPointerFresh=false
     }
-    WullPortals {parent:adapter.overlayParent;presence:companionPresence;z:23}
+    AquaPortals {parent:adapter.overlayParent;presence:companionPresence;z:23}
     Loader {
         id:waterImmersion
         parent:adapter.overlayParent
@@ -338,15 +338,15 @@ Item {
         edge: companionPresence.emergenceEdge
         scale: session.companionScale
         interactive: session.companionInteractive && root.companionHostActive && !companionPresence.retreating
-        // Drag is allowed, but release never leaves Wull parked in open
+        // Drag is allowed, but release never leaves Aqua parked in open
         // space. A fast release becomes a bounded throw to a verified
         // grounded destination; a slow release settles back to support.
         dragEnabled: interactive
         motionEnabled: session.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled
         effectsEnabled: session.companionPreferences.effectsEnabled && Appearance.effectsEnabled
             && AbyssStyle.quality!=="performance"
-        motionScale: WullPreferences.motionScale(session.companionPreferences.personality)
-        renderQuality: AbyssRenderPolicy.wullQuality
+        motionScale: AquaPreferences.motionScale(session.companionPreferences.personality)
+        renderQuality: AbyssRenderPolicy.aquaQuality
         translucency: session.companionPreferences.translucency
         travelEnabled: companionPresence.traveling && !companionPresence.portalActive
         portalReveal:companionPresence.portalReveal
@@ -399,31 +399,31 @@ Item {
             py-(session.companionScale-1)*implicitHeight/2)
         onDragEnded: companionPresence.endDrag()
         onActivated: {companionWater.tap();companionBridge.sendEvent("click")}
-        onChatRequested: {companionCuriosity.interrupt();WullMind.openChat()}
-        onPocketRequested: if (WullPocket.permitted) {companionCuriosity.interrupt();WullMind.dismiss();WullPocket.show()}
+        onChatRequested: {companionCuriosity.interrupt();AquaMind.openChat()}
+        onPocketRequested: if (AquaPocket.permitted) {companionCuriosity.interrupt();AquaMind.dismiss();AquaPocket.show()}
         onSettingsRequested: GlobalStates.openSettingsSection(37,"Overview")
     }
-    WullTalkCloud {
+    AquaTalkCloud {
         parent:adapter.overlayParent
         id:talkCloud;actor:companion
         outputWidth:host.width;outputHeight:host.height
         allowed:root.companionHostActive && session.companionInteractive
         onControlsVisibleChanged: if (controlsVisible) companionCuriosity.interrupt()
     }
-    WullPocketDrop {
+    AquaPocketDrop {
         id:pocketDrop;parent:companion;actor:companion
         outputWidth:host.width;outputHeight:host.height
-        allowed:root.companionHostActive && session.companionInteractive && !WullMind.busy
+        allowed:root.companionHostActive && session.companionInteractive && !AquaMind.busy
     }
-    WullCloudActions {
+    AquaCloudActions {
         parent:adapter.overlayParent
         id:cloudActions;actor:companion
         outputWidth:host.width;outputHeight:host.height
         allowed:root.companionHostActive && session.companionInteractive
     }
-    readonly property Region companionInputMask: Region { item: WullHostPolicy.acceptsInput(root.companionHostActive, companion.interactive, companion.visible && companion.inputReady) ? companion : emptyInput }
+    readonly property Region companionInputMask: Region { item: AquaHostPolicy.acceptsInput(root.companionHostActive, companion.interactive, companion.visible && companion.inputReady) ? companion : emptyInput }
     readonly property bool companionRimInputActive: host.presented && field.ready
-        && WullHostPolicy.acceptsInput(root.companionHostActive,companion.interactive,companion.visible && companion.inputReady)
+        && AquaHostPolicy.acceptsInput(root.companionHostActive,companion.interactive,companion.visible && companion.inputReady)
     readonly property real companionRimThickness: Math.min(AbyssStyle.perimeterThickness,host.width/2,host.height/2)
     readonly property bool pocketSensorActive: root.companionRimInputActive && pocketDrop.enabled && pocketDrop.expandedZone
     readonly property int pocketZoneX: Math.max(0, Math.round(companion.x + companion.width * 0.5 - pocketDrop.dragRadius))
@@ -435,7 +435,7 @@ Item {
     readonly property int pocketMidY: Math.max(0, Math.round(companion.y + companion.height * 0.5 - pocketMidRadius))
     readonly property int pocketMidW: Math.max(0, Math.min(host.width - pocketMidX, Math.round(companion.x + companion.width * 0.5 + pocketMidRadius) - pocketMidX))
     readonly property int pocketMidH: Math.max(0, Math.min(host.height - pocketMidY, Math.round(companion.y + companion.height * 0.5 + pocketMidRadius) - pocketMidY))
-    // Observe Wull's surrounding water on all four painted rims. The
+    // Observe Aqua's surrounding water on all four painted rims. The
     // interior desktop retains its existing pass-through/input owners.
     readonly property Region companionRimInputMask: Region {
         Region { x:0; y:0; width:root.companionRimInputActive ? host.width : 0; height:root.companionRimThickness }

@@ -4,15 +4,15 @@ import QtQuick.Window
 import qs.modules.abyss.looks
 import qs.modules.common
 import qs.modules.common.functions
-import "WullExpressions.js" as Expressions
-import "WullPreferences.js" as Preferences
+import "AquaExpressions.js" as Expressions
+import "AquaPreferences.js" as Preferences
 import "CompanionMotion.js" as Motion
-import "WullPose.js" as Pose
+import "AquaPose.js" as Pose
 import "OctoRig.js" as OctoRig
 
 Item {
     id: root
-    objectName: "wullLiquidBody"
+    objectName: "aquaLiquidBody"
     property string character: "aqua"
     property bool tentacleGrip: false
     property real gripProgress: 0
@@ -152,7 +152,7 @@ Item {
         if (effectsEnabled) shineBurst.restart()
     }
 
-    WullMotion {
+    AquaMotion {
         id: gait
         character: root.character
         walking: root.walking
@@ -162,7 +162,7 @@ Item {
         direction: Math.abs(root.walkingDirection)>.05 ? root.walkingDirection : 1
         motionEnabled: root.motionEnabled && root.visible
     }
-    WullMotion {
+    AquaMotion {
         id: gripMotion
         character: "octo"
         action: root.tentacleGrip ? "pull" : ""
@@ -251,7 +251,7 @@ Item {
     }
     ShaderEffectSource {
         id: reflectionSource
-        objectName: "wullFloorReflectionSource"
+        objectName: "aquaFloorReflectionSource"
         sourceItem: root.grounded && root.detailedEffects && !root.softwareFallback && material.status !== ShaderEffect.Error ? reflectionLayer : null
         sourceRect: Qt.rect(0, 7, 76, 82)
         // The reflection is finally compressed into a 13-18 px-tall puddle
@@ -268,12 +268,12 @@ Item {
         width: root.width; height: root.height
         // Exactly two side arms and two ground feet, with distinct rig tracks.
         Repeater {
-            objectName: "wullWaterLimbs"
+            objectName: "aquaWaterLimbs"
             model: root.octopus ? 0 : 4
             Item {
                 id: waterFoot
                 required property int index
-                objectName: index<2 ? "wullHand"+index : "wullFoot"+(index-2)
+                objectName: index<2 ? "aquaHand"+index : "aquaFoot"+(index-2)
                 readonly property bool hand: index < 2
                 readonly property real side: index % 2 === 0 ? -1 : 1
                 readonly property string xTrack: (hand ? "arm"+index : "foot"+(index-2)) + "X"
@@ -389,7 +389,7 @@ Item {
             }
             ShaderEffect {
                 id: material
-                objectName:"wullVolumeMaterial"
+                objectName:"aquaVolumeMaterial"
                 x: root.octopus ? 38+root.headCenter.x-root.headSize/2 : 0
                 y: root.octopus ? 46.14-root.headCenter.y-root.headSize/2 : 7
                 width: root.octopus ? root.headSize : 76; height: width
@@ -405,7 +405,7 @@ Item {
             }
             // Decorative droplets fit the enclosing host; the body hitbox stays 76x92.
             Repeater {
-                objectName: "wullExternalDroplets"
+                objectName: "aquaExternalDroplets"
                 model: !root.effectsEnabled ? 0 : root.qualityLevel > 1 ? 8 : root.qualityLevel > 0 ? 6 : 3
                 Item {
                     id: floatingDroplet
@@ -491,7 +491,7 @@ Item {
         }
     }
     Repeater {
-        objectName: "wullPocketSwallowItems"
+        objectName: "aquaPocketSwallowItems"
         model: root.swallowPhase < 0.88 ? root.swallowCount : 0
         Item {
             id: swallowItem
@@ -579,10 +579,10 @@ Item {
     }
     Loader {
         id: ambientPropLoader
-        objectName: "wullAmbientPropLoader"
+        objectName: "aquaAmbientPropLoader"
         active: root.ambientProp !== "" && !root.coworkPropVisible && !root.walking && !root.flying && !root.dragging && !root.traveling
         z: 3
-        sourceComponent: WullAmbientProp {
+        sourceComponent: AquaAmbientProp {
             body: root
             propKind: root.ambientProp
             accentColor: root.liquidAccent
@@ -593,10 +593,10 @@ Item {
     }
     Loader {
         id: laptopPropLoader
-        objectName: "wullLaptopPropLoader"
+        objectName: "aquaLaptopPropLoader"
         active: root.coworkPropVisible && root.coworkPose !== null && !root.walking && !root.flying && !root.dragging && !root.traveling
         z: 3
-        sourceComponent: WullLaptopProp {
+        sourceComponent: AquaLaptopProp {
             body: root
             pose: root.coworkPose
             accentColor: root.liquidAccent
@@ -610,7 +610,7 @@ Item {
         Shape {
             id: tapRing
             required property int index
-            objectName: "wullTapRipple"+index
+            objectName: "aquaTapRipple"+index
             width: 36+index*12; height: width
             x: root.tapX-width/2; y: root.tapY-height/2
             scale: .35+root.tapPhase*(1.1+index*.2)

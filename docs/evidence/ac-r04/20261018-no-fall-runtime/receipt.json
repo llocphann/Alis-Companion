@@ -48,16 +48,16 @@
     "tests": [
       "test-companion-cast.cjs",
       "test-companion-retired-fall.cjs",
-      "test-wull-actual-panel-layout.cjs",
+      "test-aqua-actual-panel-layout.cjs",
       "test-package-lifecycle.py",
       "test-host-runtime.py",
-      "test-wull-portal-runtime.py",
-      "test-wull-presence-interaction.py",
-      "test-wull-alive-reactions.py",
+      "test-aqua-portal-runtime.py",
+      "test-aqua-presence-interaction.py",
+      "test-aqua-alive-reactions.py",
       "test-companion-volume.py",
       "AbyssCompanion.qml",
-      "WullCuriosity.qml",
-      "WullPresence.qml",
+      "AquaCuriosity.qml",
+      "AquaPresence.qml",
       "CompanionConfig.qml"
     ]
   },
@@ -68,7 +68,7 @@
     "fail": 1,
     "skip": 0,
     "failed_checks": [
-      "test-wull-actual-panel-layout.cjs"
+      "test-aqua-actual-panel-layout.cjs"
     ],
     "promoted_to_pass": false
   },
@@ -78,7 +78,7 @@
     "exit_code": 0,
     "cases": 8,
     "assertions": 96,
-    "only_changed_file": "scripts/test-wull-actual-panel-layout.cjs",
+    "only_changed_file": "scripts/test-aqua-actual-panel-layout.cjs",
     "full_suite_at_published_head": "UNRUN"
   },
   "extra_spatial_volume": {

@@ -4,7 +4,7 @@
   "checked": 29,
   "changedRuntimePolicies": [
     "modules/abyss/companion/CompanionMotion.js",
-    "modules/abyss/companion/WullTravel.js"
+    "modules/abyss/companion/AquaTravel.js"
   ],
   "retainedAuthoredMotionAndAssetsUnchanged": true,
   "scope": "Byte hashes of tracked authored blends, generated curves, shaders and JS files; only the two listed runtime policies changed"

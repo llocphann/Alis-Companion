@@ -17,7 +17,7 @@ void main() {
     float radius=length(disc);
     float mask=1.0-smoothstep(0.88,1.0,radius);
     float ripple=sin(radius*23.0-motion.x*3.0)*motion.y*0.012;
-    // Mirror the complete Wull layer about its feet. Perspective compresses
+    // Mirror the complete Aqua layer about its feet. Perspective compresses
     // the image into the front half of the puddle and fades it with distance.
     vec2 reflectedUV=vec2((uv.x-0.5)*motion.z+0.5+ripple,
         0.865-max(0.0,uv.y-0.48)*1.55+ripple*0.30);

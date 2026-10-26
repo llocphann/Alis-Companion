@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Qualify Hadanion on an isolated Hadalis host; no live installation or inference."""
+"""Qualify Alis-Companion on an isolated Hadalis host; no live installation or inference."""
 import argparse
 import importlib.util
 import os
@@ -22,7 +22,7 @@ def stage(host, target, integration=None, integration_sha=None):
         (target / name).symlink_to(host / name)
     for path in host.glob("*.qml"):
         shutil.copy2(path, target / path.name)
-    for path in ROOT.glob("wull*.qml"):
+    for path in ROOT.glob("aqua*.qml"):
         shutil.copy2(path, target / path.name)
     for name in ("qmldir", "Makefile"):
         shutil.copy2(host / name, target / name)
@@ -34,16 +34,18 @@ def stage(host, target, integration=None, integration_sha=None):
         else:
             shutil.copy2(path, destination)
     binary = ROOT / "native/target/release/inir-companiond"
-    installer.assemble(ROOT, target / "optional/hadanion", binary, "validation-working-source")
+    installer.assemble(ROOT, target / "optional/alis-companion", binary, "validation-working-source")
+    if not (target / "optional/alis_companion").exists():
+        (target / "optional/alis_companion").symlink_to(target / "optional/alis-companion")
     # Historical tooling retains original source paths in a test-only overlay.
     if (target / "modules/abyss/companion").exists():
         (target / "modules/abyss/companion").rmdir()
-    (target / "modules/abyss/companion").symlink_to(target / "optional/hadanion/modules/abyss/companion")
-    shutil.copy2(ROOT / "services/WullMind.qml", target / "services/WullMind.qml")
+    (target / "modules/abyss/companion").symlink_to(target / "optional/alis-companion/modules/abyss/companion")
+    shutil.copy2(ROOT / "services/AquaMind.qml", target / "services/AquaMind.qml")
     for path in (ROOT / "services").glob("*.js"):
         shutil.copy2(path, target / "services" / path.name)
     for path in (host / "scripts/ai").glob("*.py"):
-        shutil.copy2(path, target / "scripts/wull" / path.name)
+        shutil.copy2(path, target / "scripts/aqua" / path.name)
     if integration:
         # Private optional dependency payload, never a user installation or
         # permission change. Reuse the integration owner's package builder.
@@ -66,10 +68,10 @@ def main():
     parser.add_argument("--only", nargs="*", help="run selected checks during development")
     args = parser.parse_args()
     host = args.hadalis_root.resolve()
-    if not (host / "services/Hadanion.qml").is_file():
+    if not (host / "services/AlisCompanion.qml").is_file():
         raise SystemExit("Hadalis host API 1 source is required")
     revisions = {}
-    sources = [("Hadanion", ROOT), ("Hadalis", host)]
+    sources = [("Alis-Companion", ROOT), ("Hadalis", host)]
     integration = args.hadalird_root.resolve() if args.hadalird_root else None
     if integration:
         sources.append(("Hadalird", integration))
@@ -83,28 +85,28 @@ def main():
         if args.require_clean and (revision.returncode or dirty):
             raise SystemExit("Exact committed source is required")
     checks = [["cargo", "test", "--locked", "--offline", "--workspace", "--manifest-path", str(ROOT / "native/Cargo.toml")]]
-    with tempfile.TemporaryDirectory(prefix="hadanion-validation-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="alis-companion-validation-") as temporary:
         work = stage(host, Path(temporary) / "host", integration, revisions.get(integration))
         environment = os.environ.copy()
-        environment.update(HADALIS_ROOT=str(work), HADANION_SOURCE=str(ROOT), PYTHONDONTWRITEBYTECODE="1")
+        environment.update(HADALIS_ROOT=str(work), ALIS_COMPANION_SOURCE=str(ROOT), PYTHONDONTWRITEBYTECODE="1")
         # A per-run isolated user package is essential when validating on a machine
-        # where another Hadanion release may already be installed.
-        environment["HADANION_TEST_HOST"] = str(work)
-        environment["HADANION_HOVER_HOST_SHA"] = revisions[host]
+        # where another Alis-Companion release may already be installed.
+        environment["ALIS_COMPANION_TEST_HOST"] = str(work)
+        environment["ALIS_COMPANION_HOVER_HOST_SHA"] = revisions[host]
         base_environment = environment.copy()
         checks += [["node", str(path.relative_to(ROOT))] for path in sorted((ROOT / "scripts").glob("test-*.cjs"))]
         checks += [["python3", "scripts/" + name] for name in (
-            "test-package-lifecycle.py", "test-host-runtime.py", "test-wull-context-runtime.py", "test-module-hover-runtime.py", "test-wull-local-mind.py",
-            "test-wull-gguf-ui.py", "test-wull-shared-ai-runtime.py", "test-wull-abyss-water.py",
-            "test-wull-portal-runtime.py", "test-wull-presence-interaction.py", "test-wull-alive-reactions.py",
-            "test-wull-mature-popup.py", "test-companion-airborne-orientation.py",
-            "test-companion-volume.py", "test-wull-frozen-variance.py", "test-wull-shader-ab-contract.py",
-            "test-wull-shader-sequence-contract.py", "test-wull-g1-resource-contract.py",
-            "test-wull-g1-compare-contract.py", "test-wull-companion-voice-eval.py", "test-wull-reply-guard-local.py",
-            "test-wull-memory-store.py", "test-wull-local-persona.py", "test-wull-companion-voice-run.py", "test-wull-companion-settings.py", "test-wull-quality-ui.py", "test-wull-mind-ui.py", "test-wull-journal-ui.py",
-            "test-wull-immersion-runtime.py", "test-wull-cloud-orbit.py", "test-wull-cowork-qml.py", "test-wull-cowork-native.py",
-            "test-wull-ambient-controller.py", "test-wull-pocket-store.py", "test-wull-pocket-ui.py", "test-wull-pocket-wayland.py",
-            "test-wull-local-tools.py")]
+            "test-package-lifecycle.py", "test-host-runtime.py", "test-aqua-context-runtime.py", "test-module-hover-runtime.py", "test-aqua-local-mind.py",
+            "test-aqua-gguf-ui.py", "test-aqua-shared-ai-runtime.py", "test-aqua-abyss-water.py",
+            "test-aqua-portal-runtime.py", "test-aqua-presence-interaction.py", "test-aqua-alive-reactions.py",
+            "test-aqua-mature-popup.py", "test-companion-airborne-orientation.py",
+            "test-companion-volume.py", "test-aqua-frozen-variance.py", "test-aqua-shader-ab-contract.py",
+            "test-aqua-shader-sequence-contract.py", "test-aqua-g1-resource-contract.py",
+            "test-aqua-g1-compare-contract.py", "test-aqua-companion-voice-eval.py", "test-aqua-reply-guard-local.py",
+            "test-aqua-memory-store.py", "test-aqua-local-persona.py", "test-aqua-companion-voice-run.py", "test-aqua-companion-settings.py", "test-aqua-quality-ui.py", "test-aqua-mind-ui.py", "test-aqua-journal-ui.py",
+            "test-aqua-immersion-runtime.py", "test-aqua-cloud-orbit.py", "test-aqua-cowork-qml.py", "test-aqua-cowork-native.py",
+            "test-aqua-ambient-controller.py", "test-aqua-pocket-store.py", "test-aqua-pocket-ui.py", "test-aqua-pocket-wayland.py",
+            "test-aqua-local-tools.py")]
         qml_parser = "/usr/lib/qt6/bin/qmlformat" if Path("/usr/lib/qt6/bin/qmlformat").is_file() else shutil.which("qmlformat")
         if not qml_parser:
             raise SystemExit("Qt qmlformat is required")
@@ -118,11 +120,11 @@ def main():
         native_session = importlib.util.module_from_spec(native_spec)
         native_spec.loader.exec_module(native_session)
         private_fixtures = {
-            "test-wull-gguf-ui.py", "test-wull-shared-ai-runtime.py", "test-wull-abyss-water.py",
-            "test-wull-portal-runtime.py", "test-wull-presence-interaction.py", "test-wull-alive-reactions.py",
-            "test-wull-mature-popup.py", "test-companion-airborne-orientation.py", "test-companion-volume.py",
-            "test-wull-mind-ui.py", "test-wull-journal-ui.py", "test-wull-cloud-orbit.py",
-            "test-wull-pocket-ui.py",
+            "test-aqua-gguf-ui.py", "test-aqua-shared-ai-runtime.py", "test-aqua-abyss-water.py",
+            "test-aqua-portal-runtime.py", "test-aqua-presence-interaction.py", "test-aqua-alive-reactions.py",
+            "test-aqua-mature-popup.py", "test-companion-airborne-orientation.py", "test-companion-volume.py",
+            "test-aqua-mind-ui.py", "test-aqua-journal-ui.py", "test-aqua-cloud-orbit.py",
+            "test-aqua-pocket-ui.py",
         }
         sessions = work / "validation-sessions"
         sessions.mkdir()
@@ -142,7 +144,7 @@ def main():
                 # Owner changed focus in the meantime. Pixel/input oracles
                 # and deadlines remain unchanged.
                 with native_session.private_wayland(session_root, capture_focus=label in {
-                        "test-companion-volume.py", "test-wull-cloud-orbit.py"}) as native_environment:
+                        "test-companion-volume.py", "test-aqua-cloud-orbit.py"}) as native_environment:
                     run_environment = base_environment.copy()
                     if native_environment:
                         for key in ("WAYLAND_DISPLAY", "NIRI_SOCKET", "QT_QPA_PLATFORM",
@@ -178,7 +180,7 @@ def main():
                 if final != original or dirty.strip():
                     failed += 1
                     print("FAIL source changed during validation: " + str(repo), flush=True)
-        print(f"Hadanion checks: {passed} PASS / {failed} FAIL / {skipped} SKIP", flush=True)
+        print(f"Alis-Companion checks: {passed} PASS / {failed} FAIL / {skipped} SKIP", flush=True)
         raise SystemExit(bool(failed))
 
 

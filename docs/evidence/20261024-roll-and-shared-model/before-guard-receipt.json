@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scope": "Actual production WullMind and AiTextSession with freshly discovered selected local model in isolated private settings",
+  "scope": "Actual production AquaMind and AiTextSession with freshly discovered selected local model in isolated private settings",
   "sources": {
     "companion": "5ebb7b3aa9ce3a189778e223b86d09abf3a22b32",
     "host": "23fbc243c40a5c1d0b7455cfb4439d4f8442b33a"

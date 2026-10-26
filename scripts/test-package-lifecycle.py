@@ -9,18 +9,18 @@ import shutil
 import subprocess
 import tempfile
 
-ROOT = Path(os.environ.get("HADANION_SOURCE", Path(__file__).resolve().parents[1]))
+ROOT = Path(os.environ.get("ALIS_COMPANION_SOURCE", Path(__file__).resolve().parents[1]))
 spec = importlib.util.spec_from_file_location("installer", ROOT / "scripts/install.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 discovery = None
-if os.environ.get("HADANION_TEST_HOST"):
-    host = Path(os.environ["HADANION_TEST_HOST"])
-    spec = importlib.util.spec_from_file_location("host_discovery", host / "scripts/hadanion-status.py")
+if os.environ.get("ALIS_COMPANION_TEST_HOST"):
+    host = Path(os.environ["ALIS_COMPANION_TEST_HOST"])
+    spec = importlib.util.spec_from_file_location("host_discovery", host / "scripts/alis-companion-status.py")
     discovery = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(discovery)
 
-with tempfile.TemporaryDirectory(prefix="hadanion-install-") as temporary:
+with tempfile.TemporaryDirectory(prefix="alis-companion-install-") as temporary:
     private = Path(temporary)
     source = private / "source"
     source.mkdir()
@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix="hadanion-install-") as temporary:
     binary = private / "native"
     binary.write_text('#!/bin/sh\nprintf "%s\\n" "$0"\nprintf "<%s>" "$@"\nprintf "\\n"\n')
     binary.chmod(0o755)
-    data = private / "data/hadanion"
+    data = private / "data/alis-companion"
     data.mkdir(parents=True)
     preferences = private / "config.json"
     preferences.write_bytes(b'{"enabled":true,"character":"octo"}\n')

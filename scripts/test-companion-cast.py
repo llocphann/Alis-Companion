@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 subprocess.run(['node','scripts/test-companion-cast.cjs'],cwd=ROOT,check=True,timeout=30)
-core=runpy.run_path(str(ROOT/'scripts/wull-manual-visual-matrix.py'))
+core=runpy.run_path(str(ROOT/'scripts/aqua-manual-visual-matrix.py'))
 with tempfile.TemporaryDirectory(prefix='companion-cast-') as temporary:
     private=Path(temporary);shell,xdg=core['staged'](private)
     # A long animation proof must not reload halfway through when another
@@ -18,7 +18,7 @@ with tempfile.TemporaryDirectory(prefix='companion-cast-') as temporary:
         target=shell/name
         target.unlink()
         shutil.copytree(ROOT/name,target)
-    (shell/'shell.qml').write_text('import Quickshell\nimport "scripts/wull-fixtures/companions"\nShellRoot {CompanionTurnsProof {}}\n')
+    (shell/'shell.qml').write_text('import Quickshell\nimport "scripts/aqua-fixtures/companions"\nShellRoot {CompanionTurnsProof {}}\n')
     env=core['private_env'](xdg,private/'unused.json')
     env.update(QT_QUICK_BACKEND='software',QT_QUICK_CONTROLS_STYLE='Basic',QT_QPA_PLATFORMTHEME='generic',QT_NO_XDG_DESKTOP_PORTAL='1')
     with (private/'test.log').open('w') as log:

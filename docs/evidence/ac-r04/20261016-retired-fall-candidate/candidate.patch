@@ -86,7 +86,7 @@ index 678a987..61494be 100644
 +++ b/modules/abyss/companion/CompanionMotion.js
 @@ -4,6 +4,31 @@
  
- // Preserve the public wull IPC/config/history namespace while naming the cast
+ // Preserve the public aqua IPC/config/history namespace while naming the cast
  // Aqua/Octo. The curves are authored by Blender, not runtime sprite assets.
 -function forCharacter(character) { return character === "octo" ? Octo : Aqua }
 +function retired(action) {
@@ -117,27 +117,27 @@ index 678a987..61494be 100644
 +}
  function other(character) { return character === "octo" ? "aqua" : "octo" }
  function name(character) { return character === "octo" ? "Octo" : "Aqua" }
-diff --git a/modules/abyss/companion/WullCuriosity.qml b/modules/abyss/companion/WullCuriosity.qml
+diff --git a/modules/abyss/companion/AquaCuriosity.qml b/modules/abyss/companion/AquaCuriosity.qml
 index 13d4c68..0566bc9 100644
---- a/modules/abyss/companion/WullCuriosity.qml
-+++ b/modules/abyss/companion/WullCuriosity.qml
+--- a/modules/abyss/companion/AquaCuriosity.qml
++++ b/modules/abyss/companion/AquaCuriosity.qml
 @@ -73,7 +73,7 @@ Item {
          else if (reachedFeature) finish(true,false,true)
      }
      function checkOwnership(): void {
--        // External closure can race the scene update that starts Wull's fall.
+-        // External closure can race the scene update that starts Aqua's fall.
 +        // External closure can race the scene update that starts support recovery.
          // Losing semantic ownership must not pause/cancel that recovery motion.
          if (owned && (!adapter || !adapter.ownsCompanionFeature(feature))) finish(false,true,true)
      }
-diff --git a/modules/abyss/companion/WullPresence.qml b/modules/abyss/companion/WullPresence.qml
+diff --git a/modules/abyss/companion/AquaPresence.qml b/modules/abyss/companion/AquaPresence.qml
 index ada1576..df6c75f 100644
---- a/modules/abyss/companion/WullPresence.qml
-+++ b/modules/abyss/companion/WullPresence.qml
+--- a/modules/abyss/companion/AquaPresence.qml
++++ b/modules/abyss/companion/AquaPresence.qml
 @@ -1,6 +1,7 @@
  import QtQuick
- import "WullScene.js" as Scene
- import "WullTravel.js" as Travel
+ import "AquaScene.js" as Scene
+ import "AquaTravel.js" as Travel
 +import "CompanionMotion.js" as Motion
  
  // One controller per existing output window; only the permitted output acts.

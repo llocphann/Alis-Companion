@@ -2,15 +2,15 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.services
-import "WullExpressions.js" as Expressions
-import "WullPreferences.js" as Preferences
+import "AquaExpressions.js" as Expressions
+import "AquaPreferences.js" as Preferences
 
 Item {
     id: root
 
     property string binaryPath: Quickshell.env("INIR_COMPANIOND") ?? ""
     property bool useNativeDispatcher: false
-    readonly property string nativeDispatchPath: Hadanion.packageRoot + "/scripts/native-dispatch"
+    readonly property string nativeDispatchPath: AlisCompanion.packageRoot + "/scripts/native-dispatch"
     readonly property var backendCommand: binaryPath.length > 0
         ? [binaryPath]
         : useNativeDispatcher ? [nativeDispatchPath, "companion"] : []

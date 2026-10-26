@@ -7,7 +7,7 @@ function load(name,scope={}) {
     return api;
 }
 const Aqua=load('AquaMotionData.js'),Octo=load('OctoMotionData.js');
-const motion=load('CompanionMotion.js',{Aqua,Octo}),travel=load('WullTravel.js');
+const motion=load('CompanionMotion.js',{Aqua,Octo}),travel=load('AquaTravel.js');
 assert.ok(motion.retired('roll'),'legacy roll gestures must be retired');
 assert.equal(motion.travelMode('roll'),'run','legacy travel must retain deliberate translation');
 for(const mode of ['walk','run','jump','fly','portal'])assert.equal(motion.travelMode(mode),mode);

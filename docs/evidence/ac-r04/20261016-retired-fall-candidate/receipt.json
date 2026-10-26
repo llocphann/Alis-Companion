@@ -9,8 +9,8 @@
   "candidate_files_sha256": {
     "modules/abyss/companion/AbyssCompanion.qml": "3e1c5fe8bb4fb50a175631d872b46fac700ac313d85e0c3aeb45e1df580a73ae",
     "modules/abyss/companion/CompanionMotion.js": "45cd7e36020efe6d111b0edcc1430d70d5232638e99ce86e6d793b4871a3a84b",
-    "modules/abyss/companion/WullCuriosity.qml": "c125c75a7c061d41db817d45cc109dccd9648c481edc45d1cc94f7688347581e",
-    "modules/abyss/companion/WullPresence.qml": "695a76efae47b252f4011cf2a715dd9302735f0bc10e3fb0ba47eecdfef6df16",
+    "modules/abyss/companion/AquaCuriosity.qml": "c125c75a7c061d41db817d45cc109dccd9648c481edc45d1cc94f7688347581e",
+    "modules/abyss/companion/AquaPresence.qml": "695a76efae47b252f4011cf2a715dd9302735f0bc10e3fb0ba47eecdfef6df16",
     "modules/settings/CompanionConfig.qml": "df57dac1eb41407560231dc036ebb6486d77b135791ae32aab54df691b016b8e",
     "scripts/test-companion-retired-fall.cjs": "964a1b183630471ecc44a106dcc2080d765617133d0d01397cf361b0172fd057"
   },

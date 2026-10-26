@@ -5,7 +5,7 @@
   "host_base_sha": "2dbb678a9ab28fdcd2e8bbfa3d0b224e3b1e28dd",
   "host_state": "working tree Settings redirect removal; source-only qualification",
   "integration_sha": "7c3623da5cf8741a0b82cb4d3d8054017dfa99d0",
-  "selected_check": "test-wull-companion-settings.py",
+  "selected_check": "test-aqua-companion-settings.py",
   "result": "PASS",
   "passed": 1,
   "failed": 0,

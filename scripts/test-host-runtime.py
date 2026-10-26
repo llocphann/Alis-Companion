@@ -10,7 +10,7 @@ import tempfile
 import time
 from native_test_session import private_wayland
 
-ROOT = Path(os.environ.get("HADANION_TEST_HOST", Path(__file__).resolve().parents[1]))
+ROOT = Path(os.environ.get("ALIS_COMPANION_TEST_HOST", Path(__file__).resolve().parents[1]))
 
 
 def descendants(pid):
@@ -29,7 +29,7 @@ def descendants(pid):
     return result
 
 
-with tempfile.TemporaryDirectory(prefix="hadanion-host-") as temporary:
+with tempfile.TemporaryDirectory(prefix="alis-companion-host-") as temporary:
     private = Path(temporary)
     shell = private / "shell"
     shell.mkdir()
@@ -39,10 +39,10 @@ with tempfile.TemporaryDirectory(prefix="hadanion-host-") as temporary:
     # Discover the installed release outside the host tree, without test aliases.
     shutil.copytree(ROOT / "modules", shell / "modules",
                     ignore=lambda directory, names: ["companion"] if Path(directory) == ROOT / "modules/abyss" else [])
-    shutil.copytree(ROOT / "services", shell / "services", ignore=shutil.ignore_patterns("WullMind.qml"))
-    release = private / "data/hadanion/releases/fixture"
+    shutil.copytree(ROOT / "services", shell / "services", ignore=shutil.ignore_patterns("AquaMind.qml"))
+    release = private / "data/alis-companion/releases/fixture"
     release.parent.mkdir(parents=True)
-    shutil.copytree(ROOT / "optional/hadanion", release)
+    shutil.copytree(ROOT / "optional/alis-companion", release)
     (release.parent.parent / "current").symlink_to("releases/fixture")
     config = private / "config/alis"
     config.mkdir(parents=True)
@@ -66,7 +66,7 @@ ShellRoot {
     property var preferencesSnapshot: Config.options
     property int step: 0
     property string oldContextGeneration:""
-    property var optionalHost: Hadanion
+    property var optionalHost: AlisCompanion
     property var stubHost: ({width:900,height:650,outputName:"fixture",presented:true,
         editorOpen:false,overviewDragging:false,dockHovered:false,
         nativeInsets:{top:16,bottom:16,left:16,right:16},closeGenericPopup:function(){}})
@@ -77,7 +77,7 @@ ShellRoot {
     property var sidebar: ({open:false,edge:"left",along:50,span:200})
     property var corners: ({notesAvailable:false,centerAvailable:false,
         notesPopup:{presentationActive:false},centerPopup:{presentationActive:false}})
-    HadanionSurface {
+    AlisCompanionSurface {
         id: surface
         width:900;height:650
         host:root.stubHost;hostLiquid:root.liquid;hostField:root.field;hostBar:root.bar
@@ -85,42 +85,42 @@ ShellRoot {
         hostUtility:({open:false});hostBarHover:({hovered:false});hostRevealHover:({hovered:false})
     }
     CompanionConfig {width:800;height:600}
-    function fail(message) {console.log("HADANION_RUNTIME=FAIL "+message);Qt.quit()}
+    function fail(message) {console.log("ALIS_COMPANION_RUNTIME=FAIL "+message);Qt.quit()}
     Timer {
         interval:100;running:true;repeat:true
         onTriggered: {
             if (++root.ticks>120) {root.fail("timeout");return}
-            if (!Config.ready || !Hadanion.available) return
+            if (!Config.ready || !AlisCompanion.available) return
             if (root.step===0) {
-                if (Hadanion.packageRoot.indexOf("/data/hadanion/releases/")<0)
+                if (AlisCompanion.packageRoot.indexOf("/data/alis-companion/releases/")<0)
                     {root.fail("package loaded through a host-tree alias");return}
-                if (Hadanion.session!==null || surface.extension!==null || surface.inputRegions.length)
+                if (AlisCompanion.session!==null || surface.extension!==null || surface.inputRegions.length)
                     {root.fail("disabled package owns runtime/input");return}
                 Config.setNestedValue("abyss.companion.enabled",true);root.step=1
-            } else if (root.step===1 && Hadanion.session?.bridge.ready && surface.extension) {
-                if (Hadanion.outputs.length!==1 || !surface.extension.actor
+            } else if (root.step===1 && AlisCompanion.session?.bridge.ready && surface.extension) {
+                if (AlisCompanion.outputs.length!==1 || !surface.extension.actor
                         || surface.inputRegions.length!==5)
                     {root.fail("output contract");return}
-                console.log("HADANION_NATIVE_READY")
-                if(Quickshell.env("HADANION_TEST_CONTEXT")==="1") {
-                    if(Hadanion.contextApiVersion!==1 || Hadanion.contextSource!==null
-                            || Hadanion.session.contextConnected){root.fail("context not supported or default-off");return}
+                console.log("ALIS_COMPANION_NATIVE_READY")
+                if(Quickshell.env("ALIS_COMPANION_TEST_CONTEXT")==="1") {
+                    if(AlisCompanion.contextApiVersion!==1 || AlisCompanion.contextSource!==null
+                            || AlisCompanion.session.contextConnected){root.fail("context not supported or default-off");return}
                     Config.setNestedValues({"abyss.companion.contextEnabled":true,
                         "abyss.companion.contextAiEnabled":true})
                     root.step=10;return
                 }
                 Config.setNestedValue("abyss.companion.enabled",false);root.step=2
-            } else if(root.step===10 && Hadanion.session?.contextConnected) {
-                const feed=Hadanion.contextSource,session=Hadanion.session
+            } else if(root.step===10 && AlisCompanion.session?.contextConnected) {
+                const feed=AlisCompanion.contextSource,session=AlisCompanion.session
                 if(!feed || !feed.active || feed.bind(root)!==null){root.fail("foreign context peer accepted");return}
                 feed.aiBusy=true;feed.synchronizeAgent()
                 if(Object.keys(session.contextState.director.sessions).length!==1)
                     {root.fail("typed AI context was not received");return}
                 // Supply only an owned synthetic host permission descriptor;
                 // no extra actor/window, model, coordinates or Popup is used.
-                const originalOutputs=Hadanion.outputs,bridgeSequence=session.bridge.outboundSeq
+                const originalOutputs=AlisCompanion.outputs,bridgeSequence=session.bridge.outboundSeq
                 const local={enabled:true,dragging:false,manualTravel:true,portalTravel:false,modalOpen:false}
-                Hadanion.outputs=[{outputName:session.companionTargetOutput,extension:{directorContext:local}}]
+                AlisCompanion.outputs=[{outputName:session.companionTargetOutput,extension:{directorContext:local}}]
                 const blocked=session.presentAiExpression("happy")
                 local.manualTravel=false
                 const invalid=session.presentAiExpression("fly")
@@ -140,7 +140,7 @@ ShellRoot {
                 Config.setNestedValues({"abyss.companion.ambientEnabled":false,
                     "abyss.companion.ambientFocusEnabled":false})
                 session.mind.hostIdle=Qt.binding(()=>session.bridge.activity==="idle")
-                Hadanion.outputs=originalOutputs
+                AlisCompanion.outputs=originalOutputs
                 if(blocked || invalid || !accepted || afterAi!==bridgeSequence+1)
                     {root.fail("AI Director bypassed travel/vocabulary or lost its bounded native intent");return}
                 if(defaultAmbient || blockedAmbient || !acceptedAmbient || afterAmbient!==afterAi+1)
@@ -153,38 +153,38 @@ ShellRoot {
                 if(session.contextState.sequence!==seq){root.fail("replay or unknown data consumed sequence");return}
                 root.oldContextGeneration=generation
                 Config.setNestedValue("abyss.companion.contextEnabled",false);root.step=11
-            } else if(root.step===11 && !Hadanion.session?.contextConnected && Hadanion.contextSource===null) {
-                if(Hadanion.session.contextState.enabled
-                        || Object.keys(Hadanion.session.contextState.director.sessions).length)
+            } else if(root.step===11 && !AlisCompanion.session?.contextConnected && AlisCompanion.contextSource===null) {
+                if(AlisCompanion.session.contextState.enabled
+                        || Object.keys(AlisCompanion.session.contextState.director.sessions).length)
                     {root.fail("revocation retained context");return}
                 Config.setNestedValue("abyss.companion.contextEnabled",true);root.step=12
-            } else if(root.step===12 && Hadanion.session?.contextConnected) {
-                if(Hadanion.contextSource.generation===root.oldContextGeneration)
+            } else if(root.step===12 && AlisCompanion.session?.contextConnected) {
+                if(AlisCompanion.contextSource.generation===root.oldContextGeneration)
                     {root.fail("reconnect reused generation");return}
-                root.oldContextGeneration=Hadanion.contextSource.generation
-                Hadanion.session.contextState.lastReceivedMs=Date.now()-15001
-                Hadanion.contextSource.send("heartbeat",({}))
-                if(Hadanion.session.contextConnected){root.fail("stale context remained live");return}
+                root.oldContextGeneration=AlisCompanion.contextSource.generation
+                AlisCompanion.session.contextState.lastReceivedMs=Date.now()-15001
+                AlisCompanion.contextSource.send("heartbeat",({}))
+                if(AlisCompanion.session.contextConnected){root.fail("stale context remained live");return}
                 root.step=13
-            } else if(root.step===13 && Hadanion.session?.contextConnected) {
-                if(Hadanion.contextSource.generation===root.oldContextGeneration)
+            } else if(root.step===13 && AlisCompanion.session?.contextConnected) {
+                if(AlisCompanion.contextSource.generation===root.oldContextGeneration)
                     {root.fail("expired connection reused generation");return}
                 Config.setNestedValues({"abyss.companion.contextEnabled":false,
                     "abyss.companion.contextAiEnabled":false,"abyss.companion.enabled":false})
                 console.log("COMPANION_CONTEXT_RUNTIME_PASS exactPeer authenticatedObject typedFrames replay unknownReject revocation freshGeneration directorTravelPriority boundedNativeIntent noInference")
                 root.step=2
-            } else if (root.step===2 && !Hadanion.session && !surface.extension) {
+            } else if (root.step===2 && !AlisCompanion.session && !surface.extension) {
                 if (surface.inputRegions.length || surface.editing || surface.curiosityOwned || surface.waterLink)
                     {root.fail("disabled output retains interaction");return}
                 Config.setNestedValue("abyss.companion.enabled",true);root.step=3
-            } else if (root.step===3 && Hadanion.session?.bridge.ready && surface.extension) {
-                console.log("HADANION_NATIVE_READY")
-                Hadanion.refresh();root.step=4
-            } else if (root.step===4 && Hadanion.session?.bridge.ready && surface.extension) {
-                console.log("HADANION_NATIVE_READY")
+            } else if (root.step===3 && AlisCompanion.session?.bridge.ready && surface.extension) {
+                console.log("ALIS_COMPANION_NATIVE_READY")
+                AlisCompanion.refresh();root.step=4
+            } else if (root.step===4 && AlisCompanion.session?.bridge.ready && surface.extension) {
+                console.log("ALIS_COMPANION_NATIVE_READY")
                 Config.setNestedValue("abyss.companion.enabled",false);root.step=5
-            } else if (root.step===5 && !Hadanion.session && !surface.extension) {
-                console.log("HADANION_RUNTIME=PASS")
+            } else if (root.step===5 && !AlisCompanion.session && !surface.extension) {
+                console.log("ALIS_COMPANION_RUNTIME=PASS")
                 Qt.quit()
             }
         }
@@ -193,7 +193,7 @@ ShellRoot {
 ''')
     with private_wayland(private) as environment:
         if environment is None:
-            print("SKIP: actual Hadanion loader requires an isolated Wayland backend")
+            print("SKIP: actual Alis-Companion loader requires an isolated Wayland backend")
             raise SystemExit(77)
         environment.pop("INIR_COMPANIOND",None)
         environment.update(QT_QUICK_BACKEND="software", QT_QUICK_CONTROLS_STYLE="Basic",
@@ -225,12 +225,12 @@ ShellRoot {
                     process.wait(timeout=5)
         text = log.read_text()
         errors = ("ReferenceError:", "TypeError:", "Unable to assign", "Binding loop", "Failed to load configuration", "is not a type")
-        assert process.returncode == 0 and "HADANION_RUNTIME=PASS" in text and not any(e in text for e in errors), text[-16000:]
-        if os.environ.get('HADANION_TEST_CONTEXT')=='1':
+        assert process.returncode == 0 and "ALIS_COMPANION_RUNTIME=PASS" in text and not any(e in text for e in errors), text[-16000:]
+        if os.environ.get('ALIS_COMPANION_TEST_CONTEXT')=='1':
             assert 'COMPANION_CONTEXT_RUNTIME_PASS' in text,text[-16000:]
         assert peak == 1 and native_pids, f"one native owner expected: peak={peak}"
         assert all(not Path(f"/proc/{pid}").exists() for pid in native_pids), "a native process survived unload"
 
 print("PASS: external installed package/session/output/settings without core aliases, default-off, enable/disable/refresh and exactly one reaped native owner")
-if os.environ.get('HADANION_TEST_CONTEXT')=='1':
+if os.environ.get('ALIS_COMPANION_TEST_CONTEXT')=='1':
     print('COMPANION_CONTEXT_RUNTIME_PASS exactPeer typedFrames replay unknownReject revoke reconnect staleFreshGeneration directorTravelPriority boundedNativeIntent ambientDefaultOff ambientTravelPriority ambientBoundedNativeIntent noInference')
