@@ -16,11 +16,35 @@ Item {
     required property real outputHeight
     property bool allowed: false
     property bool revealed: false
+    property bool pomodoroExpanded: false
     readonly property bool hovered: obsidian.hovered || ai.hovered || (pocket.visible && pocket.hovered) || (pomodoro.visible && pomodoro.hovered)
     readonly property Item obsidianTarget: obsidian
     readonly property Item aiTarget: ai
     readonly property Item pocketTarget: pocket
     readonly property Item pomodoroTarget: pomodoro
+    readonly property real edgeOpacity: AbyssStyle.contentOpacity
+    readonly property real edgeHighlight: AbyssStyle.highlightStrength
+    readonly property real edgeLift: AbyssStyle.blurRadius > 0 ? 0.024 : 0
+    readonly property color edgeSurfaceBase: Qt.rgba(
+        Math.min(1, AbyssStyle.surfaceDeep.r + edgeLift),
+        Math.min(1, AbyssStyle.surfaceDeep.g + edgeLift),
+        Math.min(1, AbyssStyle.surfaceDeep.b + edgeLift),
+        edgeOpacity)
+    function edgeSurfaceColor(depthWeight): color {
+        const k = Math.max(0, Math.min(1, depthWeight * 0.38 * edgeHighlight))
+        return Qt.rgba(
+            edgeSurfaceBase.r + (AbyssStyle.surfaceRaised.r - edgeSurfaceBase.r) * k,
+            edgeSurfaceBase.g + (AbyssStyle.surfaceRaised.g - edgeSurfaceBase.g) * k,
+            edgeSurfaceBase.b + (AbyssStyle.surfaceRaised.b - edgeSurfaceBase.b) * k,
+            edgeOpacity)
+    }
+    function edgeBorderColor(isHovered, isActive): color {
+        if (isActive || isHovered)
+            return Qt.alpha(AbyssStyle.accent, isActive ? 0.38 : 0.28)
+        if (edgeHighlight > 0.01)
+            return Qt.alpha(AbyssStyle.specular, Math.max(0.08, 0.55 * edgeHighlight))
+        return Qt.alpha(AbyssStyle.textColor, 0.06)
+    }
     readonly property string pomodoroTimeText: {
         const secs = Math.max(0, Number(TimerService.pomodoroSecondsLeft ?? TimerService.focusTime ?? 1500))
         return String(Math.floor(secs / 60)).padStart(2, "0") + ":" + String(secs % 60).padStart(2, "0")
@@ -34,7 +58,8 @@ Item {
     width: outputWidth; height: outputHeight
     z: 241
     visible: eligible && orbit.available
-    onAllowedChanged: if(!allowed)revealed=false
+    onVisibleChanged: if (!visible) pomodoroExpanded = false
+    onAllowedChanged: if(!allowed) { revealed=false; pomodoroExpanded=false }
     onHoveredChanged: if(hovered)hide.stop();else hide.restart()
     Connections {
         target:root.actor
@@ -55,53 +80,41 @@ Item {
         x: placement?.x ?? 0; y: placement?.y ?? 0
         width: placement?.width ?? 38; height: placement?.height ?? 33.25
         HoverHandler { id:nodeHover;enabled:root.visible;blocking:false;cursorShape:Qt.PointingHandCursor }
-        Shape {
+        // Screen-Edge-matched container (child 0)
+        Rectangle {
+            id: cloudSurface
             objectName: cloud.kind==="obsidian" ? "wullObsidianCloudShape" : cloud.kind==="pocket" ? "wullPocketCloudShape" : "wullAiCloudShape"
-            anchors.centerIn:parent
-            width:48; height:42; scale:cloud.width/48
-            preferredRendererType: Shape.CurveRenderer
-            antialiasing: true
-            // Outer Abyss soft shadow + glow halo
-            ShapePath {
-                strokeWidth: 3.5
-                strokeColor: Qt.alpha(AbyssStyle.shadow, cloud.hovered ? 0.55 : 0.35)
-                fillColor: Qt.alpha(AbyssStyle.glow, cloud.hovered ? 0.28 : 0.12)
-                startX: 24; startY: 3
-                PathArc { x: 24; y: 39; radiusX: 19; radiusY: 18 }
-                PathArc { x: 24; y: 3; radiusX: 19; radiusY: 18 }
+            anchors.fill: parent
+            radius: Math.min(height / 2, Math.max(10, AbyssStyle.perimeterRadius * 0.72))
+            color: root.edgeSurfaceBase
+            border.width: 1
+            border.color: root.edgeBorderColor(cloud.hovered, false)
+            gradient: Gradient {
+                orientation: Gradient.Vertical
+                GradientStop { position: 0.0; color: root.edgeSurfaceColor(1.0) }
+                GradientStop { position: 1.0; color: root.edgeSurfaceColor(0.25) }
             }
-            // Abyss Panel Style liquid-glass squircle capsule with directional rim specular
-            ShapePath {
-                strokeWidth: cloud.hovered ? 1.45 : 1.15
-                strokeColor: cloud.hovered ? AbyssStyle.specular : Qt.alpha(AbyssStyle.accent, 0.58)
-                fillGradient: LinearGradient {
-                    x1: 8; y1: 4; x2: 38; y2: 38
-                    GradientStop { position: 0.0; color: Qt.alpha(AbyssStyle.surfaceRaised, cloud.hovered ? 0.98 : 0.94) }
-                    GradientStop { position: 0.52; color: Qt.alpha(AbyssStyle.surfaceDeep, 0.94) }
-                    GradientStop { position: 1.0; color: Qt.alpha(AbyssStyle.surfaceDeep, 0.98) }
-                }
-                startX: 24; startY: 3
-                PathArc { x: 24; y: 39; radiusX: 19; radiusY: 18 }
-                PathArc { x: 24; y: 3; radiusX: 19; radiusY: 18 }
+            // Subtle hover tint matching AbyssButton inside Screen Edges
+            Rectangle {
+                anchors.fill: parent
+                radius: parent.radius
+                color: cloud.hovered ? Qt.alpha(AbyssStyle.accent, 0.08) : "transparent"
             }
-            // Top-left Abyss glass specular highlight band
-            ShapePath {
-                strokeWidth: 0.9
-                strokeColor: Qt.alpha(AbyssStyle.specular, cloud.hovered ? 0.65 : 0.36)
-                fillGradient: LinearGradient {
-                    x1: 12; y1: 5; x2: 28; y2: 22
-                    GradientStop { position: 0.0; color: Qt.alpha(AbyssStyle.specular, cloud.hovered ? 0.22 : 0.12) }
-                    GradientStop { position: 1.0; color: "transparent" }
-                }
-                startX: 10; startY: 16
-                PathArc { x: 37; y: 14; radiusX: 16; radiusY: 13 }
-                PathCubic { x: 10; y: 16; control1X: 28; control1Y: 9; control2X: 17; control2Y: 10 }
+            // Outer Abyss shadow + glow matching AbyssField.frag outside pass
+            Rectangle {
+                z: -1
+                anchors.fill: parent
+                anchors.margins: -2
+                radius: parent.radius + 2
+                color: AbyssStyle.glow
+                border.width: 2
+                border.color: AbyssStyle.shadow
             }
         }
         RippleButton {
             id:button
             objectName: cloud.kind==="obsidian" ? "wullObsidianAction" : cloud.kind==="pocket" ? "wullPocketAction" : "wullAiAction"
-            anchors.fill:parent;buttonRadius:height/2
+            anchors.fill:parent;buttonRadius:cloudSurface.radius
             colBackground:"transparent";colBackgroundHover:"transparent";colRipple:AbyssStyle.accent
             Accessible.name: cloud.kind==="obsidian" ? "Daily check-in and schedule"
                 : cloud.kind==="pocket" ? "Pocket (" + WullPocket.items.length + "/32)" : "AI chat"
@@ -166,61 +179,94 @@ Item {
     Cloud { id:ai;kind:"ai";orbitIndex:1 }
     Cloud { id:pocket;kind:"pocket";orbitIndex:2 }
 
-    // Abyss Panel Style Pomodoro Pill Bubble with Start/Pause, readable Timer, and Reset button
+    // Screen-Edge-matched Pomodoro Icon Bubble (click to expand into Start/Pause + Timer + Reset capsule)
     Item {
         id: pomodoro
         objectName: "wullPomodoroBubble"
         readonly property var placement: root.orbit.pomodoroNode
-        readonly property bool hovered: pomHover.hovered || pomToggleBtn.buttonHovered || pomResetBtn.buttonHovered
+        readonly property bool hovered: pomHover.hovered || pomCollapsedBtn.buttonHovered || pomToggleBtn.buttonHovered || pomResetBtn.buttonHovered
         visible: !!placement && (placement.width ?? 0) > 0
-        x: placement?.x ?? 0
-        y: placement?.y ?? 0
-        width: placement?.width ?? 116
-        height: placement?.height ?? 36
-        HoverHandler { id: pomHover; enabled: root.visible; blocking: false }
+        z: root.pomodoroExpanded ? 5 : 1
+        x: root.pomodoroExpanded ? (placement?.expandedX ?? placement?.x ?? 0) : (placement?.x ?? 0)
+        y: root.pomodoroExpanded ? (placement?.expandedY ?? placement?.y ?? 0) : (placement?.y ?? 0)
+        width: root.pomodoroExpanded ? (placement?.expandedWidth ?? 116) : (placement?.width ?? 38)
+        height: root.pomodoroExpanded ? (placement?.expandedHeight ?? 36) : (placement?.height ?? 33.25)
+        Behavior on x { enabled: AbyssStyle.motionEnabled; NumberAnimation { duration: AbyssStyle.motionFast; easing.type: Easing.OutCubic } }
+        Behavior on y { enabled: AbyssStyle.motionEnabled; NumberAnimation { duration: AbyssStyle.motionFast; easing.type: Easing.OutCubic } }
+        Behavior on width { enabled: AbyssStyle.motionEnabled; NumberAnimation { duration: AbyssStyle.motionFast; easing.type: Easing.OutCubic } }
+        Behavior on height { enabled: AbyssStyle.motionEnabled; NumberAnimation { duration: AbyssStyle.motionFast; easing.type: Easing.OutCubic } }
+        HoverHandler { id: pomHover; enabled: root.visible; blocking: false; cursorShape: Qt.PointingHandCursor }
 
-        // Outer Abyss shadow
-        Rectangle {
-            anchors.fill: parent
-            anchors.margins: -2
-            radius: height / 2
-            color: "transparent"
-            border.width: 2.5
-            border.color: Qt.alpha(AbyssStyle.shadow, pomodoro.hovered ? 0.52 : 0.32)
-        }
-        // Main Abyss Panel capsule
+        // Main Screen-Edge-matched capsule
         Rectangle {
             id: pomodoroCapsule
             objectName: "wullPomodoroCloudShape"
             anchors.fill: parent
-            radius: height / 2
-            border.width: TimerService.pomodoroRunning ? 1.4 : (pomodoro.hovered ? 1.3 : 1.05)
-            border.color: TimerService.pomodoroRunning || pomodoro.hovered
-                ? AbyssStyle.specular
-                : Qt.alpha(AbyssStyle.accent, 0.55)
+            radius: Math.min(height / 2, Math.max(10, AbyssStyle.perimeterRadius * 0.72))
+            color: root.edgeSurfaceBase
+            border.width: 1
+            border.color: root.edgeBorderColor(pomodoro.hovered, TimerService.pomodoroRunning)
             gradient: Gradient {
                 orientation: Gradient.Vertical
-                GradientStop { position: 0.0; color: Qt.alpha(AbyssStyle.surfaceRaised, pomodoro.hovered ? 0.98 : 0.94) }
-                GradientStop { position: 0.55; color: Qt.alpha(AbyssStyle.surfaceDeep, 0.95) }
-                GradientStop { position: 1.0; color: Qt.alpha(AbyssStyle.surfaceDeep, 0.98) }
+                GradientStop { position: 0.0; color: root.edgeSurfaceColor(1.0) }
+                GradientStop { position: 1.0; color: root.edgeSurfaceColor(0.25) }
             }
-            // Top inner specular highlight strip
             Rectangle {
-                anchors.top: parent.top
-                anchors.topMargin: 1.5
-                anchors.horizontalCenter: parent.horizontalCenter
-                width: parent.width - 18
-                height: parent.height * 0.36
-                radius: height / 2
-                gradient: Gradient {
-                    orientation: Gradient.Vertical
-                    GradientStop { position: 0.0; color: Qt.alpha(AbyssStyle.specular, pomodoro.hovered ? 0.20 : 0.11) }
-                    GradientStop { position: 1.0; color: "transparent" }
+                anchors.fill: parent
+                radius: parent.radius
+                color: pomodoro.hovered ? Qt.alpha(AbyssStyle.accent, 0.08) : "transparent"
+            }
+            Rectangle {
+                z: -1
+                anchors.fill: parent
+                anchors.margins: -2
+                radius: parent.radius + 2
+                color: AbyssStyle.glow
+                border.width: 2
+                border.color: AbyssStyle.shadow
+            }
+        }
+
+        // Collapsed Icon Bubble state: click to expand
+        RippleButton {
+            id: pomCollapsedBtn
+            objectName: "wullPomodoroExpand"
+            visible: !root.pomodoroExpanded
+            anchors.fill: parent
+            buttonRadius: pomodoroCapsule.radius
+            colBackground: "transparent"
+            colBackgroundHover: "transparent"
+            colRipple: AbyssStyle.accent
+            Accessible.name: "Pomodoro (" + root.pomodoroTimeText + ")"
+            onClicked: root.pomodoroExpanded = true
+            contentItem: Item {
+                Item {
+                    anchors.centerIn: parent
+                    width: pomodoro.width * 0.42
+                    height: width
+                    MaterialSymbol {
+                        objectName: "wullPomodoroGlyph"
+                        anchors.centerIn: parent
+                        iconSize: pomodoro.width * 0.42
+                        color: ai?.paintInk ?? AbyssStyle.accent
+                        text: TimerService.pomodoroRunning && !TimerService.pomodoroPaused ? "timelapse" : "timer"
+                    }
+                    Rectangle {
+                        visible: TimerService.pomodoroRunning
+                        width: 8; height: 8; radius: 4
+                        anchors.right: parent.right; anchors.rightMargin: -3
+                        anchors.top: parent.top; anchors.topMargin: -3
+                        color: AbyssStyle.accent
+                        border.width: 1
+                        border.color: AbyssStyle.surfaceDeep
+                    }
                 }
             }
         }
 
+        // Expanded Pomodoro controls state: Start/Pause + readable Timer + Reset
         Row {
+            visible: root.pomodoroExpanded
             anchors.centerIn: parent
             spacing: 5
             RippleButton {
@@ -230,9 +276,9 @@ Item {
                 implicitWidth: 26; implicitHeight: 26
                 buttonRadius: 13
                 colBackground: TimerService.pomodoroRunning && !TimerService.pomodoroPaused
-                    ? Qt.alpha(AbyssStyle.accent, 0.24)
-                    : Qt.alpha(AbyssStyle.accent, 0.10)
-                colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.32)
+                    ? Qt.alpha(AbyssStyle.accent, 0.22)
+                    : Qt.alpha(AbyssStyle.accent, 0.08)
+                colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.30)
                 colRipple: AbyssStyle.accent
                 Accessible.name: TimerService.pomodoroRunning && !TimerService.pomodoroPaused ? "Pause Pomodoro" : "Start Pomodoro"
                 onClicked: TimerService.togglePomodoro()
@@ -252,7 +298,7 @@ Item {
                 text: root.pomodoroTimeText
                 font.pixelSize: 13
                 font.weight: Font.DemiBold
-                color: TimerService.pomodoroRunning ? AbyssStyle.specular : AbyssStyle.textColor
+                color: TimerService.pomodoroRunning ? AbyssStyle.accent : AbyssStyle.textColor
             }
             RippleButton {
                 id: pomResetBtn
@@ -261,7 +307,7 @@ Item {
                 implicitWidth: 24; implicitHeight: 24
                 buttonRadius: 12
                 colBackground: "transparent"
-                colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.24)
+                colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.22)
                 colRipple: AbyssStyle.accent
                 Accessible.name: "Reset Pomodoro"
                 onClicked: TimerService.resetPomodoro()

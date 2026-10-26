@@ -1,6 +1,5 @@
 pragma ComponentBehavior: Bound
 import QtQuick
-import QtQuick.Shapes
 import QtQuick.Layouts
 import qs.services
 import "../../../services"
@@ -20,8 +19,26 @@ Item {
     readonly property bool pocketOpen: WullPocket.opened && WullPocket.permitted
     readonly property bool editing: visible && WullMind.conversationOpen && !pocketOpen
     readonly property bool controlsVisible: visible && (pocketOpen || editing || WullMind.contextOpen || WullMind.checkInStage.length>0)
-    readonly property color cloudColor: Qt.alpha(AbyssStyle.surfaceDeep, .96)
-    readonly property color cloudBorderColor: Qt.alpha(AbyssStyle.specular, .55)
+    readonly property real edgeOpacity: AbyssStyle.contentOpacity
+    readonly property real edgeHighlight: AbyssStyle.highlightStrength
+    readonly property real edgeLift: AbyssStyle.blurRadius > 0 ? 0.024 : 0
+    readonly property real edgeRadius: Math.max(12, Math.min(26, AbyssStyle.perimeterRadius))
+    readonly property color cloudColor: Qt.rgba(
+        Math.min(1, AbyssStyle.surfaceDeep.r + edgeLift),
+        Math.min(1, AbyssStyle.surfaceDeep.g + edgeLift),
+        Math.min(1, AbyssStyle.surfaceDeep.b + edgeLift),
+        edgeOpacity)
+    readonly property color cloudBorderColor: edgeHighlight > 0.01
+        ? Qt.alpha(AbyssStyle.specular, Math.max(0.08, 0.55 * edgeHighlight))
+        : Qt.alpha(AbyssStyle.textColor, 0.06)
+    function edgeSurfaceColor(depthWeight): color {
+        const k = Math.max(0, Math.min(1, depthWeight * 0.38 * edgeHighlight))
+        return Qt.rgba(
+            cloudColor.r + (AbyssStyle.surfaceRaised.r - cloudColor.r) * k,
+            cloudColor.g + (AbyssStyle.surfaceRaised.g - cloudColor.g) * k,
+            cloudColor.b + (AbyssStyle.surfaceRaised.b - cloudColor.b) * k,
+            edgeOpacity)
+    }
     width: Math.min(380, Math.max(220, outputWidth - 32))
     readonly property real nonEditingContentHeight: WullMind.contextOpen
         ? content.implicitHeight
@@ -48,43 +65,28 @@ Item {
         return visible && local.x >= 0 && local.x <= width && local.y >= 0 && local.y <= height
     }
 
-    // Outer Abyss soft ambient shadow halo
+    // Outer Abyss shadow + glow matching AbyssField.frag outside pass
     Rectangle {
         anchors.fill: parent
         anchors.margins: -3
-        radius: 25
-        color: "transparent"
+        radius: root.edgeRadius + 3
+        color: AbyssStyle.glow
         border.width: 3
-        border.color: Qt.alpha(AbyssStyle.shadow, 0.42)
+        border.color: AbyssStyle.shadow
     }
 
-    // Abyss Panel Style liquid-glass container
+    // Screen-Edge-matched container
     Rectangle {
         objectName: "wullCloudBackground"
         anchors.fill: parent
-        radius: 22
-        border.width: 1.2
+        radius: root.edgeRadius
+        border.width: 1
         border.color: root.cloudBorderColor
         color: root.cloudColor
         gradient: Gradient {
             orientation: Gradient.Vertical
-            GradientStop { position: 0.0; color: Qt.alpha(AbyssStyle.surfaceRaised, 0.96) }
-            GradientStop { position: 0.45; color: Qt.alpha(AbyssStyle.surfaceDeep, 0.96) }
-            GradientStop { position: 1.0; color: Qt.alpha(AbyssStyle.surfaceDeep, 0.98) }
-        }
-        // Top inner specular highlight sheen
-        Rectangle {
-            anchors.top: parent.top
-            anchors.topMargin: 1.5
-            anchors.horizontalCenter: parent.horizontalCenter
-            width: parent.width - 28
-            height: Math.min(26, parent.height * 0.28)
-            radius: height / 2
-            gradient: Gradient {
-                orientation: Gradient.Vertical
-                GradientStop { position: 0.0; color: Qt.alpha(AbyssStyle.specular, 0.14) }
-                GradientStop { position: 1.0; color: "transparent" }
-            }
+            GradientStop { position: 0.0; color: root.edgeSurfaceColor(1.0) }
+            GradientStop { position: 1.0; color: root.edgeSurfaceColor(0.25) }
         }
     }
 
@@ -220,8 +222,10 @@ Item {
                     width: Math.min(parent.width*.88,Math.max(86,messageText.implicitWidth+20))
                     height: messageText.implicitHeight+14
                     x: parent.fromUser ? parent.width-width : 0
-                    radius: 14
-                    color: parent.fromUser ? Qt.alpha(AbyssStyle.accent,.14) : Qt.alpha(AbyssStyle.surfaceRaised,.72)
+                    radius: Math.max(10, Math.min(14, root.edgeRadius - 6))
+                    color: parent.fromUser ? Qt.alpha(AbyssStyle.accent,.14) : Qt.alpha(AbyssStyle.textColor,.06)
+                    border.width: 1
+                    border.color: parent.fromUser ? Qt.alpha(AbyssStyle.accent,.22) : Qt.alpha(AbyssStyle.textColor,.08)
                     opacity: parent.modelData?.failed === true ? .58 : 1
                     StyledText {
                         id: messageText
@@ -281,8 +285,10 @@ Item {
                 height: implicitHeight
                 Layout.fillWidth: true
                 implicitHeight: profilePanel.implicitHeight + 16
-                radius: 14
-                color: Qt.alpha(AbyssStyle.surfaceRaised, .82)
+                radius: Math.max(10, Math.min(14, root.edgeRadius - 6))
+                color: Qt.alpha(AbyssStyle.textColor, .05)
+                border.width: 1
+                border.color: Qt.alpha(AbyssStyle.textColor, .08)
                 ColumnLayout {
                     id: profilePanel
                     anchors.fill: parent
@@ -408,10 +414,10 @@ Item {
                 height: implicitHeight
                 Layout.fillWidth: true
                 implicitHeight: composerContent.height + 8
-                radius: 18
-                color: Qt.alpha(AbyssStyle.surfaceRaised, .72)
+                radius: Math.max(12, Math.min(18, root.edgeRadius - 4))
+                color: Qt.alpha(AbyssStyle.textColor, .05)
                 border.width: 1
-                border.color: Qt.alpha(AbyssStyle.accent, .28)
+                border.color: Qt.alpha(AbyssStyle.textColor, .09)
                 ColumnLayout {
                     id: composerContent
                     x: 4
@@ -575,19 +581,5 @@ Item {
     onControlsVisibleChanged: if (!controlsVisible) {
         root.profileStage = 0
         message.focus = false
-    }
-    Shape {
-        width: 18; height: 12
-        x: Math.max(18, Math.min(root.width - 36, actor.x + actor.width / 2 - root.x - 9))
-        y: root.y < actor.y ? root.height - 1 : -11
-        rotation: root.y < actor.y ? 0 : 180
-        Rectangle { x:1; y:-1; width:16; height:2; color:root.cloudColor }
-        ShapePath {
-            strokeColor: root.cloudBorderColor; strokeWidth: 1
-            fillColor: root.cloudColor
-            startX: 0; startY: 0
-            PathCubic { x:9;y:11;control1X:5;control1Y:2;control2X:6;control2Y:10 }
-            PathCubic { x:18;y:0;control1X:12;control1Y:10;control2X:13;control2Y:2 }
-        }
     }
 }

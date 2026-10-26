@@ -16,7 +16,7 @@ function layout(outputWidth, outputHeight, actor) {
     const body = {x:cx-width/2,y:cy-height/2,width:width,height:height};
     const empty = {available:false,nodes:[{x:0,y:0,width:nodeWidth,height:nodeHeight},
         {x:0,y:0,width:nodeWidth,height:nodeHeight}],pocketNode:{x:0,y:0,width:nodeWidth,height:nodeHeight},
-        pomodoroNode:{x:0,y:0,width:114,height:36}};
+        pomodoroNode:{x:0,y:0,width:nodeWidth,height:nodeHeight,expandedX:0,expandedY:0,expandedWidth:114,expandedHeight:36}};
     let edge = actor.edge;
     if (!["top","bottom","left","right"].includes(edge)) {
         const distances = [cy,outputHeight-cy,cx,outputWidth-cx];
@@ -36,41 +36,61 @@ function layout(outputWidth, outputHeight, actor) {
             && n.y+n.height<=outputHeight-8 && !overlaps(n,body,3)
             && (nx-cx)*Math.cos(normal)+(ny-cy)*Math.sin(normal)>0;
     }
-    const pomW = Math.max(106, Math.min(122, Math.round(nodeWidth * 2.65)));
-    const pomH = Math.max(32, Math.min(36, Math.round(nodeHeight * 0.90)));
+    const pomW = Math.max(108, Math.min(122, Math.round(nodeWidth * 2.7)));
+    const pomH = Math.max(34, Math.min(38, Math.round(nodeHeight * 0.95)));
     const centerPt = {x: outputWidth / 2 - 2, y: outputHeight / 2 - 2, width: 4, height: 4};
     // Keep equal distances and mirrored angles. Near a corner, turn the pair
     // inward together instead of shifting just one action out of symmetry.
     for (const turn of [0,-Math.PI/8,Math.PI/8,-Math.PI/4,Math.PI/4]) {
         for (const radius of [1,1.15,1.35]) {
-            for (const spread of [.92,.8,1.05,.65,.5,.4]) {
+            for (const spread of [1.12,1.02,.92,.8,.65,.5,.4]) {
                 const axis = normal+turn;
                 const a = node(axis-spread,radius), b = node(axis+spread,radius);
                 if (fits(a) && fits(b) && !overlaps(a,b,4)) {
-                    let pocket = node(axis, radius * 1.02);
-                    if (!fits(pocket) || overlaps(a,pocket,3) || overlaps(b,pocket,3) || overlaps(pocket,centerPt,2))
-                        pocket = node(axis, radius + 0.32);
-                    const pocketValid = fits(pocket) && !overlaps(a,pocket,3) && !overlaps(b,pocket,3) && !overlaps(pocket,centerPt,2) ? pocket : null;
-                    let pomValid = null;
-                    outerPom:
-                    for (const angOff of [0, -0.42, 0.42, -0.65, 0.65]) {
-                        for (const extraGap of [6, 20]) {
-                            const pAng = axis + angOff;
-                            const step = Math.abs(Math.cos(pAng))*(nodeWidth+pomW)/2 + Math.abs(Math.sin(pAng))*(nodeHeight+pomH)/2 + extraGap;
-                            const dist = baseRadius * radius * 1.02 + step;
-                            const cand = {
-                                x: Math.max(8, Math.min(outputWidth - pomW - 8, cx + Math.cos(pAng) * dist - pomW / 2)),
-                                y: Math.max(8, Math.min(outputHeight - pomH - 8, cy + Math.sin(pAng) * dist - pomH / 2)),
-                                width: pomW,
-                                height: pomH
-                            };
-                            if (fits(cand) && !overlaps(a,cand,3) && !overlaps(b,cand,3)
-                                && (!pocketValid || !overlaps(pocketValid,cand,3))
-                                && !overlaps(cand,centerPt,2)) {
-                                pomValid = cand;
-                                break outerPom;
+                    let pocketValid = null, pomValid = null;
+                    outerInner:
+                    for (const [rMult, inSpread] of [[1.04, 0.34], [1.08, 0.36], [1.22, 0.34], [1.38, 0.32]]) {
+                        const pk = node(axis - inSpread, radius * rMult);
+                        const pm = node(axis + inSpread, radius * rMult);
+                        if (fits(pk) && fits(pm) && !overlaps(pk, pm, 3)
+                            && !overlaps(a, pk, 2) && !overlaps(b, pk, 2)
+                            && !overlaps(a, pm, 2) && !overlaps(b, pm, 2)
+                            && !overlaps(pk, centerPt, 2) && !overlaps(pm, centerPt, 2)) {
+                            pocketValid = pk;
+                            pomValid = pm;
+                            break outerInner;
+                        }
+                    }
+                    if (!pocketValid) {
+                        for (const rAdd of [0.02, 0.32, 0.55]) {
+                            const pk = node(axis, radius + rAdd);
+                            if (fits(pk) && !overlaps(a, pk, 2) && !overlaps(b, pk, 2) && !overlaps(pk, centerPt, 2)) {
+                                pocketValid = pk;
+                                break;
                             }
                         }
+                    }
+                    if (!pomValid) {
+                        for (const angOff of [0.36, -0.36, 0, 0.65, -0.65]) {
+                            for (const rAdd of [0.35, 0.6, 0.85]) {
+                                const pm = node(axis + angOff, radius + rAdd);
+                                if (fits(pm) && !overlaps(a, pm, 2) && !overlaps(b, pm, 2)
+                                    && (!pocketValid || !overlaps(pocketValid, pm, 2))
+                                    && !overlaps(pm, centerPt, 2)) {
+                                    pomValid = pm;
+                                    break;
+                                }
+                            }
+                            if (pomValid) break;
+                        }
+                    }
+                    if (pomValid) {
+                        const pmCx = pomValid.x + pomValid.width / 2;
+                        const pmCy = pomValid.y + pomValid.height / 2;
+                        pomValid.expandedWidth = pomW;
+                        pomValid.expandedHeight = pomH;
+                        pomValid.expandedX = Math.max(8, Math.min(outputWidth - pomW - 8, pmCx - pomW / 2));
+                        pomValid.expandedY = Math.max(8, Math.min(outputHeight - pomH - 8, pmCy - pomH / 2));
                     }
                     return {available:true,nodes:[a,b],pocketNode:pocketValid,pomodoroNode:pomValid,axisAngle:axis};
                 }
