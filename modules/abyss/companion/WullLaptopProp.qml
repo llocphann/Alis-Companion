@@ -173,31 +173,33 @@ Item {
         Shape {
             id: laptopHingeBar
             objectName: "wullLaptopHinge"
-            x: 6
-            y: 20.5
-            width: 24
+            x: 5
+            y: 20.0
+            width: 25
             height: 8.5
             antialiasing: true
             preferredRendererType: Shape.CurveRenderer
             ShapePath {
-                strokeWidth: 0.75
-                strokeColor: "#d9fbff"
-                fillColor: "#14283a"
-                startX: 1.5; startY: 1.2
-                PathLine { x: 21.5; y: 6.8 }
-                PathLine { x: 20.5; y: 8.2 }
-                PathLine { x: 0.6; y: 2.6 }
-                PathLine { x: 1.5; y: 1.2 }
+                strokeWidth: 0.85
+                strokeColor: "#142b3d"
+                fillColor: "#2d526d"
+                startX: 1.2; startY: 1.0
+                PathLine { x: 22.0; y: 6.8 }
+                PathLine { x: 20.8; y: 8.3 }
+                PathLine { x: 0.4; y: 2.5 }
+                PathLine { x: 1.2; y: 1.0 }
             }
         }
 
-        // 4. FOREGROUND LAYER: Back of the Screen Lid (occludes front of keyboard; screen faces Companion!)
+        // 4. FOREGROUND LAYER: Brushed Silver-Aluminum BACK Cover of the Screen Lid
+        //    (Faces the viewer in the foreground, occluding the front of the keyboard;
+        //     the screen is on the opposite side facing Companion!)
         Item {
             id: laptopLid
             objectName: "wullLaptopLid"
-            width: 28
-            height: 7.0 + root.hingeFactor * 15.5
-            x: 4
+            width: 30
+            height: 7.5 + root.hingeFactor * 15.5
+            x: 3.5
             y: 28.5 - height
 
             Shape {
@@ -205,64 +207,75 @@ Item {
                 antialiasing: true
                 preferredRendererType: Shape.CurveRenderer
 
-                // Inner glowing cyan screen bezel sliver on the back/top-right rim facing Companion
+                // 3D lid thickness edge along the top & right rim (showing the lid is angled away toward Companion)
                 ShapePath {
-                    strokeWidth: 0.85
-                    strokeColor: "#a8f8ff"
-                    fillColor: Qt.rgba(0.32, 0.90, 1.0, 0.92 + root.screenPulse * 0.08)
-                    startX: 2.8; startY: 0.4
-                    PathLine { x: 24.8; y: 6.2 }
-                    PathLine { x: 26.8; y: laptopLid.height - 1.2 }
-                    PathLine { x: 24.4; y: laptopLid.height - 0.2 }
-                    PathLine { x: 22.6; y: 7.4 }
-                    PathLine { x: 1.0; y: 1.6 }
-                    PathLine { x: 2.8; y: 0.4 }
+                    strokeWidth: 0.75
+                    strokeColor: "#1b394f"
+                    fillColor: "#396884"
+                    startX: 3.0; startY: 0.5
+                    PathLine { x: 25.6; y: 6.0 }
+                    PathLine { x: 26.2; y: laptopLid.height - 0.4 }
+                    PathLine { x: 24.0; y: laptopLid.height }
+                    PathLine { x: 23.4; y: 7.2 }
+                    PathLine { x: 1.0; y: 1.7 }
+                    PathLine { x: 3.0; y: 0.5 }
                 }
 
-                // Matte metallic BACK cover of the lid facing the viewer in the foreground
+                // Brushed silver-aluminum BACK shell of the lid facing the viewer
                 ShapePath {
-                    strokeWidth: 1.05
-                    strokeColor: "#b8e6f5"
+                    strokeWidth: 1.1
+                    strokeColor: "#20425a"
                     fillGradient: LinearGradient {
-                        x1: 0; y1: 0; x2: 24; y2: laptopLid.height
-                        GradientStop { position: 0; color: "#22435e" }
-                        GradientStop { position: 0.55; color: "#152c40" }
-                        GradientStop { position: 1; color: "#0d1d2c" }
+                        x1: 2; y1: 1; x2: 24; y2: laptopLid.height
+                        GradientStop { position: 0.0; color: "#d6f2fa" }
+                        GradientStop { position: 0.45; color: "#9ac7db" }
+                        GradientStop { position: 1.0; color: "#689cb5" }
                     }
-                    startX: 0.8; startY: 1.6
-                    PathLine { x: 22.6; y: 7.4 }
-                    PathLine { x: 24.4; y: laptopLid.height - 0.2 }
-                    PathLine { x: 2.8; y: Math.max(2.6, laptopLid.height - 6.0) }
-                    PathLine { x: 0.8; y: 1.6 }
+                    startX: 1.0; startY: 1.7
+                    PathLine { x: 23.4; y: 7.2 }
+                    PathLine { x: 24.0; y: laptopLid.height }
+                    PathLine { x: 2.2; y: Math.max(3.0, laptopLid.height - 5.6) }
+                    PathLine { x: 1.0; y: 1.7 }
                 }
 
-                // Subtle diagonal brushed-metal sheen on the back of the lid
+                // Metallic diagonal specular reflection across the aluminum lid back
                 ShapePath {
                     strokeWidth: 0
-                    fillColor: Qt.alpha(root.specularColor, 0.12)
-                    startX: 3.5; startY: 2.4
-                    PathLine { x: 10.5; y: 4.2 }
-                    PathLine { x: 8.2; y: Math.max(4.0, laptopLid.height - 4.4) }
-                    PathLine { x: 2.8; y: Math.max(2.6, laptopLid.height - 6.0) }
-                    PathLine { x: 3.5; y: 2.4 }
+                    fillColor: Qt.alpha("#ffffff", 0.38)
+                    startX: 4.2; startY: 2.5
+                    PathLine { x: 11.2; y: 4.2 }
+                    PathLine { x: 8.0; y: Math.max(4.2, laptopLid.height - 4.2) }
+                    PathLine { x: 2.8; y: Math.max(3.2, laptopLid.height - 5.4) }
+                    PathLine { x: 4.2; y: 2.5 }
+                }
+
+                // Bottom-back hinge crease line on the exterior shell
+                ShapePath {
+                    strokeWidth: 0.8
+                    strokeColor: "#35607a"
+                    fillColor: "transparent"
+                    startX: 2.6; startY: Math.max(2.8, laptopLid.height - 6.8)
+                    PathLine { x: 23.6; y: Math.max(7.6, laptopLid.height - 1.4) }
+                }
+
+                // Glowing Abyss droplet emblem on the center of the metallic back cover
+                ShapePath {
+                    strokeWidth: 0.85
+                    strokeColor: "#1b435c"
+                    fillColor: "#ffffff"
+                    startX: 12.8; startY: laptopLid.height * 0.34
+                    PathQuad { x: 15.6; y: laptopLid.height * 0.56; controlX: 16.2; controlY: laptopLid.height * 0.44 }
+                    PathQuad { x: 12.6; y: laptopLid.height * 0.66; controlX: 14.8; controlY: laptopLid.height * 0.68 }
+                    PathQuad { x: 9.8; y: laptopLid.height * 0.50; controlX: 10.2; controlY: laptopLid.height * 0.62 }
+                    PathQuad { x: 12.8; y: laptopLid.height * 0.34; controlX: 10.0; controlY: laptopLid.height * 0.40 }
                 }
             }
 
-            // Glowing Companion logo on the center of the back cover facing the viewer
             Rectangle {
                 id: lidBackEmblem
                 objectName: "wullLaptopEmblem"
-                visible: root.hingeFactor > 0.35
-                width: 4.4
-                height: 3.6
-                radius: 2.0
-                rotation: 15
-                x: 10.8
-                y: laptopLid.height * 0.46
-                color: "#ecfdff"
-                border.width: 0.7
-                border.color: root.accentColor
-                opacity: 0.78 + root.screenPulse * 0.22
+                visible: false
+                width: 4; height: 4
             }
         }
     }

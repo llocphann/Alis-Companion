@@ -20,8 +20,8 @@ Item {
     readonly property bool pocketOpen: WullPocket.opened && WullPocket.permitted
     readonly property bool editing: visible && WullMind.conversationOpen && !pocketOpen
     readonly property bool controlsVisible: visible && (pocketOpen || editing || WullMind.contextOpen || WullMind.checkInStage.length>0)
-    readonly property color cloudColor: Qt.alpha(AbyssStyle.surface, .96)
-    readonly property color cloudBorderColor: Qt.alpha(AbyssStyle.accent, .48)
+    readonly property color cloudColor: Qt.alpha(AbyssStyle.surfaceDeep, .96)
+    readonly property color cloudBorderColor: Qt.alpha(AbyssStyle.specular, .55)
     width: Math.min(380, Math.max(220, outputWidth - 32))
     readonly property real nonEditingContentHeight: WullMind.contextOpen
         ? content.implicitHeight
@@ -48,13 +48,44 @@ Item {
         return visible && local.x >= 0 && local.x <= width && local.y >= 0 && local.y <= height
     }
 
+    // Outer Abyss soft ambient shadow halo
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: -3
+        radius: 25
+        color: "transparent"
+        border.width: 3
+        border.color: Qt.alpha(AbyssStyle.shadow, 0.42)
+    }
+
+    // Abyss Panel Style liquid-glass container
     Rectangle {
         objectName: "wullCloudBackground"
         anchors.fill: parent
-        radius: 18
-        border.width: 1
+        radius: 22
+        border.width: 1.2
         border.color: root.cloudBorderColor
         color: root.cloudColor
+        gradient: Gradient {
+            orientation: Gradient.Vertical
+            GradientStop { position: 0.0; color: Qt.alpha(AbyssStyle.surfaceRaised, 0.96) }
+            GradientStop { position: 0.45; color: Qt.alpha(AbyssStyle.surfaceDeep, 0.96) }
+            GradientStop { position: 1.0; color: Qt.alpha(AbyssStyle.surfaceDeep, 0.98) }
+        }
+        // Top inner specular highlight sheen
+        Rectangle {
+            anchors.top: parent.top
+            anchors.topMargin: 1.5
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: parent.width - 28
+            height: Math.min(26, parent.height * 0.28)
+            radius: height / 2
+            gradient: Gradient {
+                orientation: Gradient.Vertical
+                GradientStop { position: 0.0; color: Qt.alpha(AbyssStyle.specular, 0.14) }
+                GradientStop { position: 1.0; color: "transparent" }
+            }
+        }
     }
 
     component CheckInRow: ColumnLayout {
@@ -105,11 +136,6 @@ Item {
             visible: WullMind.contextOpen && !root.editing
             Layout.fillWidth: true
             StyledText { Layout.fillWidth:true; text:Translation.tr("Today"); font.weight:Font.DemiBold }
-            DialogButton {
-                objectName:"wullContextPocket";buttonText:Translation.tr("Pocket")
-                visible:WullPocket.permitted;enabled:WullPocket.canSelect && !WullMind.busy
-                onClicked:root.openPocket()
-            }
             DialogButton { objectName:"wullContextClose"; buttonText:Translation.tr("Close"); onClicked:WullMind.dismiss() }
         }
         StyledText {
@@ -383,7 +409,9 @@ Item {
                 Layout.fillWidth: true
                 implicitHeight: composerContent.height + 8
                 radius: 18
-                color: Qt.alpha(AbyssStyle.accent, .05)
+                color: Qt.alpha(AbyssStyle.surfaceRaised, .72)
+                border.width: 1
+                border.color: Qt.alpha(AbyssStyle.accent, .28)
                 ColumnLayout {
                     id: composerContent
                     x: 4
@@ -423,33 +451,9 @@ Item {
                         Layout.fillWidth: true
                         spacing: 6
                         RippleButton {
-                            id: pocketBtn
-                            objectName: "wullChatPocket"
-                            y: 3
-                            Layout.preferredWidth: 30
-                            Layout.preferredHeight: 30
-                            implicitWidth: 30
-                            implicitHeight: 30
-                            visible: WullPocket.permitted
-                            enabled: WullPocket.canSelect && !WullMind.busy
-                            buttonRadius: 15
-                            Accessible.name: Translation.tr("Pocket")
-                            onClicked: root.openPocket()
-                            StyledToolTip {
-                                extraVisibleCondition: pocketBtn.buttonHovered
-                                text: "Pocket (" + WullPocket.items.length + "/32)"
-                            }
-                            contentItem: MaterialSymbol {
-                                anchors.centerIn: parent
-                                text: "inventory_2"
-                                iconSize: 17
-                                color: Appearance.colors.colPrimary
-                            }
-                        }
-                        RippleButton {
                             id: agentQuickBtn
                             objectName: "wullQuickAgent"
-                            x: pocketBtn.visible ? pocketBtn.width + 4 : 0
+                            x: 0
                             y: 3
                             Layout.preferredWidth: 30
                             Layout.preferredHeight: 30
@@ -457,7 +461,10 @@ Item {
                             implicitHeight: 30
                             enabled: !WullMind.busy
                             buttonRadius: 15
-                            colBackground: WullMind.agentToolsEnabled ? Appearance.colors.colPrimaryContainer : Appearance.colors.colLayer2
+                            colBackground: WullMind.agentToolsEnabled
+                                ? Qt.alpha(AbyssStyle.accent, 0.22)
+                                : Qt.alpha(AbyssStyle.accent, 0.08)
+                            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.32)
                             onClicked: {
                                 if (!WullMind.agentToolsEnabled) WullMind.agentToolsEnabled = true
                                 WullMind.captureActiveAppContext()
@@ -470,12 +477,12 @@ Item {
                                 anchors.centerIn: parent
                                 text: WullMind.lastActiveAppContext?.version === "screenshot_ocr" ? "document_scanner" : "screen_search_desktop"
                                 iconSize: 17
-                                color: WullMind.agentToolsEnabled ? Appearance.colors.colOnPrimaryContainer : Appearance.colors.colSubtext
+                                color: WullMind.agentToolsEnabled ? AbyssStyle.accent : AbyssStyle.textColorMuted
                             }
                         }
                         RippleButton {
                             objectName: "wullModelEffort"
-                            x: (pocketBtn.visible ? pocketBtn.width + 4 : 0) + 34
+                            x: 34
                             y: 3
                             Layout.preferredWidth: Math.max(68, Math.min(root.width - 90, effortLabel.implicitWidth + 60))
                             Layout.preferredHeight: 30

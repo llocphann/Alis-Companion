@@ -203,8 +203,18 @@ Singleton {
         Ai.ensureInitialized()
         if (!aiSession) aiSession=Ai.createTextSession(root)
     }
+    function ensureProviderService(): void {
+        if (Quickshell.env("WULL_TEST_ENDPOINT") || providerWarmupWorker.running) return
+        const m = Ai.models[model]
+        const ep = String(m?.endpoint ?? "")
+        if (m && ep && !ep.includes(":1234/") && !ep.includes(":11434/")) return
+        providerWarmupWorker.providerId = String(m?.provider_id ?? "")
+        providerWarmupWorker.endpointUrl = ep
+        providerWarmupWorker.running = true
+    }
     function testConnection(): bool {
         ensureAi()
+        ensureProviderService()
         connectionStatus=available ? "ready" : "model-unavailable"
         return available
     }
@@ -309,6 +319,7 @@ Singleton {
         if (!talkEnabled) return
         acknowledgeAutomatic()
         ensureAi()
+        ensureProviderService()
         contextOpen=false
         checkInStage=""
         conversationOpen=true;expiry.stop();text="";touchConversation()
@@ -349,6 +360,7 @@ Singleton {
         if (!prompt || busy || draining || historyClearPending) return false
         ensureAi()
         if (!available) {
+            ensureProviderService()
             errorMessage=localOnly ? "Choose an available local model in AI settings." : "Choose an available model or provider in AI settings."
             return false
         }
@@ -391,6 +403,20 @@ Singleton {
         if (!aiSession.start(String(serial),model,rows,instruction,effectiveThinkingEffort)) {
             errorMessage=aiSession.error || "Wait for the previous reply to finish."
             return false
+        }
+        const selectedModel=Ai.models[model]
+        const selectedEndpoint=String(selectedModel?.endpoint ?? "")
+        if (!Quickshell.env("WULL_TEST_ENDPOINT")
+                && ModelPolicy.isLocal(selectedModel)
+                && (selectedEndpoint.includes(":1234/") || selectedEndpoint.includes(":11434/"))
+                && aiSession.transport && Array.isArray(aiSession.transport.command)
+                && aiSession.transport.command.length > 0
+                && String(aiSession.transport.command[2] ?? "") !== "--wrap-provider") {
+            aiSession.transport.command = [
+                "/usr/bin/python3",
+                Hadanion.packageRoot + "/scripts/wull/local_mind.py",
+                "--wrap-provider"
+            ].concat(aiSession.transport.command)
         }
         pending={serial:serial,action:"ai_chat",request:{prompt:prompt,model:model,
             identity:modelIdentity,dialogueKey:dialogueKey,effort:effectiveThinkingEffort,local:ModelPolicy.isLocal(Ai.models[model])}}
@@ -805,6 +831,18 @@ Singleton {
                 root.lastActiveAppContext=parsed.result
                 root.lastToolMetadata=parsed.result
                 root.lastActiveAppCapturedAt=Date.now()
+            }
+        }
+    }
+    Process {
+        id:providerWarmupWorker
+        running:false
+        property string providerId:""
+        property string endpointUrl:""
+        command:["/usr/bin/python3",Hadanion.packageRoot + "/scripts/wull/local_mind.py","--ensure-provider",providerId,endpointUrl]
+        onExited:(code,status)=>{
+            if(!root.available && typeof AiProviderCatalog!=="undefined" && AiProviderCatalog) {
+                AiProviderCatalog.refreshAll()
             }
         }
     }

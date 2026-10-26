@@ -450,6 +450,7 @@ Item {
     Region {
         id:aiRegion
         item:cloudActions.visible ? cloudActions.aiTarget : emptyInput
+        Region { item:cloudActions.visible && cloudActions.pocketTarget?.visible ? cloudActions.pocketTarget : emptyInput }
         Region { item:cloudActions.visible && cloudActions.pomodoroTarget?.visible ? cloudActions.pomodoroTarget : emptyInput }
     }
     function yieldToUser(): void {companionCuriosity.yieldToUser()}

@@ -19,6 +19,116 @@ import urllib.parse
 import urllib.request
 from datetime import date, datetime
 
+
+def _ensure_local_provider_service(provider: str = '', endpoint_url: str = '') -> bool:
+    if os.environ.get('WULL_TEST_ENDPOINT'):
+        return False
+    import shutil
+    import socket
+    import subprocess
+    import time
+
+    prov = (provider or os.environ.get('AI_LOCAL_PROVIDER') or '').strip().lower()
+    ep = (endpoint_url or os.environ.get('AI_ENDPOINT') or '').strip()
+    host = '127.0.0.1'
+    port = 0
+    if ep:
+        try:
+            u = urllib.parse.urlsplit(ep)
+            if u.hostname in ('127.0.0.1', 'localhost', '::1') and u.port in (1234, 11434):
+                host = '127.0.0.1' if u.hostname == 'localhost' else u.hostname
+                port = u.port
+        except Exception:
+            pass
+    if not port:
+        if prov == 'lmstudio':
+            port = 1234
+        elif prov == 'ollama':
+            port = 11434
+        else:
+            lms_candidate = shutil.which('lms') or str(Path.home() / '.lmstudio/bin/lms')
+            if Path(lms_candidate).is_file():
+                prov, port = 'lmstudio', 1234
+            elif shutil.which('ollama'):
+                prov, port = 'ollama', 11434
+            else:
+                return False
+
+    def _port_open() -> bool:
+        try:
+            with socket.create_connection((host, port), timeout=0.45):
+                return True
+        except OSError:
+            return False
+
+    if _port_open():
+        return True
+
+    if prov == 'lmstudio' or port == 1234:
+        lms_bin = shutil.which('lms') or str(Path.home() / '.lmstudio/bin/lms')
+        if not Path(lms_bin).is_file():
+            return False
+        try:
+            subprocess.run(
+                [lms_bin, 'server', 'start'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=16,
+                check=False,
+            )
+        except Exception:
+            pass
+        probe_url = f'http://{host}:{port}/api/v0/models'
+    elif prov == 'ollama' or port == 11434:
+        try:
+            subprocess.run(
+                ['systemctl', '--user', 'start', 'ollama'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+            )
+        except Exception:
+            pass
+        if not _port_open() and shutil.which('ollama'):
+            try:
+                subprocess.Popen(
+                    [shutil.which('ollama'), 'serve'],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+            except Exception:
+                pass
+        probe_url = f'http://{host}:{port}/api/tags'
+    else:
+        return False
+
+    deadline = time.monotonic() + 14.0
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    while time.monotonic() < deadline:
+        if _port_open():
+            try:
+                with opener.open(probe_url, timeout=1.2) as resp:
+                    if resp.status == 200:
+                        return True
+            except Exception:
+                pass
+        time.sleep(0.3)
+    return _port_open()
+
+
+if sys.argv[1:2] == ['--wrap-provider'] and len(sys.argv) >= 3:
+    _ensure_local_provider_service()
+    os.execv(sys.argv[2], sys.argv[2:])
+elif sys.argv[1:2] == ['--ensure-provider']:
+    started = _ensure_local_provider_service(
+        sys.argv[2] if len(sys.argv) > 2 else '',
+        sys.argv[3] if len(sys.argv) > 3 else '',
+    )
+    print(json.dumps({'ok': True, 'started': started}))
+    raise SystemExit(0)
+
 HOST=Path(sys.argv[sys.argv.index('--host-root')+1]) if '--host-root' in sys.argv else Path(os.environ.get('HADALIS_ROOT', Path(__file__).resolve().parents[2]))
 sys.path.insert(0,str(HOST/'scripts/ai'))
 sys.path.insert(0,str(Path(__file__).resolve().parent))
