@@ -447,8 +447,35 @@ Item {
                             }
                         }
                         RippleButton {
+                            id: agentQuickBtn
+                            objectName: "wullQuickAgent"
+                            x: pocketBtn.visible ? pocketBtn.width + 4 : 0
+                            y: 3
+                            Layout.preferredWidth: 30
+                            Layout.preferredHeight: 30
+                            implicitWidth: 30
+                            implicitHeight: 30
+                            enabled: !WullMind.busy
+                            buttonRadius: 15
+                            colBackground: WullMind.agentToolsEnabled ? Appearance.colors.colPrimaryContainer : Appearance.colors.colLayer2
+                            onClicked: {
+                                if (!WullMind.agentToolsEnabled) WullMind.agentToolsEnabled = true
+                                WullMind.captureActiveAppContext()
+                            }
+                            StyledToolTip {
+                                extraVisibleCondition: agentQuickBtn.buttonHovered
+                                text: "Agent: " + WullMind.agentStatusSummary
+                            }
+                            contentItem: MaterialSymbol {
+                                anchors.centerIn: parent
+                                text: WullMind.lastActiveAppContext?.version === "screenshot_ocr" ? "document_scanner" : "screen_search_desktop"
+                                iconSize: 17
+                                color: WullMind.agentToolsEnabled ? Appearance.colors.colOnPrimaryContainer : Appearance.colors.colSubtext
+                            }
+                        }
+                        RippleButton {
                             objectName: "wullModelEffort"
-                            x: pocketBtn.visible ? pocketBtn.width + 6 : 0
+                            x: (pocketBtn.visible ? pocketBtn.width + 4 : 0) + 34
                             y: 3
                             Layout.preferredWidth: Math.max(68, Math.min(root.width - 90, effortLabel.implicitWidth + 60))
                             Layout.preferredHeight: 30

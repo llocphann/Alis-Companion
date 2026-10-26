@@ -21,10 +21,10 @@ MAX_PROPOSALS = 64
 MAX_RECEIPTS = 128
 
 ALLOWED_PREFERENCE_EDITS = {
-    "personality": {"calm", "lively", "shy"},
-    "appearanceFrequency": {"rare", "normal", "frequent"},
-    "dialogueTone": {"gentle", "playful", "concise"},
-    "familiarity": {"reserved", "neutral", "warm"},
+    "personality": {"calm", "balanced", "energetic", "lively", "shy"},
+    "appearanceFrequency": {"always", "frequent", "occasional", "rare", "normal"},
+    "dialogueTone": {"gentle", "witty", "playful", "concise"},
+    "familiarity": {"reserved", "neutral", "familiar", "warm"},
     "proactive": {"rare", "occasional", "regular", "often", "manual"},
     "proactiveQuietEnabled": {True, False},
 }
@@ -123,8 +123,203 @@ def _git_summary(root: Path) -> tuple[str, str]:
         return "", ""
 
 
+def _resolve_active_window() -> dict:
+    try:
+        raw = subprocess.check_output(
+            ["niri", "msg", "-j", "focused-window"],
+            text=True, stderr=subprocess.DEVNULL, timeout=1.5
+        ).strip()
+        if raw and raw != "null":
+            win = json.loads(raw)
+            if isinstance(win, dict) and (win.get("app_id") or win.get("title")):
+                return win
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    try:
+        raw_list = subprocess.check_output(
+            ["niri", "msg", "-j", "windows"],
+            text=True, stderr=subprocess.DEVNULL, timeout=1.5
+        ).strip()
+        windows = json.loads(raw_list) if raw_list else []
+        if isinstance(windows, list) and windows:
+            def _ts(w: dict) -> tuple[int, int, int]:
+                ft = w.get("focus_timestamp") or {}
+                return (
+                    1 if w.get("is_focused") else 0,
+                    int(ft.get("secs") or 0),
+                    int(ft.get("nanos") or 0),
+                )
+            windows.sort(key=_ts, reverse=True)
+            return windows[0]
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    return {}
+
+
+TEXT_SUFFIXES = {
+    ".md", ".txt", ".py", ".qml", ".js", ".cjs", ".mjs", ".ts", ".tsx", ".jsx",
+    ".json", ".rs", ".toml", ".yaml", ".yml", ".sh", ".css", ".html", ".c", ".cpp", ".h",
+}
+GUI_SCREENSHOT_APPS = {
+    "brave", "brave-browser", "firefox", "chromium", "google-chrome", "zen", "vivaldi",
+    "antigravity", "vesktop", "discord", "telegram", "slack", "spotify", "mpv", "vlc",
+}
+
+
+def _descendant_pids(root_pid: int) -> list[int]:
+    if root_pid <= 0:
+        return []
+    visited = []
+    queue = [root_pid]
+    while queue and len(visited) < 16:
+        cur = queue.pop(0)
+        if cur in visited:
+            continue
+        visited.append(cur)
+        try:
+            for task_dir in Path(f"/proc/{cur}/task").iterdir():
+                children_file = task_dir / "children"
+                if children_file.is_file():
+                    for tok in children_file.read_text().split():
+                        if tok.isdigit():
+                            queue.append(int(tok))
+        except OSError:
+            pass
+    return visited
+
+
+def _try_direct_app_access(pid: int, app_id: str, title: str) -> tuple[str, list[str]]:
+    home = Path.home().resolve()
+    pids = _descendant_pids(pid)
+    cwd_str = ""
+    candidate_files: list[Path] = []
+    for p in reversed(pids):
+        try:
+            cwd = Path(f"/proc/{p}/cwd").resolve()
+            if not cwd_str and cwd.is_dir():
+                cwd_str = str(cwd)
+        except OSError:
+            cwd = None
+        try:
+            raw_cmd = Path(f"/proc/{p}/cmdline").read_bytes().split(b"\x00")
+            for arg_b in raw_cmd[1:]:
+                arg = arg_b.decode("utf-8", errors="ignore").strip()
+                if not arg or arg.startswith("-"):
+                    continue
+                cand = (Path(arg) if arg.startswith("/") else ((cwd / arg) if cwd else Path(arg))).resolve()
+                if cand.is_file() and cand.is_relative_to(home) and cand.suffix.lower() in TEXT_SUFFIXES:
+                    candidate_files.append(cand)
+        except OSError:
+            pass
+        try:
+            fd_dir = Path(f"/proc/{p}/fd")
+            if fd_dir.is_dir():
+                for fd_entry in list(fd_dir.iterdir())[:48]:
+                    try:
+                        target = fd_entry.resolve()
+                        if target.is_file() and target.is_relative_to(home) and target.suffix.lower() in TEXT_SUFFIXES:
+                            if not any(part.startswith(".") for part in target.relative_to(home).parts):
+                                candidate_files.append(target)
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+
+    app_lower = app_id.casefold()
+    if any(g in app_lower for g in GUI_SCREENSHOT_APPS):
+        return cwd_str, []
+
+    if cwd_str and title:
+        cwd_path = Path(cwd_str)
+        for token in re.split(r"[\s—\-|:/]+", title):
+            token = token.strip()
+            if "." in token and len(token) <= 96:
+                cand = (cwd_path / token).resolve()
+                if cand.is_file() and cand.is_relative_to(home) and cand.suffix.lower() in TEXT_SUFFIXES:
+                    candidate_files.insert(0, cand)
+
+    for fpath in candidate_files:
+        try:
+            if fpath.stat().st_size <= 256 * 1024:
+                lines = []
+                for ln in fpath.read_text(encoding="utf-8", errors="replace").splitlines():
+                    cleaned = _clean_line(ln, 145)
+                    if cleaned:
+                        lines.append(cleaned)
+                    if len(lines) >= 12:
+                        break
+                if lines:
+                    return cwd_str, [f"file:{fpath.name}"] + lines[:11]
+        except OSError:
+            continue
+    return cwd_str, []
+
+
+def _capture_screen_ocr() -> list[str]:
+    if not os.environ.get("WAYLAND_DISPLAY") or os.environ.get("WULL_TEST_ENDPOINT"):
+        return []
+    fd, tmp_name = tempfile.mkstemp(prefix="wull-agent-ocr-", suffix=".png")
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        os.chmod(tmp_path, 0o600)
+        subprocess.run(
+            ["grim", str(tmp_path)],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.5
+        )
+        ocr_raw = subprocess.check_output(
+            ["tesseract", str(tmp_path), "stdout", "--psm", "6"],
+            text=True, stderr=subprocess.DEVNULL, timeout=4.0
+        )
+        lines = []
+        for raw_ln in ocr_raw.splitlines():
+            cleaned = _clean_line(raw_ln, 145)
+            alnum = re.sub(r"\W+", "", cleaned)
+            if len(alnum) < 4:
+                continue
+            if any(skip in cleaned for skip in ("Ask Wull", "Pocket ·", "Send a message")):
+                continue
+            lines.append(cleaned)
+            if len(lines) >= 13:
+                break
+        return lines
+    except (OSError, subprocess.SubprocessError):
+        return []
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
 def inspect_metadata(options: dict, companion_root: Path, host_root: Path) -> dict:
     kind = str(options.get("kind", "")).strip()
+    if kind == "active_app":
+        allow_screenshot = options.get("allowScreenshot") is not False
+        win = _resolve_active_window()
+        app_id = _clean_line(win.get("app_id") or "desktop", 80) or "desktop"
+        title = _clean_line(win.get("title") or "Active workspace", 120) or "Active workspace"
+        pid = int(win.get("pid") or 0)
+        cwd_str, direct_lines = _try_direct_app_access(pid, app_id, title)
+        access_method = "direct_app" if direct_lines else "window_only"
+        content_lines = list(direct_lines)
+        if not content_lines and allow_screenshot:
+            ocr_lines = _capture_screen_ocr()
+            if ocr_lines:
+                access_method = "screenshot_ocr"
+                content_lines = ocr_lines
+        headings = [
+            _clean_line(f"app:{app_id} | title:{title}", 155),
+            _clean_line(f"method:{access_method} | cwd:{cwd_str or 'n/a'}", 155),
+        ]
+        for ln in content_lines[:14]:
+            headings.append(_clean_line(ln, 155))
+        return {
+            "kind": "active_app",
+            "hostAvailable": True,
+            "packageId": app_id[:120],
+            "version": access_method[:80],
+            "localOnlyDefault": True,
+            "capabilities": ["active_app", access_method],
+            "headings": headings[:16],
+        }
     if kind == "host_metadata":
         manifest_path = companion_root / "manifest.json"
         manifest = {}

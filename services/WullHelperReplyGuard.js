@@ -67,10 +67,10 @@ function probe(result) {
 
 function validPreferenceValue(field, value) {
     const allowed = {
-        personality: ["calm", "lively", "shy"],
-        appearanceFrequency: ["rare", "normal", "frequent"],
-        dialogueTone: ["gentle", "playful", "concise"],
-        familiarity: ["reserved", "neutral", "warm"],
+        personality: ["calm", "balanced", "energetic", "lively", "shy"],
+        appearanceFrequency: ["always", "frequent", "occasional", "rare", "normal"],
+        dialogueTone: ["gentle", "witty", "playful", "concise"],
+        familiarity: ["reserved", "neutral", "familiar", "warm"],
         proactive: ["rare", "occasional", "regular", "often", "manual"],
         proactiveQuietEnabled: [true, false]
     }
@@ -91,7 +91,7 @@ function validToolReceipt(row) {
 
 function validResult(action, result) {
     if (!object(result)) return false
-    if (action === "tool_inspect") return ["host_metadata", "repo_metadata", "doc_metadata"].includes(result.kind)
+    if (action === "tool_inspect") return ["host_metadata", "repo_metadata", "doc_metadata", "active_app"].includes(result.kind)
         && typeof result.hostAvailable === "boolean"
         && string(result.packageId, 120, false)
         && string(result.version, 80, false)
