@@ -362,6 +362,7 @@ ContentPage {
                 objectName: "companionBehaviorChoicesGrid"
                 Layout.fillWidth: true
                 columns: root.availableRowWidth > 480 ? 2 : 1
+                uniformCellWidths: columns > 1
                 columnSpacing: 16; rowSpacing: 8
                 CompactChoice {
                     objectName: "companionPersonality"
@@ -384,6 +385,7 @@ ContentPage {
                 objectName: "companionBehaviorTogglesGrid"
                 Layout.fillWidth: true
                 columns: root.availableRowWidth > 560 ? 2 : 1
+                uniformCellWidths: columns > 1
                 columnSpacing: 12; rowSpacing: 8
                 CompactToggle {
                     objectName: "companionMotion"
@@ -485,6 +487,7 @@ ContentPage {
                 objectName: "companionRenderingSlidersGrid"
                 Layout.fillWidth: true
                 columns: root.availableRowWidth > 520 ? 2 : 1
+                uniformCellWidths: columns > 1
                 columnSpacing: 16; rowSpacing: 8
                 PercentageRow {
                     objectName: "companionSize"
@@ -517,6 +520,7 @@ ContentPage {
                 objectName: "companionRenderingTogglesGrid"
                 Layout.fillWidth: true
                 columns: root.availableRowWidth > 440 ? 2 : 1
+                uniformCellWidths: columns > 1
                 columnSpacing: 12; rowSpacing: 8
                 CompactToggle {
                     buttonIcon: "bolt"
@@ -556,6 +560,7 @@ ContentPage {
                 objectName:"wullAiPermissionsGrid"
                 Layout.fillWidth:true
                 columns:root.availableRowWidth>560 ? 3 : root.availableRowWidth>380 ? 2 : 1
+                uniformCellWidths:columns > 1
                 columnSpacing:12;rowSpacing:8
                 CompactToggle {
                     objectName:"wullTalkClouds"
@@ -612,6 +617,7 @@ ContentPage {
                 objectName:"wullAiModelGrid"
                 Layout.fillWidth:true
                 columns:root.availableRowWidth>520 ? 2 : 1
+                uniformCellWidths:columns > 1
                 columnSpacing:16;rowSpacing:8
                 ColumnLayout {
                     Layout.fillWidth:true;Layout.alignment:Qt.AlignTop;spacing:4
@@ -668,6 +674,7 @@ ContentPage {
                 objectName:"wullProactiveQuotaGrid"
                 Layout.fillWidth:true
                 columns:root.availableRowWidth>560 ? 3 : root.availableRowWidth>380 ? 2 : 1
+                uniformCellWidths:columns > 1
                 columnSpacing:12;rowSpacing:8
                 CompactChoice {
                     objectName:"wullProactiveFrequency"
@@ -701,15 +708,24 @@ ContentPage {
                 objectName:"wullQuietHoursGrid"
                 Layout.fillWidth:true
                 columns:root.availableRowWidth>560 ? 3 : root.availableRowWidth>380 ? 2 : 1
+                uniformCellWidths:columns > 1
                 columnSpacing:12;rowSpacing:8
-                CompactToggle {
-                    objectName:"wullQuietHoursToggle"
-                    Layout.alignment:Qt.AlignBottom
-                    buttonIcon:"bedtime"
-                    text:Translation.tr("Quiet hours")
-                    tooltipText:"Pause automatic check-ins and reminders during your quiet hours."
-                    checked:WullMind.options.proactiveQuietEnabled !== false
-                    onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.proactiveQuietEnabled",checked)
+                ColumnLayout {
+                    Layout.fillWidth:true;Layout.alignment:Qt.AlignBottom;spacing:4
+                    StyledText {
+                        visible:parent.parent.columns > 1
+                        text:" "
+                        font.pixelSize:Appearance.font.pixelSize.smaller
+                    }
+                    CompactToggle {
+                        objectName:"wullQuietHoursToggle"
+                        Layout.fillWidth:true
+                        buttonIcon:"bedtime"
+                        text:Translation.tr("Quiet hours")
+                        tooltipText:"Pause automatic check-ins and reminders during your quiet hours."
+                        checked:WullMind.options.proactiveQuietEnabled !== false
+                        onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.proactiveQuietEnabled",checked)
+                    }
                 }
                 CompactChoice {
                     objectName:"wullQuietHoursStart"
@@ -729,8 +745,9 @@ ContentPage {
             GridLayout {
                 objectName:"wullReminderSourcesGrid"
                 Layout.fillWidth:true
-                columns:root.availableRowWidth>560 ? 3 : root.availableRowWidth>380 ? 2 : 1
-                columnSpacing:12;rowSpacing:8
+                columns:root.availableRowWidth>520 ? 2 : 1
+                uniformCellWidths:columns > 1
+                columnSpacing:16;rowSpacing:6
                 CompactToggle {
                     objectName:"wullPlannerReminders"
                     buttonIcon:"event_upcoming"
@@ -756,15 +773,15 @@ ContentPage {
                     checked:WullMind.reminderNotificationsEnabled
                     onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.reminderNotificationsEnabled",checked)
                 }
-            }
-            CompactToggle {
-                objectName:"wullDialogueConsent"
-                buttonIcon:"mood"
-                text:Translation.tr("Personalize local dialogue")
-                tooltipText:Translation.tr("Use your chosen tone and today's explicit check-in for local replies. Familiarity is your choice. No relationship score, penalties for absence or pressure to return.")
-                checked:WullMind.options.bondEnabled===true
-                enabled:WullMind.options.bondEnabled!==undefined
-                onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.bondEnabled",checked)
+                CompactToggle {
+                    objectName:"wullDialogueConsent"
+                    buttonIcon:"mood"
+                    text:Translation.tr("Personalize local dialogue")
+                    tooltipText:Translation.tr("Use your chosen tone and today's explicit check-in for local replies. Familiarity is your choice. No relationship score, penalties for absence or pressure to return.")
+                    checked:WullMind.options.bondEnabled===true
+                    enabled:WullMind.options.bondEnabled!==undefined
+                    onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.bondEnabled",checked)
+                }
             }
             GridLayout {
                 objectName:"wullDialogueGrid"
@@ -773,6 +790,7 @@ ContentPage {
                 columnSpacing:12;rowSpacing:8
                 CompactChoice {
                     objectName:"wullDialogueTone"
+                    Layout.preferredWidth:1
                     label:Translation.tr("Dialogue tone")
                     options:[{displayName:Translation.tr("Gentle"),value:"gentle"},
                         {displayName:Translation.tr("Witty"),value:"witty"},{displayName:Translation.tr("Concise"),value:"concise"}]
@@ -781,6 +799,7 @@ ContentPage {
                 }
                 CompactChoice {
                     objectName:"wullDialogueFamiliarity"
+                    Layout.preferredWidth:1
                     label:Translation.tr("Familiarity")
                     options:[{displayName:Translation.tr("Neutral"),value:"neutral"},
                         {displayName:Translation.tr("Familiar coworker"),value:"familiar"}]
@@ -788,7 +807,7 @@ ContentPage {
                     onSelected:value=>Config.setNestedValue("abyss.companionMind.familiarity",value)
                 }
                 RowLayout {
-                    Layout.fillWidth:true;Layout.alignment:Qt.AlignBottom;spacing:8
+                    Layout.fillWidth:false;Layout.alignment:Qt.AlignBottom;spacing:8
                     CompactIconButton {
                         objectName:"wullResetDialogue"
                         iconName:"restart_alt"
@@ -801,6 +820,7 @@ ContentPage {
                 objectName:"wullObsidianContextGrid"
                 Layout.fillWidth:true
                 columns:root.availableRowWidth>520 ? 2 : 1
+                uniformCellWidths:columns > 1
                 columnSpacing:16;rowSpacing:8
                 CompactToggle {
                     objectName:"wullConnectObsidian"
@@ -836,6 +856,7 @@ ContentPage {
                 objectName:"wullAgentToolsGrid"
                 Layout.fillWidth:true
                 columns:root.availableRowWidth>560 ? 3 : root.availableRowWidth>380 ? 2 : 1
+                uniformCellWidths:columns > 1
                 columnSpacing:12;rowSpacing:8
                 CompactToggle {
                     objectName:"wullAgentToolsToggle"
