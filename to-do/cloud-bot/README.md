@@ -1,6 +1,6 @@
 # Companion Local/Cloud task workflow
 
-**[Alis GitHub Issues](https://github.com/llocphann/Alis/issues?q=is%3Aissue+is%3Aopen) is the only active task tracker.** No Markdown to-do files are written.
+**[Alis-Companion GitHub Issues](https://github.com/llocphann/Alis-Companion/issues?q=is%3Aissue+is%3Aopen) is the only active task tracker.** No Markdown to-do files are written.
 
 1. Search open and closed Issues first; update/reopen the matching stable task code or create one only for a new outcome.
 2. Keep **Goal**, important **Constraints** and **Done when** concise. Reuse built-in `bug` / `enhancement` / `documentation` plus the primary colored `area:companion`; add colored `complexity:high` only for difficult cross-module/native/GPU work, and a `status:*` tag only when justified. Never reintroduce `type:*` labels. Link evidence instead of copying logs.

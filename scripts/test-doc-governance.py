@@ -13,11 +13,11 @@ VISUAL = Path("to-do/cloud-bot/ABYSS_WATER_DROPLET_COMPANION.md")
 AI = Path("to-do/cloud-bot/AQUA_LOCAL_AI.md")
 ARCHIVES = {
     "to-do/archive/ABYSS_WATER_DROPLET_COMPANION_PRE_CLEANUP_20261009.md":
-        "e1168b49067a987ce4381a246f6472b15114a081",
+        "58dfb1df5a2a0c7c570ae1cf648315e6338cc10b",
     "to-do/archive/AQUA_LOCAL_AI_PRE_CLEANUP_20261009.md":
-        "8b74c31a918d41e2aa9ceec5fe2315325fac1db4",
+        "20156f7ce113da2bdc815f66974359b6adc037f8",
     "docs/archive/COMPANION_MAK1ZU_RESEARCH_20261008.md":
-        "f21c38fe3563c6994156eb32749dee6cafbe29ca",
+        "61ed9279474c566e272dbf12ccc4700e22652983",
 }
 ACTIVE = (
     "README.md", "docs/README.md", "docs/ALIS_EXTRACTION.md",
@@ -51,7 +51,7 @@ def main():
     source = (ROOT / VISUAL).read_text(encoding="utf-8")
     ai = (ROOT / AI).read_text(encoding="utf-8")
     for name, text in ((str(VISUAL), source), (str(AI), ai)):
-        assert "github.com/llocphann/Alis/issues" in text, (
+        assert "github.com/llocphann/Alis-Companion/issues" in text, (
             name + ": tasks must link directly to GitHub Issues"
         )
         assert len(text.splitlines()) < 30, name + ": old task log reappeared"

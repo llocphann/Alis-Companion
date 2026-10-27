@@ -746,7 +746,7 @@ Item {
                             Layout.preferredHeight: 36
                             implicitWidth: 36
                             implicitHeight: 36
-                            enabled: (!AquaMind.busy || /^\/(?:clear|clean|cls)(?:\s+.*)?$/i.test(message.text.trim())) && message.text.trim().length>0
+                            enabled: (!AquaMind.busy || AquaMind.canInterruptWithPrompt(message.text)) && message.text.trim().length>0
                             buttonRadius: 18
                             onClicked: root.submit()
                             contentItem: MaterialSymbol {

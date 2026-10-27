@@ -106,7 +106,7 @@ def main():
             "test-aqua-memory-store.py", "test-aqua-local-persona.py", "test-aqua-companion-voice-run.py", "test-aqua-companion-settings.py", "test-aqua-quality-ui.py", "test-aqua-mind-ui.py", "test-aqua-journal-ui.py",
             "test-aqua-immersion-runtime.py", "test-aqua-cloud-orbit.py", "test-aqua-cowork-qml.py", "test-aqua-cowork-native.py",
             "test-aqua-ambient-controller.py", "test-aqua-pocket-store.py", "test-aqua-pocket-ui.py", "test-aqua-pocket-wayland.py",
-            "test-aqua-local-tools.py")]
+            "test-aqua-local-tools.py", "test-aqua-agent-f11.py")]
         qml_parser = "/usr/lib/qt6/bin/qmlformat" if Path("/usr/lib/qt6/bin/qmlformat").is_file() else shutil.which("qmlformat")
         if not qml_parser:
             raise SystemExit("Qt qmlformat is required")

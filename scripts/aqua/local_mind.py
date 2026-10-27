@@ -488,6 +488,8 @@ def dispatch(payload):
         return memory_action(action,payload)
     if action in ('tool_inspect','tool_route','tool_propose','tool_confirm','tool_cancel','tool_rollback','tool_receipts','agent_file_op'):
         return tool_action(action,payload)
+    if action in ('agent_turn','agent_cancel','agent_permissions','agent_rules','agent_status'):
+        return agent_action(action,payload)
     if action=='probe':return probe(payload)
     if action=='context':return context(payload)
     if action=='chat':return chat(payload)
@@ -512,6 +514,96 @@ def tool_action(action, payload):
     except tool_store.ToolError as exc:
         raise MindError(exc.code,str(exc)) from exc
     raise MindError('invalid_action','Unsupported tool action')
+
+def agent_action(action, payload):
+    import agent_runtime
+    import permission_store
+    import rule_store
+    import run_store
+    companion_root=Path(__file__).resolve().parents[2]
+    try:
+        if action=='agent_turn':
+            return agent_runtime.execute_agent_turn(payload,companion_root,HOST)
+        if action=='agent_cancel':
+            cancelled=run_store.cancel_active_runs(str(payload.get('reason') or 'cancelled_by_user'),payload.get('nowMs'))
+            return {'cancelled':True,'cancelledRunIds':cancelled}
+        if action=='agent_permissions':
+            op=str(payload.get('op') or 'inspect').strip()
+            if op=='grant':
+                return permission_store.grant_permission(
+                    payload.get('scopeType','directory'),
+                    target=payload.get('target',''),
+                    levels=payload.get('levels'),
+                    ttl_ms=int(payload.get('ttlMs') or 0),
+                    source=str(payload.get('source') or 'user_prompt'),
+                    now_ms=payload.get('nowMs'),
+                )
+            if op=='revoke':
+                return permission_store.revoke_permission(
+                    scope_type=payload.get('scopeType',''),
+                    target=payload.get('target',''),
+                    revoke_all=bool(payload.get('revokeAll',False)),
+                    now_ms=payload.get('nowMs'),
+                )
+            return permission_store.inspect_permissions(payload)
+        if action=='agent_rules':
+            op=str(payload.get('op') or 'list').strip()
+            if op=='create':
+                rule=rule_store.create_or_update_rule(
+                    trigger_type=payload.get('triggerType','planner_event'),
+                    task_prompt=payload.get('taskPrompt',''),
+                    title=payload.get('title',''),
+                    event_id=payload.get('eventId',''),
+                    event_title=payload.get('eventTitle',''),
+                    time_hm=payload.get('timeHm',''),
+                    planner_events=payload.get('plannerEvents'),
+                    max_runs_per_day=int(payload.get('maxRunsPerDay') or 2),
+                    rule_id=payload.get('ruleId',''),
+                    now_ms=payload.get('nowMs'),
+                )
+                return {'rule':rule,'rules':rule_store.load_rules_state(payload.get('nowMs'))['rules']}
+            if op=='enable' or op=='disable':
+                return rule_store.set_rule_enabled(
+                    rule_id=payload.get('ruleId',''),
+                    enabled=(op=='enable'),
+                    disable_all=bool(payload.get('disableAll',False)),
+                    global_stop=payload.get('globalStop'),
+                    now_ms=payload.get('nowMs'),
+                )
+            if op=='delete':
+                return rule_store.delete_rule(payload.get('ruleId',''),now_ms=payload.get('nowMs'))
+            if op=='evaluate':
+                return rule_store.evaluate_triggers(
+                    event_type=payload.get('eventType',''),
+                    event_id=payload.get('eventId',''),
+                    time_hm=payload.get('timeHm',''),
+                    trigger_key=payload.get('triggerKey',''),
+                    active_run_busy=bool(payload.get('activeRunBusy',False)),
+                    screen_locked=bool(payload.get('screenLocked',False)),
+                    focus_active=bool(payload.get('focusActive',False)),
+                    fullscreen_active=bool(payload.get('fullscreenActive',False)),
+                    quiet_hours_active=bool(payload.get('quietHoursActive',False)),
+                    user_actively_typing=bool(payload.get('userActivelyTyping',False)),
+                    now_ms=payload.get('nowMs'),
+                )
+            if op=='startup_grace':
+                return rule_store.mark_startup_grace(payload.get('nowMs'),payload.get('currentKeys'))
+            state=rule_store.load_rules_state(payload.get('nowMs'))
+            return {'globalStop':state['globalStop'],'rules':state['rules']}
+        if action=='agent_status':
+            reconciled=run_store.reconcile_crashed_runs(payload.get('nowMs'))
+            resumable=run_store.latest_resumable_run()
+            return {
+                'contractVersion':1,
+                'reconciledRuns':reconciled,
+                'resumableRun':resumable,
+                'sessionContext':run_store.load_session_context(),
+                'permissions':permission_store.inspect_permissions(payload),
+                'rules':rule_store.load_rules_state(payload.get('nowMs'))['rules'],
+            }
+    except (permission_store.AgentPermissionError,rule_store.RuleStoreError,run_store.RunStoreError) as exc:
+        raise MindError(exc.code,str(exc)) from exc
+    raise MindError('invalid_action','Unsupported agent action')
 
 def memory_action(action, payload):
     # These actions are called only by the user's management controls; model

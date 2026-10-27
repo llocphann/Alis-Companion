@@ -1,10 +1,12 @@
-"""Typed read-only metadata tools, conditional RAG/routing gate, and confirmed edits.
+"""Typed read-only metadata tools, conditional RAG/routing gate, and safe desktop agent tools.
 
-All operations are one-shot and strictly allowlisted. Model output never
-executes an edit directly: every mutation requires an explicit user-confirmed
-proposal token within its deadline, produces a verifiable receipt with before/
-after values and SHA-256 digest, supports idempotent confirmation/cancellation,
-and supports deterministic rollback.
+All operations are strictly bounded and audited:
+- Preference mutations use proposal/confirm/cancel/rollback tokens.
+- File mutations check for symlinks, detect external modification conflicts via
+  SHA-256/patch matching, write atomically with fsync + os.replace, verify
+  after-write readback, and record rollback receipts.
+- Subprocess execution runs inside bubblewrap (bwrap) with process-group reaping
+  and distinct completed / failed / timed_out statuses.
 """
 from __future__ import annotations
 import hashlib
@@ -17,9 +19,14 @@ import subprocess
 import tempfile
 import time
 
+from code_tools import retrieve_rag
+from sandbox_runner import SandboxError, run_sandboxed
+from screen_context import observe_active_window
+
 PROPOSAL_TTL_MS = 120_000
 MAX_PROPOSALS = 64
 MAX_RECEIPTS = 128
+MAX_FILE_RECEIPTS = 64
 
 ALLOWED_PREFERENCE_EDITS = {
     "personality": {"calm", "balanced", "energetic", "lively", "shy"},
@@ -43,8 +50,10 @@ DOC_KEYWORDS = frozenset({
     "architecture", "companion", "config", "cowork", "doc", "docs", "event",
     "focus", "alis", "alis-companion", "memory", "obsidian", "planner", "pocket",
     "portal", "privacy", "reminder", "repo", "schedule", "setting", "settings",
-    "shader", "todo", "wayland", "aqua",
+    "shader", "todo", "wayland", "aqua", "octo", "agent", "permission",
 })
+
+BLOCKED_DOT_DIRS = {".ssh", ".gnupg", ".pki", ".aws", ".kube", "keyring", "keyrings"}
 
 
 class ToolError(Exception):
@@ -63,16 +72,17 @@ def _state_file() -> Path:
 def _load_store() -> dict:
     path = _state_file()
     if not path.is_file():
-        return {"proposals": {}, "receipts": []}
+        return {"proposals": {}, "receipts": [], "fileReceipts": []}
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError()
         proposals = raw.get("proposals", {})
         receipts = raw.get("receipts", [])
-        if not isinstance(proposals, dict) or not isinstance(receipts, list):
+        file_receipts = raw.get("fileReceipts", [])
+        if not isinstance(proposals, dict) or not isinstance(receipts, list) or not isinstance(file_receipts, list):
             raise ValueError()
-        return {"proposals": proposals, "receipts": receipts}
+        return {"proposals": proposals, "receipts": receipts, "fileReceipts": file_receipts}
     except (OSError, ValueError) as exc:
         raise ToolError("store_unavailable", "Tool receipt store could not be read.") from exc
 
@@ -124,218 +134,23 @@ def _git_summary(root: Path) -> tuple[str, str]:
         return "", ""
 
 
-def _resolve_active_window() -> dict:
-    try:
-        raw = subprocess.check_output(
-            ["niri", "msg", "-j", "focused-window"],
-            text=True, stderr=subprocess.DEVNULL, timeout=1.5
-        ).strip()
-        if raw and raw != "null":
-            win = json.loads(raw)
-            if isinstance(win, dict) and (win.get("app_id") or win.get("title")):
-                return win
-    except (OSError, ValueError, subprocess.SubprocessError):
-        pass
-    try:
-        raw_list = subprocess.check_output(
-            ["niri", "msg", "-j", "windows"],
-            text=True, stderr=subprocess.DEVNULL, timeout=1.5
-        ).strip()
-        windows = json.loads(raw_list) if raw_list else []
-        if isinstance(windows, list) and windows:
-            def _ts(w: dict) -> tuple[int, int, int]:
-                ft = w.get("focus_timestamp") or {}
-                return (
-                    1 if w.get("is_focused") else 0,
-                    int(ft.get("secs") or 0),
-                    int(ft.get("nanos") or 0),
-                )
-            windows.sort(key=_ts, reverse=True)
-            return windows[0]
-    except (OSError, ValueError, subprocess.SubprocessError):
-        pass
-    return {}
-
-
-TEXT_SUFFIXES = {
-    ".md", ".txt", ".py", ".qml", ".js", ".cjs", ".mjs", ".ts", ".tsx", ".jsx",
-    ".json", ".rs", ".toml", ".yaml", ".yml", ".sh", ".css", ".html", ".c", ".cpp", ".h",
-}
-GUI_SCREENSHOT_APPS = {
-    "brave", "brave-browser", "firefox", "chromium", "google-chrome", "zen", "vivaldi",
-    "antigravity", "vesktop", "discord", "telegram", "slack", "spotify", "mpv", "vlc",
-}
-
-
-def _descendant_pids(root_pid: int) -> list[int]:
-    if root_pid <= 0:
-        return []
-    visited = []
-    queue = [root_pid]
-    while queue and len(visited) < 16:
-        cur = queue.pop(0)
-        if cur in visited:
-            continue
-        visited.append(cur)
-        try:
-            for task_dir in Path(f"/proc/{cur}/task").iterdir():
-                children_file = task_dir / "children"
-                if children_file.is_file():
-                    for tok in children_file.read_text().split():
-                        if tok.isdigit():
-                            queue.append(int(tok))
-        except OSError:
-            pass
-    return visited
-
-
-def _try_direct_app_access(pid: int, app_id: str, title: str) -> tuple[str, list[str]]:
-    home = Path.home().resolve()
-    pids = _descendant_pids(pid)
-    cwd_str = ""
-    candidate_files: list[Path] = []
-    for p in reversed(pids):
-        try:
-            cwd = Path(f"/proc/{p}/cwd").resolve()
-            if not cwd_str and cwd.is_dir():
-                cwd_str = str(cwd)
-        except OSError:
-            cwd = None
-        try:
-            raw_cmd = Path(f"/proc/{p}/cmdline").read_bytes().split(b"\x00")
-            for arg_b in raw_cmd[1:]:
-                arg = arg_b.decode("utf-8", errors="ignore").strip()
-                if not arg or arg.startswith("-"):
-                    continue
-                cand = (Path(arg) if arg.startswith("/") else ((cwd / arg) if cwd else Path(arg))).resolve()
-                if cand.is_file() and cand.is_relative_to(home) and cand.suffix.lower() in TEXT_SUFFIXES:
-                    candidate_files.append(cand)
-        except OSError:
-            pass
-        try:
-            fd_dir = Path(f"/proc/{p}/fd")
-            if fd_dir.is_dir():
-                for fd_entry in list(fd_dir.iterdir())[:48]:
-                    try:
-                        target = fd_entry.resolve()
-                        if target.is_file() and target.is_relative_to(home) and target.suffix.lower() in TEXT_SUFFIXES:
-                            if not any(part.startswith(".") for part in target.relative_to(home).parts):
-                                candidate_files.append(target)
-                    except OSError:
-                        pass
-        except OSError:
-            pass
-
-    app_lower = app_id.casefold()
-    if any(g in app_lower for g in GUI_SCREENSHOT_APPS):
-        return cwd_str, []
-
-    if cwd_str and title:
-        cwd_path = Path(cwd_str)
-        for token in re.split(r"[\s—\-|:/]+", title):
-            token = token.strip()
-            if "." in token and len(token) <= 96:
-                cand = (cwd_path / token).resolve()
-                if cand.is_file() and cand.is_relative_to(home) and cand.suffix.lower() in TEXT_SUFFIXES:
-                    candidate_files.insert(0, cand)
-
-    for fpath in candidate_files:
-        try:
-            if fpath.stat().st_size <= 256 * 1024:
-                lines = []
-                for ln in fpath.read_text(encoding="utf-8", errors="replace").splitlines():
-                    cleaned = _clean_line(ln, 145)
-                    if cleaned:
-                        lines.append(cleaned)
-                    if len(lines) >= 12:
-                        break
-                if lines:
-                    return cwd_str, [f"file:{fpath.name}"] + lines[:11]
-        except OSError:
-            continue
-    return cwd_str, []
-
-
-def _capture_screen_ocr() -> list[str]:
-    if not os.environ.get("WAYLAND_DISPLAY") or os.environ.get("AQUA_TEST_ENDPOINT"):
-        return []
-    fd, tmp_name = tempfile.mkstemp(prefix="aqua-agent-ocr-", suffix=".png")
-    os.close(fd)
-    tmp_path = Path(tmp_name)
-    try:
-        os.chmod(tmp_path, 0o600)
-        subprocess.run(
-            ["grim", str(tmp_path)],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.5
-        )
-        ocr_raw = subprocess.check_output(
-            ["tesseract", str(tmp_path), "stdout", "--psm", "6"],
-            text=True, stderr=subprocess.DEVNULL, timeout=4.0
-        )
-        lines = []
-        for raw_ln in ocr_raw.splitlines():
-            cleaned = _clean_line(raw_ln, 145)
-            alnum = re.sub(r"\W+", "", cleaned)
-            if len(alnum) < 4:
-                continue
-            if any(skip in cleaned for skip in ("Ask Aqua", "Pocket ·", "Send a message")):
-                continue
-            lines.append(cleaned)
-            if len(lines) >= 13:
-                break
-        return lines
-    except (OSError, subprocess.SubprocessError):
-        return []
-    finally:
-        tmp_path.unlink(missing_ok=True)
-
-
-def _list_desktop_user_summary() -> list[str]:
-    home = Path.home().resolve()
-    summary_lines: list[str] = []
-    desktop_dir = home / "Desktop"
-    if desktop_dir.is_dir():
-        try:
-            items = sorted(desktop_dir.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))[:6]
-            if items:
-                names = ", ".join(p.name + ("/" if p.is_dir() else "") for p in items)
-                summary_lines.append(_clean_line(f"desktop:{names}", 155))
-        except OSError:
-            pass
-    return summary_lines
-
-
 def inspect_metadata(options: dict, companion_root: Path, host_root: Path) -> dict:
     kind = str(options.get("kind", "")).strip()
     if kind == "active_app":
         allow_screenshot = options.get("allowScreenshot") is not False
-        win = _resolve_active_window()
-        app_id = _clean_line(win.get("app_id") or "desktop", 80) or "desktop"
-        title = _clean_line(win.get("title") or "Active workspace", 120) or "Active workspace"
-        pid = int(win.get("pid") or 0)
-        cwd_str, direct_lines = _try_direct_app_access(pid, app_id, title)
-        access_method = "direct_app" if direct_lines else "window_only"
-        content_lines = list(direct_lines)
-        if not content_lines and allow_screenshot:
-            ocr_lines = _capture_screen_ocr()
-            if ocr_lines:
-                access_method = "screenshot_ocr"
-                content_lines = ocr_lines
-        headings = [
-            _clean_line(f"app:{app_id} | title:{title}", 155),
-            _clean_line(f"method:{access_method} | cwd:{cwd_str or 'n/a'}", 155),
-        ]
-        headings.extend(_list_desktop_user_summary())
-        for ln in content_lines[:13]:
-            headings.append(_clean_line(ln, 155))
+        observed = observe_active_window(
+            allow_screenshot=allow_screenshot,
+            previous_window_id=options.get("previousWindowId"),
+            now_ms=options.get("nowMs"),
+        )
         return {
             "kind": "active_app",
-            "hostAvailable": True,
-            "packageId": app_id[:120],
-            "version": access_method[:80],
+            "hostAvailable": bool(observed["hostAvailable"]),
+            "packageId": _clean_line(observed["packageId"], 120) or "desktop",
+            "version": _clean_line(observed["version"], 80) or "niri_metadata",
             "localOnlyDefault": True,
-            "capabilities": ["active_app", access_method, "full_access", "desktop_files", "run_script"],
-            "headings": headings[:16],
+            "capabilities": [str(c)[:80] for c in observed.get("capabilities", [])[:16]],
+            "headings": [_clean_line(h, 155) for h in observed.get("headings", [])[:16]],
         }
     if kind == "host_metadata":
         manifest_path = companion_root / "manifest.json"
@@ -436,28 +251,23 @@ def evaluate_routing(options: dict, companion_root: Path) -> dict:
             "snippets": [],
             "estimatedTokens": max(1, len(prompt) // 4),
         }
-    readme = companion_root / "README.md"
-    snippets = []
-    if readme.is_file() and readme.stat().st_size <= 256 * 1024:
-        paragraphs = [
-            _clean_line(block, 240)
-            for block in readme.read_text(encoding="utf-8", errors="replace").split("\n\n")
-            if block.strip()
-        ]
-        for para in paragraphs:
-            lower = para.casefold()
-            if any(word in lower for word in matched):
-                snippets.append(para)
-                if len(snippets) >= 3:
-                    break
+    rag = retrieve_rag(
+        prompt,
+        companion_root=companion_root,
+        extra_dirs=options.get("extraDirs") if isinstance(options.get("extraDirs"), list) else None,
+        token_budget=int(options.get("tokenBudget", 480)),
+        page=int(options.get("page", 1)),
+        page_size=int(options.get("pageSize", 3)),
+    )
+    snippets = [_clean_line(s, 300) for s in rag["snippets"][:3]]
     total_chars = sum(len(s) for s in snippets)
     return {
         "allowed": True,
         "route": "brain",
         "ragUsed": bool(snippets),
         "reason": "grounded_doc_snippets" if snippets else "no_matching_snippets",
-        "snippets": snippets[:3],
-        "estimatedTokens": max(1, (len(prompt) + total_chars) // 4),
+        "snippets": snippets,
+        "estimatedTokens": max(1, min(16384, (len(prompt) + total_chars) // 4)),
     }
 
 
@@ -489,7 +299,6 @@ def propose_edit(options: dict) -> dict:
     now = _now_ms(options.get("nowMs"))
     store = _load_store()
     proposals = store["proposals"]
-    # Expire old proposals and cap queue size
     for pid, item in list(proposals.items()):
         if item.get("status") == "pending" and now > int(item.get("expiresMs", 0)):
             item["status"] = "expired"
@@ -599,7 +408,14 @@ def list_receipts() -> dict:
     return {"receipts": store["receipts"][-MAX_RECEIPTS:]}
 
 
-BLOCKED_DOT_DIRS = {".ssh", ".gnupg", ".pki", ".aws", ".kube"}
+def _check_no_symlink_in_chain(cand: Path, home: Path) -> None:
+    if cand.is_symlink():
+        raise ToolError("symlink_blocked", "Refusing to read or modify through a symbolic link.")
+    cur = cand
+    while cur != home and cur != cur.parent:
+        if cur.is_symlink():
+            raise ToolError("symlink_blocked", "Refusing to traverse a symbolic link inside user path.")
+        cur = cur.parent
 
 
 def _resolve_user_path(raw_path: str, allow_missing: bool = False) -> Path:
@@ -611,32 +427,96 @@ def _resolve_user_path(raw_path: str, allow_missing: bool = False) -> Path:
         text = text[7:]
     cand = Path(text).expanduser()
     if not cand.is_absolute():
-        desktop_cand = (home / "Desktop" / cand).resolve()
-        home_cand = (home / cand).resolve()
-        if desktop_cand.exists():
-            resolved = desktop_cand
-        elif home_cand.exists():
-            resolved = home_cand
+        desktop_raw = home / "Desktop" / cand
+        home_raw = home / cand
+        if desktop_raw.exists() or desktop_raw.is_symlink():
+            chosen_raw = desktop_raw
+        elif home_raw.exists() or home_raw.is_symlink():
+            chosen_raw = home_raw
         elif (home / "Desktop").is_dir() and "/" not in text:
-            resolved = desktop_cand
+            chosen_raw = desktop_raw
         else:
-            resolved = home_cand
+            chosen_raw = home_raw
     else:
-        resolved = cand.resolve()
+        chosen_raw = cand
+
+    _check_no_symlink_in_chain(chosen_raw, home)
+    resolved = chosen_raw.resolve(strict=False)
     if not resolved.is_relative_to(home) or resolved == home:
         raise ToolError("path_outside_home", "Agent file tools only operate on paths inside your home directory.")
     rel_parts = resolved.relative_to(home).parts
     if any(part in BLOCKED_DOT_DIRS for part in rel_parts):
-        raise ToolError("protected_path", "That protected directory cannot be modified by Companion.")
+        raise ToolError("protected_path", "That protected directory cannot be accessed or modified by Companion.")
     if not allow_missing and not resolved.exists():
         raise ToolError("path_not_found", f"Path not found: {resolved.name}")
     return resolved
 
 
+def _file_sha256(path: Path) -> str:
+    if not path.is_file() or path.is_symlink():
+        return ""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _atomic_write_text(target: Path, content: str) -> str:
+    if target.is_symlink():
+        raise ToolError("symlink_blocked", "Refusing to overwrite a symbolic link.")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = content.encode("utf-8")
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", dir=str(target.parent))
+    tmp_path = Path(tmp_name)
+    try:
+        if target.is_file():
+            st_mode = target.stat().st_mode & 0o777
+            os.fchmod(fd, st_mode)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if target.is_symlink():
+            raise ToolError("symlink_blocked", "Target became a symlink before replacement.")
+        os.replace(tmp_path, target)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    after_sha = _file_sha256(target)
+    expected_sha = hashlib.sha256(payload).hexdigest()
+    if after_sha != expected_sha:
+        raise ToolError("readback_mismatch", "After-write readback digest did not match written bytes.")
+    return after_sha
+
+
+def _record_file_receipt(store: dict, op: str, target_path: str, dest_path: str, before_sha: str, after_sha: str, backup_text: str | None, before_existed: bool, now: int) -> str:
+    core = {
+        "op": op,
+        "targetPath": target_path,
+        "destPath": dest_path,
+        "beforeSha256": before_sha,
+        "afterSha256": after_sha,
+        "appliedAtMs": now,
+    }
+    digest = _digest(core)
+    rid = "rcpt_" + digest[:16]
+    entry = {
+        **core,
+        "receiptId": rid,
+        "digest": digest,
+        "beforeExisted": before_existed,
+        "backupText": backup_text if (backup_text is not None and len(backup_text) <= 262144) else None,
+        "rolledBack": False,
+    }
+    store["fileReceipts"] = (store.get("fileReceipts", []) + [entry])[-MAX_FILE_RECEIPTS:]
+    return rid
+
+
 def agent_file_op(options: dict) -> dict:
     op = str(options.get("op", "")).strip().lower()
-    if op not in ("access", "edit", "copy", "cut", "delete", "cancel_delete", "run"):
-        raise ToolError("invalid_op", "Agent operation must be access, edit, copy, cut, delete, cancel_delete, or run.")
+    valid_ops = (
+        "access", "list", "search", "create", "edit", "patch",
+        "copy", "cut", "delete", "cancel_delete", "rollback", "run",
+    )
+    if op not in valid_ops:
+        raise ToolError("invalid_op", f"Unsupported agent file operation: {op}")
     now = _now_ms(options.get("nowMs"))
     store = _load_store()
     proposals = store["proposals"]
@@ -652,6 +532,50 @@ def agent_file_op(options: dict) -> dict:
             "destPath": "",
             "summary": "Delete request cancelled. No files were deleted.",
             "lines": [],
+        }
+
+    if op == "rollback":
+        req_id = str(options.get("receiptId", "")).strip()
+        file_receipts = store.get("fileReceipts", [])
+        matched = None
+        for r in reversed(file_receipts):
+            if req_id and r.get("receiptId") != req_id:
+                continue
+            if not r.get("rolledBack"):
+                matched = r
+                break
+        if not matched:
+            raise ToolError("receipt_missing", "No matching recoverable file receipt found.")
+        rop = matched.get("op")
+        tpath = Path(matched["targetPath"])
+        dpath = Path(matched["destPath"]) if matched.get("destPath") else None
+        if rop in ("edit", "create", "patch"):
+            if not matched.get("beforeExisted"):
+                if tpath.is_file() and not tpath.is_symlink():
+                    tpath.unlink()
+            elif matched.get("backupText") is not None:
+                _atomic_write_text(tpath, matched["backupText"])
+            else:
+                raise ToolError("rollback_unavailable", "Backup payload not available for this file receipt.")
+        elif rop == "delete":
+            if matched.get("backupText") is not None:
+                _atomic_write_text(tpath, matched["backupText"])
+            else:
+                raise ToolError("rollback_unavailable", "Deleted directory or binary file cannot be restored.")
+        elif rop == "copy" and dpath and dpath.is_file() and not dpath.is_symlink():
+            dpath.unlink()
+        elif rop == "cut" and dpath and dpath.exists() and not tpath.exists():
+            shutil.move(str(dpath), str(tpath))
+        matched["rolledBack"] = True
+        _save_store(store)
+        return {
+            "op": "rollback",
+            "status": "completed",
+            "confirmStage": 0,
+            "targetPath": str(tpath),
+            "destPath": str(dpath) if dpath else "",
+            "summary": _clean_line(f"Rolled back {rop} on {tpath.name} ({matched['receiptId']}).", 240),
+            "lines": [_clean_line(f"Restored receipt: {matched['receiptId']}", 180)],
         }
 
     raw_target = str(options.get("targetPath", "")).strip()
@@ -672,75 +596,90 @@ def agent_file_op(options: dict) -> dict:
                 target_label = cand.name
         except ToolError:
             resolved_script = None
+
+        timeout_sec = float(options.get("timeoutSec") or 15.0)
         try:
             if resolved_script is not None and len(cmd_text.split()) == 1:
                 suffix = resolved_script.suffix.lower()
                 if suffix == ".py":
-                    argv = ["python3", str(resolved_script)]
+                    argv = ["/usr/bin/python3", str(resolved_script)]
                 elif suffix in (".js", ".cjs", ".mjs"):
-                    argv = ["node", str(resolved_script)]
+                    argv = ["/usr/bin/node", str(resolved_script)]
                 else:
-                    argv = ["bash", str(resolved_script)]
-                proc = subprocess.run(
-                    argv, cwd=str(work_dir), text=True,
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=4.0
+                    argv = ["/usr/bin/bash", str(resolved_script)]
+                ran = run_sandboxed(
+                    argv,
+                    cwd=work_dir,
+                    writable_dirs=[work_dir],
+                    readonly_dirs=[home],
+                    allow_network=bool(options.get("allowNetwork", False)),
+                    timeout_sec=timeout_sec,
+                    shell=False,
                 )
             else:
-                proc = subprocess.run(
-                    ["bash", "-lc", cmd_text], cwd=str(work_dir), text=True,
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=4.0
+                ran = run_sandboxed(
+                    cmd_text,
+                    cwd=work_dir,
+                    writable_dirs=[work_dir],
+                    readonly_dirs=[home],
+                    allow_network=bool(options.get("allowNetwork", False)),
+                    timeout_sec=timeout_sec,
+                    shell=True,
                 )
-            out_lines = [
-                _clean_line(ln, 180)
-                for ln in (proc.stdout or "").splitlines()
-                if ln.strip()
-            ][:18]
-            return {
-                "op": "run",
-                "status": "completed",
-                "confirmStage": 0,
-                "targetPath": str(resolved_script or work_dir)[:400],
-                "destPath": "",
-                "summary": _clean_line(f"Ran '{target_label}' (exit {proc.returncode}).", 240),
-                "lines": out_lines or [f"(completed with exit code {proc.returncode})"],
-            }
-        except subprocess.TimeoutExpired:
-            raise ToolError("script_timeout", "Script timed out after 4 seconds.")
-        except OSError as exc:
-            raise ToolError("script_error", _clean_line(f"Failed to run script: {exc}", 180))
+        except SandboxError as exc:
+            raise ToolError(exc.code, exc.message) from exc
+
+        out_lines = [_clean_line(ln, 180) for ln in ran["lines"] if ln.strip()][:18]
+        return {
+            "op": "run",
+            "status": ran["status"],
+            "confirmStage": 0,
+            "targetPath": str(resolved_script or work_dir)[:400],
+            "destPath": "",
+            "summary": _clean_line(f"Ran '{target_label}' ({ran['status']}, exit {ran['exitCode']}).", 240),
+            "lines": out_lines or [f"({ran['status']} with exit code {ran['exitCode']})"],
+        }
 
     if op == "access" and not raw_target:
-        win = _resolve_active_window()
-        app_id = _clean_line(win.get("app_id") or "desktop", 80) or "desktop"
-        title = _clean_line(win.get("title") or "Active workspace", 120) or "Active workspace"
-        pid = int(win.get("pid") or 0)
-        cwd_str, direct_lines = _try_direct_app_access(pid, app_id, title)
-        lines = list(direct_lines)
-        method = "direct_app" if lines else "window_only"
-        if not lines and options.get("allowScreenshot") is not False:
-            ocr = _capture_screen_ocr()
-            if ocr:
-                lines = ocr
-                method = "screenshot_ocr"
-        out_lines = [_clean_line(f"app:{app_id} | {title}", 180)]
-        if cwd_str:
-            out_lines.append(_clean_line(f"cwd:{cwd_str}", 180))
-        out_lines.extend(_list_desktop_user_summary())
-        out_lines.extend(_clean_line(x, 180) for x in lines[:14])
+        observed = observe_active_window(
+            allow_screenshot=options.get("allowScreenshot") is not False,
+            previous_window_id=options.get("previousWindowId"),
+            now_ms=now,
+        )
+        obs_meta = observed["observation"]
+        app_id = _clean_line(obs_meta.get("appId") or "desktop", 80) or "desktop"
+        title = _clean_line(obs_meta.get("title") or "Active workspace", 120) or "Active workspace"
+        method = _clean_line(obs_meta.get("source") or "niri_metadata", 60)
+        out_lines = [
+            _clean_line(f"app:{app_id} | {title} | source:{method}", 180),
+        ]
+        for ln in observed.get("headings", [])[:16]:
+            cleaned = _clean_line(ln, 180)
+            if cleaned and cleaned not in out_lines:
+                out_lines.append(cleaned)
         return {
             "op": "access",
             "status": "completed",
             "confirmStage": 0,
-            "targetPath": cwd_str[:400] if cwd_str else "",
+            "targetPath": "",
             "destPath": "",
-            "summary": _clean_line(f"Accessed Apps, Desktop & User context ({app_id}, {method}).", 240),
+            "summary": _clean_line(f"Observed active window ({app_id}, {method}).", 240),
             "lines": out_lines[:20],
         }
 
-    if op == "access":
+    if op in ("access", "list", "search"):
         target = _resolve_user_path(raw_target, allow_missing=False)
+        query = str(options.get("query", "")).strip().lower()
+        page = max(1, int(options.get("page") or 1))
+        page_size = max(1, min(20, int(options.get("pageSize") or 18)))
+
         if target.is_dir():
-            entries = sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))[:20]
+            all_entries = [
+                e for e in sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+                if not e.is_symlink() and (not query or query in e.name.lower())
+            ]
+            start_idx = (page - 1) * page_size
+            entries = all_entries[start_idx:start_idx + page_size]
             lines = [
                 _clean_line(f"{'[dir]' if e.is_dir() else '[file]'} {e.name}", 180)
                 for e in entries
@@ -751,9 +690,13 @@ def agent_file_op(options: dict) -> dict:
                 "confirmStage": 0,
                 "targetPath": str(target),
                 "destPath": "",
-                "summary": _clean_line(f"Folder {target.name}: {len(entries)} item(s) shown.", 240),
+                "summary": _clean_line(
+                    f"Folder {target.name}: showing {len(entries)} of {len(all_entries)} item(s) (page {page}).",
+                    240,
+                ),
                 "lines": lines or ["(empty folder)"],
             }
+
         size = target.stat().st_size
         if size > 512 * 1024:
             return {
@@ -766,27 +709,43 @@ def agent_file_op(options: dict) -> dict:
                 "lines": [_clean_line(f"Path: {target}", 180), f"Size: {size} bytes"],
             }
         raw_text = target.read_text(encoding="utf-8", errors="replace")
-        lines = [_clean_line(ln, 180) for ln in raw_text.splitlines() if ln.strip()][:18]
+        all_lines = raw_text.splitlines()
+        start_line = max(1, int(options.get("startLine") or 1))
+        end_line = min(len(all_lines), int(options.get("endLine") or (start_line + 17)))
+        sliced = all_lines[start_line - 1:end_line] if all_lines else []
+        lines = [_clean_line(ln, 180) for ln in sliced if ln.strip()][:18]
         return {
             "op": "access",
             "status": "completed",
             "confirmStage": 0,
             "targetPath": str(target),
             "destPath": "",
-            "summary": _clean_line(f"Read {target.name} ({size} bytes).", 240),
+            "summary": _clean_line(f"Read {target.name} ({size} bytes, sha256:{_file_sha256(target)[:12]}).", 240),
             "lines": lines or ["(empty file)"],
         }
 
-    if op == "edit":
+    if op in ("edit", "create", "patch"):
         target = _resolve_user_path(raw_target, allow_missing=True)
         if target.exists() and target.is_dir():
             raise ToolError("is_directory", "Cannot edit a folder as a text file.")
-        mode = str(options.get("mode", "write")).strip().lower()
+        before_existed = target.is_file()
+        if op == "create" and before_existed and options.get("overwrite") is not True:
+            raise ToolError("file_already_exists", f"File '{target.name}' already exists; confirm overwrite or use edit.")
+
+        before_sha = _file_sha256(target) if before_existed else ""
+        expected_sha = str(options.get("expectedSha256", "")).strip()
+        if expected_sha and before_existed and before_sha != expected_sha and not before_sha.startswith(expected_sha):
+            raise ToolError(
+                "conflict_detected",
+                f"File '{target.name}' was modified externally since last read; refusing to overwrite.",
+            )
+
+        mode = "replace" if op == "patch" else str(options.get("mode", "write")).strip().lower()
         content = str(options.get("content", ""))
-        if len(content) > 8000:
-            raise ToolError("content_too_large", "Edit content exceeds the 8000-character limit.")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        existing = target.read_text(encoding="utf-8", errors="replace") if target.is_file() else ""
+        if len(content) > 16000:
+            raise ToolError("content_too_large", "Edit content exceeds the 16000-character limit.")
+
+        existing = target.read_text(encoding="utf-8", errors="replace") if before_existed else ""
         if mode == "append":
             sep = "\n" if existing and not existing.endswith("\n") else ""
             updated = existing + sep + content + ("\n" if not content.endswith("\n") else "")
@@ -797,7 +756,20 @@ def agent_file_op(options: dict) -> dict:
             updated = existing.replace(search_text, content, 1)
         else:
             updated = content
-        target.write_text(updated, encoding="utf-8")
+
+        after_sha = _atomic_write_text(target, updated)
+        rid = _record_file_receipt(
+            store,
+            op="edit" if op != "create" else "create",
+            target_path=str(target),
+            dest_path="",
+            before_sha=before_sha,
+            after_sha=after_sha,
+            backup_text=existing if before_existed else None,
+            before_existed=before_existed,
+            now=now,
+        )
+        _save_store(store)
         preview = [_clean_line(ln, 180) for ln in updated.splitlines() if ln.strip()][:10]
         return {
             "op": "edit",
@@ -805,7 +777,10 @@ def agent_file_op(options: dict) -> dict:
             "confirmStage": 0,
             "targetPath": str(target),
             "destPath": "",
-            "summary": _clean_line(f"Updated {target.name} ({len(updated.encode('utf-8'))} bytes).", 240),
+            "summary": _clean_line(
+                f"Updated {target.name} ({len(updated.encode('utf-8'))} bytes, receipt {rid}).",
+                240,
+            ),
             "lines": preview or ["(file saved)"],
         }
 
@@ -817,23 +792,52 @@ def agent_file_op(options: dict) -> dict:
         dst = _resolve_user_path(raw_dest, allow_missing=True)
         if dst.exists() and dst.is_dir():
             dst = (dst / src.name).resolve()
+        if dst.is_symlink():
+            raise ToolError("symlink_blocked", "Refusing to overwrite a destination symlink.")
+        if dst.exists() and options.get("overwrite") is False:
+            raise ToolError("destination_exists", f"Destination '{dst.name}' already exists.")
+
+        before_sha = _file_sha256(src) if src.is_file() else ""
+        dst_existed = dst.is_file()
+        dst_backup = dst.read_text(encoding="utf-8", errors="replace") if (dst_existed and dst.stat().st_size <= 262144) else None
         dst.parent.mkdir(parents=True, exist_ok=True)
         if op == "copy":
             if src.is_dir():
-                shutil.copytree(src, dst, dirs_exist_ok=True)
+                shutil.copytree(src, dst, symlinks=False, dirs_exist_ok=True)
             else:
-                shutil.copy2(src, dst)
+                fd, tmp_name = tempfile.mkstemp(prefix=f".{dst.name}.", dir=str(dst.parent))
+                os.close(fd)
+                tmp_dst = Path(tmp_name)
+                try:
+                    shutil.copy2(src, tmp_dst, follow_symlinks=False)
+                    os.replace(tmp_dst, dst)
+                except Exception:
+                    tmp_dst.unlink(missing_ok=True)
+                    raise
             verb = "Copied"
         else:
             shutil.move(str(src), str(dst))
             verb = "Moved (cut)"
+        after_sha = _file_sha256(dst) if dst.is_file() else ""
+        rid = _record_file_receipt(
+            store,
+            op=op,
+            target_path=str(src),
+            dest_path=str(dst),
+            before_sha=before_sha,
+            after_sha=after_sha,
+            backup_text=dst_backup,
+            before_existed=dst_existed,
+            now=now,
+        )
+        _save_store(store)
         return {
             "op": op,
             "status": "completed",
             "confirmStage": 0,
             "targetPath": str(src),
             "destPath": str(dst),
-            "summary": _clean_line(f"{verb} {src.name} -> {dst}", 240),
+            "summary": _clean_line(f"{verb} {src.name} -> {dst} (receipt {rid})", 240),
             "lines": [_clean_line(f"From: {src}", 180), _clean_line(f"To: {dst}", 180)],
         }
 
@@ -875,11 +879,26 @@ def agent_file_op(options: dict) -> dict:
     if step == 2:
         if int(pending_del.get("stage", 0)) < 2:
             raise ToolError("second_confirmation_required", "Delete requires 2 confirmations (step 1 before step 2).")
+        before_sha = _file_sha256(target) if target.is_file() else ""
+        backup_text = None
+        if target.is_file() and target.stat().st_size <= 262144:
+            backup_text = target.read_text(encoding="utf-8", errors="replace")
         if target.is_dir():
             shutil.rmtree(target)
         else:
             target.unlink()
         proposals.pop("delete_pending", None)
+        rid = _record_file_receipt(
+            store,
+            op="delete",
+            target_path=str(target),
+            dest_path="",
+            before_sha=before_sha,
+            after_sha="",
+            backup_text=backup_text,
+            before_existed=True,
+            now=now,
+        )
         _save_store(store)
         return {
             "op": "delete",
@@ -887,7 +906,7 @@ def agent_file_op(options: dict) -> dict:
             "confirmStage": 2,
             "targetPath": str(target),
             "destPath": "",
-            "summary": _clean_line(f"Deleted '{target.name}' after 2x confirmation.", 240),
+            "summary": _clean_line(f"Deleted '{target.name}' after 2x confirmation (receipt {rid}).", 240),
             "lines": [_clean_line(f"Removed: {target}", 180)],
         }
     raise ToolError("invalid_confirm_step", "Invalid delete confirmation step.")

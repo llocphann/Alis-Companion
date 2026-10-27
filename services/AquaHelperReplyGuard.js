@@ -122,14 +122,25 @@ function validResult(action, result) {
         && result.cancelled === true && result.status === "cancelled"
     if (action === "tool_receipts") return Array.isArray(result.receipts)
         && result.receipts.length <= 128 && result.receipts.every(validToolReceipt)
-    if (action === "agent_file_op") return ["access", "edit", "copy", "cut", "delete", "cancel_delete", "run"].includes(result.op)
-        && ["completed", "confirm_1_required", "confirm_2_required", "cancelled"].includes(result.status)
+    if (action === "agent_file_op") return ["access", "list", "search", "create", "edit", "patch", "copy", "cut", "delete", "cancel_delete", "rollback", "run"].includes(result.op)
+        && ["completed", "failed", "timed_out", "uncertain", "confirm_1_required", "confirm_2_required", "cancelled"].includes(result.status)
         && integer(result.confirmStage, 0, 2)
         && path(result.targetPath, true)
         && path(result.destPath, true)
         && string(result.summary, 320, false)
         && Array.isArray(result.lines) && result.lines.length <= 24
         && result.lines.every(v => string(v, 220, false))
+    if (action === "agent_turn") return typeof result.handled === "boolean"
+        && string(result.intent, 64, false)
+        && ["vi", "en"].includes(result.language)
+        && (!result.handled || (string(result.text, 2000, false) && string(result.status, 64, false)))
+    if (action === "agent_cancel") return result.cancelled === true && Array.isArray(result.cancelledRunIds)
+    if (action === "agent_permissions") return integer(result.schemaVersion, 1, 10)
+        && typeof result.networkAllowed === "boolean"
+        && Array.isArray(result.directories) && Array.isArray(result.apps) && object(result.tools)
+    if (action === "agent_rules") return Array.isArray(result.rules) || typeof result.triggered === "boolean" || typeof result.deleted === "boolean"
+    if (action === "agent_status") return integer(result.contractVersion, 1, 10)
+        && Array.isArray(result.reconciledRuns) && object(result.sessionContext) && object(result.permissions)
     if (action === "memory_list") return Array.isArray(result.memories) && result.memories.length<=128
         && result.memories.every(row=>object(row) && positiveId(row.id)
             && ["aqua","octo","shared"].includes(row.scope) && string(row.text,320,false)

@@ -1,6 +1,6 @@
 # Retired Companion work logs — frozen evidence
 
-These documents are **not active roadmaps**. Current work is managed only through [Alis GitHub Issues](https://github.com/llocphann/Alis/issues?q=is%3Aissue+is%3Aopen). The former visual and AI pages are redirects. Older Alis `dev` paths, exact-SHA local receipts, untested experiments and historical PASS/FAIL counts must not drive new tasks or be relabeled as current Alis-Companion validation.
+These documents are **not active roadmaps**. Current work is managed only through [Alis-Companion GitHub Issues](https://github.com/llocphann/Alis-Companion/issues?q=is%3Aissue+is%3Aopen). The former visual and AI pages are redirects. Older Alis `dev` paths, exact-SHA local receipts, untested experiments and historical PASS/FAIL counts must not drive new tasks or be relabeled as current Alis-Companion validation.
 
 | Immutable archived source | Snapshot identity | Why retired |
 | --- | --- | --- |

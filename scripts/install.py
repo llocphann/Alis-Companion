@@ -12,7 +12,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_DIRS = ("modules/abyss/companion", "modules/settings", "services", "scripts/aqua")
-RUNTIME_FILES = ("manifest.json", "qmldir", "AlisSession.qml", "AlisOutput.qml", "scripts/native-dispatch", "LICENSE")
+RUNTIME_FILES = ("manifest.json", "qmldir", "AlisSession.qml", "AlisOutput.qml", "scripts/native-dispatch", "LICENSE", "README.md")
 
 
 def assemble(source, target, binary, sha):

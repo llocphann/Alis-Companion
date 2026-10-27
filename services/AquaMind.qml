@@ -42,10 +42,20 @@ Singleton {
     property var lastActiveAppContext: null
     property double lastActiveAppCapturedAt: 0
     property var lastAgentFileResult: null
+    property var lastAgentTurnResult: null
+    property var agentPermissions: null
+    property var agentRules: []
+    property bool agentGlobalStop: false
+    property bool pendingAgentConfirmation: false
+    property bool pendingAgentClarification: false
+    property string activeAgentRunId: ""
+    property bool previousPomodoroRunning: false
     property string pendingDeletePath: ""
     property int pendingDeleteStage: 0
     readonly property string agentStatusSummary: !agentToolsEnabled ? "Agent off"
         : pendingDeleteStage > 0 ? ("Confirm delete (" + pendingDeleteStage + "/2): " + pendingDeletePath.split("/").pop())
+        : pendingAgentConfirmation ? "Awaiting confirmation in chat"
+        : pendingAgentClarification ? "Awaiting file selection in chat"
         : toolNotice.length > 0 ? toolNotice
         : lastActiveAppContext ? ("Full Access · " + lastActiveAppContext.packageId + " (" + (lastActiveAppContext.version === "screenshot_ocr" ? "Screen OCR" : lastActiveAppContext.version === "direct_app" ? "Direct app" : "Window") + ")")
         : lastToolMetadata ? ("Full Access · " + lastToolMetadata.packageId)
@@ -123,6 +133,7 @@ Singleton {
     property string connectionStatus: "disconnected"
     property string errorMessage: ""
     property var aiSession: null
+    property var agentSession: null
     readonly property var selectableModels: [{name:"",label:localOnly ? "Automatic local model" : "Use the AI tab model",thinking:false}]
         .concat(Ai.runnableModelList.filter(id=>ModelPolicy.allowed(Ai.models[id],localOnly)).map(id=>({name:id,label:Ai.models[id].name,
             thinking:Ai.supportsThinking(Ai.models[id])})))
@@ -187,6 +198,8 @@ Singleton {
         const cancelledChat=pending?.action==="ai_chat" && !pending?.automatic
         epoch++;pending=null;busy=false;deadline.stop()
         if (aiSession) aiSession.cancel()
+        if (agentSession) agentSession.cancel()
+        if (agentTurnWorker.running) agentTurnWorker.running=false
         if (cancelledChat) history=history.filter(entry=>entry?.pending!==true)
         if (worker.running) {draining=true;worker.running=false}
         if (connectionStatus==="generating" || connectionStatus==="connecting") connectionStatus="disconnected"
@@ -194,7 +207,7 @@ Singleton {
     function dispatch(action, extra = null, automatic = false): bool {
         if (busy || draining || worker.running || automatic) return false
         if (["chat","probe"].includes(action)) return false
-        const request=Object.assign((action.startsWith("memory_") || action.startsWith("tool_")) ? {action:action} : payload(action),extra ?? {})
+        const request=Object.assign((action.startsWith("memory_") || action.startsWith("tool_") || action.startsWith("agent_")) ? {action:action} : payload(action),extra ?? {})
         const serial=++epoch
         pending={serial:serial,action:action,request:request,automatic:automatic}
         busy=true;errorMessage=""
@@ -206,6 +219,7 @@ Singleton {
     function ensureAi(): void {
         Ai.ensureInitialized()
         if (!aiSession) aiSession=Ai.createTextSession(root)
+        if (!agentSession && typeof Ai.createAgentSession === "function") agentSession=Ai.createAgentSession(root)
     }
     function ensureProviderService(): void {
         if (Quickshell.env("AQUA_TEST_ENDPOINT") || providerWarmupWorker.running) return
@@ -337,8 +351,100 @@ Singleton {
         if (pendingDeleteStage <= 0 && !pendingDeletePath) return false
         return runAgentFileOp("cancel_delete", pendingDeletePath, "", "", "write", 0, "Cancel delete")
     }
+    function canInterruptWithPrompt(rawText): bool {
+        const t = String(rawText ?? "").trim()
+        if (!t) return false
+        if (/^\/(?:clear|clean|cls)(?:\s+.*)?$/i.test(t)) return true
+        const folded = t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d")
+        return /^(?:hay\s+|vui long\s+|please\s+)?(?:dung|dung lai|dung ngay|ngung|thoi|huy|huy bo|huy tac vu|stop|cancel|abort|halt|pause)(?:\s+.*)?$/i.test(folded)
+    }
+    function shouldRouteToAgentTurn(rawPrompt): bool {
+        if (!agentToolsEnabled) return false
+        if ((Quickshell.env("AQUA_TEST_ENDPOINT") || Quickshell.env("AI_FIXTURE_URL"))
+                && Quickshell.env("AQUA_TEST_AGENT_ENABLED") !== "1") return false
+        const trimmed = String(rawPrompt ?? "").trim()
+        if (!trimmed) return false
+        const folded = trimmed.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/\s+/g, " ")
+        if (pendingAgentConfirmation || pendingAgentClarification) return true
+        if (/^(?:hay\s+|vui long\s+|please\s+)?(?:dung|dung lai|dung ngay|ngung|thoi|huy|huy bo|huy tac vu|stop|cancel|abort|halt|pause)(?:\s+.*)?$/.test(folded)) return true
+        if (/^(?:hay\s+|vui long\s+|please\s+)?(?:lam tiep|lam tiep phan con lai|tiep tuc|tiep tuc di|tiep tuc tu checkpoint|continue|continue the rest|resume|keep going)(?:\s+.*)?$/.test(folded)) return true
+        if (/^(?:giai thich|explain|what does|y nghia cua|dich cau|translate|phan tich cau)\b/.test(folded)) return true
+        if (/^(?:xin\s+|vui long\s+|please\s+)?(?:dung|khong|chua|tuyet doi khong|do not|don't|dont|never|must not|should not)\s+(?:xoa|sua|chay|doc|mo|ghi|sao chep|di chuyen|gui|thuc hien|delete|remove|edit|write|run|execute|open|read|modify|touch|clear|forget)\b/.test(folded)) return true
+        if (/^(?:neu|gia su|what if|what would happen if|suppose|assuming|if i|if you)\b/.test(folded)
+                && (trimmed.includes("?") || folded.includes("thi sao") || folded.includes("happen") || folded.includes("would"))) return true
+        if (/(?:gioi han|toi da|max turns|limit|budget)\s*(?:la|to|:)?\s*\d+\s*(?:vong|luot|turns|steps|phut|minutes)/.test(folded)) return true
+        if (/\b(?:xem quyen|quyen hien tai|kiem tra quyen|thu hoi quyen|xoa quyen|tat quyen|cap quyen|cho phep truy cap|list permissions|show permissions|what permissions|revoke permission|revoke all permissions|clear permissions|grant permission|allow access to)\b/.test(folded)) return true
+        if (/\b(?:danh sach quy tac|xem quy tac|cac quy tac|tat quy tac|xoa quy tac|huy quy tac|tao quy tac|them quy tac|khi su kien|khi bat dau|sau khi ket thuc focus|moi ngay luc|list rules|show rules|active rules|disable rule|delete rule|remove rule|stop all rules|create rule|when planner|when focus ends|every day at)\b/.test(folded)) return true
+        if (/^(?:hay\s+|vui long\s+|please\s+)?(?:nho rang|ghi nho|luu vao bo nho|remember that|save to memory|please remember|quen ghi nho|xoa ghi nho|forget memory|delete memory)\b/.test(folded)
+                || /\b(?:xem bo nho|xem cac ghi nho|nhung gi ban nho|list memories|show memories|what do you remember)\b/.test(folded)) return true
+        if (/\b(?:trong pocket|tep trong pocket|xem pocket|them .* vao pocket|bo .* khoi pocket|pocket files|in pocket|add .* to pocket|remove .* from pocket)\b/.test(folded)) return true
+        if (/\b(?:xem man hinh|doc man hinh|doc cua so|cua so hien tai|ung dung dang mo|man hinh dang co gi|tren man hinh|what is on my screen|read the screen|read current window|inspect active window|look at my screen|chuyen sang cua so|focus window|focus cua so|kiem tra cua so)\b/.test(folded)) return true
+        if (/\b(?:chay kiem tra|chay test|run tests|run project tests|test du an|kiem tra loi|diagnostics|lsp|sua loi trong du an|fix error in project|check errors in|tim symbol|tim ham|tim dinh nghia|tim tham chieu|find symbol|find definition|find references|search code|cau truc du an|repo map)\b/.test(folded)) return true
+        if (/\b(?:tim trong tai lieu|theo tai lieu|tai lieu companion|shader validation|portal travel|search docs|in the documentation)\b/.test(folded)) return true
+        if (/\b(?:doi tinh cach|chinh tinh cach|set personality|change personality|doi giong dieu|set dialogue tone)\b/.test(folded)) return true
+        if (/\b(?:hoan tac|undo|rollback|khoi phuc thao tac vua roi|doc thu muc|liet ke|xem thu muc|tim tep|doc tep|doc file|xem file|tom tat tep|tom tat|sua tep|sua file|ghi vao|them dong|tao tep|tao file|sao chep|di chuyen|xoa tep|xoa file|read folder|list directory|read file|summarize|edit file|create file|copy file|move file|delete file|tep do|tep nay|thu muc nay|thu muc do|thu muc vua mo|du an vua mo)\b/.test(folded)) return true
+        return false
+    }
+    function runAgentTurn(userPrompt, runSource = "interactive"): bool {
+        if (!agentToolsEnabled) return false
+        const trimmed = String(userPrompt ?? "").trim()
+        if (!trimmed) return false
+        if (agentTurnWorker.running && canInterruptWithPrompt(trimmed)) {
+            agentTurnWorker.running = false
+        } else if (agentTurnWorker.running) {
+            return false
+        }
+        toolNotice = ""
+        errorMessage = ""
+        if (runSource === "interactive") {
+            history = history.concat([{id: 0, role: "user", content: trimmed}]).slice(-2000)
+            historyLoaded = true
+        }
+        const plannerEvents = (typeof Events !== "undefined" && Events.ready && Array.isArray(Events.list))
+            ? Events.list.slice(0, 24).map(e => ({id: String(e.id ?? ""), title: String(e.title ?? "")}))
+            : []
+        agentTurnWorker.requestPayload = {
+            action: "agent_turn",
+            prompt: trimmed,
+            character: character === "octo" ? "octo" : "aqua",
+            runSource: runSource,
+            allowScreenshot: agentScreenFallbackEnabled,
+            plannerEvents: plannerEvents,
+            persistHistory: true
+        }
+        agentTurnWorker.running = true
+        if (runSource === "interactive") touchConversation()
+        return true
+    }
+    function evaluateAgentRules(eventType, eventId = "", timeHm = "", triggerKey = ""): void {
+        if (!agentToolsEnabled || agentGlobalStop || agentRuleWorker.running || agentTurnWorker.running || busy || draining) return
+        if (Date.now() - startedAt < 15000) return
+        const now = new Date()
+        const minuteOfDay = now.getHours() * 60 + now.getMinutes()
+        const qStart = options.proactiveQuietStart ?? 1320
+        const qEnd = options.proactiveQuietEnd ?? 480
+        const quietActive = (options.proactiveQuietEnabled !== false)
+            && (qStart > qEnd ? (minuteOfDay >= qStart || minuteOfDay < qEnd) : (minuteOfDay >= qStart && minuteOfDay < qEnd))
+        agentRuleWorker.requestPayload = {
+            action: "agent_rules",
+            op: "evaluate",
+            eventType: eventType,
+            eventId: eventId,
+            timeHm: timeHm,
+            triggerKey: triggerKey,
+            activeRunBusy: busy || agentTurnWorker.running,
+            screenLocked: hostBlocked,
+            focusActive: focusSessionActive && eventType !== "focus_end",
+            fullscreenActive: hostBlocked,
+            quietHoursActive: quietActive,
+            userActivelyTyping: conversationOpen
+        }
+        agentRuleWorker.running = true
+    }
     function tryHandleAgentCommand(prompt): bool {
-        if (!agentToolsEnabled || Quickshell.env("AQUA_TEST_ENDPOINT")) return false
+        if (!agentToolsEnabled) return false
+        if ((Quickshell.env("AQUA_TEST_ENDPOINT") || Quickshell.env("AI_FIXTURE_URL"))
+                && Quickshell.env("AQUA_TEST_AGENT_ENABLED") !== "1") return false
         const trimmed = String(prompt ?? "").trim()
         if (!trimmed) return false
         const lower = trimmed.toLowerCase()
@@ -347,6 +453,9 @@ Singleton {
                 return confirmAgentDelete()
             if (/^(?:cancel|no|n|huy|hủy|khong|không|cancel delete)$/i.test(lower))
                 return cancelAgentDelete()
+        }
+        if (shouldRouteToAgentTurn(trimmed)) {
+            return runAgentTurn(trimmed, "interactive")
         }
         const editMatch = trimmed.match(/^(?:\/agent\s+)?(?:edit|write|append|sua|sửa|ghi)(?:\s+file)?\s+([^:]+):\s*([\s\S]+)$/i)
         if (editMatch) {
@@ -425,8 +534,6 @@ Singleton {
         checkInStage=""
         conversationOpen=true;expiry.stop();text="";touchConversation()
         if (!historyLoaded) loadHistory(false)
-        if (agentToolsEnabled && agentAppContextEnabled && !Quickshell.env("AQUA_TEST_ENDPOINT"))
-            captureActiveAppContext()
     }
     function closeChat(): void {
         conversationOpen=false;conversationExpiry.stop()
@@ -445,6 +552,7 @@ Singleton {
     function clearConversation(): void {
         cancel();history=[];historyLoaded=true;historyHasMore=false;text="";errorMessage="";toolNotice=""
         pendingDeletePath="";pendingDeleteStage=0
+        pendingAgentConfirmation=false;pendingAgentClarification=false;activeAgentRunId=""
         historyClearPending=true;historyClearRetry.restart()
         touchConversation()
     }
@@ -464,6 +572,13 @@ Singleton {
         if (/^\/(?:clear|clean|cls)(?:\s+.*)?$/i.test(prompt)) {
             clearConversation()
             return true
+        }
+        if ((busy || draining || agentTurnWorker.running)
+                && canInterruptWithPrompt(prompt)
+                && ((!Quickshell.env("AQUA_TEST_ENDPOINT") && !Quickshell.env("AI_FIXTURE_URL"))
+                    || Quickshell.env("AQUA_TEST_AGENT_ENABLED") === "1")) {
+            cancel()
+            return runAgentTurn(prompt, "interactive")
         }
         if (busy || draining) return false
         if (tryHandleAgentCommand(prompt)) return true
@@ -716,21 +831,30 @@ Singleton {
                 reminderPopup.running=true
             }
             reactionRequested("happy")
-        } else if (!policy.eligible) return
-        else if (checkInComplete && nowMs-lastCheckIn>proactiveCheckInInterval) {
-            if(sayAutomatic(contextualPhrase(),"checkin",nowMs))lastCheckIn=nowMs
-        } else if (Date.now()-lastPlayful>proactivePlayfulInterval) {
-            lastPlayful=Date.now()
-            const lines=["I tried counting my bubbles. One escaped. Suspicious.",
-                "Important announcement: I am approximately one sip tall.",
-                "If I sit very still, do I become a puddle with opinions?",
-                "My cardio today: three laps around this tiny corner.",
-                "I have two feet and absolutely no shoes budget.",
-                "Your cursor looks busy. Mine would probably just be a fish.",
-                "I asked the edge for advice. It said: go with the flow.",
-                "Tiny water break? I mean you. I'm already excellent at being water."]
-            playfulIndex=(playfulIndex+1+Math.floor(Math.random()*(lines.length-1)))%lines.length
-            sayAutomatic(lines[playfulIndex],"playful",nowMs)
+            if (String(next.key ?? "").startsWith("planner:")) {
+                const parts = String(next.key).split(":")
+                if (parts.length >= 2 && parts[1])
+                    evaluateAgentRules("planner_event", parts[1], "", todayDate + ":" + next.key)
+            }
+        } else {
+            const hhmm = String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0")
+            evaluateAgentRules("schedule_time", "", hhmm, "schedule:" + todayDate + ":" + hhmm)
+            if (!policy.eligible) return
+            else if (checkInComplete && nowMs-lastCheckIn>proactiveCheckInInterval) {
+                if(sayAutomatic(contextualPhrase(),"checkin",nowMs))lastCheckIn=nowMs
+            } else if (Date.now()-lastPlayful>proactivePlayfulInterval) {
+                lastPlayful=Date.now()
+                const lines=["I tried counting my bubbles. One escaped. Suspicious.",
+                    "Important announcement: I am approximately one sip tall.",
+                    "If I sit very still, do I become a puddle with opinions?",
+                    "My cardio today: three laps around this tiny corner.",
+                    "I have two feet and absolutely no shoes budget.",
+                    "Your cursor looks busy. Mine would probably just be a fish.",
+                    "I asked the edge for advice. It said: go with the flow.",
+                    "Tiny water break? I mean you. I'm already excellent at being water."]
+                playfulIndex=(playfulIndex+1+Math.floor(Math.random()*(lines.length-1)))%lines.length
+                sayAutomatic(lines[playfulIndex],"playful",nowMs)
+            }
         }
     }
     function completed(raw, exitCode, serial = epoch): void {
@@ -884,6 +1008,15 @@ Singleton {
         function onEventUpdated(event): void {root.reconcileActiveReminder()}
         function onEventRemoved(eventId): void {root.reconcileActiveReminder()}
     }
+    Connections {
+        target:TimerService
+        function onPomodoroRunningChanged(): void {
+            if (root.previousPomodoroRunning && !TimerService.pomodoroRunning) {
+                root.evaluateAgentRules("focus_end", "", "", "focus_end:" + root.today() + ":" + Math.floor(Date.now() / 60000))
+            }
+            root.previousPomodoroRunning = TimerService.pomodoroRunning
+        }
+    }
     IdleMonitor {id:idleMonitor;enabled:root.hostVisible && root.talkEnabled && root.proactiveIdleEnabled;timeout:60;respectInhibitors:true}
     Timer {interval:60000;repeat:true;running:root.hostVisible && root.talkEnabled
         && root.proactiveIdleEnabled && !root.conversationOpen;onTriggered:root.offerAutomatic()}
@@ -984,6 +1117,65 @@ Singleton {
             root.history=root.history.concat([{id:0,role:"assistant",content:replyText}]).slice(-2000)
             root.say(replyText,"built-in")
             if(root.hostVisible) root.reactionRequested(res.status==="completed" ? "working" : "thinking")
+        }
+    }
+    Process {
+        id:agentTurnWorker
+        running:false;stdinEnabled:true
+        property var requestPayload: ({})
+        command:["/usr/bin/python3",AlisCompanion.packageRoot + "/scripts/aqua/local_mind.py","--host-root",Quickshell.shellPath("")]
+        stdout:StdioCollector {id:agentTurnReply}
+        onStarted:{
+            write(JSON.stringify(agentTurnWorker.requestPayload)+"\n")
+        }
+        onExited:(code,status)=>{
+            const parsed=AquaHelperReplyGuard.parse("agent_turn",String(agentTurnReply.text ?? ""),code)
+            if(!parsed.ok) {
+                const errMsg=parsed.error?.message ?? "Agent turn could not finish."
+                root.toolNotice=errMsg
+                root.errorMessage=errMsg
+                root.pendingAgentConfirmation=false
+                root.pendingAgentClarification=false
+                root.history=root.history.concat([{id:0,role:"assistant",content:errMsg}]).slice(-2000)
+                root.say(errMsg,"built-in")
+                return
+            }
+            const res=parsed.result
+            if(!res || !res.handled) return
+            root.lastAgentTurnResult=res
+            root.pendingAgentConfirmation=res.requiresConfirmation===true
+            root.pendingAgentClarification=res.status==="awaiting_clarification"
+            root.activeAgentRunId=String(res.runId ?? "")
+            const replyText=String(res.text ?? "").slice(0,420)
+            root.toolNotice=replyText.split("\n")[0].slice(0,140)
+            root.history=root.history.concat([{id:Number(res.assistantMessageId ?? 0),role:"assistant",content:replyText,persisted:res.historySaved===true}]).slice(-2000)
+            root.say(replyText,"ai")
+            if(root.hostVisible) root.reactionRequested(String(res.expression ?? "happy"))
+            if(res.intent==="memory_manage") Qt.callLater(root.refreshMemory)
+            if(res.intent==="pocket_manage") Qt.callLater(()=>{
+                if(typeof AquaPocket!=="undefined" && AquaPocket && AquaPocket.permitted && typeof AquaPocket.refresh==="function")
+                    AquaPocket.refresh()
+            })
+        }
+    }
+    Process {
+        id:agentRuleWorker
+        running:false;stdinEnabled:true
+        property var requestPayload: ({})
+        command:["/usr/bin/python3",AlisCompanion.packageRoot + "/scripts/aqua/local_mind.py","--host-root",Quickshell.shellPath("")]
+        stdout:StdioCollector {id:agentRuleReply}
+        onStarted:{
+            write(JSON.stringify(agentRuleWorker.requestPayload)+"\n")
+        }
+        onExited:(code,status)=>{
+            const parsed=AquaHelperReplyGuard.parse("agent_rules",String(agentRuleReply.text ?? ""),code)
+            if(parsed.ok && parsed.result) {
+                if(Array.isArray(parsed.result.rules)) root.agentRules=parsed.result.rules
+                if(Array.isArray(parsed.result.triggered) && parsed.result.triggered.length>0) {
+                    const first=parsed.result.triggered[0]
+                    if(first && first.taskPrompt) root.runAgentTurn(String(first.taskPrompt),"rule")
+                }
+            }
         }
     }
     Process {
