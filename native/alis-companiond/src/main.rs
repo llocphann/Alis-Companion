@@ -124,9 +124,13 @@ fn run_loop(rx: Receiver<InputRecord>, engine: &mut Engine, out: &mut impl Write
 }
 
 fn main() {
-    if std::env::args().skip(1).any(|arg| arg == "--version") {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|arg| arg == "--version") {
         println!("alis-companiond {}", env!("CARGO_PKG_VERSION"));
         return;
+    }
+    if args.iter().any(|arg| arg == "--pocket") {
+        std::process::exit(alis_companiond::pocket::run_cli());
     }
 
     let (tx, rx) = mpsc::sync_channel(INPUT_QUEUE_CAPACITY);

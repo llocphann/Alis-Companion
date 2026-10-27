@@ -78,7 +78,7 @@ Singleton {
         id:worker;running:false;stdinEnabled:true
         property bool startObserved:false
         property int serial:0
-        command:["/usr/bin/python3",AlisCompanion.packageRoot+"/scripts/aqua/pocket.py"]
+        command:[AlisCompanion.packageRoot+"/scripts/native-dispatch","companion","--pocket"]
         stdout:StdioCollector {id:reply}
         onStarted: {
             startObserved=true;serial=root.pending?.epoch ?? -1

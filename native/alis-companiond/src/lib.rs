@@ -1,3 +1,5 @@
+pub mod pocket;
+
 use std::io::{self, BufRead};
 
 use serde::{Deserialize, Serialize};

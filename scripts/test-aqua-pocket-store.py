@@ -121,5 +121,13 @@ os._exit(9)
     assert result.returncode == 1 and not result.stderr
     assert json.loads(result.stdout)['error'] == 'invalid_request' and 'token' not in result.stdout
     assert not (private/'cli').exists()
+    native_bin = ROOT / 'native/bin/alis-companiond'
+    if not native_bin.is_file():
+        native_bin = Path(os.environ.get('ALIS_COMPANION_SOURCE', ROOT)) / 'native/target/release/alis-companiond'
+    if native_bin.is_file():
+        rs_cli = subprocess.run([str(native_bin), '--pocket'], input=json.dumps(request('list')) + '\n',
+                                text=True, capture_output=True, env=dict(os.environ, XDG_STATE_HOME=str(private/'rs-cli')))
+        assert rs_cli.returncode == 0 and json.loads(rs_cli.stdout)['items'] == []
+        assert not (private/'rs-cli').exists()
 
 print('COMPANION_POCKET_STORE_PASS consent copyReferences metadataOnly atomicBatch dedupe32 legacyV1 restart retry originalsIntact futurePreserved')
