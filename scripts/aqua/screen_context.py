@@ -281,11 +281,12 @@ def perform_gui_action(
     obs = before["observation"]
     current_win_id = obs.get("windowId")
 
-    if target_window_id is not None and current_win_id is not None and str(target_window_id) != str(current_win_id):
-        raise ScreenContextError(
-            "focus_changed_abort",
-            f"Active window changed (expected window {target_window_id}, found {current_win_id}); GUI action aborted safely.",
-        )
+    if target_window_id is not None and str(target_window_id) != str(current_win_id):
+        if action_type != "focus_window" or int(target_window_id) < 0 or current_win_id is not None:
+            raise ScreenContextError(
+                "focus_changed_abort",
+                f"Active window changed (expected window {target_window_id}, found {current_win_id}); GUI action aborted safely.",
+            )
     if target_app_id and obs.get("appId") and target_app_id.lower() not in obs["appId"].lower():
         raise ScreenContextError(
             "target_window_mismatch",
