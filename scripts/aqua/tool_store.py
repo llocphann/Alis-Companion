@@ -163,7 +163,7 @@ def inspect_metadata(options: dict, companion_root: Path, host_root: Path) -> di
             "kind": "host_metadata",
             "hostAvailable": host_root.is_dir(),
             "packageId": _clean_line(manifest.get("id", "alis-companion"), 64),
-            "version": _clean_line(manifest.get("version", "0.1.0"), 32),
+            "version": _clean_line(manifest.get("version", "1.0.0"), 32),
             "localOnlyDefault": True,
             "capabilities": ["host_metadata", "repo_metadata", "doc_metadata", "preference_patch"],
             "headings": [],
