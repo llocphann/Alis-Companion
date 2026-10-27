@@ -202,7 +202,7 @@ Item {
         }
     }
     Repeater {
-        model: 2
+        model: root.cheeksVisible ? 2 : 0
         Shape {
             visible: root.cheeksVisible
             required property int index
@@ -285,6 +285,7 @@ Item {
     }
     Text {
         x: 58 * root.unit; y: 22 * root.unit
+        visible: text.length > 0
         text: root.profile.mark; color: "#d9faff"
         font.pixelSize: (root.expression === "sleepy" ? 8 : 13) * root.unit
         font.bold: true

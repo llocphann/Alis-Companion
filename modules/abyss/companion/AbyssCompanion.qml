@@ -36,6 +36,7 @@ Item {
     property bool interactive: true
     property bool motionEnabled: AbyssStyle.motionEnabled
     property bool effectsEnabled: Appearance.effectsEnabled && renderQuality !== "performance"
+    property bool quietSettled: false
     property real motionScale: 1
     property string renderQuality: "quality"
     property real translucency: 0.16
@@ -396,6 +397,7 @@ Item {
             gazeY: root.pocketDragActive ? root.dragFaceY : root.attention.y
             energy: root.energy
             motionEnabled: root.motionEnabled && visible
+            quietSettled: root.quietSettled
             motionScale: root.motionScale
             renderQuality: root.renderQuality
             translucency: root.translucency

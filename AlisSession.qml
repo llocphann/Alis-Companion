@@ -38,7 +38,9 @@ Item {
         else root.syncActiveDesktopFocus(ToplevelManager.activeToplevel?.appId || (CompositorService.isNiri ? NiriService.activeWindow?.app_id : "") || "")
     }
     property bool readingFocusActive:false
+    onReadingFocusActiveChanged:root.syncQuietIdle()
     property bool quietIdle:false
+    property bool companionMotionSettled:false
     property string previewAmbientProp:""
     property bool previewLaptopActive:false
     function evaluateContext(): void {
@@ -114,17 +116,27 @@ Item {
     // Focus session clock and never loads a model or starts a second actor.
     Timer {id:contextSettle;interval:750;onTriggered:root.evaluateContext()}
     Timer {id:readingFocusSettle;interval:450;onTriggered:{root.readingFocusActive=true;if(root.companionSessionVisible)companionBridge.show()}}
-    Timer {id:quietIdleSettle;interval:8000;onTriggered:root.quietIdle=true}
+    Timer {
+        id:quietIdleSettle
+        interval:8000
+        onTriggered:{
+            root.companionMotionSettled=true
+            root.quietIdle=!coworkController.active && !root.readingFocusActive
+        }
+    }
     Timer {id:contextConnect;interval:1;onTriggered:root.connectContext()}
     Timer {id:contextReconnect;interval:1000;onTriggered:root.connectContext()}
     function syncQuietIdle(): void {
         const steadyIdle = companionBridge.activity==="idle"
             && (!coworkController.active || coworkController.phase==="loop")
         if (steadyIdle) {
-            if (!root.quietIdle && !quietIdleSettle.running)
+            if (root.companionMotionSettled)
+                root.quietIdle=!coworkController.active && !root.readingFocusActive
+            else if (!quietIdleSettle.running)
                 quietIdleSettle.restart()
         } else {
             quietIdleSettle.stop()
+            root.companionMotionSettled=false
             root.quietIdle=false
         }
     }
@@ -255,6 +267,7 @@ Item {
         character:root.companionCharacter
         directorState:root.contextState.director
         hostContext:root.coworkHostContext()
+        quietSettled:root.companionMotionSettled
         onActiveChanged:root.syncQuietIdle()
         onPhaseChanged:root.syncQuietIdle()
     }
@@ -408,7 +421,7 @@ function status(): string {
             restartAttempts:companionBridge.restartAttempts},outputs:outputs})
 }
 
-    Component.onCompleted: {root.syncCompanionVisibility();contextConnect.start()}
+    Component.onCompleted: {root.syncCompanionVisibility();root.syncQuietIdle();contextConnect.start()}
     Component.onDestruction: {
         AquaPocket.hostAvailable=false
         AquaPocket.revoke()

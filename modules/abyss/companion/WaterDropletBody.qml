@@ -30,6 +30,7 @@ Item {
     property real gazeX: 0
     property real gazeY: 0
     property bool motionEnabled: AbyssStyle.motionEnabled && visible
+    property bool quietSettled: false
     property real motionScale: 1
     property bool effectsEnabled: Appearance.effectsEnabled && renderQuality !== "performance"
     property bool floorReflectionEnabled: false
@@ -76,10 +77,25 @@ Item {
     readonly property vector4d footPoseUniform: Qt.vector4d(modelPitchRadians, modelRollRadians, 0.06, 0.72)
     readonly property vector4d limbPoseUniform: footPoseUniform
     readonly property vector4d dropletMotionUniform: Qt.vector4d(shimmer, 0, pulse, 0)
+    readonly property vector4d dropletOpticsUniform: Qt.vector4d(0, 1, 0, 0)
+    readonly property vector4d zeroPoseUniform: Qt.vector4d(0, 0, 0, 0)
     readonly property var poseRotation: Pose.rotation(modelYaw,modelPitch,modelRoll)
     readonly property real poseScaleX: gait.scaleX
     readonly property real poseScaleY: gait.scaleY
+    readonly property real poseDepthScale: 1 / (poseScaleX * poseScaleY)
     function project(x,y,z): var {return Pose.project(poseRotation,x,y,z,poseScaleX,poseScaleY)}
+    function projectX(x: real, y: real, z: real): real {
+        const r = poseRotation
+        return r[0] * (x * poseScaleX) + r[1] * (y * poseScaleY) + r[2] * (z * poseDepthScale)
+    }
+    function projectY(x: real, y: real, z: real): real {
+        const r = poseRotation
+        return r[3] * (x * poseScaleX) + r[4] * (y * poseScaleY) + r[5] * (z * poseDepthScale)
+    }
+    function projectZ(x: real, y: real, z: real): real {
+        const r = poseRotation
+        return r[6] * (x * poseScaleX) + r[7] * (y * poseScaleY) + r[8] * (z * poseDepthScale)
+    }
     property bool walking: false
     property bool flying: false
     property bool grounded: true
@@ -213,7 +229,7 @@ Item {
             }
         }
         Repeater {
-            model: 3
+            model: (contact.visible && (root.softwareFallback || material.status === ShaderEffect.Error || !root.detailedEffects)) ? 3 : 0
             Shape {
                 id: rippleRing
                 required property int index
@@ -234,19 +250,20 @@ Item {
             }
         }
         ShaderEffect {
+            id: contactShader
             anchors.fill: parent
-            visible: root.detailedEffects && !root.softwareFallback && material.status !== ShaderEffect.Error
+            visible: contact.visible && root.detailedEffects && !root.softwareFallback && material.status !== ShaderEffect.Error
             property var surfaceSource: reflectionSource
             property color accent: root.liquidAccent
             property color specular: root.reflectionColor
-            property vector4d motion: Qt.vector4d(root.shimmer, Math.max(root.ripple, root.reactionRipple), contact.width / material.width, 0)
+            property vector4d motion: visible ? Qt.vector4d(root.shimmer, Math.max(root.ripple, root.reactionRipple), contact.width / material.width, 0) : root.zeroPoseUniform
             property vector4d rendering: Qt.vector4d(root.qualityLevel, 0, 0, 0)
             readonly property real contactSide: 19.5
             readonly property real contactDepth: 8
-            property vector4d feet: Qt.vector4d(
-                (contact.width*.5+root.project(-contactSide+gait.footX("foot0X")*1.15,-31.06+gait.footZ("foot0Z")*1.15,contactDepth).x)/contact.width,
-                (contact.width*.5+root.project(contactSide+gait.footX("foot1X")*1.15,-31.06+gait.footZ("foot1Z")*1.15,contactDepth).x)/contact.width,
-                1-Math.min(1, gait.footZ("foot0Z")/2), 1-Math.min(1, gait.footZ("foot1Z")/2))
+            property vector4d feet: visible ? Qt.vector4d(
+                (contact.width*.5+root.projectX(-contactSide+gait.footX("foot0X")*1.15,-31.06+gait.footZ("foot0Z")*1.15,contactDepth))/contact.width,
+                (contact.width*.5+root.projectX(contactSide+gait.footX("foot1X")*1.15,-31.06+gait.footZ("foot1Z")*1.15,contactDepth))/contact.width,
+                1-Math.min(1, gait.footZ("foot0Z")/2), 1-Math.min(1, gait.footZ("foot1Z")/2)) : root.zeroPoseUniform
             fragmentShader: Qt.resolvedUrl("WaterDropletContact.frag.qsb")
         }
     }
@@ -284,13 +301,14 @@ Item {
                 readonly property real coworkArmX: hand ? (root.coworkPose ? (root.coworkPose["arm"+index+"X"] ?? 0)*.45 : root.ambientProp==="book" ? (index===0 ? 8.5 : -8.5) : root.ambientProp==="coffee" && index===1 ? -7.5 : 0) : 0
                 readonly property real coworkArmY: hand ? (root.coworkPose ? -(root.coworkPose["arm"+index+"Y"] ?? 0)*.35 : (root.ambientProp==="book" || (root.ambientProp==="coffee" && index===1)) ? 10 : 0) : 0
                 readonly property real coworkArmZ: hand ? (root.coworkPose ? (root.coworkPose["arm"+index+"Z"] ?? 0)*.65 : root.ambientProp==="book" ? -6.5 : root.ambientProp==="coffee" && index===1 ? -4.5 : 0) : 0
-                readonly property var spatial: root.project(side*(hand ? 35.0 : 19.5)+stepX+coworkArmX,
-                    46.14-(hand ? 51.5 : 77.2)+stepZ+coworkArmZ,(hand ? 14 : 8)+coworkArmY)
-                readonly property real depth: spatial.z
+                readonly property real localX: side*(hand ? 35.0 : 19.5)+stepX+coworkArmX
+                readonly property real localY: 46.14-(hand ? 51.5 : 77.2)+stepZ+coworkArmZ
+                readonly property real localZ: (hand ? 14 : 8)+coworkArmY
+                readonly property real depth: root.projectZ(localX, localY, localZ)
                 width: hand ? 21.5 : 19.5
                 height: hand ? 21.5 : 16.5
-                x:38+spatial.x-width/2
-                y:46.14-spatial.y-height/2+root.reactionLift*root.motionAmount+gait.lift
+                x:38+root.projectX(localX, localY, localZ)-width/2
+                y:46.14-root.projectY(localX, localY, localZ)-height/2+root.reactionLift*root.motionAmount+gait.lift
                 z: (hand ? depth >= -6 : depth >= 0) ? 1 : -1
                 ShaderEffect {
                     anchors.fill: parent
@@ -414,10 +432,12 @@ Item {
                     readonly property real angle: root.orbitAngle + Expressions.bubblePhase[index]
                     readonly property real orbitCos: Math.cos(angle)
                     readonly property real orbitSin: Math.sin(angle)
-                    readonly property var spatial:root.project(47*orbitCos,4.14-37*orbitSin,25*orbitSin)
-                    readonly property real depth:spatial.z
-                    x:38+spatial.x-width/2
-                    y:46.14-spatial.y-height/2
+                    readonly property real localX: 47 * orbitCos
+                    readonly property real localY: 4.14 - 37 * orbitSin
+                    readonly property real localZ: 25 * orbitSin
+                    readonly property real depth: root.projectZ(localX, localY, localZ)
+                    x:38+root.projectX(localX, localY, localZ)-width/2
+                    y:46.14-root.projectY(localX, localY, localZ)-height/2
                     z: depth < 0 ? -1 : 2
                     opacity: depth < 0 ? 0.78 : 1
                     width: Expressions.dropletSize[index]; height: width
@@ -427,9 +447,9 @@ Item {
                         property color accent: root.liquidAccent
                         property color specular: root.reflectionColor
                         property vector4d motion: root.dropletMotionUniform
-                        property vector4d optics: Qt.vector4d(0, 1, 0, 0)
+                        property vector4d optics: root.dropletOpticsUniform
                         property vector4d rendering: root.smallMaterialRenderingUniform
-                        property vector4d pose:Qt.vector4d(0,0,0,0)
+                        property vector4d pose: root.zeroPoseUniform
                         fragmentShader: Qt.resolvedUrl("WaterDropletMaterial.frag.qsb")
                     }
                     Shape {
@@ -560,7 +580,7 @@ Item {
         id: workingOrbit
         x: 0; y: 34; width: 76; height: 14
         visible: root.expressionProfile.orbit && root.effectsEnabled
-        rotation: -12 + root.shimmer * 24
+        rotation: visible ? -12 + root.shimmer * 24 : -12
         Shape {
             anchors.fill: parent
             preferredRendererType: Shape.CurveRenderer
@@ -573,8 +593,8 @@ Item {
             }
         }
         Rectangle {
-            x: workingOrbit.width / 2 + (workingOrbit.width / 2 - 3) * Math.cos(root.shimmer * Math.PI * 2) - 1.5
-            y: workingOrbit.height / 2 + workingOrbit.height / 2 * Math.sin(root.shimmer * Math.PI * 2) - 1.5
+            x: workingOrbit.visible ? workingOrbit.width / 2 + (workingOrbit.width / 2 - 3) * Math.cos(root.shimmer * Math.PI * 2) - 1.5 : 0
+            y: workingOrbit.visible ? workingOrbit.height / 2 + workingOrbit.height / 2 * Math.sin(root.shimmer * Math.PI * 2) - 1.5 : 0
             width: 3; height: 3; radius: 1.5; color: "#d7fbff"
         }
     }
@@ -718,23 +738,26 @@ Item {
             PropertyAction { target: root; property: "chompPhase"; value: 0 }
         }
     }
+    readonly property bool burstActive: squashBurst.running || tapBurst.running || reactionBounce.running || shineBurst.running || swallowBurst.running
+    readonly property bool idleLoopPaused: root.quietSettled && !root.burstActive && !root.hovered && !root.dragging && !root.walking && !root.flying && !root.traveling && !root.pocketDragActive
     SequentialAnimation on bob {
-        running: root.motionEnabled && root.visible && !gait.active; loops: Animation.Infinite
+        running: root.motionEnabled && root.visible && !gait.active; paused: root.idleLoopPaused && running; loops: Animation.Infinite
         NumberAnimation { to: -1.2 - root.energy * 2.4; duration: 1570; easing.type: Easing.InOutSine }
         NumberAnimation { to: 0.6 + root.energy * 1.2; duration: 2110; easing.type: Easing.InOutSine }
     }
     SequentialAnimation on sway {
-        running: root.motionEnabled && root.visible && !gait.active; loops: Animation.Infinite
+        running: root.motionEnabled && root.visible && !gait.active; paused: root.idleLoopPaused && running; loops: Animation.Infinite
         NumberAnimation { to: 0.45 + root.energy; duration: 2390; easing.type: Easing.InOutSine }
         NumberAnimation { to: -0.3 - root.energy * 0.7; duration: 3170; easing.type: Easing.InOutSine }
     }
     SequentialAnimation on shimmer {
-        running: root.motionEnabled && root.visible && root.effectsEnabled; loops: Animation.Infinite
+        running: root.motionEnabled && root.visible && root.effectsEnabled; paused: root.idleLoopPaused && running; loops: Animation.Infinite
         NumberAnimation { to: 1; duration: 2800; easing.type: Easing.InOutSine }
         NumberAnimation { to: 0; duration: 4300; easing.type: Easing.InOutSine }
     }
     NumberAnimation on orbitPhase {
         running: root.motionEnabled && root.visible && root.effectsEnabled
+        paused: root.idleLoopPaused && running
         from: 0; to: 1; duration: curves.clips.orbit.duration
         loops: Animation.Infinite
     }

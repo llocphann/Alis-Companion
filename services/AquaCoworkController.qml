@@ -6,6 +6,7 @@ Item {
     property string character: "aqua"
     property var directorState: null
     property var hostContext: null
+    property bool quietSettled: false
     property var clock: () => Date.now()
     property var performanceState: Performance.newState(character === "octo" ? "octo" : "aqua")
     property bool active: false
@@ -33,19 +34,30 @@ Item {
         pose = null
         reason = "revoked"
     }
+    function samePose(a, b): bool {
+        if (a === b) return true
+        if (!a || !b) return false
+        for (const k in b) {
+            if (Math.abs((a[k] ?? 0) - (b[k] ?? 0)) > 1e-5)
+                return false
+        }
+        return true
+    }
     function step(): void {
         if (!directorState || !hostContext || !performanceState) {
             revoke()
             return
         }
         const v = Performance.update(performanceState, directorState, hostContext, clock())
-        active = v.active
-        renderProp = v.renderProp
-        phase = v.phase
-        clip = v.clip
-        epoch = v.epoch
-        reason = v.reason
-        pose = v.active ? v.pose : null
+        if (active !== v.active) active = v.active
+        if (renderProp !== v.renderProp) renderProp = v.renderProp
+        if (phase !== v.phase) phase = v.phase
+        if (clip !== v.clip) clip = v.clip
+        if (epoch !== v.epoch) epoch = v.epoch
+        if (reason !== v.reason) reason = v.reason
+        const nextPose = v.active ? v.pose : null
+        if (!samePose(pose, nextPose))
+            pose = nextPose
         if (v.active) {
             if (!tick.running) tick.start()
         } else {
@@ -63,9 +75,10 @@ Item {
     onCharacterChanged: resetCharacter()
     onHostContextChanged: step()
     onDirectorStateChanged: step()
+    onQuietSettledChanged: if (active) step()
     Timer {
         id: tick
-        interval: root.phase === "loop" ? 250 : 33
+        interval: root.phase === "loop" ? 50 : 33
         repeat: true
         running: false
         onTriggered: root.step()

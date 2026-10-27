@@ -332,11 +332,11 @@ Item {
         Binding {target:waterImmersion.item;property:"renderRect";value:Qt.vector4d(waterImmersion.x,waterImmersion.y,waterImmersion.width,waterImmersion.height);when:waterImmersion.active && !!waterImmersion.item}
         Binding {target:waterImmersion.item;property:"renderScale";value:host.modelData?.devicePixelRatio ?? 1;when:waterImmersion.active && !!waterImmersion.item}
     }
-    readonly property bool companionQuietSettled: session.quietIdle
-        && !root.companionPointerFresh && !companion.hovered && !companion.dragging
+    readonly property bool companionQuietSettled: session.companionMotionSettled
+        && !companion.pointerFresh && !companion.hovered && !companion.dragging
         && !companionPresence.dragging && !companionPresence.traveling && !companionPresence.portalActive
         && !companion.moving && !companion.walking && !companion.rolling && !companion.flying && !companion.relocating
-        && !companion.leaving && companion.presentation >= 0.99
+        && !companion.leaving && !companion.gesturing && companion.presentation >= 0.99
         && !companionTurns.active && !companionCuriosity.busy
         && !talkCloud.controlsVisible && !cloudActions.visible && !cloudActions.hovered
         && !AquaMind.conversationOpen && !AquaPocket.opened && !pocketDrop.containsDrag
@@ -353,9 +353,10 @@ Item {
         // space. A fast release becomes a bounded throw to a verified
         // grounded destination; a slow release settles back to support.
         dragEnabled: interactive
-        motionEnabled: session.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled && !root.companionQuietSettled
+        motionEnabled: session.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled
         effectsEnabled: session.companionPreferences.effectsEnabled && Appearance.effectsEnabled
-            && AbyssRenderPolicy.aquaQuality!=="performance" && !root.companionQuietSettled
+            && AbyssRenderPolicy.aquaQuality!=="performance"
+        quietSettled: root.companionQuietSettled
         motionScale: AquaPreferences.motionScale(session.companionPreferences.personality)
         renderQuality: AbyssRenderPolicy.aquaQuality
         translucency: session.companionPreferences.translucency
@@ -380,10 +381,12 @@ Item {
         connectedWater: true
         curvedImmersion:waterImmersion.active && !!waterImmersion.item && waterImmersion.item.status!==ShaderEffect.Error
         reveal: companionPresence.renderedReveal
-        pointerFresh: root.companionPointerFresh
-            && Math.hypot(root.companionPointerX-(x+width/2),root.companionPointerY-(y+height/2))<companionPresence.pointerNoticeRadius
-        pointerX: (root.companionPointerX-(x+width/2))/Math.max(55*scale,Math.hypot(root.companionPointerX-(x+width/2),root.companionPointerY-(y+height/2)))
-        pointerY: (root.companionPointerY-(y+height/2))/Math.max(55*scale,Math.hypot(root.companionPointerX-(x+width/2),root.companionPointerY-(y+height/2)))
+        readonly property real pointerDx: root.companionPointerX-(x+width/2)
+        readonly property real pointerDy: root.companionPointerY-(y+height/2)
+        readonly property real pointerDist: root.companionPointerFresh ? Math.hypot(pointerDx,pointerDy) : Infinity
+        pointerFresh: root.companionPointerFresh && pointerDist<companionPresence.pointerNoticeRadius
+        pointerX: pointerFresh ? pointerDx/Math.max(55*scale,pointerDist) : 0
+        pointerY: pointerFresh ? pointerDy/Math.max(55*scale,pointerDist) : 0
         gazeX: companionBridge.gazeX
         gazeY: companionBridge.gazeY
         energy: companionBridge.energy
