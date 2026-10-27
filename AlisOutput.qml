@@ -332,6 +332,15 @@ Item {
         Binding {target:waterImmersion.item;property:"renderRect";value:Qt.vector4d(waterImmersion.x,waterImmersion.y,waterImmersion.width,waterImmersion.height);when:waterImmersion.active && !!waterImmersion.item}
         Binding {target:waterImmersion.item;property:"renderScale";value:host.modelData?.devicePixelRatio ?? 1;when:waterImmersion.active && !!waterImmersion.item}
     }
+    readonly property bool companionQuietSettled: session.quietIdle
+        && !root.companionPointerFresh && !companion.hovered && !companion.dragging
+        && !companionPresence.dragging && !companionPresence.traveling && !companionPresence.portalActive
+        && !companion.moving && !companion.walking && !companion.rolling && !companion.flying && !companion.relocating
+        && !companion.leaving && companion.presentation >= 0.99
+        && !companionTurns.active && !companionCuriosity.busy
+        && !talkCloud.controlsVisible && !cloudActions.visible && !cloudActions.hovered
+        && !AquaMind.conversationOpen && !AquaPocket.opened && !pocketDrop.containsDrag
+        && (!session.cowork?.active || session.cowork?.phase === "loop")
     AbyssCompanion {
         id: companion
         character:session.companionCharacter
@@ -344,9 +353,9 @@ Item {
         // space. A fast release becomes a bounded throw to a verified
         // grounded destination; a slow release settles back to support.
         dragEnabled: interactive
-        motionEnabled: session.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled
+        motionEnabled: session.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled && !root.companionQuietSettled
         effectsEnabled: session.companionPreferences.effectsEnabled && Appearance.effectsEnabled
-            && AbyssRenderPolicy.aquaQuality!=="performance"
+            && AbyssRenderPolicy.aquaQuality!=="performance" && !root.companionQuietSettled
         motionScale: AquaPreferences.motionScale(session.companionPreferences.personality)
         renderQuality: AbyssRenderPolicy.aquaQuality
         translucency: session.companionPreferences.translucency

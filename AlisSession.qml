@@ -74,6 +74,7 @@ Item {
                 && (focusCategory==="editor" || focusCategory==="terminal" || hasAgent || previewLaptopActive)
                 && !coworkController.active && !contextSettle.running)
             contextSettle.restart()
+        root.syncQuietIdle()
     }
     onContextFeedChanged: {disconnectContext();contextConnect.restart()}
     Connections {
@@ -116,15 +117,22 @@ Item {
     Timer {id:quietIdleSettle;interval:8000;onTriggered:root.quietIdle=true}
     Timer {id:contextConnect;interval:1;onTriggered:root.connectContext()}
     Timer {id:contextReconnect;interval:1000;onTriggered:root.connectContext()}
+    function syncQuietIdle(): void {
+        const steadyIdle = companionBridge.activity==="idle"
+            && (!coworkController.active || coworkController.phase==="loop")
+        if (steadyIdle) {
+            if (!root.quietIdle && !quietIdleSettle.running)
+                quietIdleSettle.restart()
+        } else {
+            quietIdleSettle.stop()
+            root.quietIdle=false
+        }
+    }
     Connections {
         target:companionBridge
         function onReadyChanged(): void {root.evaluateContext()}
         function onVisibilityChanged(): void {root.evaluateContext()}
-        function onActivityChanged(): void {
-            if(companionBridge.activity==="idle" && !coworkController.active && !root.readingFocusActive)
-                quietIdleSettle.restart()
-            else {quietIdleSettle.stop();root.quietIdle=false}
-        }
+        function onActivityChanged(): void {root.syncQuietIdle()}
     }
     property string lastActiveAppId:""
     function categoryForAppId(rawAppId): string {
@@ -247,6 +255,8 @@ Item {
         character:root.companionCharacter
         directorState:root.contextState.director
         hostContext:root.coworkHostContext()
+        onActiveChanged:root.syncQuietIdle()
+        onPhaseChanged:root.syncQuietIdle()
     }
     function presentAiExpression(expression): bool {
         const proposal=Director.proposeAiExpression(contextState.director,visualContext(),{expression:expression},Date.now())

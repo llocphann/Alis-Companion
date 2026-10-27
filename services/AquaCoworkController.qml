@@ -65,7 +65,7 @@ Item {
     onDirectorStateChanged: step()
     Timer {
         id: tick
-        interval: 33
+        interval: root.phase === "loop" ? 250 : 33
         repeat: true
         running: false
         onTriggered: root.step()
