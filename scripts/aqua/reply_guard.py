@@ -71,7 +71,7 @@ def public_text(value):
     if not isinstance(value, str):
         raise UnsafeReply("invalid_text")
     # Inspect all normalized bytes before truncation can hide an envelope.
-    candidate = _CONTROL.sub("", value)
+    candidate = re.sub(r"\r?\n?__ALIS_HTTP_STATUS__:\d+\s*$", "", _CONTROL.sub("", value))
     if _SENTINEL.search(candidate):
         raise UnsafeReply("internal_protocol")
     if _MIXED_METADATA.search(candidate):

@@ -46,7 +46,7 @@ function normalizeText(text, expression) {
     if (typeof text !== "string") return {ok:false,reason:"invalid_text"}
     // Control removal can reveal a protocol marker. Inspect the complete
     // candidate before the public-text limit can hide a trailing envelope.
-    const candidate = text.replace(controlBytes,"")
+    const candidate = text.replace(controlBytes,"").replace(/\r?\n?__ALIS_HTTP_STATUS__:\d+\s*$/g,"")
     if (internalTag.test(candidate) || protocolToken.test(candidate) || functionEnvelope.test(candidate))
         return {ok:false,reason:"internal_protocol"}
     if (mixedMetadata.test(candidate)) return {ok:false,reason:"malformed_structured_output"}

@@ -128,12 +128,12 @@ function validResult(action, result) {
         && path(result.targetPath, true)
         && path(result.destPath, true)
         && string(result.summary, 320, false)
-        && Array.isArray(result.lines) && result.lines.length <= 24
-        && result.lines.every(v => string(v, 220, false))
+        && Array.isArray(result.lines) && result.lines.length <= 500
+        && result.lines.every(v => string(v, 240, false))
     if (action === "agent_turn") return typeof result.handled === "boolean"
         && string(result.intent, 64, false)
         && ["vi", "en"].includes(result.language)
-        && (!result.handled || (string(result.text, 2000, false) && string(result.status, 64, false)))
+        && (!result.handled || (string(result.text, 6000, false) && string(result.status, 64, false)))
     if (action === "agent_cancel") return result.cancelled === true && Array.isArray(result.cancelledRunIds)
     if (action === "agent_permissions") return integer(result.schemaVersion, 1, 10)
         && typeof result.networkAllowed === "boolean"
@@ -163,7 +163,7 @@ function validResult(action, result) {
 function invalid() { return {ok:false, malformed:true, error:{message:invalidMessage}} }
 
 function parse(action, raw, exitCode) {
-    if (typeof raw !== "string" || raw.length > (action==="memory_list" ? 98304 : 32768) || exitCode !== 0) return invalid()
+    if (typeof raw !== "string" || raw.length > (["memory_list", "agent_file_op", "agent_turn"].includes(action) ? 98304 : 32768) || exitCode !== 0) return invalid()
     let envelope
     try { envelope = JSON.parse(raw) } catch (e) { return invalid() }
     if (!object(envelope) || typeof envelope.ok !== "boolean") return invalid()

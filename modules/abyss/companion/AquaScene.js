@@ -346,11 +346,6 @@ function ride(scene, point, previous) {
     const oldW=finite(previous.hostWidth) ? previous.hostWidth : scene.hostWidth
     const oldH=finite(previous.hostHeight) ? previous.hostHeight : scene.hostHeight
     const sizeChanged=Math.abs(oldW-scene.hostWidth)>.1 || Math.abs(oldH-scene.hostHeight)>.1
-    if (edges.includes(previous.support.key) && (sizeChanged || !supportAt(scene,point,edge))) {
-        const center=horizontal ? point.x+oldW/2 : point.y+oldH/2
-        const edgeCandidate=edgePoint(scene,edge,center/(horizontal ? scene.width : scene.height))
-        if (edgeCandidate.qualified) return edgeCandidate
-    }
     const candidates=scene.surfaces.filter(s=>s.key===previous.support.key || Slots.intersects(rect(scene,point),s.rect,1.5))
     for (const surface of candidates) {
         const r=surface.rect, margin=Math.min(Number(surface.radius)||0,(horizontal ? r.width : r.height)/2)
@@ -373,8 +368,13 @@ function ride(scene, point, previous) {
             }
         }
     }
-    if (!edges.includes(previous.support.key) && edges.includes(edge)
-            && !scene.surfaces.some(s=>s.key===previous.support.key)) {
+    if (edges.includes(previous.support.key) && sizeChanged) {
+        const center=horizontal ? point.x+oldW/2 : point.y+oldH/2
+        const edgeCandidate=edgePoint(scene,edge,center/(horizontal ? scene.width : scene.height))
+        if (edgeCandidate.qualified) return edgeCandidate
+    }
+    if (Array.isArray(scene.excludeKeys) && scene.excludeKeys.includes(previous.support.key)
+            && edges.includes(edge) && !scene.surfaces.some(s=>s.key===previous.support.key)) {
         const center=horizontal ? point.x+oldW/2 : point.y+oldH/2
         const edgeCandidate=edgePoint(scene,edge,center/(horizontal ? scene.width : scene.height))
         if (edgeCandidate.qualified) return edgeCandidate

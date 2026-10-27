@@ -21,8 +21,8 @@ with tempfile.TemporaryDirectory(prefix='wgg-',ignore_cleanup_errors=True) as te
     (shell/'shell.qml').write_text('import Quickshell\nimport "scripts/aqua-fixtures/mind"\nShellRoot { AquaLocalModelProof {} }\n')
     env=core['private_env'](xdg,private/'result.json')
     env.update(QT_QUICK_BACKEND='software',QT_QUICK_CONTROLS_STYLE='Basic',QT_QPA_PLATFORMTHEME='generic',
-        ALIS_GGUF_ROOTS=json.dumps([str(models)]),ALIS_GGUF_ROOTS=json.dumps([str(models)]),
-        ALIS_TEST_GGUF_RECORD=str(private/'record.json'),
+        ALIS_GGUF_ROOTS=json.dumps([str(models)]),
+        ALIS_TEST_GGUF_RECORD=str(private/'record.json'),INIR_TEST_GGUF_RECORD=str(private/'record.json'),
         PATH=str(binary)+':'+os.environ['PATH'],ALIS_AQUA_HISTORY_DB=str(private/'aqua-history.sqlite3'))
     with (private/'test.log').open('w') as log:
         process=subprocess.Popen(['dbus-run-session','--','qs','--path',str(shell/'shell.qml')],env=env,

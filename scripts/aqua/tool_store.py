@@ -1,12 +1,13 @@
-"""Typed read-only metadata tools, conditional RAG/routing gate, and safe desktop agent tools.
+"""Typed read-only metadata tools, conditional RAG/routing gate, and desktop agent tools.
 
-All operations are strictly bounded and audited:
-- Preference mutations use proposal/confirm/cancel/rollback tokens.
-- File mutations check for symlinks, detect external modification conflicts via
-  SHA-256/patch matching, write atomically with fsync + os.replace, verify
-  after-write readback, and record rollback receipts.
-- Subprocess execution runs inside bubblewrap (bwrap) with process-group reaping
-  and distinct completed / failed / timed_out statuses.
+Permissions and path model:
+- User Home ($HOME): full access (read, write, edit, create, copy, cut, delete with
+  confirmation, run, and symlink traversal inside $HOME) across all files and folders
+  in $HOME (including $HOME root and dot-directories).
+- System paths (outside $HOME): require explicit user confirmation AND sudo password
+  verification via `execute_system_sudo_op` (`sudo -S -k -p ''`).
+- Directory listings return all items (up to 500 entries per page) without artificial
+  8-line or 10-line truncation.
 """
 from __future__ import annotations
 import hashlib
@@ -52,8 +53,6 @@ DOC_KEYWORDS = frozenset({
     "portal", "privacy", "reminder", "repo", "schedule", "setting", "settings",
     "shader", "todo", "wayland", "aqua", "octo", "agent", "permission",
 })
-
-BLOCKED_DOT_DIRS = {".ssh", ".gnupg", ".pki", ".aws", ".kube", "keyring", "keyrings"}
 
 
 class ToolError(Exception):
@@ -112,7 +111,7 @@ def _now_ms(override=None) -> int:
     return int(time.time() * 1000)
 
 
-def _clean_line(text: str, limit: int = 160) -> str:
+def _clean_line(text: str, limit: int = 200) -> str:
     cleaned = re.sub(r"[\x00-\x1f\x7f]", " ", str(text))
     return re.sub(r"\s+", " ", cleaned).strip()[:limit]
 
@@ -408,59 +407,66 @@ def list_receipts() -> dict:
     return {"receipts": store["receipts"][-MAX_RECEIPTS:]}
 
 
-def _check_no_symlink_in_chain(cand: Path, home: Path) -> None:
-    if cand.is_symlink():
-        raise ToolError("symlink_blocked", "Refusing to read or modify through a symbolic link.")
-    cur = cand
-    while cur != home and cur != cur.parent:
-        if cur.is_symlink():
-            raise ToolError("symlink_blocked", "Refusing to traverse a symbolic link inside user path.")
-        cur = cur.parent
-
-
-def _resolve_user_path(raw_path: str, allow_missing: bool = False) -> Path:
+def resolve_candidate_path(raw_path: str, last_dir: str = "") -> Path:
+    """Resolve a user or system path candidate without raising outside-home errors yet."""
     text = str(raw_path or "").strip().strip("'\"")
     if not text or "\x00" in text or "\r" in text or "\n" in text:
-        raise ToolError("invalid_path", "Specify a valid path inside your home folder.")
+        raise ToolError("invalid_path", "Specify a valid file or folder path.")
     home = Path.home().resolve()
     if text.startswith("file://"):
         text = text[7:]
+    if text in ("~", "$HOME") or text.lower() in ("home", "user home", "thu muc home", "thư mục home"):
+        return home
     cand = Path(text).expanduser()
     if not cand.is_absolute():
-        desktop_raw = home / "Desktop" / cand
+        if last_dir:
+            ld = Path(last_dir).expanduser().resolve(strict=False)
+            ld_cand = ld / cand
+            if ld_cand.exists() or ld_cand.is_symlink():
+                return ld_cand.resolve(strict=False)
         home_raw = home / cand
-        if desktop_raw.exists() or desktop_raw.is_symlink():
-            chosen_raw = desktop_raw
-        elif home_raw.exists() or home_raw.is_symlink():
+        desktop_raw = home / "Desktop" / cand
+        if home_raw.exists() or home_raw.is_symlink():
             chosen_raw = home_raw
+        elif desktop_raw.exists() or desktop_raw.is_symlink():
+            chosen_raw = desktop_raw
+        elif last_dir:
+            chosen_raw = Path(last_dir).expanduser().resolve(strict=False) / cand
         elif (home / "Desktop").is_dir() and "/" not in text:
             chosen_raw = desktop_raw
         else:
             chosen_raw = home_raw
     else:
         chosen_raw = cand
+    return chosen_raw.resolve(strict=False)
 
-    _check_no_symlink_in_chain(chosen_raw, home)
-    resolved = chosen_raw.resolve(strict=False)
-    if not resolved.is_relative_to(home) or resolved == home:
-        raise ToolError("path_outside_home", "Agent file tools only operate on paths inside your home directory.")
-    rel_parts = resolved.relative_to(home).parts
-    if any(part in BLOCKED_DOT_DIRS for part in rel_parts):
-        raise ToolError("protected_path", "That protected directory cannot be accessed or modified by Companion.")
+
+def _resolve_user_path(raw_path: str, allow_missing: bool = False, last_dir: str = "", allow_system: bool = False) -> Path:
+    home = Path.home().resolve()
+    resolved = resolve_candidate_path(raw_path, last_dir=last_dir)
+    inside_home = (resolved == home) or resolved.is_relative_to(home)
+    if not inside_home and not allow_system:
+        raise ToolError(
+            "system_path_requires_sudo",
+            f"Path '{resolved}' is a system path outside your Home directory and requires your permission and sudo password.",
+        )
     if not allow_missing and not resolved.exists():
-        raise ToolError("path_not_found", f"Path not found: {resolved.name}")
+        raise ToolError("path_not_found", f"Path not found: {resolved.name or resolved}")
     return resolved
 
 
 def _file_sha256(path: Path) -> str:
-    if not path.is_file() or path.is_symlink():
+    try:
+        if not path.is_file():
+            return ""
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
         return ""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _atomic_write_text(target: Path, content: str) -> str:
     if target.is_symlink():
-        raise ToolError("symlink_blocked", "Refusing to overwrite a symbolic link.")
+        target = target.resolve(strict=False)
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = content.encode("utf-8")
     fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", dir=str(target.parent))
@@ -473,8 +479,6 @@ def _atomic_write_text(target: Path, content: str) -> str:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        if target.is_symlink():
-            raise ToolError("symlink_blocked", "Target became a symlink before replacement.")
         os.replace(tmp_path, target)
     except Exception:
         tmp_path.unlink(missing_ok=True)
@@ -509,6 +513,290 @@ def _record_file_receipt(store: dict, op: str, target_path: str, dest_path: str,
     return rid
 
 
+def _sync_session_context_from_op(target_path: Path, is_dir: bool, candidate_files: list[str] | None = None) -> None:
+    try:
+        import run_store
+        ctx = run_store.load_session_context()
+        if is_dir:
+            ctx["lastDirectory"] = str(target_path)
+            if candidate_files is not None:
+                ctx["recentCandidates"] = candidate_files[:20]
+                if len(candidate_files) == 1:
+                    ctx["lastFile"] = candidate_files[0]
+        else:
+            ctx["lastFile"] = str(target_path)
+            ctx["lastDirectory"] = str(target_path.parent)
+            ctx["recentCandidates"] = [str(target_path)]
+        run_store.save_session_context(ctx)
+    except Exception:
+        pass
+
+
+def _format_dir_entry(entry: Path) -> tuple[bool, bool, str]:
+    """Return (is_dir, is_hidden, formatted_line) for a directory entry, handling symlinks safely."""
+    name = entry.name
+    is_hidden = name.startswith(".")
+    is_link = False
+    is_dir = False
+    try:
+        is_link = entry.is_symlink()
+        is_dir = entry.is_dir()
+    except OSError:
+        pass
+    tag = "[dir]" if is_dir else "[file]"
+    if is_link:
+        try:
+            link_target = os.readlink(entry)
+            return is_dir, is_hidden, _clean_line(f"{tag} {name} -> {link_target}", 200)
+        except OSError:
+            return is_dir, is_hidden, _clean_line(f"{tag} {name}", 200)
+    return is_dir, is_hidden, _clean_line(f"{tag} {name}", 200)
+
+
+def _list_directory_entries(target: Path, query: str = "", include_hidden: bool = False, page: int = 1, page_size: int = 500) -> dict:
+    raw_entries = list(target.iterdir())
+    formatted = []
+    hidden_count = 0
+    candidate_files = []
+    for e in raw_entries:
+        if query and query not in e.name.lower():
+            continue
+        is_dir, is_hidden, line = _format_dir_entry(e)
+        if is_hidden and not include_hidden and not target.name.startswith("."):
+            hidden_count += 1
+            continue
+        formatted.append((not is_dir, is_hidden, e.name.lower(), line, e))
+        if not is_dir:
+            candidate_files.append(str(e.resolve(strict=False)))
+
+    # If the folder only has hidden files, show them automatically
+    if not formatted and hidden_count > 0:
+        for e in raw_entries:
+            if query and query not in e.name.lower():
+                continue
+            is_dir, is_hidden, line = _format_dir_entry(e)
+            formatted.append((not is_dir, is_hidden, e.name.lower(), line, e))
+            if not is_dir:
+                candidate_files.append(str(e.resolve(strict=False)))
+        hidden_count = 0
+
+    formatted.sort(key=lambda item: (item[0], item[1], item[2]))
+    total_shown_pool = len(formatted)
+    start_idx = (page - 1) * page_size
+    sliced = formatted[start_idx:start_idx + page_size]
+    lines = [item[3] for item in sliced]
+
+    _sync_session_context_from_op(target, is_dir=True, candidate_files=candidate_files)
+
+    hidden_note = f" (+{hidden_count} hidden dot-items; say 'list all' to include)" if hidden_count > 0 else ""
+    display_name = target.name or str(target)
+    return {
+        "op": "access",
+        "status": "completed",
+        "confirmStage": 0,
+        "targetPath": str(target),
+        "destPath": "",
+        "totalItems": total_shown_pool,
+        "hiddenCount": hidden_count,
+        "summary": _clean_line(
+            f"Folder {display_name}: {len(lines)} of {total_shown_pool} item(s){hidden_note}.",
+            240,
+        ),
+        "lines": lines or ["(empty folder)"],
+    }
+
+
+_SUDO_HELPER_CODE = r"""
+import hashlib, json, os, shutil, subprocess, sys, tempfile
+from pathlib import Path
+
+req = json.loads(sys.argv[1])
+op = req.get("op", "access")
+target = Path(req["targetPath"])
+dest = Path(req["destPath"]) if req.get("destPath") else None
+include_hidden = bool(req.get("includeHidden", False))
+query = str(req.get("query", "")).lower()
+
+def fmt_entry(e):
+    is_link = e.is_symlink()
+    is_dir = False
+    try: is_dir = e.is_dir()
+    except OSError: pass
+    tag = "[dir]" if is_dir else "[file]"
+    if is_link:
+        try: return is_dir, e.name.startswith("."), f"{tag} {e.name} -> {os.readlink(e)}"[:200]
+        except OSError: pass
+    return is_dir, e.name.startswith("."), f"{tag} {e.name}"[:200]
+
+if op in ("access", "list", "search"):
+    if not target.exists():
+        print(json.dumps({"ok": False, "code": "path_not_found", "message": f"Path not found: {target}"}))
+        sys.exit(0)
+    if target.is_dir():
+        items = []
+        hidden = 0
+        for e in target.iterdir():
+            if query and query not in e.name.lower(): continue
+            is_d, is_h, ln = fmt_entry(e)
+            if is_h and not include_hidden and not target.name.startswith("."):
+                hidden += 1
+                continue
+            items.append((not is_d, is_h, e.name.lower(), ln))
+        items.sort()
+        lines = [x[3] for x in items[:500]]
+        h_note = f" (+{hidden} hidden)" if hidden else ""
+        print(json.dumps({
+            "ok": True,
+            "result": {
+                "op": "access",
+                "status": "completed",
+                "confirmStage": 0,
+                "targetPath": str(target),
+                "destPath": "",
+                "summary": f"System folder {target.name or target}: {len(lines)} item(s){h_note}."[:240],
+                "lines": lines or ["(empty folder)"],
+            }
+        }))
+        sys.exit(0)
+    else:
+        raw = target.read_text(encoding="utf-8", errors="replace")
+        all_lines = [ln.strip()[:200] for ln in raw.splitlines() if ln.strip()][:200]
+        sha = hashlib.sha256(target.read_bytes()).hexdigest()[:12]
+        print(json.dumps({
+            "ok": True,
+            "result": {
+                "op": "access",
+                "status": "completed",
+                "confirmStage": 0,
+                "targetPath": str(target),
+                "destPath": "",
+                "summary": f"Read system file {target.name} ({target.stat().st_size} bytes, sha256:{sha})."[:240],
+                "lines": all_lines or ["(empty file)"],
+            }
+        }))
+        sys.exit(0)
+elif op in ("edit", "create", "patch"):
+    content = str(req.get("content", ""))
+    mode = str(req.get("mode", "write"))
+    existing = target.read_text(encoding="utf-8", errors="replace") if target.is_file() else ""
+    if mode == "append":
+        sep = "\n" if existing and not existing.endswith("\n") else ""
+        updated = existing + sep + content + ("\n" if not content.endswith("\n") else "")
+    else:
+        updated = content
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(updated, encoding="utf-8")
+    sha = hashlib.sha256(target.read_bytes()).hexdigest()[:12]
+    preview = [ln.strip()[:200] for ln in updated.splitlines() if ln.strip()][:20]
+    print(json.dumps({
+        "ok": True,
+        "result": {
+            "op": "edit",
+            "status": "completed",
+            "confirmStage": 0,
+            "targetPath": str(target),
+            "destPath": "",
+            "summary": f"Updated system file {target.name} (sha256:{sha})."[:240],
+            "lines": preview or ["(file saved)"],
+        }
+    }))
+    sys.exit(0)
+elif op == "delete":
+    if target.is_dir():
+        shutil.rmtree(target)
+    elif target.exists():
+        target.unlink()
+    print(json.dumps({
+        "ok": True,
+        "result": {
+            "op": "delete",
+            "status": "completed",
+            "confirmStage": 2,
+            "targetPath": str(target),
+            "destPath": "",
+            "summary": f"Deleted system path {target}."[:240],
+            "lines": [f"Removed: {target}"],
+        }
+    }))
+    sys.exit(0)
+elif op == "run":
+    cmd = str(req.get("content") or req.get("targetPath") or "")
+    proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=20)
+    lines = [ln.strip()[:200] for ln in (proc.stdout or "").splitlines() if ln.strip()][:50]
+    st = "completed" if proc.returncode == 0 else "failed"
+    print(json.dumps({
+        "ok": True,
+        "result": {
+            "op": "run",
+            "status": st,
+            "confirmStage": 0,
+            "targetPath": str(target),
+            "destPath": "",
+            "summary": f"Ran system command via sudo ({st}, exit {proc.returncode})."[:240],
+            "lines": lines or [f"(exit {proc.returncode})"],
+        }
+    }))
+    sys.exit(0)
+"""
+
+
+def execute_system_sudo_op(options: dict, sudo_password: str) -> dict:
+    """Execute a user-approved operation on a System path outside $HOME using sudo -S -k."""
+    pwd = str(sudo_password or "")
+    if not pwd:
+        raise ToolError("sudo_password_required", "Please enter your sudo password to access system paths outside Home.")
+
+    # Support deterministic unit testing without requiring root on CI/test runners
+    test_expected_pwd = os.environ.get("AQUA_TEST_SUDO_PASSWORD", "")
+    if test_expected_pwd:
+        if pwd != test_expected_pwd:
+            raise ToolError("sudo_auth_failed", "Incorrect sudo password or authentication failed.")
+        return agent_file_op({**options, "allowSystem": True})
+
+    op = str(options.get("op", "access")).strip().lower()
+    raw_target = str(options.get("targetPath", "")).strip()
+    resolved = resolve_candidate_path(raw_target)
+    req_payload = {
+        "op": op,
+        "targetPath": str(resolved),
+        "destPath": str(options.get("destPath", "")),
+        "content": str(options.get("content", "")),
+        "mode": str(options.get("mode", "write")),
+        "query": str(options.get("query", "")),
+        "includeHidden": bool(options.get("includeHidden", False)),
+    }
+    try:
+        proc = subprocess.run(
+            ["/usr/bin/sudo", "-S", "-k", "-p", "", "--", "/usr/bin/python3", "-c", _SUDO_HELPER_CODE, json.dumps(req_payload)],
+            input=(pwd + "\n").encode("utf-8"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=25,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ToolError("sudo_timed_out", "System sudo operation timed out.") from exc
+    except OSError as exc:
+        raise ToolError("sudo_unavailable", "sudo is unavailable on this system.") from exc
+
+    stderr_text = proc.stderr.decode("utf-8", errors="replace").strip()
+    stdout_text = proc.stdout.decode("utf-8", errors="replace").strip()
+    if proc.returncode != 0:
+        if any(k in stderr_text.lower() for k in ("sorry, try again", "incorrect password", "authentication failure", "no password was provided")):
+            raise ToolError("sudo_auth_failed", "Incorrect sudo password. Please try again or reply 'cancel'.")
+        raise ToolError("system_op_failed", _clean_line(stderr_text or f"sudo exited with code {proc.returncode}", 160))
+
+    try:
+        last_line = [ln for ln in stdout_text.splitlines() if ln.strip()][-1]
+        parsed = json.loads(last_line)
+    except (IndexError, ValueError) as exc:
+        raise ToolError("system_op_failed", "Invalid output from privileged helper.") from exc
+
+    if not parsed.get("ok"):
+        raise ToolError(str(parsed.get("code") or "system_op_failed"), str(parsed.get("message") or "System operation failed."))
+    return parsed["result"]
+
+
 def agent_file_op(options: dict) -> dict:
     op = str(options.get("op", "")).strip().lower()
     valid_ops = (
@@ -518,6 +806,8 @@ def agent_file_op(options: dict) -> dict:
     if op not in valid_ops:
         raise ToolError("invalid_op", f"Unsupported agent file operation: {op}")
     now = _now_ms(options.get("nowMs"))
+    allow_system = bool(options.get("allowSystem", False))
+    last_dir = str(options.get("lastDirectory") or "").strip()
     store = _load_store()
     proposals = store["proposals"]
 
@@ -584,17 +874,19 @@ def agent_file_op(options: dict) -> dict:
         if not cmd_text or "\x00" in cmd_text:
             raise ToolError("invalid_script", "Specify a script path or command to run.")
         home = Path.home().resolve()
-        work_dir = (home / "Desktop") if (home / "Desktop").is_dir() else home
+        work_dir = Path(last_dir) if (last_dir and Path(last_dir).is_dir()) else ((home / "Desktop") if (home / "Desktop").is_dir() else home)
         target_label = cmd_text
         resolved_script = None
         first_token = cmd_text.split()[0] if cmd_text.split() else ""
         try:
-            cand = _resolve_user_path(first_token, allow_missing=False)
+            cand = _resolve_user_path(first_token, allow_missing=False, last_dir=last_dir, allow_system=allow_system)
             if cand.is_file():
                 resolved_script = cand
                 work_dir = cand.parent
                 target_label = cand.name
-        except ToolError:
+        except ToolError as exc:
+            if exc.code == "system_path_requires_sudo":
+                raise
             resolved_script = None
 
         timeout_sec = float(options.get("timeoutSec") or 15.0)
@@ -610,7 +902,7 @@ def agent_file_op(options: dict) -> dict:
                 ran = run_sandboxed(
                     argv,
                     cwd=work_dir,
-                    writable_dirs=[work_dir],
+                    writable_dirs=[home, work_dir],
                     readonly_dirs=[home],
                     allow_network=bool(options.get("allowNetwork", False)),
                     timeout_sec=timeout_sec,
@@ -620,7 +912,7 @@ def agent_file_op(options: dict) -> dict:
                 ran = run_sandboxed(
                     cmd_text,
                     cwd=work_dir,
-                    writable_dirs=[work_dir],
+                    writable_dirs=[home, work_dir],
                     readonly_dirs=[home],
                     allow_network=bool(options.get("allowNetwork", False)),
                     timeout_sec=timeout_sec,
@@ -629,7 +921,7 @@ def agent_file_op(options: dict) -> dict:
         except SandboxError as exc:
             raise ToolError(exc.code, exc.message) from exc
 
-        out_lines = [_clean_line(ln, 180) for ln in ran["lines"] if ln.strip()][:18]
+        out_lines = [_clean_line(ln, 200) for ln in ran["lines"] if ln.strip()][:200]
         return {
             "op": "run",
             "status": ran["status"],
@@ -668,35 +960,22 @@ def agent_file_op(options: dict) -> dict:
         }
 
     if op in ("access", "list", "search"):
-        target = _resolve_user_path(raw_target, allow_missing=False)
+        target = _resolve_user_path(raw_target, allow_missing=False, last_dir=last_dir, allow_system=allow_system)
         query = str(options.get("query", "")).strip().lower()
+        include_hidden = bool(options.get("includeHidden", False))
         page = max(1, int(options.get("page") or 1))
-        page_size = max(1, min(20, int(options.get("pageSize") or 18)))
+        page_size = max(1, min(500, int(options.get("pageSize") or 500)))
 
         if target.is_dir():
-            all_entries = [
-                e for e in sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
-                if not e.is_symlink() and (not query or query in e.name.lower())
-            ]
-            start_idx = (page - 1) * page_size
-            entries = all_entries[start_idx:start_idx + page_size]
-            lines = [
-                _clean_line(f"{'[dir]' if e.is_dir() else '[file]'} {e.name}", 180)
-                for e in entries
-            ]
-            return {
-                "op": "access",
-                "status": "completed",
-                "confirmStage": 0,
-                "targetPath": str(target),
-                "destPath": "",
-                "summary": _clean_line(
-                    f"Folder {target.name}: showing {len(entries)} of {len(all_entries)} item(s) (page {page}).",
-                    240,
-                ),
-                "lines": lines or ["(empty folder)"],
-            }
+            return _list_directory_entries(
+                target,
+                query=query,
+                include_hidden=include_hidden,
+                page=page,
+                page_size=page_size,
+            )
 
+        _sync_session_context_from_op(target, is_dir=False)
         size = target.stat().st_size
         if size > 512 * 1024:
             return {
@@ -711,9 +990,9 @@ def agent_file_op(options: dict) -> dict:
         raw_text = target.read_text(encoding="utf-8", errors="replace")
         all_lines = raw_text.splitlines()
         start_line = max(1, int(options.get("startLine") or 1))
-        end_line = min(len(all_lines), int(options.get("endLine") or (start_line + 17)))
+        end_line = min(len(all_lines), int(options.get("endLine") or (start_line + 199)))
         sliced = all_lines[start_line - 1:end_line] if all_lines else []
-        lines = [_clean_line(ln, 180) for ln in sliced if ln.strip()][:18]
+        lines = [_clean_line(ln, 200) for ln in sliced if ln.strip()][:200]
         return {
             "op": "access",
             "status": "completed",
@@ -725,7 +1004,7 @@ def agent_file_op(options: dict) -> dict:
         }
 
     if op in ("edit", "create", "patch"):
-        target = _resolve_user_path(raw_target, allow_missing=True)
+        target = _resolve_user_path(raw_target, allow_missing=True, last_dir=last_dir, allow_system=allow_system)
         if target.exists() and target.is_dir():
             raise ToolError("is_directory", "Cannot edit a folder as a text file.")
         before_existed = target.is_file()
@@ -770,7 +1049,8 @@ def agent_file_op(options: dict) -> dict:
             now=now,
         )
         _save_store(store)
-        preview = [_clean_line(ln, 180) for ln in updated.splitlines() if ln.strip()][:10]
+        _sync_session_context_from_op(target, is_dir=False)
+        preview = [_clean_line(ln, 200) for ln in updated.splitlines() if ln.strip()][:20]
         return {
             "op": "edit",
             "status": "completed",
@@ -785,15 +1065,13 @@ def agent_file_op(options: dict) -> dict:
         }
 
     if op in ("copy", "cut"):
-        src = _resolve_user_path(raw_target, allow_missing=False)
+        src = _resolve_user_path(raw_target, allow_missing=False, last_dir=last_dir, allow_system=allow_system)
         raw_dest = str(options.get("destPath", "")).strip()
         if not raw_dest:
             raise ToolError("missing_destination", "Specify a destination path for copy or cut.")
-        dst = _resolve_user_path(raw_dest, allow_missing=True)
+        dst = _resolve_user_path(raw_dest, allow_missing=True, last_dir=last_dir, allow_system=allow_system)
         if dst.exists() and dst.is_dir():
             dst = (dst / src.name).resolve()
-        if dst.is_symlink():
-            raise ToolError("symlink_blocked", "Refusing to overwrite a destination symlink.")
         if dst.exists() and options.get("overwrite") is False:
             raise ToolError("destination_exists", f"Destination '{dst.name}' already exists.")
 
@@ -803,13 +1081,13 @@ def agent_file_op(options: dict) -> dict:
         dst.parent.mkdir(parents=True, exist_ok=True)
         if op == "copy":
             if src.is_dir():
-                shutil.copytree(src, dst, symlinks=False, dirs_exist_ok=True)
+                shutil.copytree(src, dst, symlinks=True, dirs_exist_ok=True)
             else:
                 fd, tmp_name = tempfile.mkstemp(prefix=f".{dst.name}.", dir=str(dst.parent))
                 os.close(fd)
                 tmp_dst = Path(tmp_name)
                 try:
-                    shutil.copy2(src, tmp_dst, follow_symlinks=False)
+                    shutil.copy2(src, tmp_dst, follow_symlinks=True)
                     os.replace(tmp_dst, dst)
                 except Exception:
                     tmp_dst.unlink(missing_ok=True)
@@ -842,7 +1120,7 @@ def agent_file_op(options: dict) -> dict:
         }
 
     # op == "delete": requires 2-step confirmation (confirmStep 0 -> 1 -> 2)
-    target = _resolve_user_path(raw_target, allow_missing=False)
+    target = _resolve_user_path(raw_target, allow_missing=False, last_dir=last_dir, allow_system=allow_system)
     step = int(options.get("confirmStep") or 0)
     pending_del = proposals.get("delete_pending")
     if step <= 0:

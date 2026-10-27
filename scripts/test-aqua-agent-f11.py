@@ -185,20 +185,70 @@ def main() -> None:
         assert second_file.exists() and "Report B contents" in second_file.read_text(encoding="utf-8")
 
         # ------------------------------------------------------------------
-        # 5. Out-of-scope permission request + untrusted injection block + symlink & sensitive path block
+        # 5. Full User Home ($HOME) access + Complete 25+ item listing + Sudo-gated System path access
         # ------------------------------------------------------------------
         outside_file = outside_dir / "plan.md"
         outside_file.write_text("# Secret Plan\n", encoding="utf-8")
 
-        # Writing outside default writable scope (Desktop) prompts for confirmation
+        # 5a. Inside $HOME (including subdirectories outside Desktop, symlinks inside $HOME, and dot-dirs):
+        # Full read/write/execute access works immediately without confirmation!
+        home_write = run_helper(
+            {"action": "agent_turn", "prompt": f"sửa tệp {outside_file}: Updated in Home directly", "character": "aqua"},
+            env,
+        )
+        assert home_write["handled"] is True and home_write["status"] == "completed"
+        assert outside_file.read_text(encoding="utf-8") == "Updated in Home directly"
+
+        dot_file = ssh_dir / "custom_config"
+        dot_file.write_text("Host local-dev\n", encoding="utf-8")
+        dot_read = run_helper({"action": "agent_turn", "prompt": f"đọc tệp {dot_file}", "character": "aqua"}, env)
+        assert dot_read["status"] == "completed" and "Host local-dev" in dot_read["text"]
+
+        # 5b. Complete listing of >20 items + symlinks inside ~/Downloads, plus follow-up `list files` / `list all`
+        downloads_dir = fake_home / "Downloads"
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        shared_music = fake_home / "Shared_Documents/Music/Mics"
+        shared_music.mkdir(parents=True, exist_ok=True)
+        (shared_music / "track01.flac").write_text("audio", encoding="utf-8")
+        qobuz_link = downloads_dir / "Qobuz"
+        if not qobuz_link.exists():
+            qobuz_link.symlink_to(shared_music)
+        for idx in range(1, 26):
+            (downloads_dir / f"item_{idx:02d}.txt").write_text(f"Item {idx}\n", encoding="utf-8")
+
+        dl_access = run_helper({"action": "agent_turn", "prompt": "access Downloads", "character": "aqua"}, env)
+        assert dl_access["handled"] is True and dl_access["status"] == "completed"
+        assert "Qobuz" in dl_access["text"], f"Symlink Qobuz missing from listing: {dl_access['text']}"
+        for idx in range(1, 26):
+            assert f"item_{idx:02d}.txt" in dl_access["text"], f"item_{idx:02d}.txt truncated from access Downloads!"
+
+        # Follow-up `list files` and `list all` must route to agent_turn (never fall through to chat) and list all 26 items
+        dl_list_files = run_helper({"action": "agent_turn", "prompt": "list files", "character": "aqua"}, env)
+        assert dl_list_files["handled"] is True and dl_list_files["status"] == "completed"
+        for idx in range(1, 26):
+            assert f"item_{idx:02d}.txt" in dl_list_files["text"], f"item_{idx:02d}.txt missing from 'list files'!"
+
+        dl_list_all = run_helper({"action": "agent_turn", "prompt": "liệt kê tất cả", "character": "aqua"}, env)
+        assert dl_list_all["handled"] is True and dl_list_all["status"] == "completed"
+        for idx in range(1, 26):
+            assert f"item_{idx:02d}.txt" in dl_list_all["text"], f"item_{idx:02d}.txt missing from 'liệt kê tất cả'!"
+
+        # Traversing symlink inside $HOME (`access Qobuz`) works seamlessly
+        qobuz_access = run_helper({"action": "agent_turn", "prompt": "access Qobuz", "character": "aqua"}, env)
+        assert qobuz_access["handled"] is True and qobuz_access["status"] == "completed"
+        assert "track01.flac" in qobuz_access["text"]
+
+        # 5c. Explicit revocation inside $HOME + conversational re-grant + untrusted injection block
+        perm_rev = run_helper({"action": "agent_turn", "prompt": f"thu hồi quyền {outside_dir}", "character": "aqua"}, env)
+        assert perm_rev["status"] == "completed"
+
         perm_req = run_helper(
-            {"action": "agent_turn", "prompt": f"sửa tệp {outside_file}: Updated plan", "character": "aqua"},
+            {"action": "agent_turn", "prompt": f"sửa tệp {outside_file}: Updated after re-grant", "character": "aqua"},
             env,
         )
         assert perm_req["handled"] is True and perm_req["requiresConfirmation"] is True
-        assert outside_file.read_text(encoding="utf-8") == "# Secret Plan\n"
+        assert outside_file.read_text(encoding="utf-8") == "Updated in Home directly"
 
-        # Untrusted source (e.g. prompt injection from file/screen/model) MUST NOT be able to grant or confirm permissions
         import permission_store
         try:
             permission_store.resolve_pending_confirmation("confirm", source="untrusted_data")
@@ -206,29 +256,58 @@ def main() -> None:
         except permission_store.AgentPermissionError as exc:
             assert exc.code in ("untrusted_confirmation", "untrusted_confirmation_blocked")
 
-        # User confirms via prompt -> grants permission and executes the write
         perm_ok = run_helper({"action": "agent_turn", "prompt": "đồng ý", "character": "aqua"}, env)
         assert perm_ok["handled"] is True and perm_ok["status"] == "completed"
-        assert outside_file.read_text(encoding="utf-8") == "Updated plan"
+        assert outside_file.read_text(encoding="utf-8") == "Updated after re-grant"
 
-        # Inspect & revoke permissions via prompt
-        perm_list = run_helper({"action": "agent_turn", "prompt": "xem quyền hiện tại", "character": "aqua"}, env)
-        assert str(outside_dir) in perm_list["text"]
-        perm_rev = run_helper({"action": "agent_turn", "prompt": f"thu hồi quyền {outside_dir}", "character": "aqua"}, env)
-        assert perm_rev["status"] == "completed"
+        # 5d. System path outside $HOME requires user permission AND sudo password (with history redaction)
+        system_dir = tmp_path / "system_etc"
+        system_dir.mkdir(parents=True, exist_ok=True)
+        system_file = system_dir / "sys_config.conf"
+        system_file.write_text("SYSTEM_MODE=default\n", encoding="utf-8")
+        env["AQUA_TEST_SUDO_PASSWORD"] = "super_secret_sudo_pw_99"
 
-        # Sensitive path (~/.ssh/id_rsa) is unconditionally blocked
-        ssh_key = ssh_dir / "id_rsa"
-        ssh_key.write_text("PRIVATE KEY", encoding="utf-8")
-        ssh_attempt = run_helper({"action": "agent_turn", "prompt": f"đọc tệp {ssh_key}", "character": "aqua"}, env)
-        assert ssh_attempt["status"] == "failed" and ssh_attempt.get("errorCode") == "forbidden_sensitive_path"
+        sys_req = run_helper(
+            {"action": "agent_turn", "prompt": f"đọc tệp {system_file}", "character": "aqua"},
+            env,
+        )
+        assert sys_req["handled"] is True
+        assert sys_req["requiresConfirmation"] is True and sys_req["requiresSudoPassword"] is True
+        assert sys_req["status"] == "awaiting_sudo_password"
 
-        # Symlink escape outside permitted scope is blocked
-        symlink_escape = desktop / "escape_link.txt"
-        symlink_escape.symlink_to(ssh_key)
-        sym_attempt = run_helper({"action": "agent_turn", "prompt": f"sửa tệp {symlink_escape}: hacked", "character": "aqua"}, env)
-        assert sym_attempt["status"] == "failed"
-        assert ssh_key.read_text(encoding="utf-8") == "PRIVATE KEY"
+        # Wrong sudo password must be rejected and keep awaiting_sudo_password active
+        sys_wrong_pw = run_helper(
+            {"action": "agent_turn", "prompt": "wrong_password_123", "character": "aqua"},
+            env,
+        )
+        assert sys_wrong_pw["handled"] is True
+        assert sys_wrong_pw["status"] == "awaiting_sudo_password" and sys_wrong_pw["requiresSudoPassword"] is True
+
+        # Correct sudo password executes the system operation and redacts password in chat.sqlite3
+        sys_right_pw = run_helper(
+            {"action": "agent_turn", "prompt": "[sudo password]", "sudoPassword": "super_secret_sudo_pw_99", "character": "aqua"},
+            env,
+        )
+        assert sys_right_pw["handled"] is True and sys_right_pw["status"] == "completed"
+        assert sys_right_pw["requiresSudoPassword"] is False
+        assert "SYSTEM_MODE=default" in sys_right_pw["text"]
+
+        # Verify raw sudo password was NEVER stored in chat.sqlite3
+        with sqlite3.connect(env["ALIS_AQUA_HISTORY_DB"]) as conn:
+            all_msgs = [r[0] for r in conn.execute("SELECT content FROM messages").fetchall()]
+        assert not any("super_secret_sudo_pw_99" in m for m in all_msgs), "Plaintext sudo password leaked into chat.sqlite3!"
+        assert not any("wrong_password_123" in m for m in all_msgs), "Failed sudo password attempt leaked into chat.sqlite3!"
+        assert any("•••••••• (sudo password)" in m for m in all_msgs), "Redacted sudo placeholder missing from chat.sqlite3!"
+
+        # System operation cancellation via 'huỷ'
+        sys_edit_req = run_helper(
+            {"action": "agent_turn", "prompt": f"sửa tệp {system_file}: HACKED", "character": "aqua"},
+            env,
+        )
+        assert sys_edit_req["requiresSudoPassword"] is True
+        sys_cancel = run_helper({"action": "agent_turn", "prompt": "huỷ", "character": "aqua"}, env)
+        assert sys_cancel["status"] == "cancelled" and sys_cancel["requiresSudoPassword"] is False
+        assert system_file.read_text(encoding="utf-8") == "SYSTEM_MODE=default\n"
 
         # ------------------------------------------------------------------
         # 6. Screen / Window observation + focus-change guard + no /proc/<pid>/fd scraping

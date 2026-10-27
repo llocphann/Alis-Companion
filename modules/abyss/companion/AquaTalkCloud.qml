@@ -637,7 +637,8 @@ Item {
                         Layout.minimumWidth: 0
                         maximumLength: 1200
                         enableSettingsSearch: false
-                        placeholderText: ""
+                        echoMode: AquaMind.pendingSudoPassword ? TextInput.Password : TextInput.Normal
+                        placeholderText: AquaMind.pendingSudoPassword ? "Enter sudo password (or type 'cancel')..." : ""
                         Accessible.name: "Message"
                         background: Rectangle { color: "transparent"; border.width: 0 }
                         onAccepted: root.submit()

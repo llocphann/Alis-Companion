@@ -1,8 +1,12 @@
 """Scoped, versioned, inspectable and revocable permissions for Alis-Companion Agent.
 
-Permissions are bound to concrete directories, applications, tool categories,
-network access, and optional TTLs. Untrusted file/screen/RAG/model text can
-never grant or elevate permissions.
+Permissions model:
+- Inside User Home ($HOME): full read/write/execute access by default across all
+  files, directories, dot-directories, and symlinks resolving within $HOME
+  (destructive deletes still require explicit confirmation).
+- System paths (outside $HOME, e.g. /etc, /usr, /var, /opt, /root, /mnt):
+  always require explicit user permission AND sudo password verification.
+- Untrusted file/screen/RAG/model text can never grant or elevate permissions.
 """
 import hashlib
 import json
@@ -12,7 +16,7 @@ import tempfile
 import time
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 TOOL_CATEGORIES = frozenset((
     "file_read",
     "file_write",
@@ -28,23 +32,6 @@ TOOL_CATEGORIES = frozenset((
     "preference_edit",
 ))
 TRUSTED_GRANT_SOURCES = frozenset(("user_prompt", "settings_ui", "legacy_migration"))
-FORBIDDEN_PATH_PARTS = frozenset((
-    ".ssh",
-    ".gnupg",
-    ".aws",
-    ".kube",
-    "keyring",
-    "keyrings",
-    "kwalletd",
-))
-FORBIDDEN_SYSTEM_PREFIXES = (
-    "/etc/shadow",
-    "/etc/gshadow",
-    "/etc/sudoers",
-    "/root",
-    "/proc/kcore",
-    "/sys/firmware",
-)
 
 
 class AgentPermissionError(Exception):
@@ -81,9 +68,18 @@ def _default_state(now_ms=None):
         "schemaVersion": SCHEMA_VERSION,
         "updatedAtMs": ts,
         "migratedLegacy": True,
+        "homeFullAccess": True,
         "networkAllowed": False,
         "networkExpiresMs": 0,
         "directories": [
+            {
+                "id": "perm_dir_home_full",
+                "path": home,
+                "levels": ["read", "write", "execute"],
+                "grantedAtMs": ts,
+                "expiresAtMs": 0,
+                "source": "legacy_migration",
+            },
             {
                 "id": "perm_dir_desktop_default",
                 "path": desktop,
@@ -92,15 +88,8 @@ def _default_state(now_ms=None):
                 "expiresAtMs": 0,
                 "source": "legacy_migration",
             },
-            {
-                "id": "perm_dir_home_read",
-                "path": home,
-                "levels": ["read"],
-                "grantedAtMs": ts,
-                "expiresAtMs": 0,
-                "source": "legacy_migration",
-            },
         ],
+        "revokedDirectories": [],
         "apps": [],
         "tools": {
             "file_read": {"allowed": True, "expiresAtMs": 0},
@@ -125,17 +114,19 @@ def _normalize_loaded_state(raw, now_ms=None):
     base = _default_state(ts)
     if not isinstance(raw, dict):
         return base
-    # Preserve unknown keys for forward/backward compatibility
+    home = str(Path.home().resolve())
     merged = dict(raw)
+    old_schema = int(raw.get("schemaVersion", 1) or 1)
     merged["schemaVersion"] = SCHEMA_VERSION
     if not isinstance(merged.get("updatedAtMs"), int):
         merged["updatedAtMs"] = ts
+    if not isinstance(merged.get("homeFullAccess"), bool):
+        merged["homeFullAccess"] = True
     if not isinstance(merged.get("networkAllowed"), bool):
         merged["networkAllowed"] = bool(raw.get("network", False))
     if not isinstance(merged.get("networkExpiresMs"), int):
         merged["networkExpiresMs"] = 0
 
-    # Migrate legacy Full Access boolean flags if present
     legacy_full = raw.get("fullAccess", raw.get("agentToolsEnabled", None))
     if isinstance(legacy_full, bool) and not raw.get("migratedLegacy"):
         merged["migratedLegacy"] = True
@@ -144,8 +135,16 @@ def _normalize_loaded_state(raw, now_ms=None):
                 if k in base["tools"]:
                     base["tools"][k]["allowed"] = False
 
+    revoked_dirs = []
+    if isinstance(raw.get("revokedDirectories"), list):
+        for r in raw["revokedDirectories"]:
+            if isinstance(r, str) and r.strip():
+                revoked_dirs.append(r.strip())
+    merged["revokedDirectories"] = revoked_dirs
+
     dirs = []
     seen_ids = set()
+    has_home_entry = False
     raw_dirs = raw.get("directories")
     if isinstance(raw_dirs, list):
         for item in raw_dirs:
@@ -159,14 +158,29 @@ def _normalize_loaded_state(raw, now_ms=None):
                 continue
             seen_ids.add(pid)
             levels = [lvl for lvl in (item.get("levels") or ["read"]) if lvl in ("read", "write", "execute")]
+            # Upgrade schema v1 read-only home entry to full read/write/execute
+            if (pid in ("perm_dir_home_read", "perm_dir_home_full") or p == home) and old_schema < 2:
+                levels = ["read", "write", "execute"]
+                pid = "perm_dir_home_full"
+            if p == home or pid == "perm_dir_home_full":
+                has_home_entry = True
             dirs.append({
                 **{k: v for k, v in item.items() if k not in ("id", "path", "levels", "grantedAtMs", "expiresAtMs", "source")},
                 "id": pid,
                 "path": p,
-                "levels": levels or ["read"],
+                "levels": levels or ["read", "write", "execute"],
                 "grantedAtMs": int(item.get("grantedAtMs", ts)),
                 "expiresAtMs": int(item.get("expiresAtMs", 0)),
                 "source": str(item.get("source", "legacy_migration")),
+            })
+        if not has_home_entry and merged.get("homeFullAccess", True) and home not in revoked_dirs:
+            dirs.insert(0, {
+                "id": "perm_dir_home_full",
+                "path": home,
+                "levels": ["read", "write", "execute"],
+                "grantedAtMs": ts,
+                "expiresAtMs": 0,
+                "source": "legacy_migration",
             })
     else:
         dirs = base["directories"]
@@ -239,22 +253,34 @@ def save_state(state):
                 pass
 
 
+def is_inside_user_home(target_path):
+    if not target_path:
+        return True
+    raw = str(target_path).strip()
+    if "\x00" in raw or "\r" in raw or "\n" in raw:
+        return False
+    try:
+        home = Path.home().resolve()
+        expanded = Path(raw).expanduser()
+        if not expanded.is_absolute():
+            expanded = home / expanded
+        resolved = expanded.resolve(strict=False)
+        return resolved == home or resolved.is_relative_to(home)
+    except OSError:
+        return False
+
+
+def is_system_path(target_path):
+    if not target_path:
+        return False
+    return not is_inside_user_home(target_path)
+
+
 def is_forbidden_path(target_path):
     if not target_path:
         return False
     raw = str(target_path).strip()
     if "\x00" in raw or "\r" in raw or "\n" in raw:
-        return True
-    try:
-        expanded = Path(raw).expanduser()
-        resolved = str(expanded.resolve(strict=False))
-    except OSError:
-        return True
-    for prefix in FORBIDDEN_SYSTEM_PREFIXES:
-        if resolved == prefix or resolved.startswith(prefix + "/"):
-            return True
-    parts = set(Path(resolved).parts) | set(expanded.parts)
-    if parts & FORBIDDEN_PATH_PARTS:
         return True
     return False
 
@@ -278,6 +304,7 @@ def check_permission(
         return {
             "allowed": False,
             "requiresConfirmation": False,
+            "requiresSudo": False,
             "reason": "untrusted_source_blocked",
             "category": str(category),
             "targetPath": str(target_path),
@@ -286,6 +313,7 @@ def check_permission(
         return {
             "allowed": False,
             "requiresConfirmation": False,
+            "requiresSudo": False,
             "reason": "unknown_tool_category",
             "category": str(category),
             "targetPath": str(target_path),
@@ -294,7 +322,8 @@ def check_permission(
         return {
             "allowed": False,
             "requiresConfirmation": False,
-            "reason": "forbidden_sensitive_path",
+            "requiresSudo": False,
+            "reason": "invalid_target_path",
             "category": str(category),
             "targetPath": str(target_path),
         }
@@ -305,6 +334,7 @@ def check_permission(
         return {
             "allowed": False,
             "requiresConfirmation": True,
+            "requiresSudo": False,
             "reason": "tool_category_disabled",
             "category": str(category),
             "targetPath": str(target_path),
@@ -317,41 +347,63 @@ def check_permission(
         return {
             "allowed": net_ok,
             "requiresConfirmation": not net_ok,
+            "requiresSudo": False,
             "reason": "ok" if net_ok else "external_network_requires_confirmation",
             "category": "network",
             "targetPath": str(target_path),
         }
 
-    if category == "file_delete":
-        return {
-            "allowed": False,
-            "requiresConfirmation": True,
-            "reason": "destructive_delete_requires_confirmation",
-            "category": "file_delete",
-            "targetPath": str(target_path),
-        }
-
     if target_path:
         try:
-            resolved = str(Path(target_path).expanduser().resolve(strict=False))
+            home = Path.home().resolve()
+            expanded = Path(str(target_path).strip()).expanduser()
+            if not expanded.is_absolute():
+                expanded = home / expanded
+            resolved_path = expanded.resolve(strict=False)
+            resolved = str(resolved_path)
         except OSError:
             return {
                 "allowed": False,
                 "requiresConfirmation": False,
+                "requiresSudo": False,
                 "reason": "invalid_target_path",
                 "category": str(category),
                 "targetPath": str(target_path),
             }
-        # Explicit prompt naming a file/folder for reading is valid for that read
-        # when within OS user permissions and not a forbidden sensitive path.
-        if category == "file_read" and level == "read" and explicit_prompt_target:
-            home = str(Path.home().resolve())
-            if resolved == home or resolved.startswith(home + "/") or resolved.startswith("/tmp/"):
+
+        inside_home = resolved_path == home or resolved_path.is_relative_to(home)
+
+        # System path outside $HOME: always requires explicit user permission AND sudo password
+        if not inside_home:
+            return {
+                "allowed": False,
+                "requiresConfirmation": True,
+                "requiresSudo": True,
+                "reason": "system_path_requires_sudo",
+                "category": str(category),
+                "targetPath": resolved,
+            }
+
+        if category == "file_delete":
+            return {
+                "allowed": False,
+                "requiresConfirmation": True,
+                "requiresSudo": False,
+                "reason": "destructive_delete_requires_confirmation",
+                "category": "file_delete",
+                "targetPath": resolved,
+            }
+
+        # Check if user explicitly revoked this directory inside $HOME
+        for rev in state.get("revokedDirectories", []):
+            rev_resolved = str(Path(rev).expanduser().resolve(strict=False))
+            if resolved == rev_resolved or resolved.startswith(rev_resolved + "/"):
                 return {
-                    "allowed": True,
-                    "requiresConfirmation": False,
-                    "reason": "explicit_prompt_read_grant",
-                    "category": category,
+                    "allowed": False,
+                    "requiresConfirmation": True,
+                    "requiresSudo": False,
+                    "reason": "outside_granted_directory_scope",
+                    "category": str(category),
                     "targetPath": resolved,
                 }
 
@@ -364,35 +416,40 @@ def check_permission(
                 return {
                     "allowed": True,
                     "requiresConfirmation": bool(tool_cfg.get("requiresConfirm", False)),
+                    "requiresSudo": False,
                     "reason": "granted_directory_scope",
                     "category": category,
                     "targetPath": resolved,
                 }
-        # Allow Desktop inside current HOME dynamically (for isolated test HOME fixtures)
-        current_desktop = str((Path.home() / "Desktop").resolve(strict=False))
-        current_home = str(Path.home().resolve(strict=False))
-        if resolved == current_desktop or resolved.startswith(current_desktop + "/"):
+
+        # Default: full access to everything inside current User Home ($HOME)
+        if state.get("homeFullAccess", True):
             return {
                 "allowed": True,
                 "requiresConfirmation": False,
-                "reason": "desktop_scope",
+                "requiresSudo": False,
+                "reason": "user_home_full_access",
                 "category": category,
                 "targetPath": resolved,
             }
-        if needed_level == "read" and (resolved == current_home or resolved.startswith(current_home + "/")):
-            return {
-                "allowed": True,
-                "requiresConfirmation": False,
-                "reason": "home_read_scope",
-                "category": category,
-                "targetPath": resolved,
-            }
+
         return {
             "allowed": False,
             "requiresConfirmation": True,
+            "requiresSudo": False,
             "reason": "outside_granted_directory_scope",
             "category": category,
             "targetPath": resolved,
+        }
+
+    if category == "file_delete":
+        return {
+            "allowed": False,
+            "requiresConfirmation": True,
+            "requiresSudo": False,
+            "reason": "destructive_delete_requires_confirmation",
+            "category": "file_delete",
+            "targetPath": str(target_path),
         }
 
     if app_id and category == "gui_action":
@@ -401,6 +458,7 @@ def check_permission(
                 return {
                     "allowed": True,
                     "requiresConfirmation": False,
+                    "requiresSudo": False,
                     "reason": "granted_app_scope",
                     "category": category,
                     "targetPath": app_id,
@@ -409,6 +467,7 @@ def check_permission(
     return {
         "allowed": True,
         "requiresConfirmation": bool(tool_cfg.get("requiresConfirm", False)),
+        "requiresSudo": False,
         "reason": "ok",
         "category": category,
         "targetPath": str(target_path),
@@ -424,10 +483,14 @@ def grant_permission(scope_type, target="", levels=None, ttl_ms=0, source="user_
 
     if scope_type == "directory":
         if not target or is_forbidden_path(target):
-            raise AgentPermissionError("forbidden_path", "Cannot grant permission to a sensitive or invalid path.")
+            raise AgentPermissionError("forbidden_path", "Cannot grant permission to an invalid path.")
         resolved = str(Path(target).expanduser().resolve(strict=False))
-        lvls = [x for x in (levels or ["read", "write"]) if x in ("read", "write", "execute")] or ["read"]
+        lvls = [x for x in (levels or ["read", "write", "execute"]) if x in ("read", "write", "execute")] or ["read", "write", "execute"]
         pid = "perm_dir_" + hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:12]
+        state["revokedDirectories"] = [
+            r for r in state.get("revokedDirectories", [])
+            if str(Path(r).expanduser().resolve(strict=False)) != resolved
+        ]
         updated = False
         for item in state["directories"]:
             if item.get("id") == pid or item.get("path") == resolved:
@@ -504,6 +567,8 @@ def revoke_permission(scope_type="", target="", revoke_all=False, now_ms=None):
             d for d in state["directories"]
             if d.get("path") not in (target, resolved) and d.get("id") != target
         ]
+        if resolved not in state.get("revokedDirectories", []):
+            state.setdefault("revokedDirectories", []).append(resolved)
     elif scope_type == "app" and target:
         state["apps"] = [a for a in state["apps"] if a.get("appId") != target and a.get("id") != target]
     elif scope_type == "tool" and target in state["tools"]:
@@ -578,7 +643,7 @@ def inspect_permissions(options=None):
         {
             "id": str(d["id"]),
             "path": str(d["path"]),
-            "levels": list(d.get("levels", ["read"])),
+            "levels": list(d.get("levels", ["read", "write", "execute"])),
             "expiresAtMs": int(d.get("expiresAtMs", 0)),
         }
         for d in state.get("directories", [])
@@ -587,6 +652,7 @@ def inspect_permissions(options=None):
     active_apps = [
         {
             "id": str(a["id"]),
+            "id_str": str(a["id"]),
             "appId": str(a["appId"]),
             "levels": list(a.get("levels", ["inspect"])),
             "expiresAtMs": int(a.get("expiresAtMs", 0)),
@@ -604,10 +670,12 @@ def inspect_permissions(options=None):
     ]
     return {
         "schemaVersion": SCHEMA_VERSION,
+        "homeFullAccess": bool(state.get("homeFullAccess", True)),
         "networkAllowed": bool(state.get("networkAllowed", False)) and (
             int(state.get("networkExpiresMs", 0)) == 0 or int(state.get("networkExpiresMs", 0)) > ts
         ),
         "directories": active_dirs[:32],
+        "revokedDirectories": list(state.get("revokedDirectories", []))[:32],
         "apps": active_apps[:32],
         "tools": active_tools,
         "pendingCount": len(pending),

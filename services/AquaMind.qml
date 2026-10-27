@@ -48,18 +48,20 @@ Singleton {
     property bool agentGlobalStop: false
     property bool pendingAgentConfirmation: false
     property bool pendingAgentClarification: false
+    property bool pendingSudoPassword: false
     property string activeAgentRunId: ""
     property bool previousPomodoroRunning: false
     property string pendingDeletePath: ""
     property int pendingDeleteStage: 0
     readonly property string agentStatusSummary: !agentToolsEnabled ? "Agent off"
+        : pendingSudoPassword ? "Awaiting sudo password for System path"
         : pendingDeleteStage > 0 ? ("Confirm delete (" + pendingDeleteStage + "/2): " + pendingDeletePath.split("/").pop())
         : pendingAgentConfirmation ? "Awaiting confirmation in chat"
         : pendingAgentClarification ? "Awaiting file selection in chat"
         : toolNotice.length > 0 ? toolNotice
         : lastActiveAppContext ? ("Full Access · " + lastActiveAppContext.packageId + " (" + (lastActiveAppContext.version === "screenshot_ocr" ? "Screen OCR" : lastActiveAppContext.version === "direct_app" ? "Direct app" : "Window") + ")")
         : lastToolMetadata ? ("Full Access · " + lastToolMetadata.packageId)
-        : (agentScreenFallbackEnabled ? "Full Access · Apps, Desktop, Screen OCR & Scripts" : "Full Access · Apps, Desktop & Scripts")
+        : (agentScreenFallbackEnabled ? "Full Access · Home, Screen OCR & Scripts" : "Full Access · Home & Scripts")
     readonly property var dialoguePreferences: options.bondEnabled===true && ModelPolicy.isLocal(Ai.models[model])
         ? ({enabled:true,tone:options.dialogueTone ?? "gentle",familiarity:options.familiarity ?? "neutral",
             mood:userMood,energy:userEnergy}) : ({enabled:false})
@@ -365,7 +367,7 @@ Singleton {
         const trimmed = String(rawPrompt ?? "").trim()
         if (!trimmed) return false
         const folded = trimmed.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/\s+/g, " ")
-        if (pendingAgentConfirmation || pendingAgentClarification) return true
+        if (pendingSudoPassword || pendingAgentConfirmation || pendingAgentClarification) return true
         if (/^(?:hay\s+|vui long\s+|please\s+)?(?:dung|dung lai|dung ngay|ngung|thoi|huy|huy bo|huy tac vu|stop|cancel|abort|halt|pause)(?:\s+.*)?$/.test(folded)) return true
         if (/^(?:hay\s+|vui long\s+|please\s+)?(?:lam tiep|lam tiep phan con lai|tiep tuc|tiep tuc di|tiep tuc tu checkpoint|continue|continue the rest|resume|keep going)(?:\s+.*)?$/.test(folded)) return true
         if (/^(?:giai thich|explain|what does|y nghia cua|dich cau|translate|phan tich cau)\b/.test(folded)) return true
@@ -382,7 +384,8 @@ Singleton {
         if (/\b(?:chay kiem tra|chay test|run tests|run project tests|test du an|kiem tra loi|diagnostics|lsp|sua loi trong du an|fix error in project|check errors in|tim symbol|tim ham|tim dinh nghia|tim tham chieu|find symbol|find definition|find references|search code|cau truc du an|repo map)\b/.test(folded)) return true
         if (/\b(?:tim trong tai lieu|theo tai lieu|tai lieu companion|shader validation|portal travel|search docs|in the documentation)\b/.test(folded)) return true
         if (/\b(?:doi tinh cach|chinh tinh cach|set personality|change personality|doi giong dieu|set dialogue tone)\b/.test(folded)) return true
-        if (/\b(?:hoan tac|undo|rollback|khoi phuc thao tac vua roi|doc thu muc|liet ke|xem thu muc|tim tep|doc tep|doc file|xem file|tom tat tep|tom tat|sua tep|sua file|ghi vao|them dong|tao tep|tao file|sao chep|di chuyen|xoa tep|xoa file|read folder|list directory|read file|summarize|edit file|create file|copy file|move file|delete file|tep do|tep nay|thu muc nay|thu muc do|thu muc vua mo|du an vua mo)\b/.test(folded)) return true
+        if (/\b(?:hoan tac|undo|rollback|khoi phuc thao tac vua roi|doc thu muc|liet ke|xem thu muc|mo thu muc|truy cap|xem tat ca|xem het|danh sach file|danh sach tep|danh sach thu muc|co nhung file nao|co gi trong thu muc|tim tep|doc tep|doc file|xem file|tom tat tep|tom tat|sua tep|sua file|ghi vao|them dong|tao tep|tao file|sao chep|di chuyen|xoa tep|xoa file|read folder|list directory|list files|list all|list folders|list everything|list items|show files|show all|show folders|show directory|what files|what is in|read file|summarize|edit file|create file|copy file|move file|delete file|tep do|tep nay|thu muc nay|thu muc do|thu muc vua mo|du an vua mo)\b/.test(folded)) return true
+        if (/^(?:\/agent\s+)?(?:access|list|ls|dir|tree|open|cd|edit|write|append|copy|cp|cut|move|mv|delete|rm|run|exec)\b/.test(folded)) return true
         return false
     }
     function runAgentTurn(userPrompt, runSource = "interactive"): bool {
@@ -396,8 +399,12 @@ Singleton {
         }
         toolNotice = ""
         errorMessage = ""
+        const folded = trimmed.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").trim()
+        const isCancelWord = /^(?:cancel|no|n|huy|khong|dung|stop|thoi|tu choi)$/i.test(folded)
+        const isSudoInput = pendingSudoPassword && !isCancelWord
         if (runSource === "interactive") {
-            history = history.concat([{id: 0, role: "user", content: trimmed}]).slice(-2000)
+            const displayUserText = isSudoInput ? "•••••••• (sudo password)" : trimmed
+            history = history.concat([{id: 0, role: "user", content: displayUserText}]).slice(-2000)
             historyLoaded = true
         }
         const plannerEvents = (typeof Events !== "undefined" && Events.ready && Array.isArray(Events.list))
@@ -405,7 +412,8 @@ Singleton {
             : []
         agentTurnWorker.requestPayload = {
             action: "agent_turn",
-            prompt: trimmed,
+            prompt: isSudoInput ? "[sudo password]" : trimmed,
+            sudoPassword: isSudoInput ? trimmed : "",
             character: character === "octo" ? "octo" : "aqua",
             runSource: runSource,
             allowScreenshot: agentScreenFallbackEnabled,
@@ -552,7 +560,7 @@ Singleton {
     function clearConversation(): void {
         cancel();history=[];historyLoaded=true;historyHasMore=false;text="";errorMessage="";toolNotice=""
         pendingDeletePath="";pendingDeleteStage=0
-        pendingAgentConfirmation=false;pendingAgentClarification=false;activeAgentRunId=""
+        pendingAgentConfirmation=false;pendingAgentClarification=false;pendingSudoPassword=false;activeAgentRunId=""
         historyClearPending=true;historyClearRetry.restart()
         touchConversation()
     }
@@ -1112,8 +1120,8 @@ Singleton {
                 root.pendingDeletePath=""
                 root.pendingDeleteStage=0
             }
-            const previewLines=Array.isArray(res.lines) && res.lines.length>0 ? "\n" + res.lines.slice(0,8).join("\n") : ""
-            const replyText=(res.summary + previewLines).slice(0,420)
+            const previewLines=Array.isArray(res.lines) && res.lines.length>0 ? "\n" + res.lines.join("\n") : ""
+            const replyText=(res.summary + previewLines).slice(0,5800)
             root.history=root.history.concat([{id:0,role:"assistant",content:replyText}]).slice(-2000)
             root.say(replyText,"built-in")
             if(root.hostVisible) root.reactionRequested(res.status==="completed" ? "working" : "thinking")
@@ -1136,6 +1144,7 @@ Singleton {
                 root.errorMessage=errMsg
                 root.pendingAgentConfirmation=false
                 root.pendingAgentClarification=false
+                root.pendingSudoPassword=false
                 root.history=root.history.concat([{id:0,role:"assistant",content:errMsg}]).slice(-2000)
                 root.say(errMsg,"built-in")
                 return
@@ -1145,8 +1154,9 @@ Singleton {
             root.lastAgentTurnResult=res
             root.pendingAgentConfirmation=res.requiresConfirmation===true
             root.pendingAgentClarification=res.status==="awaiting_clarification"
+            root.pendingSudoPassword=res.requiresSudoPassword===true
             root.activeAgentRunId=String(res.runId ?? "")
-            const replyText=String(res.text ?? "").slice(0,420)
+            const replyText=String(res.text ?? "").slice(0,5800)
             root.toolNotice=replyText.split("\n")[0].slice(0,140)
             root.history=root.history.concat([{id:Number(res.assistantMessageId ?? 0),role:"assistant",content:replyText,persisted:res.historySaved===true}]).slice(-2000)
             root.say(replyText,"ai")
