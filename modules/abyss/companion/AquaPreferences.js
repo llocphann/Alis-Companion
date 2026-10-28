@@ -31,8 +31,9 @@ function normalize(options) {
     for (const key of ["enabled", "alternateCompanions", "interactive", "soundEnabled", "animationsEnabled", "effectsEnabled", "hideInFullscreen", "exploreFeatures", "autoQuality", "contextEnabled", "contextFocusEnabled", "contextAiEnabled", "ambientEnabled", "ambientFocusEnabled", "ambientBatteryEnabled", "ambientMediaEnabled", "pocketEnabled"])
         if (typeof source[key] === "boolean") result[key] = source[key]
     result.character = source.character === "octo" ? "octo" : "aqua"
-    // Older persisted placement values are tolerated but no longer pin Aqua.
-    // Keep schema compatibility while geometry chooses every visit dynamically.
+    result.output = typeof source.output === "string" ? source.output.trim() : ""
+    result.edge = ["auto", "top", "right", "bottom", "left"].includes(source.edge) ? source.edge : "auto"
+    result.along = bounded(source.along, result.along, 0.08, 0.92)
     result.size = bounded(source.size, result.size, 0.65, 1.5)
     result.translucency = bounded(source.translucency, result.translucency, 0, 0.35)
     result.personality = personalities.includes(source.personality) ? source.personality : "balanced"

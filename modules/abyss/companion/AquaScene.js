@@ -164,6 +164,19 @@ function edgePoint(scene, edge, fraction) {
     placement.freeInterval=result.freeInterval
     return placement
 }
+function homePoint(scene, preferredEdge, preferredAlong) {
+    if (!valid(scene)) return {qualified:false}
+    const edge=edges.includes(preferredEdge) ? preferredEdge : "bottom"
+    const along=finite(preferredAlong) ? clamp(preferredAlong,.08,.92) : .72
+    const primary=edgePoint(scene,edge,along)
+    if (primary.qualified && primary.grounded && clearAt(scene,primary)) return primary
+    for (const candidateEdge of edges) {
+        if (candidateEdge===edge) continue
+        const fallback=edgePoint(scene,candidateEdge,along)
+        if (fallback.qualified && fallback.grounded && clearAt(scene,fallback)) return fallback
+    }
+    return appearance(scene,.8,edges.indexOf(edge)/4,along)
+}
 function surfacePoints(scene) {
     if (!valid(scene)) return []
     const result=[], w=scene.hostWidth, h=scene.hostHeight, gap=Math.max(2,2*scene.scale)

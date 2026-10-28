@@ -49,6 +49,13 @@ for(let i=0;i<100;i++){
 }
 assert.equal(surfaces,35,'35% initial surface chance, with free edges still eligible');
 const ground=api.edgePoint(s,'bottom',.35),groundTo=api.edgePoint(s,'bottom',.65);
+for (const edge of ['top','right','bottom','left']) {
+    const home=api.homePoint(s,edge,.72);
+    assert.equal(home.qualified,true);
+    assert.equal(home.edge,edge);
+    assert.equal(home.grounded,true);
+    assert.equal(api.clearAt(s,home),true);
+}
 const walking=api.path(s,ground,groundTo);
 assert.equal(walking.mode,'walk');checkPath(s,ground,groundTo,walking);
 const air={x:300,y:80},airTo={x:810,y:620};

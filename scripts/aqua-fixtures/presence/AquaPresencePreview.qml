@@ -156,6 +156,11 @@ Window {
         require(presence.traveling || presence.placement.kind==="surface","sustained popup did not offer a destination")
         waitFor(presence,"traveling",false,10000)
         require(!presence.traveling && presence.placement.kind==="surface","popup visit did not settle")
+        presence.homeEdge="bottom";presence.homeAlong=0.72;input.wait(40)
+        presence.returnToHome(true);input.wait(40)
+        require(presence.isAtHome() && presence.placement.edge==="bottom" && !presence.traveling,
+            "primary Screen Edge home return did not snap Companion to configured home position")
+        presence.homeEdge=""
         root.allowed=false;input.wait(40)
         require(!deadline.running && !named(presence,"aquaPeekDeadline").running,"hidden presence left a deadline running")
         console.log("AQUA_PRESENCE_CHECK=PASS "+JSON.stringify({arcEntrance:true,peek:true,peekRetraction:true,hover:true,hoverInterruptsWalk:true,click:true,gaze:true,walk:true,floatUp:true,drag:true,nearbyWaterDive:true,hiddenClocks:true,policyHide:true,sustainedPopup:true,qtLocalEvents:true,nativeDesktopAcceptance:false}))

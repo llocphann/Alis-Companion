@@ -16,6 +16,8 @@ Item {
     property bool interactionHeld: false
     property string personality: "balanced"
     property bool directed: false
+    property string homeEdge: ""
+    property real homeAlong: 0.72
     property double travelId: 0
     property real travelFraction: 0.5
     property double randomState: Date.now() % 4294967296
@@ -143,16 +145,84 @@ Item {
         }
         return source
     }
-    function chooseAppearance(selected): var {
+    function chooseAppearance(selected, anchorToSelected = false): var {
         appearClip="emerge";appearanceOffsetX=0;appearanceOffsetY=0
         if (!motionEnabled) return selected
-        const landing=appearanceLanding(selected)
-        if (!landing?.qualified || Scene.distance(selected,landing)<1) return selected
+        const neighbor=appearanceLanding(selected)
+        if (!neighbor?.qualified || Scene.distance(selected,neighbor)<1) return selected
         const roll=random()
         appearClip=roll<.25 ? "launch" : roll<.45 ? "stuckLaunch" : roll<.65 ? "stuckJump" : "riseJump"
-        appearanceOffsetX=selected.x-landing.x
-        appearanceOffsetY=selected.y-landing.y
-        return landing
+        if (anchorToSelected) {
+            appearanceOffsetX=neighbor.x-selected.x
+            appearanceOffsetY=neighbor.y-selected.y
+            return selected
+        }
+        appearanceOffsetX=selected.x-neighbor.x
+        appearanceOffsetY=selected.y-neighbor.y
+        return neighbor
+    }
+    function homePlacement(): var {
+        if (!Scene.valid(scene) || !homeEdge) return {qualified:false}
+        return Scene.homePoint(scene,homeEdge,homeAlong)
+    }
+    function isAtHome(point = position()): bool {
+        const home=homePlacement()
+        if (!home.qualified) return true
+        return placement.kind==="edge"
+            && emergenceEdge===home.edge
+            && Scene.distance(point,home)<=Math.max(8,12*(scene?.scale ?? 1))
+    }
+    function scheduleHomeReturn(): void {
+        homeReturnDeadline.stop()
+        if (!permitted || !visitActive || retreating || dragging || traveling || portalActive || !homeEdge) return
+        if (!isAtHome()) homeReturnDeadline.start()
+    }
+    function returnToHome(immediate = false): bool {
+        if (!permitted || !Scene.valid(scene) || !homeEdge) return false
+        const home=homePlacement()
+        if (!home.qualified || !Scene.clearAt(scene,home)) return false
+        homeReturnDeadline.stop()
+        if (!immediate && (dragging || interactionHeld || (actor && actor.hovered))) {
+            homeReturnDeadline.restart()
+            return false
+        }
+        if (isAtHome() && !traveling && !portalActive && !dragging && visitActive && !retreating) {
+            peekOnly=false;peekIntro=false
+            if (requestedReveal>0) renderedReveal=1
+            return true
+        }
+        if (immediate || !motionEnabled || !visitActive || retreating || !actor || actor.presentation<.99) {
+            clearMotion()
+            peekDeadline.stop();peekIntro=false;peekOnly=false
+            appearClip="emerge";appearanceOffsetX=0;appearanceOffsetY=0
+            placement=home;destination=home
+            targetX=home.x;targetY=home.y
+            retreating=false;visitActive=true
+            renderedReveal=requestedReveal>0 ? 1 : requestedReveal
+            if (actor) {
+                actor.adoptTo(
+                    targetX+(actor.scale-1)*actor.width/2,
+                    targetY+(actor.scale-1)*actor.height/2,
+                    home.edge,
+                    renderedReveal
+                )
+            }
+            disturb("land",home)
+            return true
+        }
+        if (moveTo(home,false)) return true
+        clearMotion()
+        placement=home;destination=home
+        targetX=home.x;targetY=home.y
+        if (actor) {
+            actor.adoptTo(
+                targetX+(actor.scale-1)*actor.width/2,
+                targetY+(actor.scale-1)*actor.height/2,
+                home.edge,
+                renderedReveal
+            )
+        }
+        return true
     }
     function position() {
         return (actor && (traveling || dragging || portalActive))
@@ -182,6 +252,7 @@ Item {
         appearanceOffsetX=0;appearanceOffsetY=0
         peekDeadline.stop(); peekIntro=false
         surfaceDeadline.stop(); surfaceDue=false
+        homeReturnDeadline.stop()
         recoveryDeadline.stop();reactionDeadline.stop()
         fullVisitDeadline.stop();fullyPresentSince=0
         if (actor) {actor.reactionExpression="";actor.stopGesture()}
@@ -189,13 +260,18 @@ Item {
         resetRequested(targetX,targetY,emergenceEdge)
     }
     function appear(selected): void {
-        if (!selected) selected=Scene.appearance(scene,random(),random(),random())
+        const useHome=!selected && homeEdge.length>0
+        if (!selected) {
+            const home=homePlacement()
+            selected=home.qualified && Scene.clearAt(scene,home)
+                ? home : Scene.appearance(scene,random(),random(),random())
+        }
         if (!selected.qualified || !Scene.clearAt(scene,selected)) {hideImmediately();return}
         clearMotion()
         recoveryDeadline.stop()
         fullVisitDeadline.stop();fullyPresentSince=0
         const source=selected
-        const landing=chooseAppearance(source)
+        const landing=chooseAppearance(source,useHome)
         placement=landing; destination=landing
         targetX=landing.x; targetY=landing.y
         retreating=false; visitActive=true
@@ -210,6 +286,7 @@ Item {
         renderedReveal=peekIntro || requestedReveal<.99 ? peekReveal : requestedReveal
         disturb(peekIntro || requestedReveal<.99 ? "peek" : "emerge",source)
         scheduleSurface()
+        scheduleHomeReturn()
     }
     function synchronize(): void {
         if (!initialized) return
@@ -415,6 +492,7 @@ Item {
                 disturb("land",placement)
                 if (placement.grounded && ["jump","fly"].includes(mode) && motionEnabled)
                     actor.perform("land")
+                scheduleHomeReturn()
                 settled()
             }
             return
@@ -454,6 +532,10 @@ Item {
     }
     function explore(): void {
         if (!canExplore || traveling || directed || travelId===0) return
+        if (homeEdge.length>0 && !isAtHome()) {
+            returnToHome(false)
+            return
+        }
         const here=position(), support=Scene.supportAt(scene,here)
         if (!support) {
             const floor=Scene.landingBelow(scene,here)
@@ -501,6 +583,7 @@ Item {
             const safe=Scene.annotate(scene,from,support.edge,isEdge ? "edge" : placement.kind,isEdge ? support.key : placement.key)
             placement=safe;destination=safe;targetX=safe.x;targetY=safe.y
             scheduleSurface()
+            scheduleHomeReturn()
             return true
         }
         const floor=Scene.landingBelow(scene,from)
@@ -664,6 +747,7 @@ Item {
         disturb("land",placement)
         if (placement.grounded && motionEnabled) actor.perform("land")
         scheduleSurface()
+        scheduleHomeReturn()
     }
     function hideForAWhile(): void {
         hiddenUntil=Date.now()+20000+Math.floor(random()*15000)
@@ -733,6 +817,8 @@ Item {
         if (action==="startle" && pendingReaction==="evade") {pendingReaction="";evade()}
     }
     onPermittedChanged: Qt.callLater(root.synchronize)
+    onHomeEdgeChanged: if (initialized && permitted && homeEdge.length>0) Qt.callLater(() => root.returnToHome(true))
+    onHomeAlongChanged: if (initialized && permitted && homeEdge.length>0) Qt.callLater(() => root.returnToHome(true))
     onPointerNearbyChanged: root.offerPointerNotice()
     onRequestedRevealChanged: Qt.callLater(root.synchronize)
     onSceneChanged: Qt.callLater(root.reconcileScene)
@@ -809,5 +895,12 @@ Item {
         repeat: false
         interval: 12000
         onTriggered: {root.surfaceDue=true;root.offerSurface()}
+    }
+    Timer {
+        id: homeReturnDeadline
+        objectName: "aquaHomeReturnDeadline"
+        repeat: false
+        interval: 14000
+        onTriggered: root.returnToHome(false)
     }
 }

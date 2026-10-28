@@ -93,6 +93,22 @@ Window {
                 check(AquaMind.connectionStatus==="ready" && AquaMind.selectableModels.some(entry=>entry.name==="tiny:local"),"shared AI model not ready")
                 mouseMove(root.contentItem,20,720);AquaMind.openChat();wait(100)
                 check(cloud.editing,"explicit chat did not open editor")
+                const unifiedHeader=root.named(cloud,"aquaUnifiedHeader")
+                const unifiedChatTab=root.named(cloud,"aquaUnifiedChatTab")
+                const unifiedTodayTab=root.named(cloud,"aquaUnifiedTodayTab")
+                const unifiedPomodoroBar=root.named(cloud,"aquaUnifiedPomodoroBar")
+                const unifiedPomodoroToggle=root.named(cloud,"aquaUnifiedPomodoroToggle")
+                const unifiedSettingsBtn=root.named(cloud,"aquaUnifiedSettingsButton")
+                const unifiedCloseBtn=root.named(cloud,"aquaPopupClose")
+                check(!!unifiedHeader && unifiedHeader.visible && !!unifiedChatTab && unifiedChatTab.visible
+                    && !!unifiedTodayTab && unifiedTodayTab.visible && !!unifiedPomodoroBar && unifiedPomodoroBar.visible
+                    && !!unifiedPomodoroToggle && unifiedPomodoroToggle.visible
+                    && !!unifiedSettingsBtn && unifiedSettingsBtn.visible && !!unifiedCloseBtn && unifiedCloseBtn.visible,
+                    "unified Mochi-style Abyss popup header or Pomodoro bar missing")
+                mouseClick(unifiedTodayTab);wait(60)
+                check(AquaMind.contextOpen && !cloud.editing,"unified Today tab did not switch to Today context")
+                mouseClick(unifiedChatTab);wait(80)
+                check(cloud.editing && !AquaMind.contextOpen,"unified Chat tab did not return to Chat editor")
                 tryCompare(AquaMind,"busy",false,3000)
                 const cloudGap=()=>Math.min(
                     Math.abs(cloud.actorVisualTop-(cloud.y+cloud.height)),

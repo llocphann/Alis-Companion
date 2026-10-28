@@ -24,8 +24,10 @@ for (const [field, min, max] of [["size", 0.65, 1.5], ["translucency", 0, 0.35]]
         assert.equal(api.normalize({[field]: value})[field], defaults[field]);
 }
 for (const edge of ['top','bottom','left','right']) {
-    const migrated=api.normalize({edge,along:.11,output:'old-fixed-output'});
-    assert.equal(migrated.edge,'auto');assert.equal(migrated.along,.72);assert.equal(migrated.output,'');
+    const configured=api.normalize({edge,along:.24,output:'eDP-1'});
+    assert.equal(configured.edge,edge);assert.equal(configured.along,.24);assert.equal(configured.output,'eDP-1');
+    assert.equal(api.normalize({edge,along:-1}).along,.08);
+    assert.equal(api.normalize({edge,along:2}).along,.92);
 }
 assert.equal(api.motionScale("calm"), 0.55);
 assert.equal(api.motionScale("balanced"), 1);

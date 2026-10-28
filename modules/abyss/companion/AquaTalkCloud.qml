@@ -18,6 +18,8 @@ Item {
     property int profileStage: 0
     readonly property bool pocketOpen: AquaPocket.opened && AquaPocket.permitted
     readonly property bool editing: visible && AquaMind.conversationOpen && !pocketOpen
+    readonly property bool panelMode: editing || AquaMind.contextOpen || pocketOpen
+    readonly property real bodyTop: panelMode ? 84 : 12
     readonly property bool controlsVisible: visible && (pocketOpen || editing || AquaMind.contextOpen || AquaMind.checkInStage.length>0)
     readonly property real edgeOpacity: AbyssStyle.contentOpacity
     readonly property real edgeHighlight: AbyssStyle.highlightStrength
@@ -39,8 +41,14 @@ Item {
             cloudColor.b + (AbyssStyle.surfaceRaised.b - cloudColor.b) * k,
             edgeOpacity)
     }
-    width: (pocketOpen || (AquaMind.contextOpen && !editing))
-        ? Math.min(272, Math.max(200, outputWidth - 32))
+    function formatPomodoroClock(sec): string {
+        const s = Math.max(0, Math.floor(Number(sec) || 0))
+        const m = Math.floor(s / 60)
+        const r = s % 60
+        return (m < 10 ? "0" + m : String(m)) + ":" + (r < 10 ? "0" + r : String(r))
+    }
+    width: panelMode
+        ? Math.min(380, Math.max(240, outputWidth - 32))
         : Math.min(380, Math.max(220, outputWidth - 32))
     focus: visible && !editing && (AquaMind.contextOpen || pocketOpen)
     Keys.onEscapePressed: {
@@ -57,8 +65,8 @@ Item {
     readonly property real nonEditingContentHeight: AquaMind.contextOpen
         ? content.implicitHeight
         : speechText.implicitHeight + (AquaMind.checkInStage.length > 0 ? content.spacing + 28 : 0)
-    height: pocketOpen ? Math.min(310, Math.max(138, 66 + Math.max(1, AquaPocket.items.length) * 46))
-        : editing ? Math.min(430, Math.max(230, outputHeight - 48)) : nonEditingContentHeight + 24
+    height: pocketOpen ? Math.min(370, Math.max(210, bodyTop + 66 + Math.max(1, AquaPocket.items.length) * 46))
+        : editing ? Math.min(440, Math.max(280, outputHeight - 48)) : nonEditingContentHeight + bodyTop + 12
     readonly property real actorVisualScale: Math.max(.1, Number(actor.scale) || 1)
     readonly property real actorVisualWidth: actor.width * actorVisualScale
     readonly property real actorVisualHeight: actor.height * actorVisualScale
@@ -101,6 +109,290 @@ Item {
             orientation: Gradient.Vertical
             GradientStop { position: 0.0; color: root.edgeSurfaceColor(1.0) }
             GradientStop { position: 1.0; color: root.edgeSurfaceColor(0.25) }
+        }
+        Rectangle {
+            visible: root.panelMode
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.leftMargin: root.edgeRadius * 0.7
+            anchors.rightMargin: root.edgeRadius * 0.7
+            height: 1.5
+            radius: 1
+            color: Qt.alpha(AbyssStyle.accent, 0.45)
+        }
+    }
+
+    // Unified Mochi-Style Header & Mode Switcher (Abyss Panel Style)
+    RowLayout {
+        id: unifiedHeader
+        objectName: "aquaUnifiedHeader"
+        visible: root.panelMode
+        x: 12; y: 10; width: parent.width - 24; height: 32
+        spacing: 6
+        Rectangle {
+            implicitWidth: castBadgeRow.implicitWidth + 12
+            implicitHeight: 26
+            Layout.preferredHeight: 26
+            radius: 13
+            color: Qt.alpha(AbyssStyle.accent, 0.12)
+            border.width: 1
+            border.color: Qt.alpha(AbyssStyle.accent, 0.24)
+            RowLayout {
+                id: castBadgeRow
+                anchors.centerIn: parent
+                spacing: 5
+                Rectangle {
+                    width: 7; height: 7; radius: 3.5
+                    color: AquaMind.busy ? Appearance.colors.colSecondary : AbyssStyle.accent
+                }
+                StyledText {
+                    text: String(root.actor?.character ?? "aqua") === "octo" ? "Octo" : "Aqua"
+                    font.pixelSize: Appearance.font.pixelSize.smallest
+                    font.weight: Font.DemiBold
+                    color: AbyssStyle.textColor
+                }
+            }
+        }
+        Rectangle {
+            objectName: "aquaUnifiedModeTabs"
+            Layout.fillWidth: true
+            Layout.preferredHeight: 30
+            implicitHeight: 30
+            radius: 15
+            color: Qt.alpha(AbyssStyle.textColor, 0.05)
+            border.width: 1
+            border.color: Qt.alpha(AbyssStyle.textColor, 0.09)
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 3
+                spacing: 3
+                RippleButton {
+                    id: chatTabBtn
+                    objectName: "aquaUnifiedChatTab"
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    implicitHeight: 24
+                    buttonRadius: 12
+                    toggled: root.editing
+                    colBackground: "transparent"
+                    colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.12)
+                    colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
+                    colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
+                    onClicked: AquaMind.openChat()
+                    contentItem: RowLayout {
+                        anchors.centerIn: parent
+                        spacing: 4
+                        MaterialSymbol {
+                            text: "auto_awesome"
+                            iconSize: 14
+                            color: chatTabBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
+                        }
+                        StyledText {
+                            text: Translation.tr("Chat")
+                            font.pixelSize: Appearance.font.pixelSize.smallest
+                            font.weight: chatTabBtn.toggled ? Font.DemiBold : Font.Normal
+                            color: chatTabBtn.toggled ? AbyssStyle.textColor : AbyssStyle.textColorMuted
+                        }
+                    }
+                }
+                RippleButton {
+                    id: todayTabBtn
+                    objectName: "aquaUnifiedTodayTab"
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    implicitHeight: 24
+                    buttonRadius: 12
+                    toggled: AquaMind.contextOpen && !root.editing && !root.pocketOpen
+                    colBackground: "transparent"
+                    colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.12)
+                    colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
+                    colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
+                    onClicked: AquaMind.openContext()
+                    contentItem: RowLayout {
+                        anchors.centerIn: parent
+                        spacing: 4
+                        MaterialSymbol {
+                            text: "calendar_today"
+                            iconSize: 14
+                            color: todayTabBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
+                        }
+                        StyledText {
+                            text: Translation.tr("Today")
+                            font.pixelSize: Appearance.font.pixelSize.smallest
+                            font.weight: todayTabBtn.toggled ? Font.DemiBold : Font.Normal
+                            color: todayTabBtn.toggled ? AbyssStyle.textColor : AbyssStyle.textColorMuted
+                        }
+                    }
+                }
+                RippleButton {
+                    id: pocketTabBtn
+                    objectName: "aquaUnifiedPocketTab"
+                    visible: AquaPocket.permitted
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    implicitHeight: 24
+                    buttonRadius: 12
+                    toggled: root.pocketOpen
+                    colBackground: "transparent"
+                    colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.12)
+                    colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
+                    colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
+                    onClicked: root.openPocket()
+                    contentItem: RowLayout {
+                        anchors.centerIn: parent
+                        spacing: 4
+                        MaterialSymbol {
+                            text: "inventory_2"
+                            iconSize: 14
+                            color: pocketTabBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
+                        }
+                        StyledText {
+                            text: AquaPocket.items.length > 0
+                                ? Translation.tr("Pocket") + " (" + AquaPocket.items.length + ")"
+                                : Translation.tr("Pocket")
+                            font.pixelSize: Appearance.font.pixelSize.smallest
+                            font.weight: pocketTabBtn.toggled ? Font.DemiBold : Font.Normal
+                            color: pocketTabBtn.toggled ? AbyssStyle.textColor : AbyssStyle.textColorMuted
+                        }
+                    }
+                }
+            }
+        }
+        RippleButton {
+            id: unifiedSettingsBtn
+            objectName: "aquaUnifiedSettingsButton"
+            Layout.preferredWidth: 28; Layout.preferredHeight: 28
+            implicitWidth: 28; implicitHeight: 28
+            buttonRadius: 14
+            colBackground: Qt.alpha(AbyssStyle.textColor, 0.05)
+            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.18)
+            onClicked: GlobalStates.openSettingsSection(37, "Overview")
+            StyledToolTip {
+                extraVisibleCondition: unifiedSettingsBtn.buttonHovered
+                text: Translation.tr("Companion settings")
+            }
+            contentItem: MaterialSymbol {
+                anchors.centerIn: parent
+                text: "settings"
+                iconSize: 16
+                color: AbyssStyle.textColorMuted
+            }
+        }
+        RippleButton {
+            id: unifiedCloseBtn
+            objectName: "aquaPopupClose"
+            Layout.preferredWidth: 28; Layout.preferredHeight: 28
+            implicitWidth: 28; implicitHeight: 28
+            buttonRadius: 14
+            colBackground: Qt.alpha(AbyssStyle.textColor, 0.05)
+            colBackgroundHover: Qt.alpha(Appearance.colors.colError, 0.22)
+            onClicked: {
+                if (root.pocketOpen) AquaPocket.close()
+                AquaMind.cancel()
+                AquaMind.dismiss()
+            }
+            StyledToolTip {
+                extraVisibleCondition: unifiedCloseBtn.buttonHovered
+                text: Translation.tr("Close")
+            }
+            contentItem: MaterialSymbol {
+                anchors.centerIn: parent
+                text: "close"
+                iconSize: 16
+                color: AbyssStyle.textColorMuted
+            }
+        }
+    }
+
+    // Unified Mochi-Style Inline Focus / Pomodoro Bar
+    Rectangle {
+        id: unifiedPomodoroBar
+        objectName: "aquaUnifiedPomodoroBar"
+        visible: root.panelMode
+        x: 12; y: 46; width: parent.width - 24; height: 30
+        radius: 11
+        color: TimerService.pomodoroRunning
+            ? Qt.alpha(AbyssStyle.accent, 0.12)
+            : Qt.alpha(AbyssStyle.textColor, 0.04)
+        border.width: 1
+        border.color: TimerService.pomodoroRunning
+            ? Qt.alpha(AbyssStyle.accent, 0.28)
+            : Qt.alpha(AbyssStyle.textColor, 0.08)
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 9
+            anchors.rightMargin: 6
+            spacing: 6
+            MaterialSymbol {
+                text: TimerService.pomodoroRunning ? "timelapse" : "timer"
+                iconSize: 15
+                color: TimerService.pomodoroRunning ? AbyssStyle.accent : AbyssStyle.textColorMuted
+            }
+            StyledText {
+                text: TimerService.pomodoroBreak ? Translation.tr("Break") : Translation.tr("Focus")
+                font.pixelSize: Appearance.font.pixelSize.smallest
+                font.weight: Font.DemiBold
+                color: TimerService.pomodoroRunning ? AbyssStyle.accent : AbyssStyle.textColor
+            }
+            StyledText {
+                text: root.formatPomodoroClock(TimerService.pomodoroSecondsLeft)
+                font.pixelSize: Appearance.font.pixelSize.small
+                font.weight: Font.DemiBold
+                color: AbyssStyle.textColor
+            }
+            Item { Layout.fillWidth: true }
+            RippleButton {
+                id: pomoToggleBtn
+                objectName: "aquaUnifiedPomodoroToggle"
+                Layout.preferredHeight: 22
+                Layout.preferredWidth: pomoToggleRow.implicitWidth + 14
+                implicitHeight: 22
+                implicitWidth: Layout.preferredWidth
+                buttonRadius: 11
+                colBackground: TimerService.pomodoroRunning
+                    ? Qt.alpha(AbyssStyle.accent, 0.24)
+                    : Qt.alpha(AbyssStyle.accent, 0.14)
+                colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.34)
+                onClicked: TimerService.togglePomodoro()
+                contentItem: RowLayout {
+                    id: pomoToggleRow
+                    anchors.centerIn: parent
+                    spacing: 3
+                    MaterialSymbol {
+                        text: TimerService.pomodoroRunning ? "pause" : "play_arrow"
+                        iconSize: 14
+                        color: AbyssStyle.accent
+                    }
+                    StyledText {
+                        text: TimerService.pomodoroRunning ? Translation.tr("Pause") : Translation.tr("Start")
+                        font.pixelSize: Appearance.font.pixelSize.smallest
+                        font.weight: Font.DemiBold
+                        color: AbyssStyle.accent
+                    }
+                }
+            }
+            RippleButton {
+                id: pomoResetBtn
+                objectName: "aquaUnifiedPomodoroReset"
+                Layout.preferredWidth: 22; Layout.preferredHeight: 22
+                implicitWidth: 22; implicitHeight: 22
+                buttonRadius: 11
+                enabled: TimerService.pomodoroRunning || TimerService.pomodoroBreak || TimerService.pomodoroSecondsLeft !== TimerService.focusTime
+                colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
+                colBackgroundHover: Qt.alpha(AbyssStyle.textColor, 0.14)
+                onClicked: TimerService.resetPomodoro()
+                StyledToolTip {
+                    extraVisibleCondition: pomoResetBtn.buttonHovered
+                    text: Translation.tr("Reset timer")
+                }
+                contentItem: MaterialSymbol {
+                    anchors.centerIn: parent
+                    text: "replay"
+                    iconSize: 13
+                    color: pomoResetBtn.enabled ? AbyssStyle.textColor : AbyssStyle.textColorMuted
+                }
+            }
         }
     }
 
@@ -145,8 +437,8 @@ Item {
     ColumnLayout {
         id: content
         visible:!root.pocketOpen
-        x: 12; y: 12; width: parent.width - 24
-        height: root.editing ? root.height - 24 : root.nonEditingContentHeight
+        x: 12; y: root.bodyTop; width: parent.width - 24
+        height: root.editing ? root.height - root.bodyTop - 12 : root.nonEditingContentHeight
         spacing: 7
         RowLayout {
             visible: AquaMind.contextOpen && !root.editing
@@ -763,9 +1055,11 @@ Item {
         }
     }
     Loader {
-        anchors.fill:parent;anchors.margins:12
-        active:root.pocketOpen
-        sourceComponent:Component {AquaPocketPane {actor:root.actor}}
+        x: 12; y: root.bodyTop
+        width: parent.width - 24
+        height: Math.max(0, parent.height - root.bodyTop - 12)
+        active: root.pocketOpen
+        sourceComponent: Component { AquaPocketPane { actor: root.actor } }
     }
     function openPocket(): void {
         if (!AquaMind.busy && AquaPocket.show()) AquaMind.dismiss()

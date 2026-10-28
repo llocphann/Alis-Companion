@@ -324,8 +324,11 @@ Item {
         onPerformanceRequested:(expression,gesture)=>root.presentAmbientPerformance(expression,gesture)
     }
     readonly property string companionTargetOutput: GlobalStates.resolveOutputName(
-        "", Config.options?.bar?.screenList ?? [])
+        companionPreferences.output ?? "", Config.options?.bar?.screenList ?? [])
     readonly property string companionEdge: (Config.options?.bar?.vertical ? (Config.options?.bar?.bottom ? "right" : "left") : (Config.options?.bar?.bottom ? "bottom" : "top"))
+    readonly property string companionHomeEdge: ["top","right","bottom","left"].includes(companionPreferences.edge)
+        ? companionPreferences.edge : companionEdge
+    readonly property real companionHomeAlong: companionPreferences.along
     readonly property real companionScale: companionPreferences.size
     readonly property bool companionInteractive: companionPreferences.interactive
     readonly property bool companionSessionVisible: companionEnabled
