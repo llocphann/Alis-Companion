@@ -737,6 +737,12 @@ Singleton {
         else Persistent.states.aquaCheckIn.energy=value
         journal=Object.assign({},journal,{[field]:value})
         if (checkInStage!==field) return
+        if (conversationOpen) {
+            checkInStage=""
+            lastCheckIn=Date.now()
+            reactionRequested("happy")
+            return
+        }
         if (field==="mood") askCheckIn("energy")
         else {
             checkInStage="";lastCheckIn=Date.now()
@@ -751,6 +757,15 @@ Singleton {
     function setCheckInChoice(field, value): bool {
         if (!checkInChoices(field).includes(value) || field!==checkInStage || busy) return false
         acknowledgeAutomatic()
+        if (obsidianEnabled) return dispatch("check_in",{field:field,value:value,date:checkInDate})
+        choiceSaved(field,value)
+        return true
+    }
+    function setChatCheckInChoice(field, value): bool {
+        if (!checkInChoices(field).includes(value) || busy || !talkEnabled) return false
+        acknowledgeAutomatic()
+        checkInDate=today()
+        checkInStage=field
         if (obsidianEnabled) return dispatch("check_in",{field:field,value:value,date:checkInDate})
         choiceSaved(field,value)
         return true

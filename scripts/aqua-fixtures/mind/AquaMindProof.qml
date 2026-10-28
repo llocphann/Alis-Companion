@@ -100,15 +100,26 @@ Window {
                 const unifiedPomodoroToggle=root.named(cloud,"aquaUnifiedPomodoroToggle")
                 const unifiedSettingsBtn=root.named(cloud,"aquaUnifiedSettingsButton")
                 const unifiedCloseBtn=root.named(cloud,"aquaPopupClose")
+                const chatTodayBar=root.named(cloud,"aquaChatTodayBar")
+                const chatMoodBtn=root.named(cloud,"aquaChatMoodButton")
+                const chatEnergyBtn=root.named(cloud,"aquaChatEnergyButton")
+                const chatTodayPhrase=root.named(cloud,"aquaChatTodayPhrase")
+                const chatCheckInChoices=root.named(cloud,"aquaChatCheckInChoices")
                 check(!!unifiedHeader && unifiedHeader.visible && !!unifiedChatTab && unifiedChatTab.visible
-                    && !!unifiedTodayTab && unifiedTodayTab.visible && !!unifiedPomodoroBar && unifiedPomodoroBar.visible
+                    && !unifiedTodayTab && !!unifiedPomodoroBar && unifiedPomodoroBar.visible
                     && !!unifiedPomodoroToggle && unifiedPomodoroToggle.visible
+                    && !!chatTodayBar && chatTodayBar.visible && !!chatMoodBtn && chatMoodBtn.visible
+                    && !!chatEnergyBtn && chatEnergyBtn.visible && !!chatTodayPhrase && chatTodayPhrase.visible
+                    && !!chatCheckInChoices && chatCheckInChoices.visible
                     && !unifiedSettingsBtn && !unifiedCloseBtn,
-                    "unified Mochi-style Abyss popup header or Pomodoro bar missing or retained Close/Settings buttons")
-                mouseClick(unifiedTodayTab);wait(60)
-                check(AquaMind.contextOpen && !cloud.editing,"unified Today tab did not switch to Today context")
-                mouseClick(unifiedChatTab);wait(80)
-                check(cloud.editing && !AquaMind.contextOpen,"unified Chat tab did not return to Chat editor")
+                    "unified Mochi-style Abyss popup header, Pomodoro bar, or integrated Chat Today Energy/Mood card missing")
+                mouseClick(chatEnergyBtn);wait(40)
+                check(cloud.activeChatCheckInField==="energy" && !!root.named(cloud,"aquaChatChoice-energy-high")?.visible,
+                    "clicking Energy button inside chatbox did not switch inline picker to Energy options")
+                mouseClick(chatEnergyBtn);wait(40)
+                check(cloud.activeChatCheckInField==="" && !chatCheckInChoices.visible,
+                    "clicking Energy button again did not collapse inline picker")
+                cloud.chatCheckInField=""
                 tryCompare(AquaMind,"busy",false,3000)
                 const cloudGap=()=>Math.min(
                     Math.abs(cloud.actorVisualTop-(cloud.y+cloud.height)),

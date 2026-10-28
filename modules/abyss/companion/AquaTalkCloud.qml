@@ -47,12 +47,40 @@ Item {
         const r = s % 60
         return (m < 10 ? "0" + m : String(m)) + ":" + (r < 10 ? "0" + r : String(r))
     }
+    property string chatCheckInField: ""
+    readonly property string activeChatCheckInField: {
+        if (!editing || profileStage !== 0) return ""
+        if (chatCheckInField === "none") return ""
+        if (chatCheckInField === "mood" || chatCheckInField === "energy") return chatCheckInField
+        if (!AquaMind.checkInComplete) return AquaMind.userMood ? "energy" : "mood"
+        return ""
+    }
+    readonly property var moodOptions: [
+        {value: "terrible", label: Translation.tr("Awful")},
+        {value: "bad", label: Translation.tr("Low")},
+        {value: "okay", label: Translation.tr("Okay")},
+        {value: "good", label: Translation.tr("Good")},
+        {value: "great", label: Translation.tr("Great")}
+    ]
+    readonly property var energyOptions: [
+        {value: "drained", label: Translation.tr("Drained")},
+        {value: "low", label: Translation.tr("Low")},
+        {value: "medium", label: Translation.tr("Mid")},
+        {value: "high", label: Translation.tr("High")},
+        {value: "peak", label: Translation.tr("Peak")}
+    ]
+    function choiceLabel(field, value): string {
+        const list = field === "energy" ? root.energyOptions : root.moodOptions
+        const match = list.find(item => item.value === String(value ?? "").toLowerCase())
+        return match ? String(match.label) : String(value ?? "")
+    }
     width: panelMode
         ? Math.min(380, Math.max(240, outputWidth - 32))
         : Math.min(380, Math.max(220, outputWidth - 32))
     focus: visible && (!editing || !message.activeFocus)
     function closePopup(): void {
         root.profileStage = 0
+        root.chatCheckInField = ""
         message.focus = false
         if (root.pocketOpen) AquaPocket.close()
         AquaMind.cancel()
@@ -185,39 +213,6 @@ Item {
                                 font.pixelSize: Appearance.font.pixelSize.smallest
                                 font.weight: chatTabBtn.toggled ? Font.DemiBold : Font.Normal
                                 color: chatTabBtn.toggled ? AbyssStyle.textColor : AbyssStyle.textColorMuted
-                            }
-                        }
-                    }
-                }
-                RippleButton {
-                    id: todayTabBtn
-                    objectName: "aquaUnifiedTodayTab"
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    implicitHeight: 24
-                    buttonRadius: 12
-                    toggled: AquaMind.contextOpen && !root.editing && !root.pocketOpen
-                    colBackground: "transparent"
-                    colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.12)
-                    colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
-                    colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
-                    onClicked: AquaMind.openContext()
-                    contentItem: Item {
-                        Row {
-                            anchors.centerIn: parent
-                            spacing: 5
-                            MaterialSymbol {
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: "calendar_today"
-                                iconSize: 15
-                                color: todayTabBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
-                            }
-                            StyledText {
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: Translation.tr("Today")
-                                font.pixelSize: Appearance.font.pixelSize.smallest
-                                font.weight: todayTabBtn.toggled ? Font.DemiBold : Font.Normal
-                                color: todayTabBtn.toggled ? AbyssStyle.textColor : AbyssStyle.textColorMuted
                             }
                         }
                     }
@@ -401,6 +396,197 @@ Item {
         x: 12; y: root.bodyTop; width: parent.width - 24
         height: root.editing ? root.height - root.bodyTop - 12 : root.nonEditingContentHeight
         spacing: 7
+        // Integrated Today Energy/Mood Card inside Chatbox
+        Rectangle {
+            id: chatTodayBar
+            objectName: "aquaChatTodayBar"
+            visible: root.editing
+            Layout.fillWidth: true
+            implicitHeight: chatTodayLayout.implicitHeight + 14
+            radius: 11
+            color: Qt.alpha(AbyssStyle.textColor, 0.04)
+            border.width: 1
+            border.color: root.activeChatCheckInField !== ""
+                ? Qt.alpha(AbyssStyle.accent, 0.26)
+                : Qt.alpha(AbyssStyle.textColor, 0.08)
+            ColumnLayout {
+                id: chatTodayLayout
+                anchors.fill: parent
+                anchors.leftMargin: 9
+                anchors.rightMargin: 8
+                anchors.topMargin: 7
+                anchors.bottomMargin: 7
+                spacing: 5
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 5
+                    MaterialSymbol {
+                        text: "menu_book"
+                        iconSize: 15
+                        color: AbyssStyle.accent
+                    }
+                    StyledText {
+                        text: Translation.tr("Today")
+                        font.pixelSize: Appearance.font.pixelSize.smallest
+                        font.weight: Font.DemiBold
+                        color: AbyssStyle.textColor
+                    }
+                    Item { Layout.fillWidth: true }
+                    RippleButton {
+                        id: chatMoodBtn
+                        objectName: "aquaChatMoodButton"
+                        Layout.preferredHeight: 22
+                        Layout.preferredWidth: chatMoodRow.implicitWidth + 14
+                        implicitHeight: 22
+                        implicitWidth: Layout.preferredWidth
+                        buttonRadius: 11
+                        toggled: root.activeChatCheckInField === "mood"
+                        colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
+                        colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.14)
+                        colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
+                        colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
+                        onClicked: {
+                            root.profileStage = 0
+                            root.chatCheckInField = (root.activeChatCheckInField === "mood" ? "none" : "mood")
+                        }
+                        contentItem: Item {
+                            Row {
+                                id: chatMoodRow
+                                anchors.centerIn: parent
+                                spacing: 4
+                                MaterialSymbol {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "mood"
+                                    iconSize: 13
+                                    color: chatMoodBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
+                                }
+                                StyledText {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: Translation.tr("Mood") + ": " + (AquaMind.userMood ? AquaMind.userMood : "—")
+                                    font.pixelSize: Appearance.font.pixelSize.smallest
+                                    font.weight: chatMoodBtn.toggled ? Font.DemiBold : Font.Normal
+                                    color: chatMoodBtn.toggled ? AbyssStyle.textColor : Appearance.colors.colSubtext
+                                }
+                            }
+                        }
+                    }
+                    RippleButton {
+                        id: chatEnergyBtn
+                        objectName: "aquaChatEnergyButton"
+                        Layout.preferredHeight: 22
+                        Layout.preferredWidth: chatEnergyRow.implicitWidth + 14
+                        implicitHeight: 22
+                        implicitWidth: Layout.preferredWidth
+                        buttonRadius: 11
+                        toggled: root.activeChatCheckInField === "energy"
+                        colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
+                        colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.14)
+                        colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
+                        colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
+                        onClicked: {
+                            root.profileStage = 0
+                            root.chatCheckInField = (root.activeChatCheckInField === "energy" ? "none" : "energy")
+                        }
+                        contentItem: Item {
+                            Row {
+                                id: chatEnergyRow
+                                anchors.centerIn: parent
+                                spacing: 4
+                                MaterialSymbol {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "bolt"
+                                    iconSize: 13
+                                    color: chatEnergyBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
+                                }
+                                StyledText {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: Translation.tr("Energy") + ": " + (AquaMind.userEnergy ? AquaMind.userEnergy : "—")
+                                    font.pixelSize: Appearance.font.pixelSize.smallest
+                                    font.weight: chatEnergyBtn.toggled ? Font.DemiBold : Font.Normal
+                                    color: chatEnergyBtn.toggled ? AbyssStyle.textColor : Appearance.colors.colSubtext
+                                }
+                            }
+                        }
+                    }
+                    RippleButton {
+                        id: chatOpenJournalBtn
+                        objectName: "aquaChatOpenJournal"
+                        visible: AquaMind.journal.journalPath.length > 0
+                        Layout.preferredWidth: 22; Layout.preferredHeight: 22
+                        implicitWidth: 22; implicitHeight: 22
+                        buttonRadius: 11
+                        colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
+                        colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.16)
+                        onClicked: AquaMind.openJournal()
+                        StyledToolTip {
+                            extraVisibleCondition: chatOpenJournalBtn.buttonHovered
+                            text: Translation.tr("Open journal")
+                        }
+                        contentItem: MaterialSymbol {
+                            anchors.centerIn: parent
+                            text: "open_in_new"
+                            iconSize: 13
+                            color: AbyssStyle.accent
+                        }
+                    }
+                }
+                StyledText {
+                    objectName: "aquaChatTodayPhrase"
+                    visible: root.profileStage === 0
+                    Layout.fillWidth: true
+                    text: root.activeChatCheckInField === "mood"
+                        ? "Tiny check-in! How are you feeling today?"
+                        : root.activeChatCheckInField === "energy"
+                        ? "And how's your energy? Tiny spark or full splash?"
+                        : AquaMind.contextualPhrase()
+                    textFormat: Text.PlainText
+                    wrapMode: Text.WordWrap
+                    font.pixelSize: Appearance.font.pixelSize.smallest
+                    color: Appearance.colors.colSubtext
+                }
+                RowLayout {
+                    objectName: "aquaChatCheckInChoices"
+                    visible: root.activeChatCheckInField === "mood" || root.activeChatCheckInField === "energy"
+                    Layout.fillWidth: true
+                    spacing: 4
+                    Repeater {
+                        model: root.activeChatCheckInField === "energy" ? root.energyOptions : root.moodOptions
+                        RippleButton {
+                            id: chatChoiceChip
+                            required property var modelData
+                            objectName: "aquaChatChoice-" + root.activeChatCheckInField + "-" + String(modelData.value)
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 24
+                            implicitHeight: 24
+                            buttonRadius: 10
+                            enabled: !AquaMind.busy
+                            toggled: (root.activeChatCheckInField === "energy" ? AquaMind.userEnergy : AquaMind.userMood) === modelData.value
+                            colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
+                            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.14)
+                            colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.24)
+                            colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.32)
+                            onClicked: {
+                                const targetField = root.activeChatCheckInField
+                                if (AquaMind.setChatCheckInChoice(targetField, modelData.value)) {
+                                    if (targetField === "mood" && !AquaMind.userEnergy)
+                                        root.chatCheckInField = "energy"
+                                    else
+                                        root.chatCheckInField = "none"
+                                }
+                            }
+                            contentItem: StyledText {
+                                anchors.centerIn: parent
+                                text: chatChoiceChip.modelData.label
+                                horizontalAlignment: Text.AlignHCenter
+                                font.pixelSize: Appearance.font.pixelSize.smallest
+                                font.weight: chatChoiceChip.toggled ? Font.DemiBold : Font.Normal
+                                color: chatChoiceChip.toggled ? AbyssStyle.textColor : Appearance.colors.colSubtext
+                            }
+                        }
+                    }
+                }
+            }
+        }
         RowLayout {
             visible: AquaMind.contextOpen && !root.editing
             Layout.fillWidth: true
@@ -530,7 +716,7 @@ Item {
             Layout.fillWidth: true
             spacing: 5
             CheckInRow {
-                visible: AquaMind.checkInStage === "mood"
+                visible: !root.editing && AquaMind.checkInStage === "mood"
                 field: "mood"
                 selectedValue: AquaMind.userMood || String(AquaMind.journal.mood ?? "").toLowerCase()
                 options: [
@@ -542,7 +728,7 @@ Item {
                 ]
             }
             CheckInRow {
-                visible: AquaMind.checkInStage === "energy"
+                visible: !root.editing && AquaMind.checkInStage === "energy"
                 field: "energy"
                 selectedValue: AquaMind.userEnergy || String(AquaMind.journal.energy ?? "").toLowerCase()
                 options: [
@@ -772,7 +958,7 @@ Item {
                             id: effortMenu
                             objectName: "aquaThinkingEffort"
                             Layout.fillWidth: true
-                            spacing: 3
+                            spacing: 2
                             Repeater {
                                 model: AquaMind.thinkingLevels
                                 RippleButton {
@@ -780,11 +966,12 @@ Item {
                                     required property var modelData
                                     objectName: "aquaEffortOption-" + String(modelData.value)
                                     Layout.fillWidth: true
-                                    implicitHeight: 32
+                                    Layout.preferredHeight: 26
+                                    implicitHeight: 26
                                     buttonText: modelData.label
                                     toggled: AquaMind.effectiveThinkingEffort === modelData.value
                                     enabled: !AquaMind.busy
-                                    buttonRadius: 11
+                                    buttonRadius: 9
                                     colBackground: "transparent"
                                     colBackgroundHover: Qt.alpha(AbyssStyle.accent, .10)
                                     colBackgroundToggled: Appearance.colors.colPrimaryContainer
