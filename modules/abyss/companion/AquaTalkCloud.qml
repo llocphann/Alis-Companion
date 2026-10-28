@@ -50,10 +50,23 @@ Item {
     width: panelMode
         ? Math.min(380, Math.max(240, outputWidth - 32))
         : Math.min(380, Math.max(220, outputWidth - 32))
-    focus: visible && !editing && (AquaMind.contextOpen || pocketOpen)
-    Keys.onEscapePressed: {
-        if (AquaMind.contextOpen) AquaMind.dismiss()
-        else if (pocketOpen) AquaPocket.close()
+    focus: visible && (!editing || !message.activeFocus)
+    function closePopup(): void {
+        root.profileStage = 0
+        message.focus = false
+        if (root.pocketOpen) AquaPocket.close()
+        AquaMind.cancel()
+        AquaMind.dismiss()
+    }
+    Shortcut {
+        sequence: "Escape"
+        enabled: root.visible && (root.panelMode || AquaMind.text.length > 0)
+        context: Qt.WindowShortcut
+        onActivated: root.closePopup()
+    }
+    Keys.onEscapePressed: event => {
+        event.accepted = true
+        root.closePopup()
     }
     Connections {
         target: AquaMind
@@ -131,30 +144,6 @@ Item {
         x: 12; y: 10; width: parent.width - 24; height: 32
         spacing: 6
         Rectangle {
-            implicitWidth: castBadgeRow.implicitWidth + 12
-            implicitHeight: 26
-            Layout.preferredHeight: 26
-            radius: 13
-            color: Qt.alpha(AbyssStyle.accent, 0.12)
-            border.width: 1
-            border.color: Qt.alpha(AbyssStyle.accent, 0.24)
-            RowLayout {
-                id: castBadgeRow
-                anchors.centerIn: parent
-                spacing: 5
-                Rectangle {
-                    width: 7; height: 7; radius: 3.5
-                    color: AquaMind.busy ? Appearance.colors.colSecondary : AbyssStyle.accent
-                }
-                StyledText {
-                    text: String(root.actor?.character ?? "aqua") === "octo" ? "Octo" : "Aqua"
-                    font.pixelSize: Appearance.font.pixelSize.smallest
-                    font.weight: Font.DemiBold
-                    color: AbyssStyle.textColor
-                }
-            }
-        }
-        Rectangle {
             objectName: "aquaUnifiedModeTabs"
             Layout.fillWidth: true
             Layout.preferredHeight: 30
@@ -180,19 +169,23 @@ Item {
                     colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
                     colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
                     onClicked: AquaMind.openChat()
-                    contentItem: RowLayout {
-                        anchors.centerIn: parent
-                        spacing: 4
-                        MaterialSymbol {
-                            text: "auto_awesome"
-                            iconSize: 14
-                            color: chatTabBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
-                        }
-                        StyledText {
-                            text: Translation.tr("Chat")
-                            font.pixelSize: Appearance.font.pixelSize.smallest
-                            font.weight: chatTabBtn.toggled ? Font.DemiBold : Font.Normal
-                            color: chatTabBtn.toggled ? AbyssStyle.textColor : AbyssStyle.textColorMuted
+                    contentItem: Item {
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: 5
+                            MaterialSymbol {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "auto_awesome"
+                                iconSize: 15
+                                color: chatTabBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
+                            }
+                            StyledText {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: Translation.tr("Chat")
+                                font.pixelSize: Appearance.font.pixelSize.smallest
+                                font.weight: chatTabBtn.toggled ? Font.DemiBold : Font.Normal
+                                color: chatTabBtn.toggled ? AbyssStyle.textColor : AbyssStyle.textColorMuted
+                            }
                         }
                     }
                 }
@@ -209,19 +202,23 @@ Item {
                     colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
                     colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
                     onClicked: AquaMind.openContext()
-                    contentItem: RowLayout {
-                        anchors.centerIn: parent
-                        spacing: 4
-                        MaterialSymbol {
-                            text: "calendar_today"
-                            iconSize: 14
-                            color: todayTabBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
-                        }
-                        StyledText {
-                            text: Translation.tr("Today")
-                            font.pixelSize: Appearance.font.pixelSize.smallest
-                            font.weight: todayTabBtn.toggled ? Font.DemiBold : Font.Normal
-                            color: todayTabBtn.toggled ? AbyssStyle.textColor : AbyssStyle.textColorMuted
+                    contentItem: Item {
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: 5
+                            MaterialSymbol {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "calendar_today"
+                                iconSize: 15
+                                color: todayTabBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
+                            }
+                            StyledText {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: Translation.tr("Today")
+                                font.pixelSize: Appearance.font.pixelSize.smallest
+                                font.weight: todayTabBtn.toggled ? Font.DemiBold : Font.Normal
+                                color: todayTabBtn.toggled ? AbyssStyle.textColor : AbyssStyle.textColorMuted
+                            }
                         }
                     }
                 }
@@ -239,68 +236,28 @@ Item {
                     colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
                     colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
                     onClicked: root.openPocket()
-                    contentItem: RowLayout {
-                        anchors.centerIn: parent
-                        spacing: 4
-                        MaterialSymbol {
-                            text: "inventory_2"
-                            iconSize: 14
-                            color: pocketTabBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
-                        }
-                        StyledText {
-                            text: AquaPocket.items.length > 0
-                                ? Translation.tr("Pocket") + " (" + AquaPocket.items.length + ")"
-                                : Translation.tr("Pocket")
-                            font.pixelSize: Appearance.font.pixelSize.smallest
-                            font.weight: pocketTabBtn.toggled ? Font.DemiBold : Font.Normal
-                            color: pocketTabBtn.toggled ? AbyssStyle.textColor : AbyssStyle.textColorMuted
+                    contentItem: Item {
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: 5
+                            MaterialSymbol {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "inventory_2"
+                                iconSize: 15
+                                color: pocketTabBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
+                            }
+                            StyledText {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: AquaPocket.items.length > 0
+                                    ? Translation.tr("Pocket") + " (" + AquaPocket.items.length + ")"
+                                    : Translation.tr("Pocket")
+                                font.pixelSize: Appearance.font.pixelSize.smallest
+                                font.weight: pocketTabBtn.toggled ? Font.DemiBold : Font.Normal
+                                color: pocketTabBtn.toggled ? AbyssStyle.textColor : AbyssStyle.textColorMuted
+                            }
                         }
                     }
                 }
-            }
-        }
-        RippleButton {
-            id: unifiedSettingsBtn
-            objectName: "aquaUnifiedSettingsButton"
-            Layout.preferredWidth: 28; Layout.preferredHeight: 28
-            implicitWidth: 28; implicitHeight: 28
-            buttonRadius: 14
-            colBackground: Qt.alpha(AbyssStyle.textColor, 0.05)
-            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.18)
-            onClicked: GlobalStates.openSettingsSection(37, "Overview")
-            StyledToolTip {
-                extraVisibleCondition: unifiedSettingsBtn.buttonHovered
-                text: Translation.tr("Companion settings")
-            }
-            contentItem: MaterialSymbol {
-                anchors.centerIn: parent
-                text: "settings"
-                iconSize: 16
-                color: AbyssStyle.textColorMuted
-            }
-        }
-        RippleButton {
-            id: unifiedCloseBtn
-            objectName: "aquaPopupClose"
-            Layout.preferredWidth: 28; Layout.preferredHeight: 28
-            implicitWidth: 28; implicitHeight: 28
-            buttonRadius: 14
-            colBackground: Qt.alpha(AbyssStyle.textColor, 0.05)
-            colBackgroundHover: Qt.alpha(Appearance.colors.colError, 0.22)
-            onClicked: {
-                if (root.pocketOpen) AquaPocket.close()
-                AquaMind.cancel()
-                AquaMind.dismiss()
-            }
-            StyledToolTip {
-                extraVisibleCondition: unifiedCloseBtn.buttonHovered
-                text: Translation.tr("Close")
-            }
-            contentItem: MaterialSymbol {
-                anchors.centerIn: parent
-                text: "close"
-                iconSize: 16
-                color: AbyssStyle.textColorMuted
             }
         }
     }
@@ -346,7 +303,7 @@ Item {
                 id: pomoToggleBtn
                 objectName: "aquaUnifiedPomodoroToggle"
                 Layout.preferredHeight: 22
-                Layout.preferredWidth: pomoToggleRow.implicitWidth + 14
+                Layout.preferredWidth: pomoToggleRow.implicitWidth + 16
                 implicitHeight: 22
                 implicitWidth: Layout.preferredWidth
                 buttonRadius: 11
@@ -355,20 +312,24 @@ Item {
                     : Qt.alpha(AbyssStyle.accent, 0.14)
                 colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.34)
                 onClicked: TimerService.togglePomodoro()
-                contentItem: RowLayout {
-                    id: pomoToggleRow
-                    anchors.centerIn: parent
-                    spacing: 3
-                    MaterialSymbol {
-                        text: TimerService.pomodoroRunning ? "pause" : "play_arrow"
-                        iconSize: 14
-                        color: AbyssStyle.accent
-                    }
-                    StyledText {
-                        text: TimerService.pomodoroRunning ? Translation.tr("Pause") : Translation.tr("Start")
-                        font.pixelSize: Appearance.font.pixelSize.smallest
-                        font.weight: Font.DemiBold
-                        color: AbyssStyle.accent
+                contentItem: Item {
+                    Row {
+                        id: pomoToggleRow
+                        anchors.centerIn: parent
+                        spacing: 3
+                        MaterialSymbol {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: TimerService.pomodoroRunning ? "pause" : "play_arrow"
+                            iconSize: 14
+                            color: AbyssStyle.accent
+                        }
+                        StyledText {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: TimerService.pomodoroRunning ? Translation.tr("Pause") : Translation.tr("Start")
+                            font.pixelSize: Appearance.font.pixelSize.smallest
+                            font.weight: Font.DemiBold
+                            color: AbyssStyle.accent
+                        }
                     }
                 }
             }
@@ -595,7 +556,7 @@ Item {
             Rectangle {
                 id: profileBox
                 objectName: "aquaProfilePanel"
-                visible: root.editing && (root.profileStage > 0 || AquaMind.pendingDeleteStage > 0)
+                visible: root.editing && ((root.profileStage === 1 && AquaMind.thinkingSupported) || root.profileStage === 2 || root.profileStage === 3 || AquaMind.pendingDeleteStage > 0)
                 width: content.width
                 height: implicitHeight
                 Layout.fillWidth: true
@@ -790,9 +751,9 @@ Item {
                     }
                     ColumnLayout {
                         objectName: "aquaEffortPanel"
-                        visible: root.profileStage === 1
+                        visible: root.profileStage === 1 && AquaMind.thinkingSupported
                         Layout.fillWidth: true
-                        spacing: 5
+                        spacing: 4
                         RowLayout {
                             Layout.fillWidth: true
                             StyledText {
@@ -807,28 +768,67 @@ Item {
                                 color: Appearance.colors.colPrimary
                             }
                         }
-                        StyledSlider {
+                        ColumnLayout {
+                            id: effortMenu
                             objectName: "aquaThinkingEffort"
                             Layout.fillWidth: true
-                            enableSettingsSearch: false
-                            from: 0
-                            to: Math.max(1,AquaMind.thinkingLevels.length-1)
-                            stepSize: 1
-                            value: Math.max(0, AquaMind.thinkingLevels.findIndex(level => level.value === AquaMind.effectiveThinkingEffort))
-                            enabled: AquaMind.thinkingSupported && !AquaMind.busy
-                            tooltipContent: AquaMind.thinkingEffortLabel
-                            onMoved: {
-                                const levels = AquaMind.thinkingLevels
-                                AquaMind.setThinkingEffort(levels[Math.max(0, Math.min(levels.length-1, Math.round(value)))].value)
+                            spacing: 3
+                            Repeater {
+                                model: AquaMind.thinkingLevels
+                                RippleButton {
+                                    id: effortOption
+                                    required property var modelData
+                                    objectName: "aquaEffortOption-" + String(modelData.value)
+                                    Layout.fillWidth: true
+                                    implicitHeight: 32
+                                    buttonText: modelData.label
+                                    toggled: AquaMind.effectiveThinkingEffort === modelData.value
+                                    enabled: !AquaMind.busy
+                                    buttonRadius: 11
+                                    colBackground: "transparent"
+                                    colBackgroundHover: Qt.alpha(AbyssStyle.accent, .10)
+                                    colBackgroundToggled: Appearance.colors.colPrimaryContainer
+                                    colBackgroundToggledHover: Appearance.colors.colPrimaryContainerHover
+                                    onClicked: {
+                                        AquaMind.setThinkingEffort(modelData.value)
+                                        root.profileStage = 0
+                                        Qt.callLater(() => { if (root.editing) message.forceActiveFocus() })
+                                    }
+                                    contentItem: RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 10
+                                        anchors.rightMargin: 10
+                                        spacing: 8
+                                        MaterialSymbol {
+                                            text: effortOption.modelData.value === "instant" || effortOption.modelData.value === "off"
+                                                ? "bolt"
+                                                : effortOption.modelData.value === "xhigh" || effortOption.modelData.value === "max"
+                                                ? "auto_awesome"
+                                                : "psychology"
+                                            iconSize: 16
+                                            color: effortOption.toggled
+                                                ? Appearance.colors.colOnPrimaryContainer
+                                                : Appearance.colors.colPrimary
+                                        }
+                                        StyledText {
+                                            objectName: "aquaEffortLabel-" + String(effortOption.modelData.value)
+                                            Layout.fillWidth: true
+                                            text: effortOption.buttonText
+                                            elide: Text.ElideRight
+                                            font.pixelSize: Appearance.font.pixelSize.small
+                                            color: effortOption.toggled
+                                                ? Appearance.colors.colOnPrimaryContainer
+                                                : Appearance.colors.colOnLayer1
+                                        }
+                                        MaterialSymbol {
+                                            visible: effortOption.toggled
+                                            text: "check"
+                                            iconSize: 17
+                                            color: Appearance.colors.colOnPrimaryContainer
+                                        }
+                                    }
+                                }
                             }
-                        }
-                        StyledText {
-                            visible: !AquaMind.thinkingSupported
-                            Layout.fillWidth: true
-                            text: "This model uses its provider default. Tap the effort control again to choose another model."
-                            wrapMode: Text.WordWrap
-                            font.pixelSize: Appearance.font.pixelSize.smallest
-                            color: Appearance.colors.colSubtext
                         }
                     }
                     ColumnLayout {
@@ -934,15 +934,9 @@ Item {
                         Accessible.name: "Message"
                         background: Rectangle { color: "transparent"; border.width: 0 }
                         onAccepted: root.submit()
-                        Keys.onEscapePressed: {
-                            if (root.profileStage > 0) {
-                                root.profileStage = 0
-                                forceActiveFocus()
-                            } else {
-                                focus = false
-                                AquaMind.cancel()
-                                AquaMind.dismiss()
-                            }
+                        Keys.onEscapePressed: event => {
+                            event.accepted = true
+                            root.closePopup()
                         }
                     }
                     RowLayout {
@@ -983,28 +977,26 @@ Item {
                             }
                         }
                         RippleButton {
-                            objectName: "aquaModelEffort"
-                            x: 34
+                            id: modelSelectorBtn
+                            objectName: "aquaModelSelector"
                             y: 3
-                            Layout.preferredWidth: Math.max(68, Math.min(root.width - 90, effortLabel.implicitWidth + 60))
+                            Layout.preferredWidth: Math.max(72, Math.min(AquaMind.thinkingSupported ? (root.width - 196) : (root.width - 108), modelBtnLabel.implicitWidth + 56))
                             Layout.preferredHeight: 30
                             implicitWidth: Layout.preferredWidth
                             implicitHeight: 30
                             enabled: !AquaMind.busy && AquaMind.selectableModels.length > 0
                             buttonRadius: 15
                             onClicked: {
-                                if (root.profileStage === 0 || root.profileStage === 3)
-                                    root.profileStage = 1
-                                else if (root.profileStage === 1)
-                                    root.profileStage = 2
-                                else {
+                                if (root.profileStage === 2) {
                                     root.profileStage = 0
                                     Qt.callLater(() => { if (root.editing) message.forceActiveFocus() })
+                                } else {
+                                    root.profileStage = 2
                                 }
                             }
-                            Keys.onEscapePressed: {
-                                root.profileStage = 0
-                                Qt.callLater(() => { if (root.editing) message.forceActiveFocus() })
+                            Keys.onEscapePressed: event => {
+                                event.accepted = true
+                                root.closePopup()
                             }
                             contentItem: RowLayout {
                                 anchors.fill: parent
@@ -1012,19 +1004,70 @@ Item {
                                 anchors.rightMargin: 8
                                 spacing: 5
                                 MaterialSymbol {
-                                    text: AquaMind.thinkingSupported ? "psychology" : "bolt"
+                                    text: "smart_toy"
+                                    iconSize: 15
+                                    color: Appearance.colors.colPrimary
+                                }
+                                StyledText {
+                                    id: modelBtnLabel
+                                    Layout.fillWidth: true
+                                    text: AquaMind.currentModelLabel
+                                    elide: Text.ElideRight
+                                    font.pixelSize: Appearance.font.pixelSize.smallest
+                                }
+                                MaterialSymbol {
+                                    text: root.profileStage === 2 ? "expand_more" : "expand_less"
+                                    iconSize: 16
+                                    color: Appearance.colors.colSubtext
+                                }
+                            }
+                        }
+                        RippleButton {
+                            id: effortSelectorBtn
+                            objectName: "aquaModelEffort"
+                            visible: AquaMind.thinkingSupported
+                            y: 3
+                            Layout.preferredWidth: Math.max(66, Math.min(126, effortLabel.implicitWidth + 56))
+                            Layout.preferredHeight: 30
+                            implicitWidth: Layout.preferredWidth
+                            implicitHeight: 30
+                            enabled: !AquaMind.busy && AquaMind.thinkingSupported
+                            buttonRadius: 15
+                            onClicked: {
+                                if (root.profileStage === 1) {
+                                    root.profileStage = 0
+                                    Qt.callLater(() => { if (root.editing) message.forceActiveFocus() })
+                                } else {
+                                    root.profileStage = 1
+                                }
+                            }
+                            Keys.onEscapePressed: event => {
+                                event.accepted = true
+                                root.closePopup()
+                            }
+                            contentItem: RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 10
+                                anchors.rightMargin: 8
+                                spacing: 5
+                                MaterialSymbol {
+                                    text: AquaMind.effectiveThinkingEffort === "instant" || AquaMind.effectiveThinkingEffort === "off"
+                                        ? "bolt"
+                                        : AquaMind.effectiveThinkingEffort === "xhigh" || AquaMind.effectiveThinkingEffort === "max"
+                                        ? "auto_awesome"
+                                        : "psychology"
                                     iconSize: 16
                                     color: Appearance.colors.colPrimary
                                 }
                                 StyledText {
                                     id: effortLabel
+                                    Layout.fillWidth: true
                                     text: AquaMind.thinkingEffortShortLabel
                                     elide: Text.ElideRight
                                     font.pixelSize: Appearance.font.pixelSize.smallest
                                 }
                                 MaterialSymbol {
-                                    text: root.profileStage === 2 ? "swap_vert"
-                                        : root.profileStage === 1 ? "expand_more" : "chevron_right"
+                                    text: root.profileStage === 1 ? "expand_more" : "expand_less"
                                     iconSize: 16
                                     color: Appearance.colors.colSubtext
                                 }

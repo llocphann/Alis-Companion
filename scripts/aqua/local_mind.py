@@ -144,6 +144,8 @@ THINKING_EFFORTS={
     'low':{'think':True,'num_predict':320},
     'medium':{'think':True,'num_predict':512},
     'high':{'think':True,'num_predict':832},
+    'xhigh':{'think':True,'num_predict':1152},
+    'max':{'think':True,'num_predict':1536},
 }
 MAX_RESPONSE=128*1024
 class MindError(Exception):

@@ -80,7 +80,7 @@ Singleton {
         return Ai.runnableModelList.find(id=>ModelPolicy.allowed(Ai.models[id],localOnly)) ?? ""
     }
     onLocalOnlyChanged: if(localOnly && pending?.action==="ai_chat" && pending.request.local!==true)cancel()
-    readonly property string thinkingEffort: ["off","instant","low","medium","high"].includes(String(options.thinkingEffort ?? "off"))
+    readonly property string thinkingEffort: ["off","instant","low","medium","high","xhigh","max"].includes(String(options.thinkingEffort ?? "off"))
         ? String(options.thinkingEffort ?? "off") : "off"
     onEffectiveThinkingEffortChanged: if(pending?.action==="ai_chat" && pending.request.effort!==effectiveThinkingEffort)cancel()
     readonly property string referenceVault: String(options.referenceVault ?? "")
@@ -139,20 +139,33 @@ Singleton {
     readonly property var selectableModels: [{name:"",label:localOnly ? "Automatic local model" : "Use the AI tab model",thinking:false}]
         .concat(Ai.runnableModelList.filter(id=>ModelPolicy.allowed(Ai.models[id],localOnly)).map(id=>({name:id,label:Ai.models[id].name,
             thinking:Ai.supportsThinking(Ai.models[id])})))
-    readonly property bool reasoningSupported:Ai.supportsThinking(Ai.models[model])
-    readonly property bool instantSupported:typeof Ai.supportsInstant==="function" && Ai.supportsInstant(Ai.models[model])
-    readonly property var thinkingLevels: [
-        {value:"off",label:Ai.models[model]?.api_format==="gguf" ? "Instant" : "Provider default"}
-    ].concat(instantSupported ? [{value:"instant",label:"Instant"}] : []).concat(reasoningSupported ? [
-        {value:"low",label:"Low"},
-        {value:"medium",label:"Medium"},
-        {value:"high",label:"High"}
-    ] : [])
+    readonly property bool reasoningSupported:(Ai.modelList, Ai.supportsThinking(Ai.models[model]))
+    readonly property bool instantSupported:(Ai.modelList, typeof Ai.supportsInstant==="function" && Ai.supportsInstant(Ai.models[model]))
+    readonly property var thinkingLevels: {
+        void Ai.modelList
+        const m = Ai.models[model]
+        const list = []
+        if (instantSupported) {
+            list.push({value: "instant", label: "Instant"})
+        } else {
+            list.push({value: "off", label: (m?.api_format === "gguf" || reasoningSupported) ? "Instant" : "Provider default"})
+        }
+        if (reasoningSupported) {
+            list.push({value: "low", label: "Low"})
+            list.push({value: "medium", label: "Medium"})
+            list.push({value: "high", label: "High"})
+            list.push({value: "xhigh", label: "Extra High"})
+            list.push({value: "max", label: "Max"})
+        }
+        return list
+    }
     readonly property var currentModelInfo: selectableModels.find(m=>m.name===model) ?? null
     readonly property bool thinkingSupported: reasoningSupported || instantSupported
     readonly property string effectiveThinkingEffort: thinkingEffort==="instant"
-        ? instantSupported ? "instant" : "off" : reasoningSupported ? thinkingEffort : "off"
-    readonly property string thinkingEffortLabel: thinkingLevels.find(e=>e.value===effectiveThinkingEffort)?.label ?? "Provider default"
+        ? (instantSupported ? "instant" : "off")
+        : (reasoningSupported && ["low","medium","high","xhigh","max"].includes(thinkingEffort) ? thinkingEffort : "off")
+    readonly property string thinkingEffortLabel: thinkingLevels.find(e=>e.value===effectiveThinkingEffort)?.label
+        ?? (effectiveThinkingEffort==="off" && instantSupported ? "Instant" : "Provider default")
     readonly property string thinkingEffortShortLabel: thinkingEffortLabel==="Provider default" ? "Default" : thinkingEffortLabel
     readonly property string currentModelLabel: {
         const value=String(currentModelInfo?.label ?? model ?? "")
@@ -245,7 +258,7 @@ Singleton {
     }
     function setThinkingEffort(value): void {
         const effort=String(value ?? "off")
-        if(!thinkingLevels.some(entry=>entry.value===effort))return
+        if(effort!=="off" && !thinkingLevels.some(entry=>entry.value===effort))return
         Config.setNestedValue("abyss.companionMind.thinkingEffort",effort)
     }
     function refreshJournal(automatic = false): bool {return dispatch("context",null,automatic)}

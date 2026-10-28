@@ -738,24 +738,31 @@ ContentPage {
                 RowLayout {
                     Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:10
                     ColumnLayout {
-                        Layout.fillWidth:true;spacing:2
+                        Layout.fillWidth:true;spacing:4
+                        visible:AquaMind.thinkingSupported
                         RowLayout {
                             Layout.fillWidth:true
                             StyledText {Layout.fillWidth:true;text:"Thinking effort";color:Appearance.colors.colSubtext;font.pixelSize:Appearance.font.pixelSize.smaller}
                             StyledText {text:AquaMind.thinkingEffortLabel;color:Appearance.colors.colPrimary;font.pixelSize:Appearance.font.pixelSize.smaller}
                         }
-                        StyledSlider {
+                        StyledComboBox {
                             objectName:"aquaCompanionThinkingEffort"
                             Layout.fillWidth:true
-                            from:0;to:3;stepSize:1
-                            value:Math.max(0,AquaMind.thinkingLevels.findIndex(level=>level.value===AquaMind.effectiveThinkingEffort))
+                            Layout.minimumWidth:120
                             enabled:AquaMind.thinkingSupported && !AquaMind.busy
-                            tooltipContent:AquaMind.thinkingEffortLabel
-                            onMoved:{
-                                const levels=["off","low","medium","high"]
-                                AquaMind.setThinkingEffort(levels[Math.max(0,Math.min(3,Math.round(value)))])
+                            model:AquaMind.thinkingLevels
+                            textRole:"label"
+                            currentIndex:Math.max(0,AquaMind.thinkingLevels.findIndex(level=>level.value===AquaMind.effectiveThinkingEffort || (level.value==="off" && AquaMind.effectiveThinkingEffort==="instant") || (level.value==="instant" && AquaMind.effectiveThinkingEffort==="off")))
+                            displayText:AquaMind.thinkingEffortLabel
+                            onActivated:index=>{
+                                const level=AquaMind.thinkingLevels[index]
+                                if(level)AquaMind.setThinkingEffort(level.value)
                             }
                         }
+                    }
+                    Item {
+                        visible:!AquaMind.thinkingSupported
+                        Layout.fillWidth:true
                     }
                     Rectangle {
                         implicitWidth:36;implicitHeight:36;radius:11

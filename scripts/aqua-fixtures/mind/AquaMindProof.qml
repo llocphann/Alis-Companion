@@ -103,8 +103,8 @@ Window {
                 check(!!unifiedHeader && unifiedHeader.visible && !!unifiedChatTab && unifiedChatTab.visible
                     && !!unifiedTodayTab && unifiedTodayTab.visible && !!unifiedPomodoroBar && unifiedPomodoroBar.visible
                     && !!unifiedPomodoroToggle && unifiedPomodoroToggle.visible
-                    && !!unifiedSettingsBtn && unifiedSettingsBtn.visible && !!unifiedCloseBtn && unifiedCloseBtn.visible,
-                    "unified Mochi-style Abyss popup header or Pomodoro bar missing")
+                    && !unifiedSettingsBtn && !unifiedCloseBtn,
+                    "unified Mochi-style Abyss popup header or Pomodoro bar missing or retained Close/Settings buttons")
                 mouseClick(unifiedTodayTab);wait(60)
                 check(AquaMind.contextOpen && !cloud.editing,"unified Today tab did not switch to Today context")
                 mouseClick(unifiedChatTab);wait(80)
@@ -121,19 +121,34 @@ Window {
                     && cloudGap()<=cloud.anchorGap+.6,
                     "talk cloud did not follow Aqua's scaled bounds")
                 actor.scale=originalActorScale;wait(20)
+                const modelSelector=root.named(cloud,"aquaModelSelector")
                 const profileButton=root.named(cloud,"aquaModelEffort")
                 const effortSlider=root.named(cloud,"aquaThinkingEffort")
                 const modelPicker=root.named(cloud,"aquaModelPicker")
                 const composer=root.named(cloud,"aquaChatComposer")
                 const sendButton=root.named(cloud,"aquaChatSend")
-                check(!!composer && composer.visible && !!profileButton && profileButton.visible
-                    && !!sendButton && sendButton.visible,
-                    "chat composer/model effort selector missing")
-                // Opening the composer schedules a Qt Layout polish. A visible
-                // control can still belong to a zero-width parent in that turn.
-                // Wait for the parent geometry, independently of the size gate.
+                check(!!composer && composer.visible && !!modelSelector && modelSelector.visible
+                    && !!profileButton && !profileButton.visible && !!sendButton && sendButton.visible,
+                    "chat composer model selector missing or effort button not hidden when reasoning unsupported")
                 tryVerify(()=>Math.abs(composer.width-(cloud.width-24))<.6
-                    && profileButton.implicitWidth>0,1000,"composer layout did not settle")
+                    && modelSelector.implicitWidth>0,1000,"composer layout did not settle")
+                check(Math.abs((modelSelector.y+modelSelector.height/2)-(sendButton.y+sendButton.height/2))<2,
+                    "model selector and Send are not on the same composer row")
+                mouseClick(modelSelector);wait(50)
+                check(cloud.profileStage===2 && !!modelPicker && modelPicker.visible && !!effortSlider && !effortSlider.visible,
+                    "model selector click did not open model picker")
+                const activeModelButton=root.named(cloud,"aquaModelOption-tiny:local")
+                const activeModelLabel=root.named(cloud,"aquaModelLabel-tiny:local")
+                check(!!activeModelButton && activeModelButton.visible && activeModelButton.toggled
+                    && !!activeModelLabel && activeModelLabel.visible && activeModelLabel.text.length>0
+                    && activeModelLabel.color===Appearance.colors.colOnPrimaryContainer,
+                    "active model text lost contrast on selected background")
+                mouseClick(modelSelector);wait(30)
+                check(cloud.profileStage===0 && field.activeFocus,
+                    "second model selector click did not close model picker and return focus to composer")
+                Ai.models["tiny:local"].capabilities={chat:"supported",reasoning:"supported"};wait(40)
+                check(AquaMind.thinkingSupported && profileButton.visible,
+                    "effort selector button did not appear when reasoning supported")
                 const effortGeometry=JSON.stringify({width:profileButton.width,
                     implicitWidth:profileButton.implicitWidth,composerWidth:composer.width,
                     cloudWidth:cloud.width,label:AquaMind.thinkingEffortShortLabel,
@@ -141,25 +156,22 @@ Window {
                 check(profileButton.width<130 && profileButton.width<composer.width/2,
                     "collapsed effort control did not size to its label "+effortGeometry)
                 console.log("AQUA_COMPOSER_GEOMETRY="+effortGeometry)
-                check(Math.abs((profileButton.y+profileButton.height/2)-(sendButton.y+sendButton.height/2))<2,
-                    "effort control and Send are not on the same composer row")
                 mouseClick(profileButton);wait(50)
-                check(cloud.profileStage===1 && !!effortSlider && effortSlider.visible
-                    && !!modelPicker && !modelPicker.visible && !effortSlider.enabled
-                    && AquaMind.effectiveThinkingEffort==="off",
-                    "first selector click did not show effort-only stage")
-                mouseClick(profileButton);wait(50)
-                check(cloud.profileStage===2 && modelPicker.visible && !effortSlider.visible,
-                    "second selector click did not switch to model picker")
-                const activeModelButton=root.named(cloud,"aquaModelOption-tiny:local")
-                const activeModelLabel=root.named(cloud,"aquaModelLabel-tiny:local")
-                check(!!activeModelButton && activeModelButton.visible && activeModelButton.toggled
-                    && !!activeModelLabel && activeModelLabel.visible && activeModelLabel.text.length>0
-                    && activeModelLabel.color===Appearance.colors.colOnPrimaryContainer,
-                    "active model text lost contrast on selected background")
-                mouseClick(profileButton);wait(30)
-                check(cloud.profileStage===0 && field.activeFocus,
-                    "third selector click did not close picker and return focus to composer")
+                check(cloud.profileStage===1 && effortSlider.visible && !modelPicker.visible
+                    && !!root.named(cloud,"aquaEffortOption-off")?.visible
+                    && !!root.named(cloud,"aquaEffortOption-low")?.visible
+                    && !!root.named(cloud,"aquaEffortOption-medium")?.visible
+                    && !!root.named(cloud,"aquaEffortOption-high")?.visible
+                    && !!root.named(cloud,"aquaEffortOption-xhigh")?.visible
+                    && !!root.named(cloud,"aquaEffortOption-max")?.visible,
+                    "effort button click did not show drop-up menu with Instant/Low/Medium/High/Extra High/Max")
+                mouseClick(root.named(cloud,"aquaEffortOption-xhigh"));wait(40)
+                check(AquaMind.thinkingEffort==="xhigh" && cloud.profileStage===0 && field.activeFocus,
+                    "selecting Extra High effort option did not apply and close effort menu")
+                AquaMind.setThinkingEffort("off")
+                Ai.models["tiny:local"].capabilities={chat:"supported",reasoning:"unsupported"};wait(40)
+                check(!AquaMind.thinkingSupported && !profileButton.visible,
+                    "effort selector button did not hide again when reasoning became unsupported")
                 field.text="Hello Aqua!"
                 keyClick(Qt.Key_Return);wait(20)
                 check(field.text==="","Enter did not submit the input")
