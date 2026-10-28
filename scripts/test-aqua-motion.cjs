@@ -8,21 +8,24 @@ const load=(file)=>{
 };
 const curves=load('modules/abyss/companion/AquaMotionData.js');
 const placement=load('modules/abyss/companion/AquaSurfacePlacement.js');
-for (let phase=0;phase<=1;phase+=.005) {
-    for (let i=0;i<2;i++) {
-        const x=curves.sample('walk',`foot${i}X`,phase), z=curves.sample('walk',`foot${i}Z`,phase);
-        assert.ok(Number.isFinite(x)&&Math.abs(x)<=8.001);
-        assert.ok(Number.isFinite(z)&&z>=0&&z<=5.501);
-        assert.ok(Math.abs(curves.sample('walk',`arm${i}X`,phase))<=1.501);
-        assert.ok(Math.abs(curves.sample('walk',`arm${i}Z`,phase))<=2.001);
+for (const clip of Object.values(curves.clips)) {
+    for (const key of Object.keys(clip.tracks)) {
+        assert.equal(/^(arm|foot)/.test(key), false, 'limbless Aqua has no arm or foot tracks');
     }
 }
-assert.ok(curves.sample('walk','foot0Z',.75)>0);
-assert.equal(curves.sample('walk','foot0Z',.25),0);
-assert.equal(curves.sample('walk','foot1Z',.75),0);
-assert.ok(curves.sample('walk','foot1Z',.25)>0);
-assert.equal(curves.clips.walk.tracks.foot2X,undefined,'the rig has two feet');
-assert.equal(curves.clips.walk.tracks.foot3X,undefined);
+for (let phase=0;phase<=1;phase+=.005) {
+    const lift=curves.sample('walk','lift',phase);
+    const sx=curves.sample('walk','scaleX',phase), sy=curves.sample('walk','scaleY',phase);
+    assert.ok(Number.isFinite(lift)&&lift>=-11&&lift<=2);
+    assert.ok(sx>=.93&&sx<=1.08);
+    assert.ok(sy>=.92&&sy<=1.08);
+}
+assert.ok(curves.sample('walk','lift',.25)<-8);
+assert.ok(curves.sample('walk','lift',.75)<-8);
+assert.equal(curves.sample('walk','lift',0),0);
+assert.equal(curves.sample('walk','lift',.5),0);
+assert.ok(curves.sample('walk','scaleY',.25)>1.04);
+assert.ok(curves.sample('walk','scaleY',0)<.97);
 assert.equal(curves.sample('orbit','angle',0),0);
 assert.ok(Math.abs(curves.sample('orbit','angle',1)-2*Math.PI)<0.000001);
 for (const clip of Object.values(curves.clips)) {

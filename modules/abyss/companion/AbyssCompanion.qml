@@ -104,7 +104,7 @@ Item {
     property bool curvedImmersion: false
     property real presentation: 0
     readonly property bool peeking: reveal>0 && reveal<.99
-    readonly property real footContactOffset: character === "octo" ? 28.5 : 37.5
+    readonly property real footContactOffset: character === "octo" ? 28.5 : 31.5
     property real floorAlignment: upright && surfaceSupported ? (height/2-footContactOffset)*Math.cos(standingAngle*Math.PI/180) : 0
     property real sideAlignment: upright && surfaceSupported ? -(width/2-footContactOffset)*Math.sin(standingAngle*Math.PI/180) : 0
     Behavior on sideAlignment { enabled: root.motionEnabled && !root.hardResetting; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }

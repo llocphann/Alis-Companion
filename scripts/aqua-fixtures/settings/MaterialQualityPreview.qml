@@ -114,14 +114,7 @@ ApplicationWindow {
                 root.require(body.materialReady && body.qualityLevel === i, "material tier not rendered")
                 root.require(body.accentColor.toString() === AbyssStyle.accent.toString(), "theme binding lost")
                 const limbs=root.find(body,"aquaWaterLimbs")
-                root.require(limbs.count===4,"quality tier lost limbs")
-                let hands=0, feet=0
-                for (let j=0;j<limbs.count;j++) {
-                    const limb=limbs.itemAt(j)
-                    if (limb.hand) { hands++; root.require(limb.y<60,"hand at ground height") }
-                    else { feet++; root.require(limb.y>68,"foot above ground") }
-                }
-                root.require(hands===2 && feet===2,"Aqua must have two hands and two feet")
+                root.require(limbs && limbs.count===0 && !root.find(body,"aquaHand0") && !root.find(body,"aquaFoot0"),"Aqua should be limbless")
                 root.require(root.find(body, "aquaExternalDroplets").count === [3,6,8][i], "tier droplet budget wrong")
                 root.require((root.find(body, "aquaFloorReflectionSource").sourceItem !== null) === (i > 0), "floor capture tier budget wrong")
             }

@@ -195,7 +195,7 @@ Item {
     rotation: orientationAngle + ((gait.active ? 0 : sway * 2.2) + stateLean * 5.0 + stateTip * 2.4 + expressionProfile.tilt * 4) * motionAmount
     transform: [
         Scale {
-            origin.x: root.width * 0.5; origin.y: root.octopus ? 74.5 : 83.5
+            origin.x: root.width * 0.5; origin.y: root.octopus ? 74.5 : 77.5
             xScale: 1 + (root.stateSquash + root.expressionSquash) * 0.05 - root.stateStretch * 0.025 + root.squash * 0.06
             yScale: 1 - (root.stateSquash + root.expressionSquash) * 0.035 + root.stateStretch * 0.06 - root.squash * 0.05
         },
@@ -258,12 +258,10 @@ Item {
             property color specular: root.reflectionColor
             property vector4d motion: visible ? Qt.vector4d(root.shimmer, Math.max(root.ripple, root.reactionRipple), contact.width / material.width, 0) : root.zeroPoseUniform
             property vector4d rendering: Qt.vector4d(root.qualityLevel, 0, 0, 0)
-            readonly property real contactSide: 19.5
-            readonly property real contactDepth: 8
             property vector4d feet: visible ? Qt.vector4d(
-                (contact.width*.5+root.projectX(-contactSide+gait.footX("foot0X")*1.15,-31.06+gait.footZ("foot0Z")*1.15,contactDepth))/contact.width,
-                (contact.width*.5+root.projectX(contactSide+gait.footX("foot1X")*1.15,-31.06+gait.footZ("foot1Z")*1.15,contactDepth))/contact.width,
-                1-Math.min(1, gait.footZ("foot0Z")/2), 1-Math.min(1, gait.footZ("foot1Z")/2)) : root.zeroPoseUniform
+                0.5, 0.5,
+                Math.max(0, 1 - Math.abs(gait.lift) / 10),
+                Math.max(0, 1 - Math.abs(gait.lift) / 10)) : root.zeroPoseUniform
             fragmentShader: Qt.resolvedUrl("WaterDropletContact.frag.qsb")
         }
     }
@@ -280,68 +278,15 @@ Item {
         live: root.floorReflectionEnabled && root.visible && root.grounded && root.detailedEffects
         visible: false
     }
-    // Reflect only our body, limbs, bubbles and face; never desktop content.
+    // Reflect only our body, bubbles and face; never desktop content.
     Item {
         id: reflectionLayer
         width: root.width; height: root.height
-        // Exactly two side arms and two ground feet, with distinct rig tracks.
+        // Aqua is a pure limbless water droplet; Octo uses its tentacle rig below.
         Repeater {
             objectName: "aquaWaterLimbs"
-            model: root.octopus ? 0 : 4
-            Item {
-                id: waterFoot
-                required property int index
-                objectName: index<2 ? "aquaHand"+index : "aquaFoot"+(index-2)
-                readonly property bool hand: index < 2
-                readonly property real side: index % 2 === 0 ? -1 : 1
-                readonly property string xTrack: (hand ? "arm"+index : "foot"+(index-2)) + "X"
-                readonly property string zTrack: (hand ? "arm"+index : "foot"+(index-2)) + "Z"
-                readonly property real stepX: gait.footX(xTrack) * (hand ? 1.35 : 1.15)
-                readonly property real stepZ: gait.footZ(zTrack) * (hand ? 1.35 : 1.15)
-                readonly property real coworkArmX: hand ? (root.coworkPose ? (root.coworkPose["arm"+index+"X"] ?? 0)*.45 : root.ambientProp==="book" ? (index===0 ? 8.5 : -8.5) : root.ambientProp==="coffee" && index===1 ? -7.5 : 0) : 0
-                readonly property real coworkArmY: hand ? (root.coworkPose ? -(root.coworkPose["arm"+index+"Y"] ?? 0)*.35 : (root.ambientProp==="book" || (root.ambientProp==="coffee" && index===1)) ? 10 : 0) : 0
-                readonly property real coworkArmZ: hand ? (root.coworkPose ? (root.coworkPose["arm"+index+"Z"] ?? 0)*.65 : root.ambientProp==="book" ? -6.5 : root.ambientProp==="coffee" && index===1 ? -4.5 : 0) : 0
-                readonly property real localX: side*(hand ? 35.0 : 19.5)+stepX+coworkArmX
-                readonly property real localY: 46.14-(hand ? 51.5 : 77.2)+stepZ+coworkArmZ
-                readonly property real localZ: (hand ? 14 : 8)+coworkArmY
-                readonly property real depth: root.projectZ(localX, localY, localZ)
-                width: hand ? 21.5 : 19.5
-                height: hand ? 21.5 : 16.5
-                x:38+root.projectX(localX, localY, localZ)-width/2
-                y:46.14-root.projectY(localX, localY, localZ)-height/2+root.reactionLift*root.motionAmount+gait.lift
-                z: (hand ? depth >= -6 : depth >= 0) ? 1 : -1
-                ShaderEffect {
-                    anchors.fill: parent
-                    visible: !root.softwareFallback && material.status !== ShaderEffect.Error
-                    property color accent: root.liquidAccent
-                    property color specular: root.reflectionColor
-                    property vector4d motion: root.limbMotionUniform
-                    property vector4d optics: root.limbOpticsUniform
-                    property vector4d rendering: root.smallMaterialRenderingUniform
-                    property vector4d pose: waterFoot.hand ? root.handPoseUniform : root.footPoseUniform
-                    fragmentShader: Qt.resolvedUrl("WaterDropletMaterial.frag.qsb")
-                }
-                Shape {
-                    anchors.fill: parent
-                    visible: root.softwareFallback || material.status === ShaderEffect.Error
-                    opacity: 1 - Math.max(0, Math.min(0.35, root.translucency)) * 0.25
-                    antialiasing: true
-                    preferredRendererType: Shape.CurveRenderer
-                    ShapePath {
-                        strokeWidth: 0.55; strokeColor: root.reflectionColor
-                        fillGradient: LinearGradient {
-                            x1: 0; y1: 0; x2: 0; y2: waterFoot.height
-                            GradientStop { position: 0; color: Qt.darker(root.liquidAccent, 1.4) }
-                            GradientStop { position: 0.36; color: root.reflectionColor }
-                            GradientStop { position: 0.70; color: root.liquidAccent }
-                            GradientStop { position: 1; color: root.reflectionColor }
-                        }
-                        startX: waterFoot.width * 0.05; startY: waterFoot.height * 0.5
-                        PathArc { x: waterFoot.width * 0.95; y: waterFoot.height * 0.5; radiusX: waterFoot.width * 0.45; radiusY: waterFoot.height * (waterFoot.hand ? 0.45 : 0.31) }
-                        PathArc { x: waterFoot.width * 0.05; y: waterFoot.height * 0.5; radiusX: waterFoot.width * 0.45; radiusY: waterFoot.height * (waterFoot.hand ? 0.45 : 0.31) }
-                    }
-                }
-            }
+            model: 0
+            Item {}
         }
         Loader {
             active: root.octopus

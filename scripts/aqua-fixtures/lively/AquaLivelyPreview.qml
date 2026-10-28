@@ -135,7 +135,7 @@ Window {
                 const body=root.named(actor,"aquaLiquidBody"), gait=root.named(actor,"aquaLocomotion")
                 check(presence.moveTo(Scene.annotate(root.scene,{x:550,y:600},"bottom","edge","bottom"),false,"run"),"run route rejected")
                 wait(170);check(actor.walking && gait.clip==="run","run pose not selected")
-                check(gait.footZ("foot0Z")>0 || gait.footZ("foot1Z")>0,"run did not move its feet")
+                check(gait.lift<-1 || gait.scaleY!==1,"run did not hop")
                 tryCompare(presence,"traveling",false,presence.duration+600)
                 check(presence.grounded,"running lost its surface")
                 check(presence.moveTo(Scene.annotate(root.scene,{x:620,y:600},"bottom","edge","bottom"),false,"jump"),"jump route rejected")

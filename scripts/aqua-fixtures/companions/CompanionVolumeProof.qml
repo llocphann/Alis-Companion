@@ -28,8 +28,7 @@ Window {
         const material=named(body,"aquaVolumeMaterial"),gait=named(body,"aquaLocomotion")
         const arms=Array.from({length:4},(_,i)=>named(body,"octoTentacle"+i))
         if(!body.materialReady || arms.filter(Boolean).length!==((body.octopus || body.tentacleGrip) ? 4 : 0)
-                || named(body,"octoTentacle4") || !!named(body,"aquaHand0")===body.octopus
-                || !!named(body,"aquaFoot1")===body.octopus
+                || named(body,"octoTentacle4") || named(body,"aquaHand0") || named(body,"aquaFoot0") || named(body,"aquaFoot1")
                 || !Number.isFinite(body.modelPitch)
                 || (body.state.action && (gait.clip!==body.state.action || gait.scaleY<.95))) {
             console.error("COMPANION_VOLUME=FAIL real material/limbs/pose");Qt.quit();return

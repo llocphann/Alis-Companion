@@ -109,8 +109,7 @@ Window {
     check(presence.moveTo(dest,false,"roll"),"legacy travel lost its destination")
     const body=find(actor,"aquaLiquidBody")
     if(cast==="aqua") {
-     const hand0=find(body,"aquaHand0"),hand1=find(body,"aquaHand1"),foot0=find(body,"aquaFoot0"),foot1=find(body,"aquaFoot1")
-     check(hand0 && hand1 && foot0 && foot1 && hand0.width>=16 && hand0.height>=15 && foot0.width>=19 && foot0.height>=16 && body.handPoseUniform.w>.8 && body.footPoseUniform.w>.6,"Aqua limbs remain undersized or unrounded")
+     check(!find(body,"aquaHand0") && !find(body,"aquaHand1") && !find(body,"aquaFoot0") && !find(body,"aquaFoot1"),"Aqua retained limbs")
     }
     for(let i=0;i<8;i++) {
      wait(70)

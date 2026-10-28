@@ -11,12 +11,13 @@ const scene=load('modules/abyss/companion/AquaScene.js',{Slots:slots});
 const curves=load('modules/abyss/companion/AquaMotionData.js');
 for (const name of ['run','fly','jump','drag','fall','land','press','reach','inspect','wave']) {
     assert.ok(curves.clips[name]);
-    assert.equal(Object.keys(curves.clips[name].tracks).some(k=>/^foot[23]/.test(k)),false);
+    assert.equal(Object.keys(curves.clips[name].tracks).some(k=>/^(arm|foot)/.test(k)),false);
 }
-assert.ok(curves.sample('fly','arm0Z',.22)>8,'flight has an actual propulsion stroke');
-assert.ok(curves.sample('fly','foot0Z',.35)>8,'flight tucks its two feet');
-assert.ok(curves.sample('run','foot0Z',.75)>8);
-assert.equal(curves.sample('run','foot1Z',.75),0);
+assert.ok(curves.sample('fly','lift',.22)<-2,'flight has an actual propulsion stroke');
+assert.ok(curves.sample('fly','scaleY',.22)>1.03,'flight stretches its droplet body');
+assert.ok(curves.sample('run','lift',.25)<-10);
+assert.ok(curves.sample('run','lift',.75)<-10);
+assert.equal(curves.sample('run','lift',.5),0);
 assert.ok(curves.sample('fall','scaleY',.5)>1.04);
 assert.ok(curves.sample('land','scaleY',0)<.94);
 let cases=0;

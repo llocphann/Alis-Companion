@@ -264,7 +264,7 @@ Window {
                 wait(80);check(presence.retreating,"minimum visit never released the hide")
                 check(Curves.clips.pulled.duration>=5000,"quicksand remains too fast")
                 check(Curves.sample("launch","normal",.30)<-1 && Curves.sample("riseJump","normal",.36)<-.8,"entrance arc remained ordinary")
-                check(Math.abs(Curves.sample("buttplant","pitch",.60))>60 && Curves.sample("buttplant","foot0Z",.60)>14,"backside landing has no spatial seated pose")
+                check(Math.abs(Curves.sample("buttplant","pitch",.60))>60 && Curves.sample("buttplant","scaleX",.57)>1.02,"backside landing has no spatial seated pose")
                 check(Curves.sample("buttplant","scaleY",.60)>.95,"backside fall flattened Aqua")
                 root.allowed=false;wait(40)
                 check(!actor.visible && !gait.active && !root.named(presence,"aquaPeekDeadline").running && !notice.running

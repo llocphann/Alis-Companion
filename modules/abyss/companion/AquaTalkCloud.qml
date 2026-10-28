@@ -637,7 +637,7 @@ Item {
             }
         }
         Item {
-            visible: root.editing && AquaMind.historyLoaded && AquaMind.history.length===0
+            visible: root.editing && root.profileStage === 0 && AquaMind.historyLoaded && AquaMind.history.length===0
             Layout.fillWidth: true
             Layout.fillHeight: true
             StyledText {

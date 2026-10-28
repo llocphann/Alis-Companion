@@ -555,8 +555,8 @@ Item {
         if (selected.qualified && Scene.distance(here,selected)>10*scene.scale) {
             const gait=random(), length=Scene.distance(here,selected)
             const movement=length>=35*scene.scale && gait<.18 ? "run"
-                : length>=35*scene.scale && length<=160*scene.scale && gait<.35 ? "jump"
-                : personality!=="calm" && gait<(personality==="energetic" ? .78 : .48) ? "run" : "walk"
+                : length>=35*scene.scale && length<=180*scene.scale && gait<(actor?.character!=="octo" ? .68 : .35) ? "jump"
+                : personality!=="calm" && gait<(personality==="energetic" ? .82 : .55) ? "run" : "walk"
             moveTo(selected,false,movement)
         }
     }
