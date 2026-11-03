@@ -18,7 +18,7 @@ Item {
     property real gripProgress: 0
     readonly property bool octopus: character==="octo"
     readonly property var curves: Motion.forCharacter(character)
-    readonly property var headCenter: project(0,OctoRig.geometry.headOffset,0)
+    readonly property var headCenter: octopus ? project(0,OctoRig.geometry.headOffset,0) : ({x:0,y:0,z:0,scale:1})
     readonly property real headSize: OctoRig.geometry.headSize
     property string expression: "idle"
     property color accentColor: AbyssStyle.accent
@@ -71,14 +71,14 @@ Item {
     // same implicit surface/material shader while dropping high-tier secondary
     // traces and studio-light detail that is sub-pixel at these sizes.
     readonly property vector4d smallMaterialRenderingUniform: Qt.vector4d(0, translucency, 0, 0)
-    readonly property vector4d limbMotionUniform: Qt.vector4d(shimmer, 0, pulse, effectsEnabled ? 1 : 0)
-    readonly property vector4d limbOpticsUniform: Qt.vector4d(modelYawRadians, 3, 0, 0)
-    readonly property vector4d handPoseUniform: Qt.vector4d(modelPitchRadians, modelRollRadians, 0.14, 1.38)
-    readonly property vector4d footPoseUniform: Qt.vector4d(modelPitchRadians, modelRollRadians, 0.06, 0.72)
-    readonly property vector4d limbPoseUniform: footPoseUniform
+    readonly property vector4d zeroPoseUniform: Qt.vector4d(0, 0, 0, 0)
+    readonly property vector4d limbMotionUniform: (octopus || tentacleGrip) ? Qt.vector4d(shimmer, 0, pulse, effectsEnabled ? 1 : 0) : zeroPoseUniform
+    readonly property vector4d limbOpticsUniform: (octopus || tentacleGrip) ? Qt.vector4d(modelYawRadians, 3, 0, 0) : zeroPoseUniform
+    readonly property vector4d handPoseUniform: zeroPoseUniform
+    readonly property vector4d footPoseUniform: zeroPoseUniform
+    readonly property vector4d limbPoseUniform: zeroPoseUniform
     readonly property vector4d dropletMotionUniform: Qt.vector4d(shimmer, 0, pulse, 0)
     readonly property vector4d dropletOpticsUniform: Qt.vector4d(0, 1, 0, 0)
-    readonly property vector4d zeroPoseUniform: Qt.vector4d(0, 0, 0, 0)
     readonly property var poseRotation: Pose.rotation(modelYaw,modelPitch,modelRoll)
     readonly property real poseScaleX: gait.scaleX
     readonly property real poseScaleY: gait.scaleY
@@ -275,7 +275,7 @@ Item {
         // quadruples offscreen pixels without preserving visible extra detail.
         textureSize: Qt.size(76, 82)
         smooth: true
-        live: root.floorReflectionEnabled && root.visible && root.grounded && root.detailedEffects
+        live: root.floorReflectionEnabled && root.visible && root.grounded && root.detailedEffects && (!root.idleLoopPaused || gait.active)
         visible: false
     }
     // Reflect only our body, bubbles and face; never desktop content.
@@ -318,37 +318,43 @@ Item {
             width: root.width; height: root.height
             y: gait.lift + (root.reactionLift + (gait.active || !root.grounded ? 0 : root.bob * 0.35)) * root.motionAmount
             // Rounded vector fallback for software/error; volume optics require a GPU.
-            Rectangle {
-                visible:root.octopus && (root.softwareFallback || material.status===ShaderEffect.Error)
-                x:material.x;y:material.y;width:material.width;height:material.height
-                radius:width/2
-                gradient:Gradient {
-                    GradientStop {position:0;color:Qt.darker(root.liquidAccent,1.7)}
-                    GradientStop {position:.6;color:root.liquidAccent}
-                    GradientStop {position:1;color:root.reflectionColor}
-                }
-            }
-            Shape {
-                x: 0; y: 7; width: 76; height: 76
-                visible: !root.octopus && (GraphicsInfo.api === GraphicsInfo.Software || material.status === ShaderEffect.Error)
-                opacity: 1 - Math.max(0, Math.min(0.35, root.translucency)) * 0.55
-                antialiasing: true
-                preferredRendererType: Shape.CurveRenderer
-                ShapePath {
-                    strokeWidth: 1; strokeColor: root.reflectionColor
-                    fillGradient: LinearGradient {
-                        x1: 38; y1: 0; x2: 38; y2: 76
-                        GradientStop { position: 0; color: Qt.darker(root.liquidAccent, 2.2) }
-                        GradientStop { position: 0.55; color: root.liquidAccent }
-                        GradientStop { position: 1; color: Qt.lighter(root.liquidAccent, 1.65) }
+            Loader {
+                active: root.softwareFallback || material.status === ShaderEffect.Error
+                anchors.fill: parent
+                sourceComponent: Item {
+                    Rectangle {
+                        visible: root.octopus
+                        x: material.x; y: material.y; width: material.width; height: material.height
+                        radius: width / 2
+                        gradient: Gradient {
+                            GradientStop { position: 0; color: Qt.darker(root.liquidAccent, 1.7) }
+                            GradientStop { position: .6; color: root.liquidAccent }
+                            GradientStop { position: 1; color: root.reflectionColor }
+                        }
                     }
-                    startX: 38; startY: 4.2
-                    PathCubic { x: 15; y: 28.5; control1X: 32; control1Y: 14; control2X: 23; control2Y: 21 }
-                    PathCubic { x: 5.1; y: 47.3; control1X: 8; control1Y: 34; control2X: 5.1; control2Y: 41 }
-                    PathCubic { x: 38; y: 69.9; control1X: 5.1; control1Y: 62; control2X: 16; control2Y: 69.9 }
-                    PathCubic { x: 70.9; y: 47.3; control1X: 60; control1Y: 69.9; control2X: 71; control2Y: 62 }
-                    PathCubic { x: 61; y: 28.5; control1X: 70.9; control1Y: 41; control2X: 68; control2Y: 34 }
-                    PathCubic { x: 38; y: 4.2; control1X: 53; control1Y: 21; control2X: 44; control2Y: 14 }
+                    Shape {
+                        x: 0; y: 7; width: 76; height: 76
+                        visible: !root.octopus
+                        opacity: 1 - Math.max(0, Math.min(0.35, root.translucency)) * 0.55
+                        antialiasing: true
+                        preferredRendererType: Shape.CurveRenderer
+                        ShapePath {
+                            strokeWidth: 1; strokeColor: root.reflectionColor
+                            fillGradient: LinearGradient {
+                                x1: 38; y1: 0; x2: 38; y2: 76
+                                GradientStop { position: 0; color: Qt.darker(root.liquidAccent, 2.2) }
+                                GradientStop { position: 0.55; color: root.liquidAccent }
+                                GradientStop { position: 1; color: Qt.lighter(root.liquidAccent, 1.65) }
+                            }
+                            startX: 38; startY: 4.2
+                            PathCubic { x: 15; y: 28.5; control1X: 32; control1Y: 14; control2X: 23; control2Y: 21 }
+                            PathCubic { x: 5.1; y: 47.3; control1X: 8; control1Y: 34; control2X: 5.1; control2Y: 41 }
+                            PathCubic { x: 38; y: 69.9; control1X: 5.1; control1Y: 62; control2X: 16; control2Y: 69.9 }
+                            PathCubic { x: 70.9; y: 47.3; control1X: 60; control1Y: 69.9; control2X: 71; control2Y: 62 }
+                            PathCubic { x: 61; y: 28.5; control1X: 70.9; control1Y: 41; control2X: 68; control2Y: 34 }
+                            PathCubic { x: 38; y: 4.2; control1X: 53; control1Y: 21; control2X: 44; control2Y: 14 }
+                        }
+                    }
                 }
             }
             ShaderEffect {
@@ -397,22 +403,24 @@ Item {
                         property vector4d pose: root.zeroPoseUniform
                         fragmentShader: Qt.resolvedUrl("WaterDropletMaterial.frag.qsb")
                     }
-                    Shape {
+                    Loader {
                         anchors.fill: parent
-                        visible: root.softwareFallback || material.status === ShaderEffect.Error
-                        antialiasing: true
-                        preferredRendererType: Shape.CurveRenderer
-                        ShapePath {
-                            strokeWidth: 0.4; strokeColor: root.reflectionColor
-                            fillGradient: LinearGradient {
-                                x1: 0; y1: 0; x2: 0; y2: floatingDroplet.height
-                                GradientStop { position: 0; color: root.reflectionColor }
-                                GradientStop { position: 0.4; color: Qt.alpha(root.liquidAccent, 0.18) }
-                                GradientStop { position: 1; color: root.liquidAccent }
+                        active: root.softwareFallback || material.status === ShaderEffect.Error
+                        sourceComponent: Shape {
+                            antialiasing: true
+                            preferredRendererType: Shape.CurveRenderer
+                            ShapePath {
+                                strokeWidth: 0.4; strokeColor: root.reflectionColor
+                                fillGradient: LinearGradient {
+                                    x1: 0; y1: 0; x2: 0; y2: floatingDroplet.height
+                                    GradientStop { position: 0; color: root.reflectionColor }
+                                    GradientStop { position: 0.4; color: Qt.alpha(root.liquidAccent, 0.18) }
+                                    GradientStop { position: 1; color: root.liquidAccent }
+                                }
+                                startX: 0; startY: floatingDroplet.height / 2
+                                PathArc { x: floatingDroplet.width; y: floatingDroplet.height / 2; radiusX: floatingDroplet.width / 2; radiusY: floatingDroplet.height / 2 }
+                                PathArc { x: 0; y: floatingDroplet.height / 2; radiusX: floatingDroplet.width / 2; radiusY: floatingDroplet.height / 2 }
                             }
-                            startX: 0; startY: floatingDroplet.height / 2
-                            PathArc { x: floatingDroplet.width; y: floatingDroplet.height / 2; radiusX: floatingDroplet.width / 2; radiusY: floatingDroplet.height / 2 }
-                            PathArc { x: 0; y: floatingDroplet.height / 2; radiusX: floatingDroplet.width / 2; radiusY: floatingDroplet.height / 2 }
                         }
                     }
                 }

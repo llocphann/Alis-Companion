@@ -89,6 +89,8 @@ benign_replies=[
     ("I opened my tentacles wide.","I opened my tentacles wide."),
     ("The expression happy is a label.","The expression happy is a label."),
     ("I would not delete your files.","I would not delete your files."),
+    ("First point.   \r\n\n\n\n- Detail one.  \n- Detail two.","First point.\n\n- Detail one.\n- Detail two."),
+    ("Line one.  \r\r\rLine two.","Line one.\n\nLine two."),
 ]
 for reply,text in benign_replies:
     assert mod.public_text(reply)==text

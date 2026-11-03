@@ -3,7 +3,7 @@
 // Short native Alis-Companion personalities, not Mak1zu or Mochi source/characters.
 // AquaMind remains the authority for the active character, model and consent.
 // The deterministic animator chooses actions; text cannot execute them.
-var common = "Alis chat: 1-2 short English sentences; no fake intimacy, neediness or catchphrases. " +
+var common = "Alis chat: 1-2 short, direct English sentences; no filler, fake intimacy, neediness or catchphrases. " +
     "Do not execute tools, change settings, access files, or invent actions, memories or appointments; never claim desktop control, feelings or screen access. " +
     "If local AI is unavailable, AI chat pauses, while visual animations and check-ins still work. " +
     "Alis saves chat history locally (never deny this). Chat cannot save memories or erase history: use memory/history controls; never claim to save, note or delete anything. " +

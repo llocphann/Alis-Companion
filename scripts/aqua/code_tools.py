@@ -346,86 +346,177 @@ def run_project_tests(workspace_dir, command=None, timeout_sec=30.0):
     }
 
 
-def _collect_doc_chunks(companion_root, extra_dirs=None):
-    chunks = []
-    sources = []
-    comp = Path(companion_root).resolve(strict=False)
-    for rel in ("README.md", "docs/README.md", "docs/ALIS_EXTRACTION.md"):
-        cand = comp / rel
-        if cand.is_file() and not cand.is_symlink():
-            sources.append((rel, cand))
+RAG_EXTENSIONS = frozenset((
+    ".md", ".txt", ".rst", ".json", ".yaml", ".yml", ".toml",
+    ".py", ".qml", ".js", ".cjs", ".ts", ".rs", ".sh", ".html", ".csv", ".ini", ".cfg",
+))
 
-    for d in (extra_dirs or []):
-        dp = Path(d).expanduser().resolve(strict=False)
-        if dp.is_file() and not dp.is_symlink() and not is_forbidden_path(dp):
-            sources.append((dp.name, dp))
-        elif dp.is_dir() and not is_forbidden_path(dp):
-            for f in sorted(dp.rglob("*")):
-                if f.is_file() and not f.is_symlink() and f.suffix.lower() in (".md", ".txt", ".rst"):
-                    try:
-                        rel_name = str(f.relative_to(dp))
-                    except ValueError:
-                        rel_name = f.name
-                    sources.append((rel_name, f))
-                    if len(sources) >= 40:
-                        break
 
-    for label, path in sources:
-        try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            continue
-        heading = label
-        buf = []
-        start_line = 1
-        for idx, raw in enumerate(lines, start=1):
-            stripped = raw.strip()
-            if stripped.startswith("#"):
-                if buf:
-                    body = " ".join(buf).strip()
-                    if body:
-                        chunks.append({
-                            "source": f"{label}#L{start_line}-L{idx - 1}",
-                            "heading": heading[:120],
-                            "text": body[:260],
-                        })
-                    buf = []
-                heading = stripped.lstrip("#").strip() or label
-                start_line = idx
-            elif stripped:
-                buf.append(stripped)
-                if len(" ".join(buf)) >= 220:
-                    body = " ".join(buf).strip()
-                    chunks.append({
-                        "source": f"{label}#L{start_line}-L{idx}",
+_DOC_CHUNK_CACHE = {}
+
+
+def _parse_file_chunks(label, path):
+    try:
+        st = path.stat()
+        stat_sig = (st.st_mtime_ns, st.st_size)
+        cache_key = (str(path), label)
+    except OSError:
+        return []
+    cached = _DOC_CHUNK_CACHE.get(cache_key)
+    if cached is not None and cached[0] == stat_sig:
+        return list(cached[1])
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    file_chunks = []
+    heading = label
+    buf = []
+    start_line = 1
+    for idx, raw in enumerate(lines, start=1):
+        stripped = raw.strip()
+        if stripped.startswith("#") and path.suffix.lower() in (".md", ".rst", ".txt"):
+            if buf:
+                body = " ".join(buf).strip()
+                if body:
+                    file_chunks.append({
+                        "source": f"{label}#L{start_line}-L{idx - 1}",
                         "heading": heading[:120],
                         "text": body[:260],
                     })
-                    buf = []
-                    start_line = idx + 1
-        if buf:
-            body = " ".join(buf).strip()
-            if body:
-                chunks.append({
-                    "source": f"{label}#L{start_line}-L{len(lines)}",
+                buf = []
+            heading = stripped.lstrip("#").strip() or label
+            start_line = idx
+        elif stripped:
+            buf.append(stripped)
+            if len(" ".join(buf)) >= 220:
+                body = " ".join(buf).strip()
+                file_chunks.append({
+                    "source": f"{label}#L{start_line}-L{idx}",
                     "heading": heading[:120],
                     "text": body[:260],
                 })
+                buf = []
+                start_line = idx + 1
+    if buf:
+        body = " ".join(buf).strip()
+        if body:
+            file_chunks.append({
+                "source": f"{label}#L{start_line}-L{len(lines)}",
+                "heading": heading[:120],
+                "text": body[:260],
+            })
+    if len(_DOC_CHUNK_CACHE) >= 256 and cache_key not in _DOC_CHUNK_CACHE:
+        _DOC_CHUNK_CACHE.clear()
+    _DOC_CHUNK_CACHE[cache_key] = (stat_sig, tuple(file_chunks))
+    return file_chunks
+
+
+def _collect_doc_chunks(companion_root, extra_dirs=None):
+    chunks = []
+    sources = []
+    seen_paths = set()
+    comp = Path(companion_root).resolve(strict=False)
+    root_candidates = [comp]
+    if (comp / "optional/alis-companion").is_dir():
+        root_candidates.append((comp / "optional/alis-companion").resolve(strict=False))
+    env_comp = os.environ.get("ALIS_COMPANION_SOURCE")
+    if env_comp and Path(env_comp).is_dir():
+        root_candidates.append(Path(env_comp).resolve(strict=False))
+    for base in root_candidates:
+        for rel in ("README.md", "docs/README.md", "docs/ALIS_EXTRACTION.md"):
+            cand = base / rel
+            if cand.is_file() and not cand.is_symlink() and str(cand) not in seen_paths:
+                sources.append((rel, cand))
+                seen_paths.add(str(cand))
+
+    merged_dirs = list(extra_dirs or [])
+    try:
+        import rag_store
+        for p in rag_store.active_source_paths(extra_dirs=merged_dirs, include_pocket=True):
+            if p not in merged_dirs:
+                merged_dirs.append(p)
+    except Exception:
+        pass
+
+    for d in merged_dirs:
+        dp = Path(d).expanduser().resolve(strict=False)
+        if dp.is_file() and not dp.is_symlink() and not is_forbidden_path(dp):
+            if str(dp) not in seen_paths and dp.suffix.lower() in RAG_EXTENSIONS:
+                sources.append((dp.name, dp))
+                seen_paths.add(str(dp))
+        elif dp.is_dir() and not is_forbidden_path(dp):
+            stop_dir = False
+            for dirpath, dirnames, filenames in os.walk(dp, followlinks=False):
+                dirnames[:] = sorted(
+                    dn for dn in dirnames if dn not in IGNORED_DIRS and not dn.startswith(".")
+                )
+                for fname in sorted(filenames):
+                    if fname.startswith("."):
+                        continue
+                    f = Path(dirpath) / fname
+                    if f.is_symlink() or not f.is_file() or f.suffix.lower() not in RAG_EXTENSIONS:
+                        continue
+                    if str(f) in seen_paths:
+                        continue
+                    try:
+                        if f.stat().st_size > 256 * 1024:
+                            continue
+                        rel_name = str(f.relative_to(dp))
+                    except (OSError, ValueError):
+                        rel_name = f.name
+                    sources.append((rel_name, f))
+                    seen_paths.add(str(f))
+                    if len(sources) >= 80:
+                        stop_dir = True
+                        break
+                if stop_dir:
+                    break
+
+    for label, path in sources:
+        chunks.extend(_parse_file_chunks(label, path))
     return chunks
 
 
 def retrieve_rag(prompt, companion_root, extra_dirs=None, token_budget=480, page=1, page_size=3):
-    q_words = {
-        w for w in re.findall(r"[a-zA-Z0-9_\u00C0-\u1EF9]{3,}", str(prompt or "").lower())
-        if w not in {"the", "and", "how", "does", "what", "with", "for", "from", "của", "trong", "như", "thế", "nào"}
+    import math
+    raw_prompt = str(prompt or "").strip().lower()
+    stop_words = {
+        "the", "and", "how", "does", "what", "with", "for", "from", "search", "find",
+        "rag", "doc", "docs", "tai", "lieu", "tim", "kiem", "tra", "cuu",
+        "của", "trong", "như", "thế", "nào", "theo", "tài", "liệu",
     }
+    q_words = [
+        w for w in re.findall(r"[a-zA-Z0-9_\u00C0-\u1EF9]{2,}", raw_prompt)
+        if w not in stop_words
+    ]
     chunks = _collect_doc_chunks(companion_root, extra_dirs=extra_dirs)
+    n_chunks = max(1, len(chunks))
+    doc_freq = {}
+    for w in set(q_words):
+        doc_freq[w] = sum(
+            1 for ch in chunks
+            if w in (ch["heading"] + " " + ch["text"] + " " + ch["source"]).lower()
+        )
+
     scored = []
     for ch in chunks:
-        hay = (ch["heading"] + " " + ch["text"]).lower()
-        overlap = sum(2 if w in ch["heading"].lower() else 1 for w in q_words if w in hay)
-        if overlap > 0:
-            scored.append((overlap, ch))
+        h_low = ch["heading"].lower()
+        t_low = ch["text"].lower()
+        s_low = ch["source"].lower()
+        hay = f"{h_low} {t_low} {s_low}"
+        score = 0.0
+        for w in set(q_words):
+            if w in hay:
+                idf = math.log(1.0 + (n_chunks - doc_freq.get(w, 0) + 0.5) / (doc_freq.get(w, 0) + 0.5))
+                weight = 2.5 if w in h_low else (1.8 if w in s_low else 1.0)
+                score += max(0.5, idf) * weight
+        if len(q_words) >= 2:
+            phrase = " ".join(q_words[:3])
+            if phrase in hay:
+                score += 3.0
+        if score > 0:
+            scored.append((score, ch))
     scored.sort(key=lambda item: (-item[0], item[1]["source"]))
 
     # If no keyword overlap but chunks exist, take top overview chunk when explicitly requested

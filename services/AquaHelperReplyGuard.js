@@ -122,7 +122,7 @@ function validResult(action, result) {
         && result.cancelled === true && result.status === "cancelled"
     if (action === "tool_receipts") return Array.isArray(result.receipts)
         && result.receipts.length <= 128 && result.receipts.every(validToolReceipt)
-    if (action === "agent_file_op") return ["access", "list", "search", "create", "edit", "patch", "copy", "cut", "delete", "cancel_delete", "rollback", "run"].includes(result.op)
+    if (action === "agent_file_op") return ["access", "list", "search", "create", "edit", "patch", "open_editor", "copy", "cut", "delete", "cancel_delete", "rollback", "run"].includes(result.op)
         && ["completed", "failed", "timed_out", "uncertain", "confirm_1_required", "confirm_2_required", "cancelled"].includes(result.status)
         && integer(result.confirmStage, 0, 2)
         && path(result.targetPath, true)
@@ -130,6 +130,19 @@ function validResult(action, result) {
         && string(result.summary, 320, false)
         && Array.isArray(result.lines) && result.lines.length <= 500
         && result.lines.every(v => string(v, 240, false))
+    if (action === "open_storage_path") return typeof result.opened === "boolean"
+        && path(result.path, false)
+        && string(result.kind, 64, false)
+    if (action === "unload_llm") return typeof result.unloaded === "boolean"
+        && typeof result.dryRun === "boolean"
+        && Array.isArray(result.providers)
+        && string(result.summary, 320, false)
+    if (action === "model_route") return ["action", "thinking"].includes(result.role)
+        && string(result.roleLabel, 64, false)
+        && string(result.category, 64, false)
+        && string(result.reason, 240, false)
+        && ["vi", "en"].includes(result.language)
+        && typeof result.autoRouted === "boolean"
     if (action === "agent_turn") return typeof result.handled === "boolean"
         && string(result.intent, 64, false)
         && ["vi", "en"].includes(result.language)
@@ -141,6 +154,14 @@ function validResult(action, result) {
     if (action === "agent_rules") return Array.isArray(result.rules) || typeof result.triggered === "boolean" || typeof result.deleted === "boolean"
     if (action === "agent_status") return integer(result.contractVersion, 1, 10)
         && Array.isArray(result.reconciledRuns) && object(result.sessionContext) && object(result.permissions)
+    if (action === "rag_action") return ["list", "add", "remove", "query"].includes(result.op)
+        && (Array.isArray(result.sources) || Array.isArray(result.snippets))
+    if (action === "mcp_action") return ["list_servers", "add_server", "remove_server", "enable_server", "disable_server", "check_updates", "update_server", "list_tools", "call_tool", "list_resources", "read_resource", "list_prompts"].includes(result.op)
+    if (action === "skill_action") return ["list", "inspect", "view", "reference", "match", "run", "create", "patch", "learn", "write_reference", "feedback", "reflections", "enable", "disable", "delete"].includes(result.op)
+    if (action === "chat_threads") return ["list", "create_thread", "select_thread", "rename_thread", "pin_thread", "move_thread", "delete_thread", "clear_thread", "duplicate_thread", "search_threads", "create_project", "rename_project", "pin_project", "toggle_project_collapsed", "move_project", "delete_project"].includes(result.op)
+        && string(result.activeThreadId, 128, false)
+        && Array.isArray(result.threads) && result.threads.length <= 200
+        && Array.isArray(result.projects) && result.projects.length <= 64
     if (action === "memory_list") return Array.isArray(result.memories) && result.memories.length<=128
         && result.memories.every(row=>object(row) && positiveId(row.id)
             && ["aqua","octo","shared"].includes(row.scope) && string(row.text,320,false)
@@ -163,7 +184,7 @@ function validResult(action, result) {
 function invalid() { return {ok:false, malformed:true, error:{message:invalidMessage}} }
 
 function parse(action, raw, exitCode) {
-    if (typeof raw !== "string" || raw.length > (["memory_list", "agent_file_op", "agent_turn"].includes(action) ? 98304 : 32768) || exitCode !== 0) return invalid()
+    if (typeof raw !== "string" || raw.length > (["memory_list", "agent_file_op", "agent_turn", "rag_action", "mcp_action", "skill_action", "agent_status", "chat_threads", "history", "history_append", "history_clear"].includes(action) ? 786432 : 32768) || exitCode !== 0) return invalid()
     let envelope
     try { envelope = JSON.parse(raw) } catch (e) { return invalid() }
     if (!object(envelope) || typeof envelope.ok !== "boolean") return invalid()

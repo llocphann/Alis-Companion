@@ -43,12 +43,43 @@ Item {
         }
         return true
     }
+    function isConstantClip(s, clipName): bool {
+        const tracks = s?.clips?.[clipName]?.tracks
+        if (!tracks) return false
+        for (const channel in tracks) {
+            const keys = tracks[channel]
+            if (!keys || keys.length === 0) continue
+            const first = keys[0][1]
+            for (let i = 1; i < keys.length; ++i) {
+                if (Math.abs(keys[i][1] - first) > 1e-5)
+                    return false
+            }
+        }
+        return true
+    }
+    function nextSessionDeadlineMs(d, nowMs): int {
+        const sessions = d?.sessions
+        if (!sessions) return 0
+        let best = 0
+        for (const k in sessions) {
+            const q = sessions[k]
+            if (!q) continue
+            if (q.waiting >= 0 && nowMs - q.waiting < 45000) {
+                const waitRem = Math.max(50, Math.ceil(45000 - (nowMs - q.waiting)))
+                best = best === 0 ? waitRem : Math.min(best, waitRem)
+            }
+            const staleRem = Math.max(50, Math.ceil(900000 - (nowMs - q.seen)))
+            best = best === 0 ? staleRem : Math.min(best, staleRem)
+        }
+        return best
+    }
     function step(): void {
         if (!directorState || !hostContext || !performanceState) {
             revoke()
             return
         }
-        const v = Performance.update(performanceState, directorState, hostContext, clock())
+        const now = clock()
+        const v = Performance.update(performanceState, directorState, hostContext, now)
         if (active !== v.active) active = v.active
         if (renderProp !== v.renderProp) renderProp = v.renderProp
         if (phase !== v.phase) phase = v.phase
@@ -59,7 +90,21 @@ Item {
         if (!samePose(pose, nextPose))
             pose = nextPose
         if (v.active) {
-            if (!tick.running) tick.start()
+            const blending = Boolean(performanceState.blendFrom) && (now - performanceState.started < 140)
+            const settling = performanceState.lostSince >= 0
+            if (v.phase === "loop" && !blending && !settling && isConstantClip(performanceState, v.clip)) {
+                const deadline = nextSessionDeadlineMs(directorState, now)
+                if (deadline > 0) {
+                    if (tick.interval !== deadline) tick.interval = deadline
+                    if (!tick.running) tick.start()
+                } else {
+                    tick.stop()
+                }
+            } else {
+                const targetInterval = v.phase === "loop" ? 50 : 33
+                if (tick.interval !== targetInterval) tick.interval = targetInterval
+                if (!tick.running) tick.start()
+            }
         } else {
             tick.stop()
         }
@@ -78,7 +123,7 @@ Item {
     onQuietSettledChanged: if (active) step()
     Timer {
         id: tick
-        interval: root.phase === "loop" ? 50 : 33
+        interval: 33
         repeat: true
         running: false
         onTriggered: root.step()

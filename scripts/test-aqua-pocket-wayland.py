@@ -41,11 +41,6 @@ PanelWindow {
   motionEnabled:false;effectsEnabled:false;renderQuality:"performance";reveal:1
  }
  AquaPocketDrop {id:drop;parent:actor;actor:actor;allowed:true}
- Connections {
-  target:drop
-  function onEntered(event):void {console.log("POCKET_ENTER",event.hasUrls,event.urls.length,event.supportedActions,event.proposedAction,event.accepted)}
-  function onDropped(event):void {console.log("POCKET_DROP",event.hasUrls,event.urls.length,event.action,event.accepted,JSON.stringify(Array.from(event.urls,value=>String(value))))}
- }
  IpcHandler {
   target:"pocketProof"
   function consent(value:bool):void {Config.setNestedValue("abyss.companion.pocketEnabled",value)}
@@ -123,7 +118,6 @@ def main():
                 processes.append(bus)
                 if not select.select([bus.stdout],[],[],3)[0]:raise RuntimeError('private bus did not initialize')
                 env['DBUS_SESSION_BUS_ADDRESS']=bus.stdout.readline().strip()
-                if os.environ.get('POCKET_WAYLAND_DEBUG'):env['WAYLAND_DEBUG']='client'
                 with targetlog.open('w') as log:
                     target=subprocess.Popen(['qs','-p',str(shell)],env=env,cwd=ROOT,
                         stdout=log,stderr=subprocess.STDOUT,start_new_session=True);processes.append(target)
@@ -137,8 +131,7 @@ def main():
                     source=subprocess.Popen(source_command,env=env,cwd=ROOT,
                         stdout=log,stderr=subprocess.STDOUT,start_new_session=True);processes.append(source)
                 until(lambda:'POCKET_SOURCE_READY' in sourcelog.read_text())
-                pointerenv=env.copy();pointerenv.pop('WAYLAND_DEBUG',None)
-                pointer=subprocess.Popen([str(private/'pointer')],env=pointerenv,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+                pointer=subprocess.Popen([str(private/'pointer')],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,text=True,start_new_session=True);processes.append(pointer)
                 if not select.select([pointer.stdout],[],[],4)[0]:raise RuntimeError('private pointer did not initialize')
                 line=pointer.stdout.readline().strip()
@@ -159,7 +152,7 @@ def main():
                         y=.25+step/12*(geometry['y']/geometry['height']-.25)
                         send('m %d %d'%(x*10000,y*10000))
                     if leave:send('m 4500 5000')
-                    if release:send('b 0')
+                    if release:time.sleep(.08);send('b 0')
                 drag()
                 result=until(lambda:next((json.loads(line) for line in sourcelog.read_text().splitlines()
                     if line.startswith('{"result"')),None))

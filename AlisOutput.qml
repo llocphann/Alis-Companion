@@ -36,7 +36,12 @@ Item {
         width:host.width,height:host.height,
         hostWidth:112*session.companionScale,hostHeight:98*session.companionScale,
         scale:session.companionScale,insets:host.nativeInsets,rimRadius:AbyssStyle.neckRadius,
-        excludeKeys:(host?.desktopHasApps ?? false) ? ["settings","dock"] : ["settings"]},
+        excludeKeys:(host?.desktopHasApps ?? false)
+            && (Config.options?.dock?.enable ?? true)
+            && (Config.options?.enabledPanels ?? []).includes("abyssDock")
+            && (!Array.isArray(Config.options?.dock?.screenList)
+                || Config.options.dock.screenList.length===0
+                || Config.options.dock.screenList.includes(host.outputName)) ? ["dock"] : []},
         liquid.participants,bar.visible ? bar.layoutRecords.map(record=>({
             edge:record.edge,along:record.along,span:record.span})) : [])
     readonly property bool companionPermission: AquaHostPolicy.hostActive(
@@ -60,24 +65,50 @@ Item {
     onDirectorContextChanged: if (session && session.companionTargetOutput===host.outputName) {
         Qt.callLater(session.evaluateContext)
     }
+    property bool pendingChatOpen: false
     function ensureCompanionPresent(snapHome = false): void {
         if(!root.companionPermission) return
         companionTurns.cancel()
         companionCuriosity.interrupt()
         companionPresence.hiddenUntil=0
         if(!companionPresence.visitActive || companionPresence.retreating)companionPresence.appear()
-        else if(snapHome || !companionPresence.isAtHome())companionPresence.returnToHome(snapHome)
+        else if(snapHome)companionPresence.returnToHome(true)
+        else if(companionPresence.traveling || companionPresence.portalActive)companionPresence.pause(false)
         companionPresence.peekOnly=false;companionPresence.peekIntro=false;companionPresence.renderedReveal=1
         if(companion.presentation<.99 && !companion.leaving)companion.present(1)
     }
     function requestCompanionChat(): void {
         if(!root.companionPermission) return
-        root.ensureCompanionPresent(true)
-        AquaMind.openChat()
+        companionTurns.cancel()
+        companionCuriosity.interrupt()
+        companionPresence.hiddenUntil=0
+        if(!companionPresence.visitActive || companionPresence.retreating) {
+            root.pendingChatOpen=false
+            companionPresence.appear()
+            companionPresence.peekOnly=false;companionPresence.peekIntro=false;companionPresence.renderedReveal=1
+            if(companion.presentation<.99 && !companion.leaving)companion.present(1)
+            AquaMind.openChat()
+            return
+        }
+        if(companionPresence.isNearHome()) {
+            root.pendingChatOpen=false
+            root.ensureCompanionPresent(false)
+            AquaMind.openChat()
+            return
+        }
+        if(talkCloud.controlsVisible || AquaMind.conversationOpen)
+            AquaMind.dismiss()
+        root.pendingChatOpen=true
+        if(!companionPresence.fastReturnNearHome()) {
+            root.pendingChatOpen=false
+            root.ensureCompanionPresent(false)
+            AquaMind.openChat()
+        }
     }
     function requestCompanionPocket(): void {
         if(!root.companionPermission || !AquaPocket.permitted) return
-        root.ensureCompanionPresent(true)
+        root.pendingChatOpen=false
+        root.ensureCompanionPresent(false)
         AquaMind.dismiss()
         AquaPocket.show()
     }
@@ -118,7 +149,7 @@ Item {
                 x:companion.x,y:companion.y}}
     }
     readonly property bool companionHoverHeld: root.companionHostActive
-        && companion.interactive && (companion.hovered || companion.dragging || pocketDrop.containsDrag || talkCloud.controlsVisible || AquaMind.conversationOpen || root.companionPerformanceHeld)
+        && companion.interactive && (companion.hovered || companion.dragging || pocketDrop.containsDrag || talkCloud.controlsVisible || AquaMind.conversationOpen || AquaMind.isWorking || root.companionPerformanceHeld)
     onCompanionHoverHeldChanged: if (session.companionTargetOutput===host.outputName && companionBridge.ready)
         companionBridge.sendEvent("hover",root.companionHoverHeld)
     AquaPresence {
@@ -131,7 +162,7 @@ Item {
         requestedReveal: companionBridge.visibility==="present" ? 1
             : companionBridge.visibility==="peeking" ? .46 : 0
         motionEnabled: session.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled
-        interactionHeld: companionBridge.activity!=="idle" || pocketDrop.containsDrag || AquaPocket.busy || talkCloud.controlsVisible || AquaMind.conversationOpen || root.companionPerformanceHeld
+        interactionHeld: companionBridge.activity!=="idle" || pocketDrop.containsDrag || AquaPocket.busy || talkCloud.controlsVisible || AquaMind.conversationOpen || AquaMind.isWorking || root.companionPerformanceHeld
         pointerFresh: root.companionPointerFresh
         pointerX: root.companionPointerX
         pointerY: root.companionPointerY
@@ -141,6 +172,13 @@ Item {
         travelId: companionBridge.travelId
         travelFraction: companionBridge.travelTarget
         onStopRequested: companion.stopTravel()
+        onSettled: if (root.pendingChatOpen) {
+            root.pendingChatOpen=false
+            if (root.companionPermission) {
+                root.ensureCompanionPresent(false)
+                AquaMind.openChat()
+            }
+        }
         onResetRequested: (px,py,sourceEdge)=>companion.resetTo(
             px+(session.companionScale-1)*companion.implicitWidth/2,
             py+(session.companionScale-1)*companion.implicitHeight/2,sourceEdge)
@@ -158,6 +196,7 @@ Item {
         presence:companionPresence;actor:companion
         allowed:root.companionHostActive && companionBridge.ready
         alternating:session.alternatingCompanions
+        primaryCharacter:session.selectedCompanion
         interactionHeld:companionPresence.interactionHeld || companionCuriosity.busy
         onStarting:companionCuriosity.interrupt()
         onCharacterChosen:character=>session.companionCharacter=character
@@ -342,7 +381,7 @@ Item {
         && !companion.leaving && !companion.gesturing && companion.presentation >= 0.99
         && !companionTurns.active && !companionCuriosity.busy
         && !talkCloud.controlsVisible
-        && !AquaMind.conversationOpen && !AquaPocket.opened && !pocketDrop.containsDrag
+        && !AquaMind.conversationOpen && !AquaMind.isWorking && !AquaPocket.opened && !pocketDrop.containsDrag
         && (!session.cowork?.active || session.cowork?.phase === "loop")
     AbyssCompanion {
         id: companion
@@ -384,8 +423,8 @@ Item {
         connectedWater: true
         curvedImmersion:waterImmersion.active && !!waterImmersion.item && waterImmersion.item.status!==ShaderEffect.Error
         reveal: companionPresence.renderedReveal
-        readonly property real pointerDx: root.companionPointerX-(x+width/2)
-        readonly property real pointerDy: root.companionPointerY-(y+height/2)
+        readonly property real pointerDx: root.companionPointerFresh ? root.companionPointerX-(x+width/2) : 0
+        readonly property real pointerDy: root.companionPointerFresh ? root.companionPointerY-(y+height/2) : 0
         readonly property real pointerDist: root.companionPointerFresh ? Math.hypot(pointerDx,pointerDy) : Infinity
         pointerFresh: root.companionPointerFresh && pointerDist<companionPresence.pointerNoticeRadius
         pointerX: pointerFresh ? pointerDx/Math.max(55*scale,pointerDist) : 0
@@ -401,16 +440,16 @@ Item {
         eyeOpen: companionBridge.eyeOpen
         mouthCurve: companionBridge.mouthCurve
         pulse: companionBridge.pulse
-        expression: companionBridge.expression
+        expression: (AquaMind.isWorking && !AquaMind.conversationOpen) ? "thinking" : companionBridge.expression
         mood: companionBridge.mood
-        activity: companionBridge.activity
+        activity: (AquaMind.isWorking && !AquaMind.conversationOpen) ? "thinking" : companionBridge.activity
         ambientProp: !root.ambientBlocked && session.companionTargetOutput===host.outputName ? session.companionAmbientProp : ""
         coworkPose: !root.ambientBlocked && session.companionTargetOutput===host.outputName ? session.companionCoworkPose : null
         coworkPropVisible: !root.ambientBlocked && session.companionTargetOutput===host.outputName && session.companionCoworkPropVisible
         targetX: companionPresence.targetX+(session.companionScale-1)*implicitWidth/2
         targetY: companionPresence.targetY+(session.companionScale-1)*implicitHeight/2
         onTravelCompleted: companionPresence.arrived()
-        onDragStarted: companionPresence.beginDrag()
+        onDragStarted: {root.pendingChatOpen=false;companionPresence.beginDrag()}
         onDragPositionRequested: (px,py)=>companionPresence.dragTo(
             px-(session.companionScale-1)*implicitWidth/2,
             py-(session.companionScale-1)*implicitHeight/2)
@@ -419,20 +458,18 @@ Item {
             companionWater.tap()
             companionBridge.sendEvent("click")
             companionCuriosity.interrupt()
-            root.ensureCompanionPresent(true)
             if (!talkCloud.controlsVisible)
-                AquaMind.openChat()
+                root.requestCompanionChat()
+            else
+                root.ensureCompanionPresent(false)
         }
         onChatRequested: {
             companionCuriosity.interrupt()
-            root.ensureCompanionPresent(true)
-            AquaMind.openChat()
+            root.requestCompanionChat()
         }
         onPocketRequested: if (AquaPocket.permitted) {
             companionCuriosity.interrupt()
-            root.ensureCompanionPresent(true)
-            AquaMind.dismiss()
-            AquaPocket.show()
+            root.requestCompanionPocket()
         }
         onSettingsRequested: GlobalStates.openSettingsSection(37,"Overview")
     }
@@ -440,11 +477,11 @@ Item {
         target: AquaMind
         function onConversationOpenChanged(): void {
             if (AquaMind.conversationOpen && root.companionPermission)
-                root.ensureCompanionPresent(true)
+                root.ensureCompanionPresent(false)
         }
         function onContextOpenChanged(): void {
             if (AquaMind.contextOpen && root.companionPermission)
-                root.ensureCompanionPresent(true)
+                root.ensureCompanionPresent(false)
         }
     }
     AquaTalkCloud {
@@ -454,7 +491,6 @@ Item {
         allowed:root.companionHostActive && session.companionInteractive
         onControlsVisibleChanged: if (controlsVisible) {
             companionCuriosity.interrupt()
-            companionPresence.returnToHome(true)
         }
     }
     AquaPocketDrop {
@@ -494,15 +530,16 @@ Item {
         && AquaHostPolicy.acceptsInput(root.companionHostActive,companion.interactive,companion.visible && companion.inputReady)
     readonly property real companionRimThickness: Math.min(AbyssStyle.perimeterThickness,host.width/2,host.height/2)
     readonly property bool pocketSensorActive: root.companionRimInputActive && pocketDrop.enabled && pocketDrop.expandedZone
-    readonly property int pocketZoneX: Math.max(0, Math.round(companion.x + companion.width * 0.5 - pocketDrop.dragRadius))
-    readonly property int pocketZoneY: Math.max(0, Math.round(companion.y + companion.height * 0.5 - pocketDrop.dragRadius))
-    readonly property int pocketZoneW: Math.max(0, Math.min(host.width - pocketZoneX, Math.round(companion.x + companion.width * 0.5 + pocketDrop.dragRadius) - pocketZoneX))
-    readonly property int pocketZoneH: Math.max(0, Math.min(host.height - pocketZoneY, Math.round(companion.y + companion.height * 0.5 + pocketDrop.dragRadius) - pocketZoneY))
+    readonly property bool pocketZoneNeeded: root.pocketSensorActive || pocketDrop.containsDrag
+    readonly property int pocketZoneX: root.pocketZoneNeeded ? Math.max(0, Math.round(companion.x + companion.width * 0.5 - pocketDrop.dragRadius)) : 0
+    readonly property int pocketZoneY: root.pocketZoneNeeded ? Math.max(0, Math.round(companion.y + companion.height * 0.5 - pocketDrop.dragRadius)) : 0
+    readonly property int pocketZoneW: root.pocketZoneNeeded ? Math.max(0, Math.min(host.width - pocketZoneX, Math.round(companion.x + companion.width * 0.5 + pocketDrop.dragRadius) - pocketZoneX)) : 0
+    readonly property int pocketZoneH: root.pocketZoneNeeded ? Math.max(0, Math.min(host.height - pocketZoneY, Math.round(companion.y + companion.height * 0.5 + pocketDrop.dragRadius) - pocketZoneY)) : 0
     readonly property int pocketMidRadius: Math.round(pocketDrop.dragRadius * 0.55)
-    readonly property int pocketMidX: Math.max(0, Math.round(companion.x + companion.width * 0.5 - pocketMidRadius))
-    readonly property int pocketMidY: Math.max(0, Math.round(companion.y + companion.height * 0.5 - pocketMidRadius))
-    readonly property int pocketMidW: Math.max(0, Math.min(host.width - pocketMidX, Math.round(companion.x + companion.width * 0.5 + pocketMidRadius) - pocketMidX))
-    readonly property int pocketMidH: Math.max(0, Math.min(host.height - pocketMidY, Math.round(companion.y + companion.height * 0.5 + pocketMidRadius) - pocketMidY))
+    readonly property int pocketMidX: root.pocketSensorActive ? Math.max(0, Math.round(companion.x + companion.width * 0.5 - pocketMidRadius)) : 0
+    readonly property int pocketMidY: root.pocketSensorActive ? Math.max(0, Math.round(companion.y + companion.height * 0.5 - pocketMidRadius)) : 0
+    readonly property int pocketMidW: root.pocketSensorActive ? Math.max(0, Math.min(host.width - pocketMidX, Math.round(companion.x + companion.width * 0.5 + pocketMidRadius) - pocketMidX)) : 0
+    readonly property int pocketMidH: root.pocketSensorActive ? Math.max(0, Math.min(host.height - pocketMidY, Math.round(companion.y + companion.height * 0.5 + pocketMidRadius) - pocketMidY)) : 0
     // Observe Aqua's surrounding water on all four painted rims. The
     // interior desktop retains its existing pass-through/input owners.
     readonly property Region companionRimInputMask: Region {
@@ -534,11 +571,11 @@ Item {
             || (companionPresence.traveling && companionPresence.destination.key === "dock"))
     readonly property var waterLink: companionWater
     readonly property var actor: companion
-    readonly property var inputRegions: [companionInputMask,companionRimInputMask,talkRegion,obsidianRegion,aiRegion]
+    readonly property var inputRegions: [companionInputMask,companionRimInputMask,talkRegion,aiRegion]
     Region { id:talkRegion;item:talkCloud.visible ? talkCloud : emptyInput }
-    Region { id:obsidianRegion;item:emptyInput }
     Region { id:aiRegion;item:emptyInput }
     function yieldToUser(): void {companionCuriosity.yieldToUser()}
+    Component.onCompleted: if (session && session.companionTargetOutput===host.outputName) Qt.callLater(session.evaluateContext)
     Component.onDestruction: {
         companionCuriosity.interrupt()
         // Return QObject ownership before Loader destroys this output.

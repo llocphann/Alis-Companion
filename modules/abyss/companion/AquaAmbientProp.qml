@@ -24,9 +24,9 @@ Item {
     readonly property color coffeeCupStroke: Qt.lighter(root.specularColor, 1.04)
     readonly property color coffeeCupFill: Qt.lighter(root.accentColor, 1.65)
 
-    readonly property var bookAnchor: body ? body.project(-2, -23, 21) : ({ x: -2, y: -23, z: 21, scale: 1 })
-    readonly property var coffeeAnchor: body ? body.project(14, -14, 19) : ({ x: 14, y: -14, z: 19, scale: 1 })
-    readonly property var thoughtAnchor: body ? body.project(23, 24, 14) : ({ x: 23, y: 24, z: 14, scale: 1 })
+    readonly property var bookAnchor: (body && propKind === "book") ? body.project(-2, -23, 21) : ({ x: -2, y: -23, z: 21, scale: 1 })
+    readonly property var coffeeAnchor: (body && propKind === "coffee") ? body.project(14, -14, 19) : ({ x: 14, y: -14, z: 19, scale: 1 })
+    readonly property var thoughtAnchor: (body && propKind === "thought") ? body.project(23, 24, 14) : ({ x: 23, y: 24, z: 14, scale: 1 })
 
     Item {
         id: bookProp
@@ -35,9 +35,9 @@ Item {
         width: 38
         height: 25
         x: 38 + root.bookAnchor.x - width * 0.5
-        y: 46.14 - root.bookAnchor.y - height * 0.5 + root.lift + (root.shimmer - 0.5) * 1.6
+        y: visible ? 46.14 - root.bookAnchor.y - height * 0.5 + root.lift + (root.shimmer - 0.5) * 1.6 : 0
         scale: Math.max(0.88, Math.min(1.2, root.bookAnchor.scale ?? 1.05))
-        rotation: -6 + (root.shimmer - 0.5) * 3.5
+        rotation: visible ? -6 + (root.shimmer - 0.5) * 3.5 : 0
 
         // Soft drop shadow under the 3/4 angled open book
         Shape {
@@ -169,7 +169,7 @@ Item {
         width: 24
         height: 26
         x: 38 + root.coffeeAnchor.x - width * 0.5
-        y: 46.14 - root.coffeeAnchor.y - height * 0.5 + root.lift + (0.5 - root.shimmer) * 1.4
+        y: visible ? 46.14 - root.coffeeAnchor.y - height * 0.5 + root.lift + (0.5 - root.shimmer) * 1.4 : 0
         scale: Math.max(0.88, Math.min(1.2, root.coffeeAnchor.scale ?? 1.05))
         Shape {
             anchors.fill: parent
@@ -205,9 +205,9 @@ Item {
                 strokeColor: Qt.alpha("#ffffff", 0.85)
                 fillColor: "transparent"
                 startX: 8; startY: 7.4
-                PathQuad { x: 8.6; y: 2.2; controlX: 6.0 + root.shimmer * 2.8; controlY: 4.8 }
+                PathQuad { x: 8.6; y: 2.2; controlX: coffeeProp.visible ? 6.0 + root.shimmer * 2.8 : 6.0; controlY: 4.8 }
                 PathMove { x: 12.8; y: 7.6 }
-                PathQuad { x: 13.4; y: 2.6; controlX: 15.0 - root.shimmer * 2.8; controlY: 5.0 }
+                PathQuad { x: 13.4; y: 2.6; controlX: coffeeProp.visible ? 15.0 - root.shimmer * 2.8 : 15.0; controlY: 5.0 }
             }
         }
     }
@@ -219,7 +219,7 @@ Item {
         width: 28
         height: 24
         x: 38 + root.thoughtAnchor.x - width * 0.5
-        y: 46.14 - root.thoughtAnchor.y - height * 0.5 + root.lift + (root.shimmer - 0.5) * 1.8
+        y: visible ? 46.14 - root.thoughtAnchor.y - height * 0.5 + root.lift + (root.shimmer - 0.5) * 1.8 : 0
         scale: Math.max(0.88, Math.min(1.2, root.thoughtAnchor.scale ?? 1.05))
         Rectangle {
             x: 2; y: 17; width: 4.2; height: 4.2; radius: 2.1

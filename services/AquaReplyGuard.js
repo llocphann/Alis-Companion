@@ -51,7 +51,7 @@ function normalizeText(text, expression) {
         return {ok:false,reason:"internal_protocol"}
     if (mixedMetadata.test(candidate)) return {ok:false,reason:"malformed_structured_output"}
     if (actionClaim.test(candidate)) return {ok:false,reason:"unverified_action_claim"}
-    const value = candidate.trim().slice(0,420)
+    const value = candidate.replace(/\r\n?/g,"\n").replace(/[ \t]+\n/g,"\n").replace(/\n{3,}/g,"\n\n").trim().slice(0,420)
     if (!value) return {ok:false,reason:"empty_text"}
     const semantic = expressions.indexOf(expression) >= 0 ? expression : "idle"
     return {ok:true,text:value,expression:semantic}

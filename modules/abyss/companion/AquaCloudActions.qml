@@ -46,6 +46,7 @@ Item {
         return Qt.alpha(AbyssStyle.textColor, 0.06)
     }
     readonly property string pomodoroTimeText: {
+        if (!root.visible || !root.pomodoroExpanded) return "25:00"
         const secs = Math.max(0, Number(TimerService.pomodoroSecondsLeft ?? TimerService.focusTime ?? 1500))
         return String(Math.floor(secs / 60)).padStart(2, "0") + ":" + String(secs % 60).padStart(2, "0")
     }

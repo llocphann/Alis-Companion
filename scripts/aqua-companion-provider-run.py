@@ -96,7 +96,7 @@ ShellRoot {
     Ai.models=({});Ai.modelList=[]
     Ai.addModel("qualification-selected",root.descriptor)
     Ai.modelList=["qualification-selected"];Ai.currentModelId="qualification-selected"
-    Config.setNestedValues({"policies.ai":2,"abyss.companionMind.model":"qualification-selected",
+    Config.setNestedValues({"abyss.companionMind.model":"qualification-selected",
      "abyss.companionMind.localOnly":true,"abyss.companionMind.proactiveEnabled":false,
      "abyss.companionMind.proactive":"manual","abyss.companionMind.obsidianEnabled":false,
      "abyss.companionMind.memoryEnabled":false})

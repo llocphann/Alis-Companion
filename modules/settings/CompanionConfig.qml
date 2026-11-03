@@ -17,7 +17,21 @@ ContentPage {
     settingsPageName: Translation.tr("Companion")
     property string activeSection: "overview"
     readonly property bool isOverviewTab: activeSection !== "ai"
-    onActiveSectionChanged: if (activeSection === "ai") Ai.ensureInitialized()
+    onActiveSectionChanged: {
+        if (activeSection === "ai") {
+            Ai.ensureInitialized()
+            if (AquaMind.liveModelAutoDetectAllowed)
+                AquaMind.refreshAvailableModels(false)
+            if (!Quickshell.env("AQUA_TEST_ENDPOINT") && !Quickshell.env("AI_FIXTURE_URL"))
+                AquaMind.refreshAgentStatus()
+        }
+    }
+    Component.onCompleted: {
+        if (AquaMind.liveModelAutoDetectAllowed) {
+            AquaMind.refreshAvailableModels(false)
+            AquaMind.refreshAgentStatus()
+        }
+    }
     property string previewExpression: "idle"
     property string previewMotion: ""
     property string memoryDraft: ""
@@ -25,6 +39,8 @@ ContentPage {
     property int memoryTtlDays: 7
     property double memoryEditingId: 0
     property bool confirmForgetMemories: false
+    property bool modelAliasExpanded: false
+    property string activeStorageTab: "skills"
     readonly property real availableRowWidth: Math.max(0, root.width - 2 * root._horizontalMargin - 48)
     readonly property var preferences: Preferences.normalize(Config.options?.abyss?.companion)
     readonly property var personalityOptions: [
@@ -212,7 +228,9 @@ ContentPage {
             id: inlineCombo
             objectName: inlineChoice.objectName ? inlineChoice.objectName + "Control" : ""
             Layout.fillWidth: true
-            Layout.minimumWidth: inlineChoice.comboMinWidth
+            Layout.minimumWidth: Math.min(64, inlineChoice.comboMinWidth)
+            Layout.preferredWidth: inlineChoice.comboMinWidth
+            popupMinimumWidth: Math.max(132, inlineChoice.comboMinWidth)
             model: inlineChoice.options
             textRole: "displayName"
             settingsSearchLabel: inlineChoice.label
@@ -272,17 +290,17 @@ ContentPage {
         property real maximum: 1
         signal moved(real value)
         Layout.fillWidth: true
-        spacing: 10
-        implicitHeight: Math.round(36 * Appearance.fontSizeScale)
+        spacing: 8
+        implicitHeight: Math.round(28 * Appearance.fontSizeScale)
         MaterialSymbol {
             text: percentage.iconName
-            iconSize: 18
+            iconSize: 16
             color: Appearance.colors.colSubtext
             Layout.alignment: Qt.AlignVCenter
         }
         StyledText {
-            Layout.preferredWidth: 132 * Appearance.fontSizeScale
-            Layout.minimumWidth: 88 * Appearance.fontSizeScale
+            Layout.preferredWidth: Math.max(implicitWidth, 108 * Appearance.fontSizeScale)
+            Layout.minimumWidth: implicitWidth
             Layout.alignment: Qt.AlignVCenter
             text: percentage.label
             elide: Text.ElideRight
@@ -293,7 +311,7 @@ ContentPage {
             id: percentageSlider
             objectName: percentage.objectName + "Control"
             Layout.fillWidth: true
-            Layout.minimumWidth: 72 * Appearance.fontSizeScale
+            Layout.minimumWidth: 64 * Appearance.fontSizeScale
             Layout.alignment: Qt.AlignVCenter
             configuration: StyledSlider.Configuration.S
             from: percentage.minimum
@@ -306,7 +324,7 @@ ContentPage {
             onMoved: percentage.moved(value)
         }
         StyledText {
-            Layout.preferredWidth: 46 * Appearance.fontSizeScale
+            Layout.preferredWidth: 42 * Appearance.fontSizeScale
             Layout.alignment: Qt.AlignVCenter
             horizontalAlignment: Text.AlignRight
             text: Math.round(percentage.value * 100) + "%"
@@ -315,131 +333,142 @@ ContentPage {
         }
     }
 
+    onActiveCardSubTabChanged: if (activeCardSubTab.indexOf(Translation.tr("AI")) === 0) Ai.ensureInitialized()
+
     SettingsTaskNavigator {
         showIntro: false
+        showTabBar: false
         currentValue: root.isOverviewTab ? "overview" : "ai"
-        onSelected: value => root.activeSection = value
-        options: [
-            { displayName: Translation.tr("Overview"), icon: "water_drop", value: "overview" },
-            { displayName: Translation.tr("AI"), icon: "chat", value: "ai" }
-        ]
-    }
-
-    Rectangle {
-        Layout.fillWidth: true
-        visible: root.isOverviewTab
-        implicitHeight: hero.implicitHeight + 28
-        radius: SettingsMaterialPreset.cardRadius
-        color: Appearance.colors.colLayer1
-        border.width: 1
-        border.color: Appearance.colors.colLayer0Border
-        GridLayout {
-            id: hero
-            anchors.fill: parent
-            anchors.margins: 14
-            columns: width > 560 ? 2 : 1
-            columnSpacing: 20
-            rowSpacing: 10
-            Rectangle {
-                Layout.fillWidth: hero.columns === 1
-                Layout.preferredWidth: 210
-                Layout.preferredHeight: 168
-                radius: SettingsMaterialPreset.groupRadius
-                color: AbyssStyle.surface
-                border.width: 1
-                border.color: Qt.alpha(AbyssStyle.accent, 0.22)
-                WaterDropletBody {
-                    id: preview
-                    character: root.preferences.character
-                    objectName: "companionPreview"
-                    anchors.centerIn: parent
-                    width: 76; height: 92
-                    scale: Math.min(1.75, 1.45 * root.preferences.size)
-                    transformOrigin: Item.Center
-                    expression: root.previewExpression
-                    motionAction: root.previewMotion
-                    grounded: !["fly","jump","drag"].includes(root.previewMotion)
-                    motionScale: Preferences.motionScale(root.preferences.personality)
-                    motionEnabled: root.preferences.animationsEnabled && AbyssStyle.motionEnabled && visible
-                    effectsEnabled: root.preferences.effectsEnabled && Appearance.effectsEnabled
-                        && AbyssRenderPolicy.aquaQuality !== "performance"
-                    renderQuality: AbyssRenderPolicy.aquaQuality
-                    translucency: root.preferences.translucency
-                }
-            }
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 8
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 8
-                    StyledText {
-                        Layout.fillWidth: true
-                        text: root.preferences.character === "octo" ? "Octo" : "Aqua"
-                        font.pixelSize: 22
-                        font.weight: Font.DemiBold
-                    }
-                    CompactIconButton {
-                        objectName: "companionReset"
-                        enabled: Config.ready
-                        iconName: "restart_alt"
-                        tooltipText: Translation.tr("Reset Companion settings")
-                        onClicked: root.resetPreferences()
-                    }
-                }
-                StyledText {
-                    Layout.fillWidth: true
-                    text: Translation.tr("A little liquid companion for your desktop.") + " " + Translation.tr("Color and reflections follow Abyss Panel Style automatically.")
-                    font.pixelSize: Appearance.font.pixelSize.smaller
-                    color: Appearance.colors.colSubtext
-                    wrapMode: Text.WordWrap
-                }
-                GridLayout {
-                    Layout.fillWidth: true
-                    columns: width > 360 ? 2 : 1
-                    uniformCellWidths: columns > 1
-                    columnSpacing: 12
-                    rowSpacing: 8
-                    CompactChoice {
-                        objectName: "companionPreviewExpression"
-                        label: Translation.tr("Preview expression")
-                        options: root.expressionOptions
-                        currentValue: root.previewExpression
-                        onSelected: value => root.previewExpression = value
-                    }
-                    CompactChoice {
-                        objectName: "companionPreviewMotion"
-                        label: Translation.tr("Preview movement")
-                        options: root.motionOptions
-                        currentValue: root.previewMotion
-                        onSelected: value => root.previewMotion = value
-                    }
-                }
-            }
+        onSelected: value => {
+            if (!root.embedded && value === "ai")
+                return
+            root.activeSection = value
         }
+        options: [
+            { displayName: Translation.tr("Overview"), icon: "water_drop", value: "overview" }
+        ]
     }
 
     GridLayout {
         id: unifiedOverviewGrid
         objectName: "companionUnifiedOverviewGrid"
         Layout.fillWidth: true
-        visible: root.isOverviewTab
-        columns: root.availableRowWidth >= 560 ? 2 : 1
+        visible: true
+        columns: root.isOverviewTab && width >= 620 ? 2 : 1
         uniformCellWidths: columns === 2
-        columnSpacing: 14
-        rowSpacing: 14
+        columnSpacing: 12
+        rowSpacing: 10
 
         SettingsCardSection {
             id: overviewCard
+            property bool _preventBentoReparent: true
             Layout.preferredWidth: 1
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.alignment: Qt.AlignTop
             settingsTaskSection: "overview"
-            visible: true
+            visible: root.isOverviewTab
             expanded: true
             title: Translation.tr("Overview")
             icon: "water_drop"
+
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: hero.implicitHeight + 24
+                radius: SettingsMaterialPreset.groupRadius
+                color: Appearance.colors.colLayer1
+                border.width: 1
+                border.color: Appearance.colors.colLayer0Border
+                GridLayout {
+                    id: hero
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 12
+                    columns: root.availableRowWidth > 560 ? 2 : 1
+                    columnSpacing: 18
+                    rowSpacing: 8
+                    Rectangle {
+                        Layout.fillWidth: hero.columns === 1
+                        Layout.fillHeight: true
+                        Layout.preferredWidth: 220
+                        Layout.preferredHeight: 198
+                        Layout.minimumHeight: 192
+                        radius: SettingsMaterialPreset.groupRadius
+                        color: AbyssStyle.surface
+                        border.width: 1
+                        border.color: Qt.alpha(AbyssStyle.accent, 0.22)
+                        WaterDropletBody {
+                            id: preview
+                            character: root.preferences.character
+                            objectName: "companionPreview"
+                            anchors.centerIn: parent
+                            width: 76; height: 92
+                            scale: Math.min(1.95, 1.68 * root.preferences.size)
+                            transformOrigin: Item.Center
+                            expression: root.previewExpression
+                            motionAction: root.previewMotion
+                            grounded: !["fly","jump","drag"].includes(root.previewMotion)
+                            motionScale: Preferences.motionScale(root.preferences.personality)
+                            motionEnabled: root.preferences.animationsEnabled && AbyssStyle.motionEnabled && visible
+                            effectsEnabled: root.preferences.effectsEnabled && Appearance.effectsEnabled
+                                && AbyssRenderPolicy.aquaQuality !== "performance"
+                            renderQuality: AbyssRenderPolicy.aquaQuality
+                            translucency: root.preferences.translucency
+                        }
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            StyledText {
+                                Layout.fillWidth: true
+                                text: root.preferences.character === "octo" ? "Octo" : "Aqua"
+                                font.pixelSize: 22
+                                font.weight: Font.DemiBold
+                            }
+                            CompactIconButton {
+                                objectName: "companionReset"
+                                enabled: Config.ready
+                                iconName: "restart_alt"
+                                tooltipText: Translation.tr("Reset Companion settings")
+                                onClicked: root.resetPreferences()
+                            }
+                        }
+                        StyledText {
+                            Layout.fillWidth: true
+                            text: Translation.tr("A little liquid companion for your desktop.") + " " + Translation.tr("Color and reflections follow Abyss Panel Style automatically.")
+                            font.pixelSize: Appearance.font.pixelSize.smaller
+                            color: Appearance.colors.colSubtext
+                            wrapMode: Text.WordWrap
+                        }
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: width > 360 ? 2 : 1
+                            uniformCellWidths: columns > 1
+                            columnSpacing: 12
+                            rowSpacing: 8
+                            CompactChoice {
+                                objectName: "companionPreviewExpression"
+                                label: Translation.tr("Preview expression")
+                                options: root.expressionOptions
+                                currentValue: root.previewExpression
+                                onSelected: value => root.previewExpression = value
+                            }
+                            CompactChoice {
+                                objectName: "companionPreviewMotion"
+                                label: Translation.tr("Preview movement")
+                                options: root.motionOptions
+                                currentValue: root.previewMotion
+                                onSelected: value => root.previewMotion = value
+                            }
+                        }
+                    }
+                }
+            }
+
             SettingsGroup {
                 enabled: Config.ready
                 CompactChoice {
@@ -491,329 +520,293 @@ ContentPage {
             }
         }
 
-        SettingsCardSection {
-            id: renderingCard
+        ColumnLayout {
+            id: rightOverviewColumn
+            visible: root.isOverviewTab
             Layout.preferredWidth: 1
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.alignment: Qt.AlignTop
-            settingsTaskSection: "rendering"
-            visible: true
-            expanded: true
-            title: Translation.tr("Rendering")
-            icon: "diamond"
-            SettingsGroup {
-                enabled: Config.ready
-                CompactChoice {
-                    objectName: "companionQuality"
-                    label: Translation.tr("Rendering quality") + " (" + Translation.tr("Current render quality") + ": " + AbyssRenderPolicy.aquaQualityLabel + ")"
-                    enabled: !root.preferences.autoQuality
-                    options: root.qualityOptions
-                    currentValue: root.preferences.autoQuality ? AbyssRenderPolicy.aquaQuality : root.preferences.renderQuality
-                    onSelected: value => root.setPreference("renderQuality", value)
+            spacing: 10
+
+            SettingsCardSection {
+                id: renderingCard
+                property bool _preventBentoReparent: true
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignTop
+                settingsTaskSection: "rendering"
+                visible: root.isOverviewTab
+                expanded: true
+                title: Translation.tr("Rendering")
+                icon: "diamond"
+                SettingsGroup {
+                    enabled: Config.ready
+                    RowLayout {
+                        objectName: "companionRenderingTogglesGrid"
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        ConfigSelectionArray {
+                            id: companionQualitySelector
+                            objectName: "companionQuality"
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 248
+                            enabled: !root.preferences.autoQuality
+                            currentValue: root.preferences.autoQuality ? AbyssRenderPolicy.aquaQuality : root.preferences.renderQuality
+                            options: root.qualityOptions
+                            onSelected: value => root.setPreference("renderQuality", value)
+
+                            Item {
+                                objectName: "companionQualityControl"
+                                visible: false
+                                width: 0
+                                height: 0
+                                function activated(index) {
+                                    if (index >= 0 && index < companionQualitySelector.options.length)
+                                        companionQualitySelector.selected(companionQualitySelector.options[index].value)
+                                }
+                            }
+                        }
+
+                        SettingsSwitch {
+                            Layout.fillWidth: false
+                            buttonIcon: "speed"
+                            text: "Auto quality"
+                            autoToggle: false
+                            checked: root.preferences.autoQuality
+                            onToggledByUser: checked => root.setPreference("autoQuality", checked)
+                            StyledToolTip { text: Translation.tr("Use Performance in Power Saver, Balanced in Balanced, and Quality in Performance power profile.") }
+                        }
+
+                        SettingsSwitch {
+                            objectName: "companionEffects"
+                            Layout.fillWidth: false
+                            buttonIcon: "auto_fix_high"
+                            text: "More details"
+                            autoToggle: false
+                            checked: root.preferences.effectsEnabled
+                            onToggledByUser: checked => root.setPreference("effectsEnabled", checked)
+                            StyledToolTip { text: Translation.tr("Add floating bubbles and sparkle around your companion. Respects the shell effects setting.") }
+                        }
+                    }
+
+                    SettingsDivider {}
+
+                    GridLayout {
+                        objectName: "companionRenderingSlidersGrid"
+                        Layout.fillWidth: true
+                        columns: renderingCard.width > 420 ? 2 : 1
+                        uniformCellWidths: columns > 1
+                        columnSpacing: 14
+                        rowSpacing: 6
+                        PercentageRow {
+                            objectName: "companionSize"
+                            iconName: "open_in_full"
+                            label: Translation.tr("Companion size")
+                            description: Translation.tr("Keep your companion small or give it a little more room.")
+                            value: root.preferences.size
+                            minimum: 0.65; maximum: 1.5
+                            onMoved: value => root.setPreference("size", value)
+                        }
+                        PercentageRow {
+                            objectName: "companionTranslucency"
+                            iconName: "opacity"
+                            label: Translation.tr("Translucency")
+                            description: Translation.tr("Let a little of the background show through the liquid. Eyes and bright reflections stay clear.")
+                            value: root.preferences.translucency
+                            minimum: 0
+                            maximum: 0.35
+                            onMoved: value => root.setPreference("translucency", value)
+                        }
+                    }
                 }
-                ColumnLayout {
-                    objectName: "companionRenderingSlidersGrid"
-                    Layout.fillWidth: true
-                    spacing: 4
-                    PercentageRow {
-                        objectName: "companionSize"
-                        iconName: "open_in_full"
-                        label: Translation.tr("Companion size")
-                        description: Translation.tr("Keep your companion small or give it a little more room.")
-                        value: root.preferences.size
-                        minimum: 0.65; maximum: 1.5
-                        onMoved: value => root.setPreference("size", value)
+            }
+
+            SettingsCardSection {
+                id: behaviorCard
+                property bool _preventBentoReparent: true
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.alignment: Qt.AlignTop
+                settingsTaskSection: "behavior"
+                visible: root.isOverviewTab
+                expanded: true
+                title: Translation.tr("Behavior")
+                icon: "sentiment_satisfied"
+                SettingsGroup {
+                    enabled: Config.ready
+                    GridLayout {
+                        objectName: "companionBehaviorChoicesGrid"
+                        Layout.fillWidth: true
+                        columns: behaviorCard.width > 360 ? 2 : 1
+                        uniformCellWidths: columns > 1
+                        columnSpacing: 14; rowSpacing: 8
+                        CompactChoice {
+                            objectName: "companionPersonality"
+                            label: Translation.tr("Personality")
+                            description: Translation.tr("Calm moves gently. Balanced feels natural. Energetic reacts with bigger movements and more frequent expressions.")
+                            options: root.personalityOptions
+                            currentValue: root.preferences.personality
+                            onSelected: value => root.setPreference("personality", value)
+                        }
+                        CompactChoice {
+                            objectName: "companionFrequency"
+                            label: Translation.tr("Appearance frequency")
+                            description: Translation.tr("Scheduled visits last 20 seconds. Your companion stays while you interact or a task is running.")
+                            options: root.frequencyOptions
+                            currentValue: root.preferences.appearanceFrequency
+                            onSelected: value => root.setPreference("appearanceFrequency", value)
+                        }
                     }
-                    PercentageRow {
-                        objectName: "companionTranslucency"
-                        iconName: "opacity"
-                        label: Translation.tr("Translucency")
-                        description: Translation.tr("Let a little of the background show through the liquid. Eyes and bright reflections stay clear.")
-                        value: root.preferences.translucency
-                        minimum: 0
-                        maximum: 0.35
-                        onMoved: value => root.setPreference("translucency", value)
-                    }
-                }
-                GridLayout {
-                    objectName: "companionRenderingTogglesGrid"
-                    Layout.fillWidth: true
-                    columns: renderingCard.width > 420 ? 2 : 1
-                    uniformCellWidths: columns > 1
-                    columnSpacing: 10; rowSpacing: 8
-                    CompactToggle {
-                        buttonIcon: "bolt"
-                        text: Translation.tr("Follow power profile")
-                        tooltipText: Translation.tr("Use Performance in Power Saver, Balanced in Balanced, and Quality in Performance power profile.")
-                        checked: root.preferences.autoQuality
-                        onToggledByUser: checked => root.setPreference("autoQuality",checked)
-                    }
-                    CompactToggle {
-                        objectName: "companionEffects"
-                        buttonIcon: "auto_fix_high"
-                        text: Translation.tr("Floating bubbles and sparkle")
-                        tooltipText: Translation.tr("Add floating bubbles and sparkle around your companion. Respects the shell effects setting.")
-                        checked: root.preferences.effectsEnabled
-                        onToggledByUser: checked => root.setPreference("effectsEnabled", checked)
+                    GridLayout {
+                        id: companionBehaviorTogglesGrid
+                        objectName: "companionBehaviorTogglesGrid"
+                        Layout.fillWidth: true
+                        columns: behaviorCard.width > 360 ? 2 : 1
+                        uniformCellWidths: columns > 1
+                        columnSpacing: 12; rowSpacing: 8
+                        CompactToggle {
+                            objectName: "companionMotion"
+                            buttonIcon: "animation"
+                            text: Translation.tr("Companion animations")
+                            tooltipText: Translation.tr("Walk on surfaces, float through open space, and react naturally. Respects the shell motion setting.")
+                            checked: root.preferences.animationsEnabled
+                            onToggledByUser: checked => root.setPreference("animationsEnabled", checked)
+                        }
+                        CompactToggle {
+                            objectName: "companionExploreFeatures"
+                            buttonIcon: "explore"
+                            text: Translation.tr("Explore Abyss features")
+                            tooltipText: Translation.tr("Occasionally open and explore panels, then close them. Your companion leaves them open when you start using them.")
+                            checked: root.preferences.exploreFeatures
+                            onToggledByUser: checked => root.setPreference("exploreFeatures", checked)
+                        }
+                        CompactToggle {
+                            objectName: "companionAmbientFocus"
+                            buttonIcon: "timer"
+                            text: Translation.tr("Follow Focus sessions")
+                            tooltipText: Translation.tr("Uses the existing Focus timer; stays quiet during work.")
+                            checked: root.preferences.ambientFocusEnabled
+                            onToggledByUser: checked => root.setPreference("ambientFocusEnabled", checked)
+                        }
+                        CompactToggle {
+                            objectName: "companionBehaviorTalkClouds"
+                            buttonIcon: "chat_bubble"
+                            text: Translation.tr("Talk clouds")
+                            tooltipText: "Show speech bubbles and quick chat above your companion."
+                            checked: AquaMind.talkEnabled
+                            onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.talkEnabled", checked)
+                        }
                     }
                 }
             }
         }
 
         SettingsCardSection {
-            id: behaviorCard
+            id: proactiveCard
+            property bool _preventBentoReparent: true
             Layout.columnSpan: unifiedOverviewGrid.columns
+            Layout.preferredWidth: 1
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignTop
             settingsTaskSection: "behavior"
-            visible: true
+            visible: root.isOverviewTab
             expanded: true
-            title: Translation.tr("Behavior")
-            icon: "sentiment_satisfied"
+            title: "Proactive & Reminders"
+            icon: "notifications_active"
             SettingsGroup {
                 enabled: Config.ready
+
+                // ROW 1: Proactive Check-ins + Frequency (Left) | Quiet Hours + Start/End (Right)
                 GridLayout {
-                    objectName: "companionBehaviorChoicesGrid"
-                    Layout.fillWidth: true
-                    columns: root.availableRowWidth > 480 ? 2 : 1
-                    uniformCellWidths: columns > 1
-                    columnSpacing: 14; rowSpacing: 8
-                    CompactChoice {
-                        objectName: "companionPersonality"
-                        label: Translation.tr("Personality")
-                        description: Translation.tr("Calm moves gently. Balanced feels natural. Energetic reacts with bigger movements and more frequent expressions.")
-                        options: root.personalityOptions
-                        currentValue: root.preferences.personality
-                        onSelected: value => root.setPreference("personality", value)
-                    }
-                    CompactChoice {
-                        objectName: "companionFrequency"
-                        label: Translation.tr("Appearance frequency")
-                        description: Translation.tr("Scheduled visits last 20 seconds. Your companion stays while you interact or a task is running.")
-                        options: root.frequencyOptions
-                        currentValue: root.preferences.appearanceFrequency
-                        onSelected: value => root.setPreference("appearanceFrequency", value)
-                    }
-                }
-                GridLayout {
-                    objectName: "companionBehaviorTogglesGrid"
-                    Layout.fillWidth: true
-                    columns: root.availableRowWidth > 520 ? 2 : 1
-                    uniformCellWidths: columns > 1
-                    columnSpacing: 12; rowSpacing: 8
-                    CompactToggle {
-                        objectName: "companionMotion"
-                        buttonIcon: "animation"
-                        text: Translation.tr("Companion animations")
-                        tooltipText: Translation.tr("Walk on surfaces, float through open space, and react naturally. Respects the shell motion setting.")
-                        checked: root.preferences.animationsEnabled
-                        onToggledByUser: checked => root.setPreference("animationsEnabled", checked)
-                    }
-                    CompactToggle {
-                        objectName: "companionExploreFeatures"
-                        buttonIcon: "explore"
-                        text: Translation.tr("Explore Abyss features")
-                        tooltipText: Translation.tr("Occasionally open and explore panels, then close them. Your companion leaves them open when you start using them.")
-                        checked: root.preferences.exploreFeatures
-                        onToggledByUser: checked => root.setPreference("exploreFeatures", checked)
-                    }
-                    CompactToggle {
-                        objectName: "companionContext"
-                        buttonIcon: "admin_panel_settings"
-                        text: Translation.tr("Full Desktop & App Access")
-                        tooltipText: Translation.tr("Allow Companion full access to Apps, Desktop & User data, on-screen info, desktop edits, and scripts.")
-                        checked: root.preferences.contextEnabled
-                        onToggledByUser: checked => {
-                            root.setPreference("contextEnabled", checked)
-                            if (checked && !root.preferences.contextFocusEnabled)
-                                root.setPreference("contextFocusEnabled", true)
-                        }
-                    }
-                    CompactToggle {
-                        objectName: "companionContextFocus"
-                        buttonIcon: "desktop_windows"
-                        text: Translation.tr("Access Apps, Desktop & User Data")
-                        tooltipText: Translation.tr("Access focused app content, screen info, user files, desktop edits, and script execution.")
-                        enabled: root.preferences.contextEnabled
-                        checked: root.preferences.contextFocusEnabled
-                        onToggledByUser: checked => root.setPreference("contextFocusEnabled", checked)
-                    }
-                    CompactToggle {
-                        objectName: "companionContextAi"
-                        buttonIcon: "psychology"
-                        text: Translation.tr("Share Alis AI activity")
-                        tooltipText: Translation.tr("Only working, waiting for approval and finished. No prompts, replies, tools or permission grants.")
-                        enabled: root.preferences.contextEnabled
-                        checked: root.preferences.contextAiEnabled
-                        onToggledByUser: checked => root.setPreference("contextAiEnabled", checked)
-                    }
-                    CompactToggle {
-                        objectName: "companionAmbientFocus"
-                        buttonIcon: "timer"
-                        text: Translation.tr("Follow Focus sessions")
-                        tooltipText: Translation.tr("Uses the existing Focus timer; stays quiet during work.")
-                        checked: root.preferences.ambientFocusEnabled
-                        onToggledByUser: checked => root.setPreference("ambientFocusEnabled", checked)
-                    }
-                }
-                Rectangle {
-                    objectName: "companionFullAccessBanner"
-                    visible: root.preferences.contextEnabled || AquaMind.agentToolsEnabled
-                    Layout.fillWidth: true
-                    implicitHeight: fullAccessRow.implicitHeight + 16
-                    radius: 10
-                    color: Qt.alpha(Appearance.colors.colPrimary, 0.12)
-                    border.width: 1
-                    border.color: Qt.alpha(Appearance.colors.colPrimary, 0.35)
+                    objectName:"aquaQuietHoursGrid"
+                    Layout.fillWidth:true
+                    Layout.preferredWidth:1
+                    Layout.minimumWidth:0
+                    columns:root.availableRowWidth>520 ? 2 : 1
+                    uniformCellWidths:columns > 1
+                    columnSpacing:14;rowSpacing:6
+
                     RowLayout {
-                        id: fullAccessRow
-                        anchors.fill: parent
-                        anchors.margins: 8
-                        spacing: 8
-                        MaterialSymbol {
-                            text: "verified_user"
-                            iconSize: 18
-                            color: Appearance.colors.colPrimary
-                        }
-                        StyledText {
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                            font.pixelSize: Appearance.font.pixelSize.smaller
-                            color: Appearance.colors.colOnLayer1
-                            text: Translation.tr("Full Access Active — Companion can access Apps, Desktop & User data, assist with on-screen info, edit desktop files, and run scripts.")
-                        }
-                    }
-                }
-            }
-        }
-    }
-    SettingsCardSection {
-        settingsTaskSection:"ai"
-        visible:root.activeSection==="ai"
-        title:Translation.tr("AI")
-        icon:"chat"
-        SettingsGroup {
-            objectName:"aquaAiSettingsGroup"
-
-            // ROW 1 (2 Columns): Model & Permissions (Left) | Thinking Effort & Clear (Right)
-            GridLayout {
-                objectName:"aquaAiModelGrid"
-                Layout.fillWidth:true
-                columns:root.availableRowWidth>520 ? 2 : 1
-                uniformCellWidths:columns > 1
-                columnSpacing:16;rowSpacing:8
-                RowLayout {
-                    Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:8
-                    CompactIconToggle {
-                        objectName:"aquaTalkClouds"
-                        buttonIcon:"chat_bubble"
-                        text:Translation.tr("Talk clouds")
-                        tooltipText:"Show speech bubbles and quick chat above your companion."
-                        checked:AquaMind.talkEnabled
-                        onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.talkEnabled",checked)
-                    }
-                    CompactIconToggle {
-                        objectName:"aquaAllowCloudModels"
-                        buttonIcon:"cloud"
-                        text:Translation.tr("Allow cloud models")
-                        tooltipText:"Keep off to restrict Companion strictly to verified local models."
-                        checked:!AquaMind.localOnly
-                        onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.localOnly",!checked)
-                    }
-                    StyledComboBox {
-                        objectName:"aquaCompanionModelSelector"
-                        Layout.fillWidth:true
-                        Layout.minimumWidth:120
-                        model:AquaMind.selectableModels
-                        textRole:"label"
-                        currentIndex:Math.max(0,AquaMind.selectableModels.findIndex(item=>item.name===String(Config.options?.abyss?.companionMind?.model ?? "")))
-                        displayText:currentIndex>=0 ? (AquaMind.selectableModels[currentIndex].label ?? AquaMind.selectableModels[currentIndex].name) : "Use the AI tab model"
-                        onActivated:index=>{
-                            const item=AquaMind.selectableModels[index]
-                            if(item)AquaMind.selectModel(item)
-                        }
-                    }
-                }
-                RowLayout {
-                    Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:10
-                    ColumnLayout {
-                        Layout.fillWidth:true;spacing:4
-                        visible:AquaMind.thinkingSupported
-                        RowLayout {
+                        Layout.fillWidth:true;Layout.preferredWidth:1;Layout.minimumWidth:0;Layout.alignment:Qt.AlignVCenter;spacing:8
+                        CompactToggle {
+                            objectName:"aquaEnableProactive"
                             Layout.fillWidth:true
-                            StyledText {Layout.fillWidth:true;text:"Thinking effort";color:Appearance.colors.colSubtext;font.pixelSize:Appearance.font.pixelSize.smaller}
-                            StyledText {text:AquaMind.thinkingEffortLabel;color:Appearance.colors.colPrimary;font.pixelSize:Appearance.font.pixelSize.smaller}
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:80
+                            buttonIcon:"notifications_active"
+                            text:Translation.tr("Allow proactive check-ins and reminders")
+                            tooltipText:Translation.tr("Off by default. Pauses during Focus, fullscreen, games, dialogs and quiet hours. Repeatedly ignored offers pause until you interact or the next day.")
+                            checked:AquaMind.options.proactiveEnabled === true
+                            enabled:AquaMind.options.proactiveEnabled !== undefined
+                            onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.proactiveEnabled",checked)
                         }
-                        StyledComboBox {
-                            objectName:"aquaCompanionThinkingEffort"
+                        InlineChoice {
+                            objectName:"aquaProactiveFrequency"
+                            Layout.fillWidth:false
+                            label:""
+                            comboMinWidth:136
+                            description:Translation.tr("Check-ins and reminders")
+                            options:[
+                                {displayName:Translation.tr("Rarely while idle"),value:"rare"},
+                                {displayName:Translation.tr("Occasionally while idle"),value:"occasional"},
+                                {displayName:Translation.tr("Regularly while idle"),value:"regular"},
+                                {displayName:Translation.tr("Often while idle"),value:"often"},
+                                {displayName:Translation.tr("Only when I chat"),value:"manual"}
+                            ]
+                            currentValue:AquaMind.proactive
+                            onSelected:value=>Config.setNestedValue("abyss.companionMind.proactive",value)
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth:true;Layout.preferredWidth:1;Layout.minimumWidth:0;Layout.alignment:Qt.AlignVCenter;spacing:8
+                        CompactToggle {
+                            objectName:"aquaQuietHoursToggle"
                             Layout.fillWidth:true
-                            Layout.minimumWidth:120
-                            enabled:AquaMind.thinkingSupported && !AquaMind.busy
-                            model:AquaMind.thinkingLevels
-                            textRole:"label"
-                            currentIndex:Math.max(0,AquaMind.thinkingLevels.findIndex(level=>level.value===AquaMind.effectiveThinkingEffort || (level.value==="off" && AquaMind.effectiveThinkingEffort==="instant") || (level.value==="instant" && AquaMind.effectiveThinkingEffort==="off")))
-                            displayText:AquaMind.thinkingEffortLabel
-                            onActivated:index=>{
-                                const level=AquaMind.thinkingLevels[index]
-                                if(level)AquaMind.setThinkingEffort(level.value)
-                            }
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:76
+                            buttonIcon:"bedtime"
+                            text:Translation.tr("Quiet hours")
+                            tooltipText:"Pause automatic check-ins and reminders during your quiet hours."
+                            checked:AquaMind.options.proactiveQuietEnabled !== false
+                            onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.proactiveQuietEnabled",checked)
                         }
-                    }
-                    Item {
-                        visible:!AquaMind.thinkingSupported
-                        Layout.fillWidth:true
-                    }
-                    Rectangle {
-                        implicitWidth:36;implicitHeight:36;radius:11
-                        color:Appearance.colors.colLayer2
-                        MaterialSymbol {
-                            anchors.centerIn:parent
-                            text:AquaMind.localOnly ? "verified_user" : "cloud_done"
-                            iconSize:18;color:Appearance.colors.colPrimary
+                        InlineChoice {
+                            objectName:"aquaQuietHoursStart"
+                            Layout.fillWidth:false
+                            label:"Start"
+                            comboMinWidth:78
+                            options:[{displayName:"20:00",value:1200},{displayName:"22:00",value:1320},{displayName:"00:00",value:0}]
+                            currentValue:AquaMind.options.proactiveQuietStart ?? 1320
+                            onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveQuietStart",value)
                         }
-                        StyledText {
-                            objectName:"aquaAiPrivacyStatus"
-                            visible:false
-                            text:AquaMind.localOnly ? "Local only" : "Cloud models allowed"
+                        InlineChoice {
+                            objectName:"aquaQuietHoursEnd"
+                            Layout.fillWidth:false
+                            label:"End"
+                            comboMinWidth:78
+                            options:[{displayName:"06:00",value:360},{displayName:"08:00",value:480},{displayName:"10:00",value:600}]
+                            currentValue:AquaMind.options.proactiveQuietEnd ?? 480
+                            onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveQuietEnd",value)
                         }
-                        MouseArea {
-                            id:privacyHover;anchors.fill:parent;hoverEnabled:true;acceptedButtons:Qt.NoButton
-                        }
-                        StyledToolTip {
-                            text:(AquaMind.localOnly ? "Local only" : "Cloud models allowed") + " · " + Translation.tr("Providers and connections are shared with AI settings.")
-                            extraVisibleCondition:privacyHover.containsMouse
-                        }
-                    }
-                    CompactIconButton {
-                        objectName:"aquaClearConversation"
-                        iconName:"delete_sweep"
-                        tooltipText:Translation.tr("Clear conversation")
-                        onClicked:AquaMind.clearConversation()
                     }
                 }
-            }
 
-            // ROW 2 (2 Columns): Proactive Check-ins & Sources (Left) | Quiet Hours Inline Start/End (Right)
-            GridLayout {
-                objectName:"aquaQuietHoursGrid"
-                Layout.fillWidth:true
-                columns:root.availableRowWidth>520 ? 2 : 1
-                uniformCellWidths:columns > 1
-                columnSpacing:16;rowSpacing:8
-                RowLayout {
-                    Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:6
-                    CompactIconToggle {
-                        objectName:"aquaEnableProactive"
-                        buttonIcon:"notifications_active"
-                        text:Translation.tr("Allow proactive check-ins and reminders")
-                        tooltipText:Translation.tr("Off by default. Pauses during Focus, fullscreen, games, dialogs and quiet hours. Repeatedly ignored offers pause until you interact or the next day.")
-                        checked:AquaMind.options.proactiveEnabled === true
-                        enabled:AquaMind.options.proactiveEnabled !== undefined
-                        onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.proactiveEnabled",checked)
-                    }
-                    CompactIconToggle {
+                // ROW 2: Reminder Sources (3 Columns)
+                GridLayout {
+                    objectName:"aquaReminderSourcesGrid"
+                    Layout.fillWidth:true
+                    Layout.preferredWidth:1
+                    Layout.minimumWidth:0
+                    columns:root.availableRowWidth>520 ? 3 : 1
+                    uniformCellWidths:columns > 1
+                    columnSpacing:14;rowSpacing:6
+
+                    CompactToggle {
                         objectName:"aquaPlannerReminders"
+                        Layout.preferredWidth:1
+                        Layout.minimumWidth:0
                         buttonIcon:"event_upcoming"
                         text:"Read Weekly Planner events"
                         tooltipText:"Use scheduled events from your Alis Weekly Planner for proactive reminders."
@@ -821,400 +814,1811 @@ ContentPage {
                         onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.calendarRemindersEnabled",checked)
                         Item { objectName:"aquaCalendarReminders"; visible:false }
                     }
-                    CompactIconToggle {
+
+                    CompactToggle {
                         objectName:"aquaTodoReminders"
+                        Layout.preferredWidth:1
+                        Layout.minimumWidth:0
                         buttonIcon:"checklist"
                         text:Translation.tr("Read Todo items for reminders")
                         tooltipText:"Use timed tasks from your Alis Todo list for proactive reminders."
                         checked:AquaMind.todoRemindersEnabled
                         onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.todoRemindersEnabled",checked)
                     }
-                    CompactIconToggle {
+
+                    CompactToggle {
                         objectName:"aquaReminderNotifications"
+                        Layout.preferredWidth:1
+                        Layout.minimumWidth:0
                         buttonIcon:"notifications"
                         text:Translation.tr("Show reminder notifications")
                         tooltipText:Translation.tr("Also send consented reminders to the notification center. Off by default.")
                         checked:AquaMind.reminderNotificationsEnabled
                         onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.reminderNotificationsEnabled",checked)
                     }
-                    InlineChoice {
-                        objectName:"aquaProactiveFrequency"
-                        label:""
-                        comboMinWidth:110
-                        description:Translation.tr("Check-ins and reminders")
-                        options:[
-                            {displayName:Translation.tr("Rarely while idle"),value:"rare"},
-                            {displayName:Translation.tr("Occasionally while idle"),value:"occasional"},
-                            {displayName:Translation.tr("Regularly while idle"),value:"regular"},
-                            {displayName:Translation.tr("Often while idle"),value:"often"},
-                            {displayName:Translation.tr("Only when I chat"),value:"manual"}
-                        ]
-                        currentValue:AquaMind.proactive
-                        onSelected:value=>Config.setNestedValue("abyss.companionMind.proactive",value)
-                    }
                 }
-                RowLayout {
-                    Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:8
-                    CompactIconToggle {
-                        objectName:"aquaQuietHoursToggle"
-                        buttonIcon:"bedtime"
-                        text:Translation.tr("Quiet hours")
-                        tooltipText:"Pause automatic check-ins and reminders during your quiet hours."
-                        checked:AquaMind.options.proactiveQuietEnabled !== false
-                        onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.proactiveQuietEnabled",checked)
-                    }
-                    InlineChoice {
-                        objectName:"aquaQuietHoursStart"
-                        label:"Start"
-                        comboMinWidth:82
-                        options:[{displayName:"20:00",value:1200},{displayName:"22:00",value:1320},{displayName:"00:00",value:0}]
-                        currentValue:AquaMind.options.proactiveQuietStart ?? 1320
-                        onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveQuietStart",value)
-                    }
-                    InlineChoice {
-                        objectName:"aquaQuietHoursEnd"
-                        label:"End"
-                        comboMinWidth:82
-                        options:[{displayName:"06:00",value:360},{displayName:"08:00",value:480},{displayName:"10:00",value:600}]
-                        currentValue:AquaMind.options.proactiveQuietEnd ?? 480
-                        onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveQuietEnd",value)
-                    }
-                }
-            }
 
-            // ROW 3 (2 Columns): Offer Quotas (Left) | Personalize Dialogue Inline (Right)
-            GridLayout {
-                objectName:"aquaProactiveQuotaGrid"
-                Layout.fillWidth:true
-                columns:root.availableRowWidth>520 ? 2 : 1
-                uniformCellWidths:columns > 1
-                columnSpacing:16;rowSpacing:8
-                RowLayout {
-                    Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:10
-                    InlineChoice {
-                        objectName:"aquaProactiveDailyCap"
-                        label:Translation.tr("Daily offer limit")
-                        comboMinWidth:68
-                        options:[{displayName:"2",value:2},{displayName:"4",value:4},{displayName:"6",value:6},{displayName:"10",value:10}]
-                        currentValue:AquaMind.options.proactiveDailyCap ?? 6
-                        onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveDailyCap",value)
-                    }
-                    InlineChoice {
-                        objectName:"aquaProactiveEventCap"
-                        label:Translation.tr("Limit for each kind of offer")
-                        comboMinWidth:64
-                        options:[{displayName:"1",value:1},{displayName:"2",value:2},{displayName:"3",value:3}]
-                        currentValue:AquaMind.options.proactiveEventCap ?? 3
-                        onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveEventCap",value)
-                    }
-                }
-                RowLayout {
-                    Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:8
-                    CompactIconToggle {
-                        objectName:"aquaDialogueConsent"
-                        buttonIcon:"mood"
-                        text:Translation.tr("Personalize local dialogue")
-                        tooltipText:Translation.tr("Use your chosen tone and today's explicit check-in for local replies. Familiarity is your choice. No relationship score, penalties for absence or pressure to return.")
-                        checked:AquaMind.options.bondEnabled===true
-                        enabled:AquaMind.options.bondEnabled!==undefined
-                        onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.bondEnabled",checked)
-                    }
-                    InlineChoice {
-                        objectName:"aquaDialogueTone"
-                        label:""
-                        description:Translation.tr("Dialogue tone")
-                        comboMinWidth:96
-                        options:[{displayName:Translation.tr("Gentle"),value:"gentle"},
-                            {displayName:Translation.tr("Witty"),value:"witty"},{displayName:Translation.tr("Concise"),value:"concise"}]
-                        currentValue:AquaMind.options.dialogueTone ?? "gentle"
-                        onSelected:value=>Config.setNestedValue("abyss.companionMind.dialogueTone",value)
-                    }
-                    InlineChoice {
-                        objectName:"aquaDialogueFamiliarity"
-                        label:""
-                        description:Translation.tr("Familiarity")
-                        comboMinWidth:110
-                        options:[{displayName:Translation.tr("Neutral"),value:"neutral"},
-                            {displayName:Translation.tr("Familiar coworker"),value:"familiar"}]
-                        currentValue:AquaMind.options.familiarity ?? "neutral"
-                        onSelected:value=>Config.setNestedValue("abyss.companionMind.familiarity",value)
-                    }
-                    CompactIconButton {
-                        objectName:"aquaResetDialogue"
-                        iconName:"restart_alt"
-                        tooltipText:Translation.tr("Reset dialogue preferences")
-                        onClicked:AquaMind.resetDialogue()
-                    }
-                }
-            }
+                // ROW 3: Offer Quotas (Left) | Personalize Dialogue Inline (Right)
+                GridLayout {
+                    objectName:"aquaProactiveQuotaGrid"
+                    Layout.fillWidth:true
+                    Layout.preferredWidth:1
+                    Layout.minimumWidth:0
+                    columns:root.availableRowWidth>520 ? 2 : 1
+                    uniformCellWidths:columns > 1
+                    columnSpacing:14;rowSpacing:6
 
-            // ROW 4 (2 Columns): Active-App / Screen OCR Agent (Left) | Obsidian Journal Context (Right)
-            GridLayout {
-                objectName:"aquaDialogueGrid"
-                Layout.fillWidth:true
-                columns:root.availableRowWidth>520 ? 2 : 1
-                uniformCellWidths:columns > 1
-                columnSpacing:16;rowSpacing:8
-                RowLayout {
-                    Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:6
-                    CompactIconToggle {
-                        objectName:"aquaAgentToolsToggle"
-                        buttonIcon:"smart_toy"
-                        text:"Enable Desktop Agent (Full Access)"
-                        tooltipText:"Full Access Active: allow Companion to access Apps, Desktop & User data, read on-screen info, edit desktop files, and run scripts."
-                        checked:AquaMind.agentToolsEnabled
-                        onToggledByUser:checked=>AquaMind.agentToolsEnabled=checked
-                    }
-                    CompactIconToggle {
-                        objectName:"aquaAgentAppContextToggle"
-                        buttonIcon:"desktop_windows"
-                        text:"Access Apps, Desktop & User Data"
-                        tooltipText:"Read active app content, Desktop & User files, and on-screen context."
-                        enabled:AquaMind.agentToolsEnabled
-                        checked:AquaMind.agentAppContextEnabled
-                        onToggledByUser:checked=>AquaMind.agentAppContextEnabled=checked
-                    }
-                    CompactIconToggle {
-                        objectName:"aquaAgentScreenOcrToggle"
-                        buttonIcon:"document_scanner"
-                        text:"Auto screenshot & OCR fallback"
-                        tooltipText:"When an app cannot be accessed directly, automatically take a screenshot and read on-screen text via OCR."
-                        enabled:AquaMind.agentToolsEnabled && AquaMind.agentAppContextEnabled
-                        checked:AquaMind.agentScreenFallbackEnabled
-                        onToggledByUser:checked=>AquaMind.agentScreenFallbackEnabled=checked
-                    }
-                    CompactIconToggle {
-                        objectName:"aquaAgentDocRagToggle"
-                        buttonIcon:"library_books"
-                        text:"Local docs RAG"
-                        tooltipText:"Retrieve local Companion documentation snippets when relevant."
-                        enabled:AquaMind.agentToolsEnabled
-                        checked:AquaMind.agentDocRagEnabled
-                        onToggledByUser:checked=>{
-                            AquaMind.agentDocRagEnabled=checked
-                            if(checked)AquaMind.evaluateToolRouting("How does Companion architecture work?",true)
+                    RowLayout {
+                        Layout.fillWidth:true;Layout.preferredWidth:1;Layout.minimumWidth:0;Layout.alignment:Qt.AlignVCenter;spacing:10
+                        InlineChoice {
+                            objectName:"aquaProactiveDailyCap"
+                            Layout.preferredWidth:1
+                            label:Translation.tr("Daily offer limit")
+                            comboMinWidth:64
+                            options:[{displayName:"2",value:2},{displayName:"4",value:4},{displayName:"6",value:6},{displayName:"10",value:10}]
+                            currentValue:AquaMind.options.proactiveDailyCap ?? 6
+                            onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveDailyCap",value)
+                        }
+                        InlineChoice {
+                            objectName:"aquaProactiveEventCap"
+                            Layout.preferredWidth:1
+                            label:Translation.tr("Limit for each kind of offer")
+                            comboMinWidth:60
+                            options:[{displayName:"1",value:1},{displayName:"2",value:2},{displayName:"3",value:3}]
+                            currentValue:AquaMind.options.proactiveEventCap ?? 3
+                            onSelected:value=>Config.setNestedValue("abyss.companionMind.proactiveEventCap",value)
                         }
                     }
-                    CompactIconButton {
-                        objectName:"aquaAgentCaptureApp"
-                        iconName:"center_focus_strong"
-                        tooltipText:"Capture active app / screen OCR now"
-                        enabled:AquaMind.agentToolsEnabled && !AquaMind.busy
-                        onClicked:AquaMind.inspectToolMetadata("active_app")
-                    }
-                    CompactIconButton {
-                        objectName:"aquaAgentProposeTone"
-                        iconName:"tune"
-                        tooltipText:"Propose dialogue tone edit (requires confirmation)"
-                        enabled:AquaMind.agentToolsEnabled && !AquaMind.busy
-                        onClicked:{
-                            const cur=String(AquaMind.options.dialogueTone ?? "gentle")
-                            const next=cur==="gentle" ? "witty" : "gentle"
-                            AquaMind.proposePreferenceEdit("dialogueTone",cur,next)
+
+                    RowLayout {
+                        Layout.fillWidth:true;Layout.preferredWidth:1;Layout.minimumWidth:0;Layout.alignment:Qt.AlignVCenter;spacing:8
+                        CompactToggle {
+                            objectName:"aquaDialogueConsent"
+                            Layout.fillWidth:true
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:80
+                            buttonIcon:"mood"
+                            text:Translation.tr("Personalize local dialogue")
+                            tooltipText:Translation.tr("Use your chosen tone and today's explicit check-in for local replies. Familiarity is your choice. No relationship score, penalties for absence or pressure to return.")
+                            checked:AquaMind.options.bondEnabled===true
+                            enabled:AquaMind.options.bondEnabled!==undefined
+                            onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.bondEnabled",checked)
                         }
-                    }
-                    CompactIconButton {
-                        objectName:"aquaAgentConfirmProposal"
-                        visible:AquaMind.lastToolProposal!==null
-                        iconName:"check"
-                        tooltipText:"Confirm pending Agent proposal"
-                        enabled:!AquaMind.busy && AquaMind.lastToolProposal!==null
-                        onClicked:if(AquaMind.lastToolProposal)AquaMind.confirmToolProposal(String(AquaMind.lastToolProposal.proposalId))
-                    }
-                    CompactIconButton {
-                        objectName:"aquaAgentCancelProposal"
-                        visible:AquaMind.lastToolProposal!==null
-                        iconName:"close"
-                        tooltipText:"Cancel pending Agent proposal"
-                        enabled:!AquaMind.busy && AquaMind.lastToolProposal!==null
-                        onClicked:if(AquaMind.lastToolProposal)AquaMind.cancelToolProposal(String(AquaMind.lastToolProposal.proposalId))
-                    }
-                    StyledText {
-                        Layout.fillWidth:true;elide:Text.ElideRight
-                        text:AquaMind.agentStatusSummary
-                        font.pixelSize:Appearance.font.pixelSize.smaller
-                        color:Appearance.colors.colSubtext
-                    }
-                }
-                RowLayout {
-                    Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:8
-                    CompactIconToggle {
-                        objectName:"aquaConnectObsidian"
-                        buttonIcon:"menu_book"
-                        text:Translation.tr("Connect Obsidian")
-                        tooltipText:"Share read-only daily mood/energy check-in with your configured Obsidian journal."
-                        checked:AquaMind.obsidianEnabled
-                        onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.obsidianEnabled",checked)
-                    }
-                    StyledText {
-                        Layout.fillWidth:true;elide:Text.ElideMiddle
-                        text:Translation.tr("Obsidian vault")+": "+(Todo.sharedVaultPath || Translation.tr("Not configured"))
-                        font.pixelSize:Appearance.font.pixelSize.smaller
-                        color:Appearance.colors.colSubtext
-                    }
-                    CompactIconButton {
-                        iconName:"refresh"
-                        tooltipText:Translation.tr("Read today's context")
-                        enabled:AquaMind.obsidianEnabled && !AquaMind.busy
-                        onClicked:AquaMind.refreshJournal()
-                    }
-                    CompactIconButton {
-                        iconName:"open_in_new"
-                        tooltipText:Translation.tr("Open journal")
-                        enabled:!!AquaMind.journal.journalPath
-                        onClicked:AquaMind.openJournal()
+                        InlineChoice {
+                            objectName:"aquaDialogueTone"
+                            Layout.fillWidth:false
+                            label:""
+                            description:Translation.tr("Dialogue tone")
+                            comboMinWidth:84
+                            options:[{displayName:Translation.tr("Gentle"),value:"gentle"},
+                                {displayName:Translation.tr("Witty"),value:"witty"},{displayName:Translation.tr("Concise"),value:"concise"}]
+                            currentValue:AquaMind.options.dialogueTone ?? "gentle"
+                            onSelected:value=>Config.setNestedValue("abyss.companionMind.dialogueTone",value)
+                        }
+                        InlineChoice {
+                            objectName:"aquaDialogueFamiliarity"
+                            Layout.fillWidth:false
+                            label:""
+                            description:Translation.tr("Familiarity")
+                            comboMinWidth:96
+                            options:[{displayName:Translation.tr("Neutral"),value:"neutral"},
+                                {displayName:Translation.tr("Familiar coworker"),value:"familiar"}]
+                            currentValue:AquaMind.options.familiarity ?? "neutral"
+                            onSelected:value=>Config.setNestedValue("abyss.companionMind.familiarity",value)
+                        }
+                        CompactIconButton {
+                            objectName:"aquaResetDialogue"
+                            iconName:"restart_alt"
+                            tooltipText:Translation.tr("Reset dialogue preferences")
+                            onClicked:AquaMind.resetDialogue()
+                        }
                     }
                 }
             }
+        }
 
-            // ROW 5 (2 Columns): Explicit Local Memories Policy (Left) | Memory Input & Actions (Right)
-            GridLayout {
-                objectName:"aquaAiPermissionsGrid"
-                Layout.fillWidth:true
-                columns:root.availableRowWidth>520 ? 2 : 1
-                uniformCellWidths:columns > 1
-                columnSpacing:16;rowSpacing:8
-                RowLayout {
-                    Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:8
-                    CompactIconToggle {
-                        objectName:"aquaEnableMemory"
-                        buttonIcon:"bookmark"
-                        text:Translation.tr("Use saved memories with local models")
-                        tooltipText:Translation.tr("Only entries you save here are remembered. No automatic extraction from chat. Turning this off stops use and keeps your records available for review or deletion.")
-                        checked:AquaMind.memoryEnabled
-                        enabled:AquaMind.options.memoryEnabled !== undefined && !AquaMind.busy
-                        onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.memoryEnabled",checked)
+        SettingsCardSection {
+            id: aiCard
+            property bool _preventBentoReparent: true
+            Layout.columnSpan: unifiedOverviewGrid.columns
+            Layout.preferredWidth: 1
+            Layout.fillWidth: true
+            Layout.alignment: Qt.AlignTop
+            settingsTaskSection:"ai"
+            visible:!root.isOverviewTab
+            expanded:true
+            title:Translation.tr("AI")
+            icon:"chat"
+            SettingsGroup {
+                objectName:"aquaAiSettingsGroup"
+
+                // ROW 1: Talk Clouds + Allow Cloud Models + Model (Left) | Thinking Effort / Privacy Status + Clear (Right)
+                GridLayout {
+                    objectName:"aquaAiModelGrid"
+                    Layout.fillWidth:true
+                    Layout.preferredWidth:1
+                    Layout.minimumWidth:0
+                    columns:root.availableRowWidth>520 ? 2 : 1
+                    uniformCellWidths:columns > 1
+                    columnSpacing:14;rowSpacing:6
+
+                    RowLayout {
+                        Layout.fillWidth:true;Layout.preferredWidth:1;Layout.minimumWidth:0;Layout.alignment:Qt.AlignVCenter;spacing:8
+                        CompactToggle {
+                            objectName:"aquaTalkClouds"
+                            Layout.fillWidth:false
+                            Layout.minimumWidth:76
+                            buttonIcon:"chat_bubble"
+                            text:Translation.tr("Talk clouds")
+                            tooltipText:"Show speech bubbles and quick chat above your companion."
+                            checked:AquaMind.talkEnabled
+                            onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.talkEnabled",checked)
+                        }
+                        CompactToggle {
+                            objectName:"aquaAllowCloudModels"
+                            Layout.fillWidth:false
+                            Layout.minimumWidth:84
+                            buttonIcon:"cloud"
+                            text:Translation.tr("Allow cloud models")
+                            tooltipText:"Keep off to restrict Companion strictly to verified local models."
+                            checked:!AquaMind.localOnly
+                            onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.localOnly",!checked)
+                        }
+                        StyledComboBox {
+                            objectName:"aquaCompanionModelSelector"
+                            Layout.fillWidth:true
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:80
+                            popupMinimumWidth:320
+                            model:AquaMind.selectableModels
+                            textRole:"label"
+                            currentIndex:Math.max(0,AquaMind.selectableModels.findIndex(item=>item.name===String(Config.options?.abyss?.companionMind?.model ?? "")))
+                            displayText:currentIndex>=0 ? (AquaMind.selectableModels[currentIndex].label ?? AquaMind.selectableModels[currentIndex].name) : "Use the AI tab model"
+                            onActivated:index=>{
+                                const item=AquaMind.selectableModels[index]
+                                if(item)AquaMind.selectModel(item)
+                            }
+                        }
+                        CompactIconButton {
+                            objectName:"aquaRefreshModelsButton"
+                            iconName:"sync"
+                            enabled:!AquaMind.refreshingModels
+                            tooltipText:"Auto-detect & refresh available models"
+                            onClicked:AquaMind.refreshAvailableModels(true)
+                        }
+                        CompactIconButton {
+                            id:toggleModelAliasBtn
+                            objectName:"aquaToggleModelAliasButton"
+                            visible:AquaMind.model.length>0
+                            iconName:"edit_note"
+                            tooltipText:"Customize model display name"
+                            colBackground:root.modelAliasExpanded
+                                ? Qt.alpha(Appearance.colors.colPrimary,0.22)
+                                : Appearance.colors.colLayer2
+                            onClicked:{
+                                root.modelAliasExpanded=!root.modelAliasExpanded
+                                if(root.modelAliasExpanded) {
+                                    Qt.callLater(()=>settingsModelAliasInput.forceActiveFocus())
+                                }
+                            }
+                        }
                     }
-                    InlineChoice {
-                        objectName:"aquaMemoryScope"
-                        label:Translation.tr("Remember for")
-                        comboMinWidth:84
-                        options:[{displayName:"Aqua",value:"aqua"},{displayName:"Octo",value:"octo"},{displayName:Translation.tr("Both"),value:"shared"}]
-                        currentValue:root.memoryScope
-                        onSelected:value=>root.memoryScope=value
-                    }
-                    InlineChoice {
-                        objectName:"aquaMemoryTtl"
-                        label:Translation.tr("Keep memory")
-                        comboMinWidth:96
-                        options:[{displayName:Translation.tr("7 days"),value:7},{displayName:Translation.tr("30 days"),value:30},{displayName:Translation.tr("Until I forget it"),value:0}]
-                        currentValue:root.memoryTtlDays
-                        onSelected:value=>root.memoryTtlDays=value
+
+                    RowLayout {
+                        Layout.fillWidth:true;Layout.preferredWidth:1;Layout.minimumWidth:0;Layout.alignment:Qt.AlignVCenter;spacing:8
+                        StyledText {
+                            visible:AquaMind.thinkingSupported
+                            Layout.fillWidth:false
+                            text:"Thinking effort"
+                            color:Appearance.colors.colSubtext
+                            font.pixelSize:Appearance.font.pixelSize.smaller
+                        }
+                        Rectangle {
+                            id:settingsEffortSlider
+                            objectName:"aquaCompanionThinkingEffort"
+                            visible:AquaMind.thinkingSupported
+                            Layout.fillWidth:true
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:108
+                            implicitWidth:150
+                            implicitHeight:34
+                            radius:10
+                            color:Appearance.colors.colLayer2
+                            enabled:AquaMind.thinkingSupported && !AquaMind.busy
+                            readonly property int stepCount:Math.max(1,settingsEffortRepeater.count)
+                            readonly property real stepSlotWidth:Math.max(16,(width-12)/stepCount)
+                            readonly property int activeStepIndex:Math.max(0,AquaMind.thinkingLevels.findIndex(level=>level.value===AquaMind.effectiveThinkingEffort || (level.value==="off" && AquaMind.effectiveThinkingEffort==="instant") || (level.value==="instant" && AquaMind.effectiveThinkingEffort==="off")))
+                            property real animatedStepIndex:activeStepIndex
+                            Behavior on animatedStepIndex {
+                                enabled: root.visible && AquaMind.liveModelAutoDetectAllowed
+                                NumberAnimation {
+                                    duration: 140
+                                    easing.type: Easing.OutCubic
+                                }
+                            }
+                            function applyEffortAtX(localX): bool {
+                                const levels = AquaMind.thinkingLevels ?? []
+                                if (levels.length <= 1 || !enabled) return false
+                                const pad = 6 + stepSlotWidth * 0.5
+                                const trackW = Math.max(1, width - 12 - stepSlotWidth)
+                                const ratio = Math.max(0, Math.min(1, (localX - pad) / trackW))
+                                const idx = Math.max(0, Math.min(levels.length - 1, Math.round(ratio * (levels.length - 1))))
+                                const item = levels[idx]
+                                if (item && item.value !== undefined) {
+                                    AquaMind.setThinkingEffort(item.value)
+                                    return true
+                                }
+                                return false
+                            }
+                            Rectangle {
+                                id:settingsEffortTrackBg
+                                x:6+Math.round(settingsEffortSlider.stepSlotWidth*0.5)
+                                y:9
+                                width:Math.max(0,settingsEffortSlider.width-12-settingsEffortSlider.stepSlotWidth)
+                                height:4
+                                radius:2
+                                color:Qt.alpha(Appearance.colors.colOnLayer1,0.14)
+                            }
+                            Rectangle {
+                                x:settingsEffortTrackBg.x
+                                y:settingsEffortTrackBg.y
+                                width:settingsEffortSlider.stepCount>1
+                                    ? Math.round(settingsEffortTrackBg.width*(settingsEffortSlider.animatedStepIndex/(settingsEffortSlider.stepCount-1)))
+                                    : 0
+                                height:4
+                                radius:2
+                                color:Appearance.colors.colPrimary
+                            }
+                            Rectangle {
+                                id:settingsEffortThumb
+                                objectName:"aquaSettingsEffortThumb"
+                                z:5
+                                width:12
+                                height:12
+                                radius:6
+                                x:6+Math.round((settingsEffortSlider.animatedStepIndex+0.5)*settingsEffortSlider.stepSlotWidth-width/2)
+                                y:5
+                                color:Appearance.colors.colPrimary
+                                border.width:2
+                                border.color:Appearance.colors.colOnPrimary
+                            }
+                            Repeater {
+                                id:settingsEffortRepeater
+                                model:AquaMind.thinkingLevels
+                                RippleButton {
+                                    id:settingsEffortStep
+                                    required property var modelData
+                                    required property int index
+                                    objectName:"aquaSettingsEffortOption-"+String(modelData.value)
+                                    readonly property string shortLabel:modelData.value==="instant" || modelData.value==="off"
+                                        ? "Inst"
+                                        : modelData.value==="low" ? "Low"
+                                        : modelData.value==="medium" ? "Med"
+                                        : modelData.value==="high" ? "High"
+                                        : modelData.value==="xhigh" ? "XHigh" : "Max"
+                                    readonly property bool isSelected:index===settingsEffortSlider.activeStepIndex
+                                    x:6+Math.round(index*settingsEffortSlider.stepSlotWidth)
+                                    y:1
+                                    width:Math.max(16,Math.round(settingsEffortSlider.stepSlotWidth))
+                                    height:32
+                                    implicitWidth:24
+                                    implicitHeight:32
+                                    buttonRadius:7
+                                    colBackground:"transparent"
+                                    colBackgroundHover:Qt.alpha(Appearance.colors.colPrimary,0.10)
+                                    moveAction: event => {
+                                        if (settingsEffortStep.down) {
+                                            settingsEffortStep.suppressClickOnRelease = true
+                                            settingsEffortSlider.applyEffortAtX(settingsEffortStep.x + event.x)
+                                        }
+                                    }
+                                    onClicked:AquaMind.setThinkingEffort(modelData.value)
+                                    StyledToolTip {
+                                        extraVisibleCondition:settingsEffortStep.buttonHovered
+                                        text:"Thinking effort: "+String(settingsEffortStep.modelData.label)
+                                    }
+                                    contentItem:Item {
+                                        Rectangle {
+                                            anchors.horizontalCenter:parent.horizontalCenter
+                                            y:6
+                                            width:8
+                                            height:8
+                                            radius:4
+                                            visible:!settingsEffortStep.isSelected
+                                            color:settingsEffortStep.index<=settingsEffortSlider.activeStepIndex
+                                                ? Qt.alpha(Appearance.colors.colPrimary,0.68)
+                                                : Appearance.colors.colLayer3
+                                            border.width:1
+                                            border.color:Qt.alpha(Appearance.colors.colOnLayer1,0.28)
+                                        }
+                                        StyledText {
+                                            anchors.horizontalCenter:parent.horizontalCenter
+                                            y:18
+                                            height:12
+                                            text:settingsEffortStep.shortLabel
+                                            horizontalAlignment:Text.AlignHCenter
+                                            verticalAlignment:Text.AlignVCenter
+                                            font.pixelSize:Appearance.font.pixelSize.smallest-3
+                                            font.weight:settingsEffortStep.isSelected ? Font.DemiBold : Font.Normal
+                                            color:settingsEffortStep.isSelected
+                                                ? Appearance.colors.colPrimary
+                                                : Appearance.colors.colSubtext
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Rectangle {
+                            visible:!AquaMind.thinkingSupported
+                            Layout.fillWidth:true
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:60
+                            implicitWidth:120
+                            implicitHeight:34;radius:10
+                            color:Appearance.colors.colLayer2
+                            RowLayout {
+                                id:privacyRow
+                                anchors.fill:parent
+                                anchors.leftMargin:10
+                                anchors.rightMargin:10
+                                spacing:6
+                                MaterialSymbol {
+                                    text:AquaMind.localOnly ? "verified_user" : "cloud_done"
+                                    iconSize:17;color:Appearance.colors.colPrimary
+                                }
+                                StyledText {
+                                    objectName:"aquaAiPrivacyStatus"
+                                    Layout.fillWidth:true
+                                    Layout.minimumWidth:0
+                                    elide:Text.ElideRight
+                                    text:(AquaMind.localOnly ? "Local only" : "Cloud models allowed") + " · " + Translation.tr("Providers and connections are shared with AI settings.")
+                                    font.pixelSize:Appearance.font.pixelSize.smaller
+                                    color:Appearance.colors.colSubtext
+                                }
+                            }
+                            MouseArea {
+                                id:privacyHover;anchors.fill:parent;hoverEnabled:true;acceptedButtons:Qt.NoButton
+                            }
+                            StyledToolTip {
+                                text:(AquaMind.localOnly ? "Local only" : "Cloud models allowed") + " · " + Translation.tr("Providers and connections are shared with AI settings.")
+                                extraVisibleCondition:privacyHover.containsMouse
+                            }
+                        }
+                        CompactIconButton {
+                            objectName:"aquaClearConversation"
+                            iconName:"delete_sweep"
+                            tooltipText:Translation.tr("Clear conversation")
+                            onClicked:AquaMind.clearConversation()
+                        }
                     }
                 }
+
+                // ROW 1A: Custom Model Display Name (Alias) for long model identifiers (toggled by icon button)
                 RowLayout {
-                    Layout.fillWidth:true;Layout.alignment:Qt.AlignVCenter;spacing:8
+                    id:settingsModelAliasRow
+                    objectName:"aquaSettingsModelAliasRow"
+                    visible:root.modelAliasExpanded && AquaMind.model.length>0
+                    Layout.fillWidth:true
+                    Layout.preferredWidth:1
+                    Layout.minimumWidth:0
+                    spacing:8
+                    readonly property string currentSavedAlias:(AquaMind.modelAliases, AquaMind.modelAliasFor(AquaMind.model))
+                    Connections {
+                        target:AquaMind
+                        function onModelChanged():void {
+                            settingsModelAliasInput.text=AquaMind.modelAliasFor(AquaMind.model)
+                        }
+                        function onModelAliasesChanged():void {
+                            if(!settingsModelAliasInput.activeFocus) {
+                                settingsModelAliasInput.text=AquaMind.modelAliasFor(AquaMind.model)
+                            }
+                        }
+                    }
+                    MaterialSymbol {
+                        text:"edit_note"
+                        iconSize:17
+                        color:Appearance.colors.colPrimary
+                    }
+                    StyledText {
+                        text:"Model display name"
+                        color:Appearance.colors.colSubtext
+                        font.pixelSize:Appearance.font.pixelSize.smaller
+                    }
                     Rectangle {
                         Layout.fillWidth:true
-                        implicitHeight:36;radius:10
+                        Layout.preferredWidth:1
+                        Layout.minimumWidth:80
+                        implicitWidth:120
+                        implicitHeight:34
+                        radius:10
                         color:Appearance.colors.colLayer1
-                        border.width:1;border.color:Qt.alpha(Appearance.colors.colPrimary,memoryInput.activeFocus ? .8 : .3)
+                        border.width:1
+                        border.color:Qt.alpha(Appearance.colors.colPrimary,settingsModelAliasInput.activeFocus ? .8 : .3)
                         StyledTextInput {
-                            id:memoryInput
-                            objectName:"aquaMemoryDraft"
-                            anchors.fill:parent;anchors.leftMargin:10;anchors.rightMargin:10
+                            id:settingsModelAliasInput
+                            objectName:"aquaSettingsModelAliasInput"
+                            property string placeholderText:AquaMind.rawModelDisplayName(AquaMind.model,"Custom display name...",true)
+                            anchors.fill:parent
+                            anchors.leftMargin:10
+                            anchors.rightMargin:10
                             verticalAlignment:Text.AlignVCenter
-                            enabled:AquaMind.memoryEnabled && !AquaMind.busy
-                            clip:true;selectByMouse:true;activeFocusOnTab:true
-                            Accessible.name:Translation.tr("An explicit preference to remember")
-                            maximumLength:320;text:root.memoryDraft
-                            onTextEdited:root.memoryDraft=text
+                            clip:true
+                            selectByMouse:true
+                            activeFocusOnTab:true
+                            maximumLength:80
+                            text:settingsModelAliasRow.currentSavedAlias
+                            onAccepted:{
+                                AquaMind.setModelAlias(AquaMind.model,text)
+                                root.modelAliasExpanded=false
+                            }
                         }
                         StyledText {
-                            anchors.fill:memoryInput;verticalAlignment:Text.AlignVCenter
-                            visible:!memoryInput.text;elide:Text.ElideRight
-                            text:Translation.tr("An explicit preference to remember")
+                            anchors.fill:settingsModelAliasInput
+                            verticalAlignment:Text.AlignVCenter
+                            visible:settingsModelAliasInput.text.length===0
+                            elide:Text.ElideRight
+                            text:settingsModelAliasInput.placeholderText
                             color:Appearance.colors.colSubtext
                             font.pixelSize:Appearance.font.pixelSize.smaller
                         }
                     }
-                    CompactIconButton {
-                        objectName:"aquaSaveMemory"
-                        iconName:root.memoryEditingId ? "save" : "add"
-                        tooltipText:root.memoryEditingId ? Translation.tr("Save memory changes") : Translation.tr("Save memory")
-                        enabled:AquaMind.memoryEnabled && !AquaMind.busy && root.memoryDraft.trim().length>0
-                        onClicked:if(AquaMind.saveMemory(root.memoryDraft,root.memoryScope,root.memoryTtlDays,root.memoryEditingId)) {
-                            root.memoryDraft="";root.memoryEditingId=0
-                        }
-                    }
-                    CompactIconButton {
-                        objectName:"aquaReviewMemory"
-                        iconName:"refresh"
-                        tooltipText:Translation.tr("Review saved memories")
-                        enabled:!AquaMind.busy
-                        onClicked:AquaMind.refreshMemory()
-                    }
-                    CompactIconButton {
-                        objectName:"aquaForgetAllMemory"
-                        iconName:root.confirmForgetMemories ? "warning" : "delete_sweep"
-                        tooltipText:root.confirmForgetMemories ? Translation.tr("Confirm forgetting all saved memories") : Translation.tr("Forget all saved memories")
-                        enabled:!AquaMind.busy && AquaMind.memories.length>0
+                    RippleButton {
+                        id:settingsModelAliasSaveBtn
+                        objectName:"aquaSettingsModelAliasSave"
+                        Layout.fillWidth:false
+                        Layout.preferredWidth:54
+                        Layout.preferredHeight:32
+                        implicitWidth:54
+                        implicitHeight:32
+                        buttonRadius:9
+                        colBackground:Appearance.colors.colPrimaryContainer
+                        colBackgroundHover:Appearance.colors.colPrimaryContainerHover
                         onClicked:{
-                            if(root.confirmForgetMemories){AquaMind.forgetAllMemories();root.confirmForgetMemories=false}
-                            else root.confirmForgetMemories=true
+                            AquaMind.setModelAlias(AquaMind.model,settingsModelAliasInput.text)
+                            root.modelAliasExpanded=false
+                        }
+                        contentItem:Item {
+                            StyledText {
+                                anchors.fill:parent
+                                text:"Save"
+                                horizontalAlignment:Text.AlignHCenter
+                                verticalAlignment:Text.AlignVCenter
+                                font.pixelSize:Appearance.font.pixelSize.smaller
+                                font.weight:Font.DemiBold
+                                color:Appearance.colors.colOnPrimaryContainer
+                            }
+                        }
+                    }
+                    CompactIconButton {
+                        id:settingsModelAliasResetBtn
+                        objectName:"aquaSettingsModelAliasReset"
+                        visible:settingsModelAliasRow.currentSavedAlias.length>0 || settingsModelAliasInput.text.trim().length>0
+                        iconName:"restart_alt"
+                        tooltipText:"Reset to original model name"
+                        onClicked:{
+                            settingsModelAliasInput.text=""
+                            AquaMind.setModelAlias(AquaMind.model,"")
                         }
                     }
                 }
-            }
 
-            GridLayout {
-                objectName:"aquaReminderSourcesGrid"
-                visible:false
-                columns:root.availableRowWidth>520 ? 2 : 1
-            }
+                // ROW 1B: Dual-Model Auto-Routing (UI Action vs Deep Thinking) & MTP Auto-Optimization
+                GridLayout {
+                    objectName:"aquaDualModelRoutingGrid"
+                    Layout.fillWidth:true
+                    Layout.preferredWidth:1
+                    Layout.minimumWidth:0
+                    columns:root.availableRowWidth>520 ? 2 : 1
+                    uniformCellWidths:columns > 1
+                    columnSpacing:14;rowSpacing:6
 
-            Repeater {
-                model:AquaMind.toolReceipts
-                RowLayout {
-                    required property var modelData
-                    Layout.fillWidth:true;spacing:8
-                    StyledText {
-                        Layout.fillWidth:true;elide:Text.ElideRight;textFormat:Text.PlainText
-                        font.pixelSize:Appearance.font.pixelSize.smaller;color:Appearance.colors.colSubtext
-                        text:modelData.field+": "+modelData.beforeValue+" → "+modelData.afterValue+(modelData.rolledBack ? " (rolled back)" : "")
+                    RowLayout {
+                        Layout.fillWidth:true;Layout.preferredWidth:1;Layout.minimumWidth:0;Layout.alignment:Qt.AlignVCenter;spacing:8
+                        CompactToggle {
+                            objectName:"aquaAutoModelRoutingToggle"
+                            Layout.fillWidth:false
+                            Layout.minimumWidth:76
+                            buttonIcon:"alt_route"
+                            text:"Auto-route"
+                            tooltipText:"Automatically route desktop/UI commands to your fast Action model (or {REASON:imedium}) and deep reasoning prompts to your Deep Thinking model (or {REASON:xhigh} / {REASON:einstein})."
+                            checked:AquaMind.autoModelRoutingEnabled
+                            onToggledByUser:checked=>AquaMind.setAutoModelRoutingEnabled(checked)
+                        }
+                        CompactToggle {
+                            objectName:"aquaMtpOptimizeToggle"
+                            Layout.fillWidth:false
+                            Layout.minimumWidth:76
+                            buttonIcon:"speed"
+                            text:"MTP Auto-Optimize"
+                            tooltipText:"Automatically set repetition_penalty = 1.0 and temperature <= 0.8 when running Multi-Token Prediction (MTP) GGUF models."
+                            checked:AquaMind.mtpOptimizeEnabled
+                            onToggledByUser:checked=>AquaMind.setMtpOptimizeEnabled(checked)
+                        }
+                        Rectangle {
+                            Layout.fillWidth:true
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:60
+                            implicitWidth:100
+                            implicitHeight:34;radius:10
+                            color:Appearance.colors.colLayer2
+                            RowLayout {
+                                anchors.fill:parent
+                                anchors.leftMargin:10;anchors.rightMargin:10
+                                spacing:6
+                                MaterialSymbol {
+                                    text:AquaMind.dualModelActive ? "hub" : (AquaMind.currentModelIsPlusIq ? "psychology" : "smart_toy")
+                                    iconSize:16;color:Appearance.colors.colPrimary
+                                }
+                                StyledText {
+                                    objectName:"aquaDualModelRouteStatus"
+                                    Layout.fillWidth:true
+                                    Layout.minimumWidth:0
+                                    elide:Text.ElideRight
+                                    text:AquaMind.routingSummaryLabel + " · " + AquaMind.mtpStatusLabel
+                                    font.pixelSize:Appearance.font.pixelSize.smaller
+                                    color:Appearance.colors.colSubtext
+                                }
+                            }
+                            MouseArea {
+                                id:routeStatusHover;anchors.fill:parent;hoverEnabled:true;acceptedButtons:Qt.NoButton
+                            }
+                            StyledToolTip {
+                                text:AquaMind.routingSummaryLabel + " · " + AquaMind.mtpStatusLabel
+                                extraVisibleCondition:routeStatusHover.containsMouse
+                            }
+                        }
                     }
-                    CompactIconButton {
-                        iconName:"undo"
-                        tooltipText:"Rollback preference update"
-                        enabled:!AquaMind.busy && !modelData.rolledBack
-                        onClicked:AquaMind.rollbackToolReceipt(String(modelData.receiptId))
+
+                    RowLayout {
+                        Layout.fillWidth:true;Layout.preferredWidth:1;Layout.minimumWidth:0;Layout.alignment:Qt.AlignVCenter;spacing:8
+                        StyledComboBox {
+                            objectName:"aquaActionModelSelector"
+                            Layout.fillWidth:true
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:80
+                            popupMinimumWidth:300
+                            enabled:AquaMind.autoModelRoutingEnabled && !AquaMind.busy
+                            model:AquaMind.actionSelectableModels
+                            textRole:"label"
+                            currentIndex:Math.max(0,AquaMind.actionSelectableModels.findIndex(item=>item.name===AquaMind.configuredActionModel))
+                            displayText:"UI Action: " + (AquaMind.configuredActionModel.length>0 ? AquaMind.actionModelLabel : ("Auto (" + AquaMind.actionModelLabel + ")"))
+                            onActivated:index=>{
+                                const item=AquaMind.actionSelectableModels[index]
+                                if(item)AquaMind.selectActionModel(item)
+                            }
+                        }
+                        StyledComboBox {
+                            objectName:"aquaThinkingModelSelector"
+                            Layout.fillWidth:true
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:80
+                            popupMinimumWidth:300
+                            enabled:AquaMind.autoModelRoutingEnabled && !AquaMind.busy
+                            model:AquaMind.thinkingSelectableModels
+                            textRole:"label"
+                            currentIndex:Math.max(0,AquaMind.thinkingSelectableModels.findIndex(item=>item.name===AquaMind.configuredThinkingModel))
+                            displayText:"Deep Thinking: " + (AquaMind.configuredThinkingModel.length>0 ? AquaMind.thinkingModelLabel : ("Auto (" + AquaMind.thinkingModelLabel + ")"))
+                            onActivated:index=>{
+                                const item=AquaMind.thinkingSelectableModels[index]
+                                if(item)AquaMind.selectThinkingModel(item)
+                            }
+                        }
+                        StyledComboBox {
+                            objectName:"aquaLlmIdleUnloadSelector"
+                            Layout.fillWidth:false
+                            Layout.preferredWidth:138
+                            Layout.minimumWidth:116
+                            popupMinimumWidth:160
+                            model:AquaMind.llmIdleUnloadOptions
+                            textRole:"displayName"
+                            settingsSearchLabel:"Auto-unload idle LLM"
+                            settingsSearchDescription:"Automatically unload local LLM models from memory after idle timeout"
+                            currentIndex:Math.max(0,AquaMind.llmIdleUnloadOptions.findIndex(item=>Number(item.value)===AquaMind.llmIdleUnloadMinutes))
+                            displayText:"Unload: " + (AquaMind.llmIdleUnloadMinutes > 0 ? (AquaMind.llmIdleUnloadMinutes + "m") : "Never")
+                            onActivated:index=>{
+                                const item=AquaMind.llmIdleUnloadOptions[index]
+                                if(item)AquaMind.setLlmIdleUnloadMinutes(item.value)
+                            }
+                        }
                     }
                 }
-            }
-            StyledText {
-                visible:AquaMind.memoryNotice.length>0
-                Layout.fillWidth:true;wrapMode:Text.WordWrap;textFormat:Text.PlainText
-                text:AquaMind.memoryNotice
-                font.pixelSize:Appearance.font.pixelSize.smaller
-                color:Appearance.colors.colSubtext
-            }
-            Repeater {
-                model:AquaMind.memories
+
+                // ROW 5: Unified Full Desktop & App Access (merged Desktop Agent) + Share Alis AI Activity
+                GridLayout {
+                    objectName:"aquaDialogueGrid"
+                    Layout.fillWidth:true
+                    Layout.preferredWidth:1
+                    Layout.minimumWidth:0
+                    columns:root.availableRowWidth>520 ? 2 : 1
+                    uniformCellWidths:columns > 1
+                    columnSpacing:14;rowSpacing:6
+
+                    CompactToggle {
+                        objectName: "companionContext"
+                        Layout.preferredWidth:1
+                        Layout.minimumWidth:0
+                        buttonIcon: "admin_panel_settings"
+                        text: Translation.tr("Full Desktop & App Access")
+                        tooltipText: Translation.tr("Allow Companion full access to Apps, Desktop & User data, on-screen info, desktop edits, and scripts.")
+                        checked: root.preferences.contextEnabled && AquaMind.agentToolsEnabled
+                        onToggledByUser: checked => {
+                            root.setPreference("contextEnabled", checked)
+                            root.setPreference("contextFocusEnabled", checked)
+                            AquaMind.agentToolsEnabled = checked
+                            AquaMind.agentAppContextEnabled = checked
+                        }
+                        Item {
+                            objectName: "aquaAgentToolsToggle"
+                            visible: false
+                            property bool checked: root.preferences.contextEnabled && AquaMind.agentToolsEnabled
+                        }
+                        Item {
+                            objectName: "aquaContextAccessGrid"
+                            visible: false
+                        }
+                    }
+                    CompactToggle {
+                        objectName: "companionContextAi"
+                        Layout.preferredWidth:1
+                        Layout.minimumWidth:0
+                        buttonIcon: "psychology"
+                        text: Translation.tr("Share Alis AI activity")
+                        tooltipText: Translation.tr("Only working, waiting for approval and finished. No prompts, replies, tools or permission grants.")
+                        enabled: root.preferences.contextEnabled
+                        checked: root.preferences.contextAiEnabled
+                        onToggledByUser: checked => root.setPreference("contextAiEnabled", checked)
+                    }
+                }
+
+                // ROW 5B: Storage & Capabilities Sub-Tabs (Skills [Built-in + Learned merged], MCP, RAG / State)
                 RowLayout {
-                    required property var modelData
-                    Layout.fillWidth:true;spacing:8
-                    StyledText {
-                        Layout.fillWidth:true;elide:Text.ElideRight;textFormat:Text.PlainText
-                        text:modelData.scope+" · "+modelData.text
+                    objectName:"aquaStorageFoldersRow"
+                    Layout.fillWidth:true
+                    Layout.preferredWidth:1
+                    Layout.minimumWidth:0
+                    spacing:8
+
+                    RippleButton {
+                        id:storageTabSkillsBtn
+                        objectName:"aquaStorageTabSkills"
+                        Layout.preferredHeight:32
+                        Layout.preferredWidth:storageTabSkillsRow.implicitWidth+24
+                        implicitHeight:32
+                        implicitWidth:Layout.preferredWidth
+                        buttonRadius:10
+                        colBackground:root.activeStorageTab==="skills"
+                            ? Appearance.colors.colPrimary
+                            : Appearance.colors.colLayer2
+                        colBackgroundHover:root.activeStorageTab==="skills"
+                            ? Appearance.colors.colPrimaryHover
+                            : Appearance.colors.colLayer2Hover
+                        onClicked:{
+                            root.activeStorageTab="skills"
+                            if(AquaMind.liveModelAutoDetectAllowed)
+                                AquaMind.refreshAgentStatus()
+                        }
+                        StyledToolTip {
+                            extraVisibleCondition:storageTabSkillsBtn.hovered
+                            text:"View merged Built-in & Learned Skills (" + String(Array.isArray(AquaMind.availableSkills) ? AquaMind.availableSkills.length : 0) + ")"
+                        }
+                        contentItem:Item {
+                            implicitWidth:storageTabSkillsRow.implicitWidth
+                            implicitHeight:storageTabSkillsRow.implicitHeight
+                            Row {
+                                id:storageTabSkillsRow
+                                anchors.centerIn:parent
+                                spacing:6
+                                MaterialSymbol {
+                                    anchors.verticalCenter:parent.verticalCenter
+                                    text:"extension"
+                                    iconSize:16
+                                    color:root.activeStorageTab==="skills"
+                                        ? Appearance.colors.colOnPrimary
+                                        : Appearance.colors.colPrimary
+                                }
+                                StyledText {
+                                    anchors.verticalCenter:parent.verticalCenter
+                                    verticalAlignment:Text.AlignVCenter
+                                    text:"Skills (" + String(Array.isArray(AquaMind.availableSkills) ? AquaMind.availableSkills.length : 0) + ")"
+                                    font.pixelSize:Appearance.font.pixelSize.smaller
+                                    font.weight:root.activeStorageTab==="skills" ? Font.DemiBold : Font.Normal
+                                    color:root.activeStorageTab==="skills"
+                                        ? Appearance.colors.colOnPrimary
+                                        : Appearance.colors.colOnLayer2
+                                }
+                            }
+                        }
                     }
-                    StyledText {
-                        textFormat:Text.PlainText;color:Appearance.colors.colSubtext
-                        font.pixelSize:Appearance.font.pixelSize.smaller
-                        text:modelData.expires_ms===0 ? Translation.tr("Until forgotten")
-                            : (modelData.expires_ms<=Date.now() ? Translation.tr("Expired") : Translation.tr("Expires"))
-                                +" · "+Qt.formatDateTime(new Date(modelData.expires_ms),"yyyy-MM-dd")
+
+                    RippleButton {
+                        id:storageTabMcpBtn
+                        objectName:"aquaStorageTabMcp"
+                        readonly property int mcpUpdateCount: Array.isArray(AquaMind.mcpServers)
+                            ? AquaMind.mcpServers.filter(s => s && s.hasUpdate === true).length
+                            : 0
+                        Layout.preferredHeight:32
+                        Layout.preferredWidth:storageTabMcpRow.implicitWidth+24
+                        implicitHeight:32
+                        implicitWidth:Layout.preferredWidth
+                        buttonRadius:10
+                        colBackground:root.activeStorageTab==="mcp"
+                            ? Appearance.colors.colPrimary
+                            : Appearance.colors.colLayer2
+                        colBackgroundHover:root.activeStorageTab==="mcp"
+                            ? Appearance.colors.colPrimaryHover
+                            : Appearance.colors.colLayer2Hover
+                        onClicked:{
+                            root.activeStorageTab="mcp"
+                            if(AquaMind.liveModelAutoDetectAllowed)
+                                AquaMind.refreshAgentStatus()
+                        }
+                        StyledToolTip {
+                            extraVisibleCondition:storageTabMcpBtn.hovered
+                            text:"View Eyes & Hands MCP Servers (" + String(Array.isArray(AquaMind.mcpServers) ? AquaMind.mcpServers.length : 0) + ")"
+                        }
+                        contentItem:Item {
+                            implicitWidth:storageTabMcpRow.implicitWidth
+                            implicitHeight:storageTabMcpRow.implicitHeight
+                            Row {
+                                id:storageTabMcpRow
+                                anchors.centerIn:parent
+                                spacing:6
+                                MaterialSymbol {
+                                    anchors.verticalCenter:parent.verticalCenter
+                                    text:"hub"
+                                    iconSize:16
+                                    color:root.activeStorageTab==="mcp"
+                                        ? Appearance.colors.colOnPrimary
+                                        : Appearance.colors.colPrimary
+                                }
+                                StyledText {
+                                    anchors.verticalCenter:parent.verticalCenter
+                                    verticalAlignment:Text.AlignVCenter
+                                    text:"MCP (" + String(Array.isArray(AquaMind.mcpServers) ? AquaMind.mcpServers.length : 0) + ")"
+                                    font.pixelSize:Appearance.font.pixelSize.smaller
+                                    font.weight:root.activeStorageTab==="mcp" ? Font.DemiBold : Font.Normal
+                                    color:root.activeStorageTab==="mcp"
+                                        ? Appearance.colors.colOnPrimary
+                                        : Appearance.colors.colOnLayer2
+                                }
+                                Rectangle {
+                                    visible:storageTabMcpBtn.mcpUpdateCount > 0
+                                    anchors.verticalCenter:parent.verticalCenter
+                                    implicitHeight:16
+                                    implicitWidth:mcpTabBadgeText.implicitWidth+8
+                                    radius:8
+                                    color:root.activeStorageTab==="mcp"
+                                        ? Qt.alpha(Appearance.colors.colOnPrimary,0.22)
+                                        : Qt.alpha(Appearance.colors.colPrimary,0.22)
+                                    StyledText {
+                                        id:mcpTabBadgeText
+                                        anchors.centerIn:parent
+                                        text:String(storageTabMcpBtn.mcpUpdateCount) + " new"
+                                        font.pixelSize:Appearance.font.pixelSize.smallest - 1
+                                        font.weight:Font.DemiBold
+                                        color:root.activeStorageTab==="mcp"
+                                            ? Appearance.colors.colOnPrimary
+                                            : Appearance.colors.colPrimary
+                                    }
+                                }
+                            }
+                        }
                     }
+
+                    RippleButton {
+                        id:storageTabRagBtn
+                        objectName:"aquaStorageTabRag"
+                        Layout.preferredHeight:32
+                        Layout.preferredWidth:storageTabRagRow.implicitWidth+24
+                        implicitHeight:32
+                        implicitWidth:Layout.preferredWidth
+                        buttonRadius:10
+                        colBackground:root.activeStorageTab==="rag"
+                            ? Appearance.colors.colPrimary
+                            : Appearance.colors.colLayer2
+                        colBackgroundHover:root.activeStorageTab==="rag"
+                            ? Appearance.colors.colPrimaryHover
+                            : Appearance.colors.colLayer2Hover
+                        onClicked:root.activeStorageTab="rag"
+                        StyledToolTip {
+                            extraVisibleCondition:storageTabRagBtn.hovered
+                            text:"View RAG & State storage paths"
+                        }
+                        contentItem:Item {
+                            implicitWidth:storageTabRagRow.implicitWidth
+                            implicitHeight:storageTabRagRow.implicitHeight
+                            Row {
+                                id:storageTabRagRow
+                                anchors.centerIn:parent
+                                spacing:6
+                                MaterialSymbol {
+                                    anchors.verticalCenter:parent.verticalCenter
+                                    text:"library_books"
+                                    iconSize:16
+                                    color:root.activeStorageTab==="rag"
+                                        ? Appearance.colors.colOnPrimary
+                                        : Appearance.colors.colPrimary
+                                }
+                                StyledText {
+                                    anchors.verticalCenter:parent.verticalCenter
+                                    verticalAlignment:Text.AlignVCenter
+                                    text:"RAG / State"
+                                    font.pixelSize:Appearance.font.pixelSize.smaller
+                                    font.weight:root.activeStorageTab==="rag" ? Font.DemiBold : Font.Normal
+                                    color:root.activeStorageTab==="rag"
+                                        ? Appearance.colors.colOnPrimary
+                                        : Appearance.colors.colOnLayer2
+                                }
+                            }
+                        }
+                    }
+
+                    Item { Layout.fillWidth:true }
+
+                    RippleButton {
+                        id:openSkillsDirBtn
+                        objectName:"aquaOpenSkillsDirButton"
+                        visible:root.activeStorageTab==="skills"
+                        Layout.preferredHeight:28
+                        Layout.preferredWidth:openSkillsDirRow.implicitWidth+16
+                        implicitHeight:28
+                        implicitWidth:Layout.preferredWidth
+                        buttonRadius:9
+                        colBackground:Appearance.colors.colLayer2
+                        colBackgroundHover:Appearance.colors.colLayer2Hover
+                        onClicked:AquaMind.openStorageFolder("skills")
+                        StyledToolTip {
+                            extraVisibleCondition:openSkillsDirBtn.hovered
+                            text:"Open Skills folder (" + String(AquaMind.storagePaths?.skillsDir ?? "~/.local/state/alis-companion/skills") + ")"
+                        }
+                        contentItem:Item {
+                            implicitWidth:openSkillsDirRow.implicitWidth
+                            implicitHeight:openSkillsDirRow.implicitHeight
+                            Row {
+                                id:openSkillsDirRow
+                                anchors.centerIn:parent
+                                spacing:4
+                                MaterialSymbol {
+                                    anchors.verticalCenter:parent.verticalCenter
+                                    text:"folder_open"
+                                    iconSize:14
+                                    color:Appearance.colors.colPrimary
+                                }
+                                StyledText {
+                                    anchors.verticalCenter:parent.verticalCenter
+                                    verticalAlignment:Text.AlignVCenter
+                                    text:"Open Skills Folder"
+                                    font.pixelSize:Appearance.font.pixelSize.smallest
+                                }
+                            }
+                        }
+                    }
+
+                    RippleButton {
+                        id:checkMcpUpdatesBtn
+                        objectName:"aquaCheckMcpUpdatesButton"
+                        visible:root.activeStorageTab==="mcp"
+                        Layout.preferredHeight:28
+                        Layout.preferredWidth:checkMcpUpdatesRow.implicitWidth+16
+                        implicitHeight:28
+                        implicitWidth:Layout.preferredWidth
+                        buttonRadius:9
+                        colBackground:Appearance.colors.colLayer2
+                        colBackgroundHover:Appearance.colors.colLayer2Hover
+                        onClicked:AquaMind.checkMcpUpdates()
+                        StyledToolTip {
+                            extraVisibleCondition:checkMcpUpdatesBtn.hovered
+                            text:"Check for new MCP server versions"
+                        }
+                        contentItem:Item {
+                            implicitWidth:checkMcpUpdatesRow.implicitWidth
+                            implicitHeight:checkMcpUpdatesRow.implicitHeight
+                            Row {
+                                id:checkMcpUpdatesRow
+                                anchors.centerIn:parent
+                                spacing:4
+                                MaterialSymbol {
+                                    anchors.verticalCenter:parent.verticalCenter
+                                    text:"system_update_alt"
+                                    iconSize:14
+                                    color:Appearance.colors.colPrimary
+                                }
+                                StyledText {
+                                    anchors.verticalCenter:parent.verticalCenter
+                                    verticalAlignment:Text.AlignVCenter
+                                    text:"Check Updates"
+                                    font.pixelSize:Appearance.font.pixelSize.smallest
+                                }
+                            }
+                        }
+                    }
+
+                    RippleButton {
+                        id:openMcpDirBtn
+                        objectName:"aquaOpenMcpDirButton"
+                        visible:root.activeStorageTab==="mcp"
+                        Layout.preferredHeight:28
+                        Layout.preferredWidth:openMcpRow.implicitWidth+16
+                        implicitHeight:28
+                        implicitWidth:Layout.preferredWidth
+                        buttonRadius:9
+                        colBackground:Appearance.colors.colLayer2
+                        colBackgroundHover:Appearance.colors.colLayer2Hover
+                        onClicked:AquaMind.openStorageFolder("mcp")
+                        StyledToolTip {
+                            extraVisibleCondition:openMcpDirBtn.hovered
+                            text:"Open MCP config folder (" + String(AquaMind.storagePaths?.mcpConfigDir ?? "~/.config/alis-companion") + ")"
+                        }
+                        contentItem:Item {
+                            implicitWidth:openMcpRow.implicitWidth
+                            implicitHeight:openMcpRow.implicitHeight
+                            Row {
+                                id:openMcpRow
+                                anchors.centerIn:parent
+                                spacing:4
+                                MaterialSymbol {
+                                    anchors.verticalCenter:parent.verticalCenter
+                                    text:"folder_open"
+                                    iconSize:14
+                                    color:Appearance.colors.colPrimary
+                                }
+                                StyledText {
+                                    anchors.verticalCenter:parent.verticalCenter
+                                    verticalAlignment:Text.AlignVCenter
+                                    text:"Open MCP Folder"
+                                    font.pixelSize:Appearance.font.pixelSize.smallest
+                                }
+                            }
+                        }
+                    }
+
+                    RippleButton {
+                        id:openRagDirBtn
+                        objectName:"aquaOpenRagDirButton"
+                        visible:root.activeStorageTab==="rag"
+                        Layout.preferredHeight:28
+                        Layout.preferredWidth:openRagRow.implicitWidth+16
+                        implicitHeight:28
+                        implicitWidth:Layout.preferredWidth
+                        buttonRadius:9
+                        colBackground:Appearance.colors.colLayer2
+                        colBackgroundHover:Appearance.colors.colLayer2Hover
+                        onClicked:AquaMind.openStorageFolder("rag")
+                        StyledToolTip {
+                            extraVisibleCondition:openRagDirBtn.hovered
+                            text:"Open RAG & State storage folder (" + String(AquaMind.storagePaths?.ragStateDir ?? "~/.local/state/alis-companion") + ")"
+                        }
+                        contentItem:Item {
+                            implicitWidth:openRagRow.implicitWidth
+                            implicitHeight:openRagRow.implicitHeight
+                            Row {
+                                id:openRagRow
+                                anchors.centerIn:parent
+                                spacing:4
+                                MaterialSymbol {
+                                    anchors.verticalCenter:parent.verticalCenter
+                                    text:"folder_open"
+                                    iconSize:14
+                                    color:Appearance.colors.colPrimary
+                                }
+                                StyledText {
+                                    anchors.verticalCenter:parent.verticalCenter
+                                    verticalAlignment:Text.AlignVCenter
+                                    text:"Open RAG / State Folder"
+                                    font.pixelSize:Appearance.font.pixelSize.smallest
+                                }
+                            }
+                        }
+                    }
+
                     CompactIconButton {
-                        iconName:"edit"
-                        tooltipText:Translation.tr("Edit")
-                        enabled:AquaMind.memoryEnabled && !AquaMind.busy
-                        onClicked:{root.memoryDraft=modelData.text;root.memoryScope=modelData.scope;root.memoryEditingId=modelData.id}
+                        objectName:"aquaRefreshSkillsButton"
+                        iconName:"refresh"
+                        tooltipText:"Refresh Skills, MCP servers, and storage directories"
+                        onClicked:AquaMind.refreshAgentStatus()
                     }
-                    CompactIconButton {
-                        iconName:"delete"
-                        tooltipText:Translation.tr("Forget")
-                        enabled:!AquaMind.busy
-                        onClicked:AquaMind.forgetMemory(modelData.id)
+                }
+
+                // ROW 5C-1: Companion Skills Catalog (Built-in + Learned merged)
+                Rectangle {
+                    id:skillsListSection
+                    objectName:"aquaSkillsListSection"
+                    visible:root.activeStorageTab==="skills"
+                    Layout.fillWidth:true
+                    Layout.preferredWidth:1
+                    Layout.minimumWidth:0
+                    implicitHeight:skillsListColumn.implicitHeight+20
+                    radius:12
+                    color:Appearance.colors.colLayer1
+                    border.width:1
+                    border.color:Qt.alpha(Appearance.colors.colPrimary,0.18)
+
+                    ColumnLayout {
+                        id:skillsListColumn
+                        anchors.left:parent.left
+                        anchors.right:parent.right
+                        anchors.top:parent.top
+                        anchors.margins:10
+                        spacing:8
+
+                        RowLayout {
+                            Layout.fillWidth:true
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:0
+                            spacing:8
+                            MaterialSymbol {
+                                text:"extension"
+                                iconSize:18
+                                color:Appearance.colors.colPrimary
+                            }
+                            StyledText {
+                                objectName:"aquaSkillsSectionHeader"
+                                text:"Companion Skills (" + String(Array.isArray(AquaMind.availableSkills) ? AquaMind.availableSkills.length : 0) + ")"
+                                font.weight:Font.DemiBold
+                            }
+                            Item { Layout.fillWidth:true; Layout.minimumWidth:0 }
+                            CompactToggle {
+                                objectName:"aquaAgentSkillsToggle"
+                                Layout.fillWidth:false
+                                Layout.minimumWidth:80
+                                buttonIcon:"extension"
+                                text:"Agent Skills"
+                                tooltipText:"Discover and execute modular SKILL.md workflows and scripts."
+                                enabled:AquaMind.agentToolsEnabled
+                                checked:AquaMind.agentSkillsEnabled
+                                onToggledByUser:checked=>AquaMind.agentSkillsEnabled=checked
+                            }
+                        }
+
+                        Flickable {
+                            id:skillsListFlickable
+                            objectName:"aquaSkillsListFlickable"
+                            readonly property real rowUnitHeight:skillsCardsRepeater.count>0 && skillsCardsRepeater.itemAt(0)
+                                ? skillsCardsRepeater.itemAt(0).implicitHeight
+                                : 74
+                            readonly property real maxThreeRowsHeight:rowUnitHeight*3 + skillsCardsGrid.rowSpacing*2
+                            Layout.fillWidth:true
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:0
+                            implicitHeight:Math.min(skillsCardsGrid.implicitHeight,maxThreeRowsHeight)
+                            Layout.preferredHeight:implicitHeight
+                            Layout.maximumHeight:maxThreeRowsHeight
+                            contentWidth:width
+                            contentHeight:skillsCardsGrid.implicitHeight
+                            clip:true
+                            boundsBehavior:Flickable.StopAtBounds
+                            interactive:contentHeight>height+1
+
+                            WheelHandler {
+                                enabled:skillsListFlickable.contentHeight>skillsListFlickable.height+1
+                                acceptedDevices:PointerDevice.Mouse | PointerDevice.TouchPad
+                                onWheel:event=>{
+                                    const maxY=Math.max(0,skillsListFlickable.contentHeight-skillsListFlickable.height)
+                                    skillsListFlickable.contentY=Math.max(0,Math.min(maxY,skillsListFlickable.contentY-event.angleDelta.y*0.5))
+                                    event.accepted=true
+                                }
+                            }
+
+                            GridLayout {
+                                id:skillsCardsGrid
+                                objectName:"aquaSkillsCardsGrid"
+                                width:skillsListFlickable.width
+                                columns:root.availableRowWidth>560 ? 2 : 1
+                                uniformCellWidths:columns > 1
+                                columnSpacing:10
+                                rowSpacing:8
+
+                                Repeater {
+                                    id:skillsCardsRepeater
+                                    model:Array.isArray(AquaMind.availableSkills) ? AquaMind.availableSkills : []
+                                    Rectangle {
+                                        id:skillCard
+                                        required property var modelData
+                                        required property int index
+                                        readonly property string skillName:String(modelData?.name ?? "")
+                                        readonly property bool skillEnabled:modelData?.enabled !== false
+                                        readonly property bool isBuiltIn:modelData?.builtIn === true || modelData?.source === "builtin"
+                                        objectName:"aquaSkillCard-" + skillName
+                                        Layout.fillWidth:true
+                                        Layout.preferredWidth:1
+                                        Layout.minimumWidth:0
+                                        implicitHeight:skillCardCol.implicitHeight+16
+                                        radius:10
+                                        color:Appearance.colors.colLayer2
+                                        border.width:1
+                                        border.color:skillEnabled
+                                            ? Qt.alpha(Appearance.colors.colPrimary,0.24)
+                                            : Qt.alpha(Appearance.colors.colSubtext,0.15)
+                                        opacity:skillEnabled ? 1.0 : 0.68
+
+                                        ColumnLayout {
+                                            id:skillCardCol
+                                            anchors.left:parent.left
+                                            anchors.right:parent.right
+                                            anchors.top:parent.top
+                                            anchors.margins:8
+                                            spacing:4
+
+                                            RowLayout {
+                                                Layout.fillWidth:true
+                                                Layout.preferredWidth:1
+                                                Layout.minimumWidth:0
+                                                spacing:6
+                                                MaterialSymbol {
+                                                    text:skillCard.isBuiltIn ? "auto_awesome" : "psychology_alt"
+                                                    iconSize:16
+                                                    color:skillCard.skillEnabled ? Appearance.colors.colPrimary : Appearance.colors.colSubtext
+                                                }
+                                                StyledText {
+                                                    objectName:"aquaSkillTitle-" + skillCard.skillName
+                                                    text:skillCard.skillName
+                                                    font.weight:Font.DemiBold
+                                                }
+                                                Rectangle {
+                                                    implicitHeight:18
+                                                    implicitWidth:badgeText.implicitWidth+10
+                                                    radius:9
+                                                    color:Qt.alpha(Appearance.colors.colPrimary,skillCard.isBuiltIn ? 0.14 : 0.22)
+                                                    StyledText {
+                                                        id:badgeText
+                                                        anchors.centerIn:parent
+                                                        text:(skillCard.isBuiltIn ? "Built-in" : "Learned") + " · " + String(skillCard.modelData?.category ?? "general")
+                                                        font.pixelSize:Appearance.font.pixelSize.smallest - 1
+                                                        color:Appearance.colors.colPrimary
+                                                    }
+                                                }
+                                                Item { Layout.fillWidth:true; Layout.minimumWidth:0 }
+                                                CompactIconButton {
+                                                    objectName:"aquaSkillOpen-" + skillCard.skillName
+                                                    implicitWidth:28
+                                                    implicitHeight:28
+                                                    buttonRadius:14
+                                                    iconName:"folder_open"
+                                                    tooltipText:"Open folder for " + skillCard.skillName
+                                                    onClicked:AquaMind.openStorageFolder(
+                                                        skillCard.isBuiltIn ? "builtin_skills" : "skills",
+                                                        String(skillCard.modelData?.folder ?? "")
+                                                    )
+                                                }
+                                                CompactIconToggle {
+                                                    objectName:"aquaSkillToggle-" + skillCard.skillName
+                                                    implicitWidth:28
+                                                    implicitHeight:28
+                                                    buttonRadius:14
+                                                    text:skillCard.skillName
+                                                    buttonIcon:skillCard.skillEnabled ? "check_circle" : "radio_button_unchecked"
+                                                    checked:skillCard.skillEnabled
+                                                    tooltipText:skillCard.skillEnabled ? ("Disable " + skillCard.skillName) : ("Enable " + skillCard.skillName)
+                                                    onToggledByUser:nextChecked=>AquaMind.setSkillEnabled(skillCard.skillName,nextChecked)
+                                                }
+                                            }
+
+                                            StyledText {
+                                                objectName:"aquaSkillDesc-" + skillCard.skillName
+                                                Layout.fillWidth:true
+                                                Layout.preferredWidth:1
+                                                Layout.minimumWidth:0
+                                                text:String(skillCard.modelData?.description ?? "")
+                                                maximumLineCount:1
+                                                elide:Text.ElideRight
+                                                font.pixelSize:Appearance.font.pixelSize.smaller
+                                                color:Appearance.colors.colSubtext
+                                            }
+
+                                            StyledText {
+                                                Layout.fillWidth:true
+                                                Layout.preferredWidth:1
+                                                Layout.minimumWidth:0
+                                                elide:Text.ElideRight
+                                                text:"Trigger: /" + skillCard.skillName
+                                                    + " · v" + String(skillCard.modelData?.version ?? "1.0.0")
+                                                    + (Number(skillCard.modelData?.usageCount ?? 0) > 0
+                                                        ? (" · Used " + String(skillCard.modelData.usageCount) + "x")
+                                                        : "")
+                                                font.pixelSize:Appearance.font.pixelSize.smallest - 1
+                                                color:Appearance.colors.colSubtext
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ROW 5C-2: MCP Servers Catalog & Update Management (Eyes & Hands)
+                Rectangle {
+                    id:mcpListSection
+                    objectName:"aquaMcpListSection"
+                    visible:root.activeStorageTab==="mcp"
+                    Layout.fillWidth:true
+                    Layout.preferredWidth:1
+                    Layout.minimumWidth:0
+                    implicitHeight:mcpListColumn.implicitHeight+20
+                    radius:12
+                    color:Appearance.colors.colLayer1
+                    border.width:1
+                    border.color:Qt.alpha(Appearance.colors.colPrimary,0.18)
+
+                    ColumnLayout {
+                        id:mcpListColumn
+                        anchors.left:parent.left
+                        anchors.right:parent.right
+                        anchors.top:parent.top
+                        anchors.margins:10
+                        spacing:8
+
+                        RowLayout {
+                            Layout.fillWidth:true
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:0
+                            spacing:8
+                            MaterialSymbol {
+                                text:"hub"
+                                iconSize:18
+                                color:Appearance.colors.colPrimary
+                            }
+                            StyledText {
+                                objectName:"aquaMcpSectionHeader"
+                                text:"MCP Servers (" + String(Array.isArray(AquaMind.mcpServers) ? AquaMind.mcpServers.length : 0) + ")"
+                                font.weight:Font.DemiBold
+                            }
+                            Item { Layout.fillWidth:true; Layout.minimumWidth:0 }
+                            CompactToggle {
+                                objectName:"aquaAgentMcpToggle"
+                                Layout.fillWidth:false
+                                Layout.minimumWidth:68
+                                buttonIcon:"hub"
+                                text:"MCP"
+                                tooltipText:"Connect to Eyes & Hands MCP servers (computer-use-linux, playwright-mcp, chrome-devtools-mcp, desktop-commander, companion-system)."
+                                enabled:AquaMind.agentToolsEnabled
+                                checked:AquaMind.agentMcpEnabled
+                                onToggledByUser:checked=>AquaMind.agentMcpEnabled=checked
+                            }
+                        }
+
+                        Flickable {
+                            id:mcpListFlickable
+                            objectName:"aquaMcpListFlickable"
+                            readonly property real rowUnitHeight:mcpCardsRepeater.count>0 && mcpCardsRepeater.itemAt(0)
+                                ? mcpCardsRepeater.itemAt(0).implicitHeight
+                                : 74
+                            readonly property real maxThreeRowsHeight:rowUnitHeight*3 + mcpCardsGrid.rowSpacing*2
+                            Layout.fillWidth:true
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:0
+                            implicitHeight:Math.min(mcpCardsGrid.implicitHeight,maxThreeRowsHeight)
+                            Layout.preferredHeight:implicitHeight
+                            Layout.maximumHeight:maxThreeRowsHeight
+                            contentWidth:width
+                            contentHeight:mcpCardsGrid.implicitHeight
+                            clip:true
+                            boundsBehavior:Flickable.StopAtBounds
+                            interactive:contentHeight>height+1
+
+                            WheelHandler {
+                                enabled:mcpListFlickable.contentHeight>mcpListFlickable.height+1
+                                acceptedDevices:PointerDevice.Mouse | PointerDevice.TouchPad
+                                onWheel:event=>{
+                                    const maxY=Math.max(0,mcpListFlickable.contentHeight-mcpListFlickable.height)
+                                    mcpListFlickable.contentY=Math.max(0,Math.min(maxY,mcpListFlickable.contentY-event.angleDelta.y*0.5))
+                                    event.accepted=true
+                                }
+                            }
+
+                            GridLayout {
+                                id:mcpCardsGrid
+                                objectName:"aquaMcpCardsGrid"
+                                width:mcpListFlickable.width
+                                columns:root.availableRowWidth>560 ? 2 : 1
+                                uniformCellWidths:columns > 1
+                                columnSpacing:10
+                                rowSpacing:8
+
+                                Repeater {
+                                    id:mcpCardsRepeater
+                                    model:Array.isArray(AquaMind.mcpServers) ? AquaMind.mcpServers : []
+                                    Rectangle {
+                                        id:mcpCard
+                                        required property var modelData
+                                        required property int index
+                                        readonly property string serverName:String(modelData?.name ?? "")
+                                        readonly property bool serverEnabled:modelData?.enabled !== false
+                                        readonly property bool hasUpdate:modelData?.hasUpdate === true
+                                        readonly property string currentVer:String(modelData?.version ?? "1.0.0")
+                                        readonly property string latestVer:String(modelData?.latestVersion ?? currentVer)
+                                        readonly property string roleLabel:String(modelData?.role ?? "MCP")
+                                        readonly property string catName:String(modelData?.category ?? "custom")
+                                        objectName:"aquaMcpCard-" + serverName
+                                        Layout.fillWidth:true
+                                        Layout.preferredWidth:1
+                                        Layout.minimumWidth:0
+                                        implicitHeight:mcpCardCol.implicitHeight+16
+                                        radius:10
+                                        color:Appearance.colors.colLayer2
+                                        border.width:1
+                                        border.color:hasUpdate
+                                            ? Qt.alpha(Appearance.colors.colPrimary,0.45)
+                                            : (serverEnabled
+                                                ? Qt.alpha(Appearance.colors.colPrimary,0.24)
+                                                : Qt.alpha(Appearance.colors.colSubtext,0.15))
+                                        opacity:serverEnabled ? 1.0 : 0.68
+
+                                        ColumnLayout {
+                                            id:mcpCardCol
+                                            anchors.left:parent.left
+                                            anchors.right:parent.right
+                                            anchors.top:parent.top
+                                            anchors.margins:8
+                                            spacing:4
+
+                                            RowLayout {
+                                                Layout.fillWidth:true
+                                                Layout.preferredWidth:1
+                                                Layout.minimumWidth:0
+                                                spacing:6
+                                                MaterialSymbol {
+                                                    text:mcpCard.catName === "eyes"
+                                                        ? "travel_explore"
+                                                        : (mcpCard.catName === "eyes-hands"
+                                                            ? "visibility"
+                                                            : (mcpCard.catName === "hands" ? "terminal" : "hub"))
+                                                    iconSize:16
+                                                    color:mcpCard.serverEnabled ? Appearance.colors.colPrimary : Appearance.colors.colSubtext
+                                                }
+                                                StyledText {
+                                                    objectName:"aquaMcpTitle-" + mcpCard.serverName
+                                                    text:mcpCard.serverName
+                                                    font.weight:Font.DemiBold
+                                                }
+                                                Rectangle {
+                                                    implicitHeight:18
+                                                    implicitWidth:mcpRoleBadgeText.implicitWidth+10
+                                                    radius:9
+                                                    color:Qt.alpha(Appearance.colors.colPrimary,0.14)
+                                                    StyledText {
+                                                        id:mcpRoleBadgeText
+                                                        anchors.centerIn:parent
+                                                        text:mcpCard.roleLabel
+                                                        font.pixelSize:Appearance.font.pixelSize.smallest - 1
+                                                        color:Appearance.colors.colPrimary
+                                                    }
+                                                }
+                                                Rectangle {
+                                                    objectName:"aquaMcpVersionBadge-" + mcpCard.serverName
+                                                    implicitHeight:18
+                                                    implicitWidth:mcpVerBadgeText.implicitWidth+10
+                                                    radius:9
+                                                    color:mcpCard.hasUpdate
+                                                        ? Qt.alpha(Appearance.colors.colPrimary,0.26)
+                                                        : Qt.alpha(Appearance.colors.colSubtext,0.14)
+                                                    StyledText {
+                                                        id:mcpVerBadgeText
+                                                        objectName:"aquaMcpVersionText-" + mcpCard.serverName
+                                                        anchors.centerIn:parent
+                                                        text:mcpCard.hasUpdate
+                                                            ? ("v" + mcpCard.currentVer + " → v" + mcpCard.latestVer)
+                                                            : ("v" + mcpCard.currentVer)
+                                                        font.pixelSize:Appearance.font.pixelSize.smallest - 1
+                                                        font.weight:mcpCard.hasUpdate ? Font.DemiBold : Font.Normal
+                                                        color:mcpCard.hasUpdate
+                                                            ? Appearance.colors.colPrimary
+                                                            : Appearance.colors.colSubtext
+                                                    }
+                                                }
+                                                Item { Layout.fillWidth:true; Layout.minimumWidth:0 }
+                                                RippleButton {
+                                                    id:mcpUpdateBtn
+                                                    objectName:"aquaMcpUpdate-" + mcpCard.serverName
+                                                    visible:mcpCard.hasUpdate
+                                                    Layout.preferredHeight:24
+                                                    Layout.preferredWidth:mcpUpdateBtnRow.implicitWidth+14
+                                                    implicitHeight:24
+                                                    implicitWidth:Layout.preferredWidth
+                                                    buttonRadius:12
+                                                    colBackground:Appearance.colors.colPrimary
+                                                    colBackgroundHover:Appearance.colors.colPrimaryHover
+                                                    onClicked:AquaMind.updateMcpServer(mcpCard.serverName)
+                                                    StyledToolTip {
+                                                        extraVisibleCondition:mcpUpdateBtn.hovered
+                                                        text:"Update " + mcpCard.serverName + " to v" + mcpCard.latestVer
+                                                    }
+                                                    contentItem:Item {
+                                                        implicitWidth:mcpUpdateBtnRow.implicitWidth
+                                                        implicitHeight:mcpUpdateBtnRow.implicitHeight
+                                                        Row {
+                                                            id:mcpUpdateBtnRow
+                                                            anchors.centerIn:parent
+                                                            spacing:3
+                                                            MaterialSymbol {
+                                                                anchors.verticalCenter:parent.verticalCenter
+                                                                text:"upgrade"
+                                                                iconSize:13
+                                                                color:Appearance.colors.colOnPrimary
+                                                            }
+                                                            StyledText {
+                                                                anchors.verticalCenter:parent.verticalCenter
+                                                                verticalAlignment:Text.AlignVCenter
+                                                                text:"Update"
+                                                                font.pixelSize:Appearance.font.pixelSize.smallest - 1
+                                                                font.weight:Font.DemiBold
+                                                                color:Appearance.colors.colOnPrimary
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                CompactIconButton {
+                                                    objectName:"aquaMcpOpen-" + mcpCard.serverName
+                                                    implicitWidth:28
+                                                    implicitHeight:28
+                                                    buttonRadius:14
+                                                    iconName:"folder_open"
+                                                    tooltipText:"Open folder for " + mcpCard.serverName
+                                                    onClicked:AquaMind.openStorageFolder(
+                                                        "mcp",
+                                                        String(mcpCard.modelData?.folder ?? "")
+                                                    )
+                                                }
+                                                CompactIconToggle {
+                                                    objectName:"aquaMcpToggle-" + mcpCard.serverName
+                                                    implicitWidth:28
+                                                    implicitHeight:28
+                                                    buttonRadius:14
+                                                    text:mcpCard.serverName
+                                                    buttonIcon:mcpCard.serverEnabled ? "check_circle" : "radio_button_unchecked"
+                                                    checked:mcpCard.serverEnabled
+                                                    tooltipText:mcpCard.serverEnabled ? ("Disable " + mcpCard.serverName) : ("Enable " + mcpCard.serverName)
+                                                    onToggledByUser:nextChecked=>AquaMind.setMcpServerEnabled(mcpCard.serverName,nextChecked)
+                                                }
+                                            }
+
+                                            StyledText {
+                                                objectName:"aquaMcpDesc-" + mcpCard.serverName
+                                                Layout.fillWidth:true
+                                                Layout.preferredWidth:1
+                                                Layout.minimumWidth:0
+                                                text:String(mcpCard.modelData?.description ?? "")
+                                                maximumLineCount:1
+                                                elide:Text.ElideRight
+                                                font.pixelSize:Appearance.font.pixelSize.smaller
+                                                color:Appearance.colors.colSubtext
+                                            }
+
+                                            StyledText {
+                                                Layout.fillWidth:true
+                                                Layout.preferredWidth:1
+                                                Layout.minimumWidth:0
+                                                elide:Text.ElideRight
+                                                text:"Package: " + String(mcpCard.modelData?.package ?? mcpCard.serverName)
+                                                    + " · Transport: " + String(mcpCard.modelData?.transport ?? "stdio")
+                                                    + (mcpCard.hasUpdate ? (" · New version v" + mcpCard.latestVer + " available") : " · Up to date")
+                                                font.pixelSize:Appearance.font.pixelSize.smallest - 1
+                                                color:mcpCard.hasUpdate ? Appearance.colors.colPrimary : Appearance.colors.colSubtext
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ROW 5C-3: RAG & State Storage Section
+                Rectangle {
+                    id:ragListSection
+                    objectName:"aquaRagListSection"
+                    visible:root.activeStorageTab==="rag"
+                    Layout.fillWidth:true
+                    Layout.preferredWidth:1
+                    Layout.minimumWidth:0
+                    implicitHeight:ragListColumn.implicitHeight+20
+                    radius:12
+                    color:Appearance.colors.colLayer1
+                    border.width:1
+                    border.color:Qt.alpha(Appearance.colors.colPrimary,0.18)
+
+                    readonly property var ragRowsData: {
+                        const rows = [
+                            {
+                                icon: "folder",
+                                label: "State Directory",
+                                value: String(AquaMind.storagePaths?.stateDir ?? "~/.local/state/alis-companion")
+                            },
+                            {
+                                icon: "extension",
+                                label: "Skills Directory",
+                                value: String(AquaMind.storagePaths?.skillsDir ?? "~/.local/state/alis-companion/skills")
+                            },
+                            {
+                                icon: "hub",
+                                label: "MCP Config",
+                                value: String(AquaMind.storagePaths?.mcpConfigDir ?? "~/.config/alis-companion")
+                            }
+                        ]
+                        const sources = Array.isArray(AquaMind.ragSources) ? AquaMind.ragSources : []
+                        for (let i = 0; i < sources.length; ++i) {
+                            const s = sources[i]
+                            rows.push({
+                                icon: "library_books",
+                                label: String(s?.name ?? ("RAG Source #" + (i + 1))),
+                                value: String(s?.path ?? s ?? "")
+                            })
+                        }
+                        return rows
+                    }
+
+                    ColumnLayout {
+                        id:ragListColumn
+                        anchors.left:parent.left
+                        anchors.right:parent.right
+                        anchors.top:parent.top
+                        anchors.margins:10
+                        spacing:8
+
+                        RowLayout {
+                            Layout.fillWidth:true
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:0
+                            spacing:8
+                            MaterialSymbol {
+                                text:"library_books"
+                                iconSize:18
+                                color:Appearance.colors.colPrimary
+                            }
+                            StyledText {
+                                objectName:"aquaRagSectionHeader"
+                                text:"RAG & State Storage"
+                                font.weight:Font.DemiBold
+                            }
+                            Item { Layout.fillWidth:true; Layout.minimumWidth:0 }
+                            CompactToggle {
+                                objectName:"aquaAgentDocRagToggle"
+                                Layout.fillWidth:false
+                                Layout.minimumWidth:80
+                                buttonIcon:"library_books"
+                                text:"Docs RAG"
+                                tooltipText:"Retrieve grounded snippets with citations across Companion docs, AquaPocket files, and user RAG folders."
+                                enabled:AquaMind.agentToolsEnabled
+                                checked:AquaMind.agentDocRagEnabled
+                                onToggledByUser:checked=>{
+                                    AquaMind.agentDocRagEnabled=checked
+                                    if(checked)AquaMind.evaluateToolRouting("How does Companion architecture work?",true)
+                                }
+                            }
+                        }
+
+                        Flickable {
+                            id:ragListFlickable
+                            objectName:"aquaRagListFlickable"
+                            readonly property real rowUnitHeight:30
+                            readonly property real maxThreeRowsHeight:rowUnitHeight*3 + ragRowsColumn.spacing*2
+                            Layout.fillWidth:true
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:0
+                            implicitHeight:Math.min(ragRowsColumn.implicitHeight,maxThreeRowsHeight)
+                            Layout.preferredHeight:implicitHeight
+                            Layout.maximumHeight:maxThreeRowsHeight
+                            contentWidth:width
+                            contentHeight:ragRowsColumn.implicitHeight
+                            clip:true
+                            boundsBehavior:Flickable.StopAtBounds
+                            interactive:contentHeight>height+1
+
+                            WheelHandler {
+                                enabled:ragListFlickable.contentHeight>ragListFlickable.height+1
+                                acceptedDevices:PointerDevice.Mouse | PointerDevice.TouchPad
+                                onWheel:event=>{
+                                    const maxY=Math.max(0,ragListFlickable.contentHeight-ragListFlickable.height)
+                                    ragListFlickable.contentY=Math.max(0,Math.min(maxY,ragListFlickable.contentY-event.angleDelta.y*0.5))
+                                    event.accepted=true
+                                }
+                            }
+
+                            ColumnLayout {
+                                id:ragRowsColumn
+                                width:ragListFlickable.width
+                                spacing:6
+
+                                Repeater {
+                                    model:ragListSection.ragRowsData
+                                    Rectangle {
+                                        required property var modelData
+                                        required property int index
+                                        objectName:"aquaRagRow-" + index
+                                        Layout.fillWidth:true
+                                        Layout.preferredWidth:1
+                                        Layout.minimumWidth:0
+                                        implicitHeight:30
+                                        radius:8
+                                        color:Appearance.colors.colLayer2
+                                        RowLayout {
+                                            anchors.fill:parent
+                                            anchors.leftMargin:10
+                                            anchors.rightMargin:10
+                                            spacing:8
+                                            MaterialSymbol {
+                                                text:String(modelData.icon ?? "folder")
+                                                iconSize:15
+                                                color:Appearance.colors.colPrimary
+                                            }
+                                            StyledText {
+                                                text:String(modelData.label ?? "") + ":"
+                                                font.pixelSize:Appearance.font.pixelSize.smaller
+                                                font.weight:Font.DemiBold
+                                            }
+                                            StyledText {
+                                                Layout.fillWidth:true
+                                                Layout.minimumWidth:0
+                                                elide:Text.ElideRight
+                                                text:String(modelData.value ?? "")
+                                                font.pixelSize:Appearance.font.pixelSize.smaller
+                                                color:Appearance.colors.colSubtext
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ROW 6: Explicit Local Memories (2 Columns)
+                GridLayout {
+                    objectName:"aquaAiPermissionsGrid"
+                    Layout.fillWidth:true
+                    Layout.preferredWidth:1
+                    Layout.minimumWidth:0
+                    columns:root.availableRowWidth>520 ? 2 : 1
+                    uniformCellWidths:columns > 1
+                    columnSpacing:14;rowSpacing:6
+
+                    RowLayout {
+                        Layout.fillWidth:true;Layout.preferredWidth:1;Layout.minimumWidth:0;Layout.alignment:Qt.AlignVCenter;spacing:8
+                        CompactToggle {
+                            objectName:"aquaEnableMemory"
+                            Layout.fillWidth:true
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:90
+                            buttonIcon:"bookmark"
+                            text:Translation.tr("Use saved memories with local models")
+                            tooltipText:Translation.tr("Only entries you save here are remembered. No automatic extraction from chat. Turning this off stops use and keeps your records available for review or deletion.")
+                            checked:AquaMind.memoryEnabled
+                            enabled:AquaMind.options.memoryEnabled !== undefined && !AquaMind.busy
+                            onToggledByUser:checked=>Config.setNestedValue("abyss.companionMind.memoryEnabled",checked)
+                        }
+                        InlineChoice {
+                            objectName:"aquaMemoryScope"
+                            Layout.fillWidth:false
+                            label:""
+                            description:Translation.tr("Remember for")
+                            comboMinWidth:76
+                            options:[{displayName:"Aqua",value:"aqua"},{displayName:"Octo",value:"octo"},{displayName:Translation.tr("Both"),value:"shared"}]
+                            currentValue:root.memoryScope
+                            onSelected:value=>root.memoryScope=value
+                        }
+                        InlineChoice {
+                            objectName:"aquaMemoryTtl"
+                            Layout.fillWidth:false
+                            label:""
+                            description:Translation.tr("Keep memory")
+                            comboMinWidth:90
+                            options:[{displayName:Translation.tr("7 days"),value:7},{displayName:Translation.tr("30 days"),value:30},{displayName:Translation.tr("Until I forget it"),value:0}]
+                            currentValue:root.memoryTtlDays
+                            onSelected:value=>root.memoryTtlDays=value
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth:true;Layout.preferredWidth:1;Layout.minimumWidth:0;Layout.alignment:Qt.AlignVCenter;spacing:8
+                        Rectangle {
+                            Layout.fillWidth:true
+                            Layout.preferredWidth:1
+                            Layout.minimumWidth:80
+                            implicitHeight:34;radius:10
+                            color:Appearance.colors.colLayer1
+                            border.width:1;border.color:Qt.alpha(Appearance.colors.colPrimary,memoryInput.activeFocus ? .8 : .3)
+                            StyledTextInput {
+                                id:memoryInput
+                                objectName:"aquaMemoryDraft"
+                                anchors.fill:parent;anchors.leftMargin:10;anchors.rightMargin:10
+                                verticalAlignment:Text.AlignVCenter
+                                enabled:AquaMind.memoryEnabled && !AquaMind.busy
+                                clip:true;selectByMouse:true;activeFocusOnTab:true
+                                Accessible.name:Translation.tr("An explicit preference to remember")
+                                maximumLength:320;text:root.memoryDraft
+                                onTextEdited:root.memoryDraft=text
+                            }
+                            StyledText {
+                                anchors.fill:memoryInput;verticalAlignment:Text.AlignVCenter
+                                visible:!memoryInput.text;elide:Text.ElideRight
+                                text:Translation.tr("An explicit preference to remember")
+                                color:Appearance.colors.colSubtext
+                                font.pixelSize:Appearance.font.pixelSize.smaller
+                            }
+                        }
+                        CompactIconButton {
+                            objectName:"aquaSaveMemory"
+                            iconName:root.memoryEditingId ? "save" : "add"
+                            tooltipText:root.memoryEditingId ? Translation.tr("Save memory changes") : Translation.tr("Save memory")
+                            enabled:AquaMind.memoryEnabled && !AquaMind.busy && root.memoryDraft.trim().length>0
+                            onClicked:if(AquaMind.saveMemory(root.memoryDraft,root.memoryScope,root.memoryTtlDays,root.memoryEditingId)) {
+                                root.memoryDraft="";root.memoryEditingId=0
+                            }
+                        }
+                        CompactIconButton {
+                            objectName:"aquaReviewMemory"
+                            iconName:"refresh"
+                            tooltipText:Translation.tr("Review saved memories")
+                            enabled:!AquaMind.busy
+                            onClicked:AquaMind.refreshMemory()
+                        }
+                        CompactIconButton {
+                            objectName:"aquaForgetAllMemory"
+                            iconName:root.confirmForgetMemories ? "warning" : "delete_sweep"
+                            tooltipText:root.confirmForgetMemories ? Translation.tr("Confirm forgetting all saved memories") : Translation.tr("Forget all saved memories")
+                            enabled:!AquaMind.busy && AquaMind.memories.length>0
+                            onClicked:{
+                                if(root.confirmForgetMemories){AquaMind.forgetAllMemories();root.confirmForgetMemories=false}
+                                else root.confirmForgetMemories=true
+                            }
+                        }
+                    }
+                }
+
+                Repeater {
+                    model:AquaMind.toolReceipts
+                    RowLayout {
+                        required property var modelData
+                        Layout.fillWidth:true;Layout.preferredWidth:1;Layout.minimumWidth:0;spacing:8
+                        StyledText {
+                            Layout.fillWidth:true;Layout.preferredWidth:1;Layout.minimumWidth:0;elide:Text.ElideRight;textFormat:Text.PlainText
+                            font.pixelSize:Appearance.font.pixelSize.smaller;color:Appearance.colors.colSubtext
+                            text:modelData.field+": "+modelData.beforeValue+" → "+modelData.afterValue+(modelData.rolledBack ? " (rolled back)" : "")
+                        }
+                        CompactIconButton {
+                            iconName:"undo"
+                            tooltipText:"Rollback preference update"
+                            enabled:!AquaMind.busy && !modelData.rolledBack
+                            onClicked:AquaMind.rollbackToolReceipt(String(modelData.receiptId))
+                        }
+                    }
+                }
+                StyledText {
+                    visible:AquaMind.memoryNotice.length>0
+                    Layout.fillWidth:true;Layout.preferredWidth:1;Layout.minimumWidth:0;wrapMode:Text.WordWrap;textFormat:Text.PlainText
+                    text:AquaMind.memoryNotice
+                    font.pixelSize:Appearance.font.pixelSize.smaller
+                    color:Appearance.colors.colSubtext
+                }
+                Repeater {
+                    model:AquaMind.memories
+                    RowLayout {
+                        required property var modelData
+                        Layout.fillWidth:true;Layout.preferredWidth:1;Layout.minimumWidth:0;spacing:8
+                        StyledText {
+                            Layout.fillWidth:true;Layout.preferredWidth:1;Layout.minimumWidth:0;elide:Text.ElideRight;textFormat:Text.PlainText
+                            text:modelData.scope+" · "+modelData.text
+                        }
+                        StyledText {
+                            Layout.minimumWidth:0
+                            textFormat:Text.PlainText;color:Appearance.colors.colSubtext
+                            font.pixelSize:Appearance.font.pixelSize.smaller
+                            text:modelData.expires_ms===0 ? Translation.tr("Until forgotten")
+                                : (modelData.expires_ms<=Date.now() ? Translation.tr("Expired") : Translation.tr("Expires"))
+                                    +" · "+Qt.formatDateTime(new Date(modelData.expires_ms),"yyyy-MM-dd")
+                        }
+                        CompactIconButton {
+                            iconName:"edit"
+                            tooltipText:Translation.tr("Edit")
+                            enabled:AquaMind.memoryEnabled && !AquaMind.busy
+                            onClicked:{root.memoryDraft=modelData.text;root.memoryScope=modelData.scope;root.memoryEditingId=modelData.id}
+                        }
+                        CompactIconButton {
+                            iconName:"delete"
+                            tooltipText:Translation.tr("Forget")
+                            enabled:!AquaMind.busy
+                            onClicked:AquaMind.forgetMemory(modelData.id)
+                        }
                     }
                 }
             }

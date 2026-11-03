@@ -28,7 +28,24 @@ Item {
         contextConnection=null;contextConnected=false;evaluateContext()
     }
     function connectContext(): void {
-        if(!contextFeed || host.session!==root){disconnectContext();return}
+        if(host.session!==root){disconnectContext();return}
+        if(!contextFeed) {
+            if(host?.contextApiVersion===1 && root.companionEnabled && root.companionSessionVisible
+                    && root.companionPreferences.contextEnabled
+                    && (root.companionPreferences.contextFocusEnabled || root.companionPreferences.contextAiEnabled)
+                    && !GlobalStates.screenLocked && !Appearance.gameModeMinimal
+                    && !GameMode.hasFullscreenOnOutput(root.companionTargetOutput)
+                    && !Notifications.gameModeSuppressionActive) {
+                if(!contextConnected || !contextState.enabled) {
+                    if(!ContextProtocol.configure(contextState,true,"0123456789abcdef",Date.now()).accepted){disconnectContext();return}
+                    contextConnection=null;contextConnected=true
+                }
+                root.syncActiveDesktopFocus(ToplevelManager.activeToplevel?.appId || (CompositorService.isNiri ? NiriService.activeWindow?.app_id : "") || "")
+                root.evaluateContext()
+                return
+            }
+            disconnectContext();return
+        }
         if(contextConnected && contextConnection===contextFeed && contextState.enabled)return
         const source=contextFeed,binding=source.bind(root)
         if(!binding || binding.version!==1
@@ -44,12 +61,34 @@ Item {
     property string previewAmbientProp:""
     property bool previewLaptopActive:false
     function evaluateContext(): void {
+        if(contextConnected && !contextConnection) {
+            if(!root.companionEnabled || !root.companionSessionVisible || !root.companionPreferences.contextEnabled
+                    || (!root.companionPreferences.contextFocusEnabled && !root.companionPreferences.contextAiEnabled)
+                    || GlobalStates.screenLocked || Appearance.gameModeMinimal
+                    || GameMode.hasFullscreenOnOutput(root.companionTargetOutput)
+                    || Notifications.gameModeSuppressionActive) {
+                disconnectContext();return
+            }
+            contextState.lastReceivedMs=Date.now()
+        } else if(!contextConnected && !contextFeed && root.companionEnabled && root.companionSessionVisible
+                && root.companionPreferences.contextEnabled
+                && (root.companionPreferences.contextFocusEnabled || root.companionPreferences.contextAiEnabled)
+                && !Notifications.gameModeSuppressionActive && !contextConnect.running) {
+            contextConnect.restart()
+        }
+        const local=root.outputHosts.find(window=>window.outputName===root.companionTargetOutput)?.extension?.directorContext
         contextIntent=ContextProtocol.observe(contextState,{
-            enabled:companionEnabled,visible:companionSessionVisible,
-            optedIn:contextConnected,locked:GlobalStates.screenLocked,
+            enabled:companionEnabled && (local ? local.enabled===true : true),
+            visible:companionSessionVisible,
+            optedIn:(contextConnected && contextState.enabled) || root.previewLaptopActive,
+            locked:GlobalStates.screenLocked,
             fullscreen:GameMode.hasFullscreenOnOutput(companionTargetOutput),
             gameMode:Appearance.gameModeMinimal,chatOpen:AquaMind.conversationOpen,
-            modalOpen:AquaMind.hostBlocked,dnd:Notifications.notificationPolicyActive,
+            modalOpen:Boolean(local?.modalOpen),
+            dragging:Boolean(local?.dragging),
+            manualTravel:Boolean(local?.manualTravel),
+            portalTravel:Boolean(local?.portalTravel),
+            dnd:Notifications.gameModeSuppressionActive,
             quiet:!AbyssStyle.motionEnabled || companionPreferences?.animationsEnabled!==true,
             idle:false},Date.now())
         if(!contextState.enabled)contextConnected=false
@@ -227,7 +266,7 @@ Item {
             root.presentAiExpression(expression)
         }
     }
-    function visualContext(): var {
+    function visualContext(includeActiveProp = true): var {
         const local=root.outputHosts.find(window=>window.outputName===root.companionTargetOutput)?.extension?.directorContext
         if(!local)return null
         return Object.assign({},local,{
@@ -235,10 +274,10 @@ Item {
             visible:root.companionSessionVisible && companionBridge.visibility==="present",
             locked:GlobalStates.screenLocked,gameMode:Appearance.gameModeMinimal,
             fullscreen:GameMode.hasFullscreenOnOutput(root.companionTargetOutput),
-            dnd:Notifications.notificationPolicyActive,chatOpen:AquaMind.conversationOpen,
+            dnd:Notifications.gameModeSuppressionActive,chatOpen:AquaMind.conversationOpen,
             ambientOptIn:root.companionPreferences.ambientEnabled
                 && (root.companionPreferences.ambientFocusEnabled || root.companionPreferences.ambientBatteryEnabled
-                    || root.companionPreferences.ambientMediaEnabled),idle:AquaMind.hostIdle || root.readingFocusActive || ambientController.activeProp.length>0,
+                    || root.companionPreferences.ambientMediaEnabled),idle:AquaMind.hostIdle || root.readingFocusActive || TimerService.pomodoroRunning || (includeActiveProp && ambientController.activeProp.length>0),
             motionEnabled:root.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled})
     }
     function coworkHostContext(): var {
@@ -298,13 +337,13 @@ Item {
         permitted:root.companionEnabled && root.companionPreferences.ambientEnabled
             && (root.companionPreferences.ambientFocusEnabled || root.companionPreferences.ambientBatteryEnabled
                 || root.companionPreferences.ambientMediaEnabled)
-            && root.companionSessionVisible && !Notifications.notificationPolicyActive
+            && root.companionSessionVisible && !Notifications.gameModeSuppressionActive
             && !GameMode.hasFullscreenOnOutput(root.companionTargetOutput)
             && root.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled
         consentKey:[root.companionPreferences.ambientFocusEnabled,
             root.companionPreferences.ambientBatteryEnabled,root.companionPreferences.ambientMediaEnabled].join(":")
         eligible:Director.proposeAmbientExpression(root.contextState.director,
-            root.visualContext(),{expression:"idle"},Date.now()).accepted && !coworkController.active
+            root.visualContext(false),{expression:"idle"},Date.now()).accepted && !coworkController.active
         focusPhase:permitted && root.companionPreferences.ambientFocusEnabled
             ? TimerService.pomodoroRunning
                 ? (TimerService.pomodoroPaused ? "paused" : TimerService.pomodoroBreak ? "break" : "focus")
@@ -359,7 +398,7 @@ Item {
     }
 function chat(): void {
     if (!root.companionSessionVisible || !root.companionInteractive || !AquaMind.talkEnabled) return
-    if (AquaMind.conversationOpen) {AquaMind.cancel();AquaMind.dismiss();return}
+    if (AquaMind.conversationOpen) {AquaMind.dismiss();return}
     companionBridge.show()
     companionBridge.sendEvent("hover",true)
     for (const window of root.outputHosts)
@@ -381,7 +420,7 @@ function previewProp(kind): void {
     companionBridge.sendEvent("hover",true)
     for (const window of root.outputHosts)
         if(window.outputName===root.companionTargetOutput && window.extension?.ensureCompanionPresent)
-            window.extension.ensureCompanionPresent()
+            window.extension.ensureCompanionPresent(true)
     if (["book","coffee","thought"].includes(mode)) {
         root.previewLaptopActive=false
         Director.acceptAgent(root.contextState.director,{word:"ended",token:"fedcba9876543210"},Date.now())

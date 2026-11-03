@@ -17,7 +17,7 @@ Window {
             try {
                 tryCompare(Config,"ready",true,4000)
                 Ai._initialized=true;AiProviderCatalog.initialized=true
-                Config.setNestedValues({"policies.ai":2,"abyss.companionMind.aiEnabled":true,
+                Config.setNestedValues({"abyss.companionMind.aiEnabled":true,
                     "abyss.companionMind.model":"","abyss.companionMind.proactive":"manual"})
                 LocalModels.ensureInitialized()
                 tryVerify(()=>LocalModels.models.length===1,4000)

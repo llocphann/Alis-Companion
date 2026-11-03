@@ -158,8 +158,16 @@ Window {
         require(!presence.traveling && presence.placement.kind==="surface","popup visit did not settle")
         presence.homeEdge="bottom";presence.homeAlong=0.72;input.wait(40)
         presence.returnToHome(true);input.wait(40)
-        require(presence.isAtHome() && presence.placement.edge==="bottom" && !presence.traveling,
+        require(presence.isAtHome() && presence.isNearHome() && presence.placement.edge==="bottom" && !presence.traveling,
             "primary Screen Edge home return did not snap Companion to configured home position")
+        require(!presence.fastReturnNearHome(),"near-home Companion should open chat in place without moving")
+        const farLeft=Scene.edgePoint(scene,"bottom",0.12)
+        presence.appear(farLeft);presence.peekIntro=false;presence.peekOnly=false;presence.renderedReveal=1;input.wait(60)
+        require(!presence.isNearHome(),"far-left point was wrongly classified as near home")
+        require(presence.fastReturnNearHome() && presence.returningForChat && presence.traveling,
+            "far Companion did not start fast return near home")
+        waitFor(presence,"traveling",false,2500)
+        require(!presence.returningForChat && presence.isNearHome(),"fast return did not settle near home")
         presence.homeEdge=""
         root.allowed=false;input.wait(40)
         require(!deadline.running && !named(presence,"aquaPeekDeadline").running,"hidden presence left a deadline running")

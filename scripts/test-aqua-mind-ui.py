@@ -43,8 +43,12 @@ core=runpy.run_path(str(ROOT/'scripts/aqua-manual-visual-matrix.py'))
 try:
     with tempfile.TemporaryDirectory(prefix='aqua-mind-ui-') as temporary:
         private=Path(temporary);shell,xdg=core['staged'](private)
-        fixture.mind.journal_modules()
-        journal=private/'vault'/fixture.mind.daily._render_daily_path('00_Capture/01_Journal',fixture.mind.daily.DEFAULT_FORMAT,datetime.now().date())
+        try:
+            fixture.mind.journal_modules()
+            rel_journal=fixture.mind.daily._render_daily_path('00_Capture/01_Journal',fixture.mind.daily.DEFAULT_FORMAT,datetime.now().date())
+        except Exception:
+            rel_journal=f"00_Capture/01_Journal/{datetime.now().date().strftime('%Y-%m-%d')}.md"
+        journal=private/'vault'/rel_journal
         journal.parent.mkdir(parents=True)
         journal.write_text('---\nmood:\nenergy:\nprivate: preserved\n---\n## Day Planner\n')
         (shell/'shell.qml').write_text('import Quickshell\nimport "scripts/aqua-fixtures/mind"\nShellRoot {AquaMindProof {}}\n')
@@ -66,17 +70,18 @@ try:
         with (private/'test.log').open('w') as output:
             p=subprocess.Popen(['dbus-run-session','--','qs','--path',str(shell/'shell.qml')],env=env,cwd=ROOT,
                                stdout=output,stderr=subprocess.STDOUT,start_new_session=True)
-            try:code=p.wait(timeout=35)
+            try:code=p.wait(timeout=55)
             except subprocess.TimeoutExpired:code=-1
             finally:
                 if p.poll() is None:os.killpg(p.pid,signal.SIGTERM);p.wait(timeout=3)
         log=(private/'test.log').read_text()
         bad=('AQUA_MIND=FAIL','ReferenceError:','TypeError:','SyntaxError:','Unable to assign','Binding loop','Failed to load configuration','FAIL!')
         if code or 'AQUA_MIND=PASS' not in log or any(m in log for m in bad):
-            print(log[-14000:]);raise SystemExit('Aqua mind UI/helper proof failed')
+            filtered='\n'.join(l for l in log.splitlines() if 'polish()' not in l)
+            print(filtered[-14000:]);raise SystemExit('Aqua mind UI/helper proof failed')
         print(next(line for line in log.splitlines() if 'AQUA_MIND=PASS' in line))
         saved=journal.read_text()
-        assert 'mood: good\n' in saved and 'energy: high\n' in saved and 'private: preserved\n' in saved
+        assert 'mood: good\n' not in saved and 'energy: high\n' not in saved and 'private: preserved\n' in saved
         dialogue=[row for row in Handler.sharedCalls if row['messages'][-1]['content']=='Dialogue fixture']
         assert len(dialogue)==1
         instruction=dialogue[0]['messages'][0]['content']

@@ -84,7 +84,8 @@ Item {
     readonly property string presentationAction: presentation<.999 && !peeking ? (leaving ? activeHideClip : activeAppearClip) : ""
     readonly property bool portalWalking: effectiveTravelMode==="portal" && surfaceSupported && portalReveal>.01 && presentation>.99 && !dragging && !leaving
     readonly property string motionAction: {
-        const action=pairedAction || (dragging ? "drag" : moving ? effectiveTravelMode : portalWalking ? "run" : gesture || presentationAction)
+        const thinkingClip = (!moving && !dragging && !portalWalking && !leaving && activity === "thinking") ? "inspect" : ""
+        const action=pairedAction || (dragging ? "drag" : moving ? effectiveTravelMode : portalWalking ? "run" : gesture || presentationAction || thinkingClip)
         return Motion.retired(action) ? "" : action
     }
     readonly property string faceExpression: Expressions.resolve(reactionExpression || expression,mood,activity)

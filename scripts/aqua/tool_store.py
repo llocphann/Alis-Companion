@@ -21,13 +21,15 @@ import tempfile
 import time
 
 from code_tools import retrieve_rag
-from sandbox_runner import SandboxError, run_sandboxed
+from sandbox_runner import SandboxError, run_sandboxed, run_user_command
 from screen_context import observe_active_window
 
 PROPOSAL_TTL_MS = 120_000
 MAX_PROPOSALS = 64
 MAX_RECEIPTS = 128
 MAX_FILE_RECEIPTS = 64
+SMALL_FILE_MAX_BYTES = 24 * 1024
+SMALL_FILE_MAX_LINES = 300
 
 ALLOWED_PREFERENCE_EDITS = {
     "personality": {"calm", "balanced", "energetic", "lively", "shy"},
@@ -719,6 +721,29 @@ elif op == "delete":
         }
     }))
     sys.exit(0)
+elif op in ("open_editor", "editor"):
+    if target.exists() and target.is_dir():
+        print(json.dumps({"ok": False, "code": "expected_file", "message": "Specify a file path to open in editor."}))
+        sys.exit(0)
+    raw_bytes = target.read_bytes() if target.is_file() else b""
+    is_binary = b"\x00" in raw_bytes[:8192]
+    text = "" if is_binary else raw_bytes.decode("utf-8", errors="replace")
+    line_count = len(text.splitlines()) if text else 0
+    print(json.dumps({
+        "ok": True,
+        "result": {
+            "op": "open_editor",
+            "status": "completed",
+            "confirmStage": 0,
+            "targetPath": str(target),
+            "destPath": "",
+            "byteSize": len(raw_bytes),
+            "lineCount": line_count,
+            "isBinary": is_binary,
+            "rawText": text[:262144],
+        }
+    }))
+    sys.exit(0)
 elif op == "run":
     cmd = str(req.get("content") or req.get("targetPath") or "")
     proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=20)
@@ -794,13 +819,144 @@ def execute_system_sudo_op(options: dict, sudo_password: str) -> dict:
 
     if not parsed.get("ok"):
         raise ToolError(str(parsed.get("code") or "system_op_failed"), str(parsed.get("message") or "System operation failed."))
-    return parsed["result"]
+    res = parsed["result"]
+    if op in ("open_editor", "editor"):
+        import desktop_control
+        max_bytes = int(os.environ.get("ALIS_AQUA_SMALL_FILE_MAX_BYTES") or SMALL_FILE_MAX_BYTES)
+        max_lines = int(os.environ.get("ALIS_AQUA_SMALL_FILE_MAX_LINES") or SMALL_FILE_MAX_LINES)
+        byte_size = int(res.get("byteSize") or 0)
+        line_count = int(res.get("lineCount") or 0)
+        is_binary = bool(res.get("isBinary"))
+        raw_text = str(res.get("rawText") or "")
+        is_large = is_binary or (byte_size > max_bytes) or (line_count > max_lines)
+        if is_large:
+            ext_info = desktop_control.open_in_default_editor(resolved)
+            editor_cmd = str(ext_info.get("editorCommand") or "default-editor")
+            return {
+                "op": "open_editor",
+                "status": "completed",
+                "confirmStage": 0,
+                "targetPath": str(resolved),
+                "destPath": "",
+                "editorMode": "external",
+                "isLargeFile": True,
+                "openedExternalEditor": True,
+                "editorCommand": editor_cmd,
+                "editorPopup": {
+                    "active": False,
+                    "filePath": str(resolved),
+                    "fileName": resolved.name,
+                    "content": "",
+                    "byteSize": byte_size,
+                    "lineCount": line_count,
+                    "scaleFactor": 1.0,
+                    "slideAnimation": False,
+                },
+                "summary": _clean_line(
+                    f"Opened large system file {resolved.name} ({byte_size} bytes, {line_count} lines) in default editor ({editor_cmd}).",
+                    240,
+                ),
+                "lines": [
+                    f"Mode: Default System Editor ({editor_cmd})",
+                    f"File: {resolved}",
+                    f"Metrics: {byte_size} bytes, {line_count} lines",
+                ],
+            }
+        preview_lines = [_clean_line(ln, 200) for ln in raw_text.splitlines() if ln.strip()][:12]
+        return {
+            "op": "open_editor",
+            "status": "completed",
+            "confirmStage": 0,
+            "targetPath": str(resolved),
+            "destPath": "",
+            "editorMode": "popup",
+            "isLargeFile": False,
+            "openedExternalEditor": False,
+            "editorCommand": "inline-popup",
+            "editorPopup": {
+                "active": True,
+                "filePath": str(resolved),
+                "fileName": resolved.name,
+                "content": raw_text,
+                "byteSize": byte_size,
+                "lineCount": line_count,
+                "maxSmallBytes": max_bytes,
+                "maxSmallLines": max_lines,
+                "scaleFactor": 1.5,
+                "slideAnimation": True,
+            },
+            "summary": _clean_line(
+                f"Opened system file {resolved.name} ({byte_size} bytes, {line_count} lines) in Companion Editor Popup (1.5x).",
+                240,
+            ),
+            "lines": preview_lines or ["(opened in Editor Popup)"],
+        }
+    return res
+
+
+def build_editor_handoff(target: Path, force_external: bool = False) -> dict:
+    """Classify `target` into popup editor (small file) vs external system editor (large file)."""
+    import desktop_control
+
+    max_bytes = int(os.environ.get("ALIS_AQUA_SMALL_FILE_MAX_BYTES") or SMALL_FILE_MAX_BYTES)
+    max_lines = int(os.environ.get("ALIS_AQUA_SMALL_FILE_MAX_LINES") or SMALL_FILE_MAX_LINES)
+    byte_size = 0
+    text = ""
+    line_count = 0
+    is_binary = False
+    if target.is_file():
+        try:
+            raw_bytes = target.read_bytes()
+            byte_size = len(raw_bytes)
+            if b"\x00" in raw_bytes[:4096]:
+                is_binary = True
+            else:
+                text = raw_bytes.decode("utf-8", errors="replace")
+                line_count = len(text.splitlines()) if text else 0
+        except OSError:
+            byte_size = 0
+    is_large = bool(force_external or is_binary or byte_size > max_bytes or line_count > max_lines)
+    lang_ext = target.suffix.lstrip(".").lower() or "txt"
+    if is_large:
+        launch = desktop_control.open_in_default_editor(target)
+        return {
+            "editorMode": "external",
+            "isLargeFile": True,
+            "openedExternalEditor": True,
+            "editorCommand": str(launch.get("editorCommand") or "xdg-open"),
+            "editorPopup": {
+                "open": False,
+                "filePath": str(target),
+                "fileName": target.name,
+                "content": "",
+                "lineCount": line_count,
+                "byteSize": byte_size,
+                "language": lang_ext,
+                "sha256": _file_sha256(target),
+            },
+        }
+    return {
+        "editorMode": "popup",
+        "isLargeFile": False,
+        "openedExternalEditor": False,
+        "editorCommand": "",
+        "editorPopup": {
+            "open": True,
+            "filePath": str(target),
+            "fileName": target.name,
+            "content": text,
+            "lineCount": line_count,
+            "byteSize": byte_size,
+            "language": lang_ext,
+            "sha256": _file_sha256(target),
+        },
+    }
 
 
 def agent_file_op(options: dict) -> dict:
     op = str(options.get("op", "")).strip().lower()
     valid_ops = (
-        "access", "list", "search", "create", "edit", "patch",
+        "access", "list", "search", "create", "edit", "patch", "open_editor",
         "copy", "cut", "delete", "cancel_delete", "rollback", "run",
     )
     if op not in valid_ops:
@@ -889,7 +1045,8 @@ def agent_file_op(options: dict) -> dict:
                 raise
             resolved_script = None
 
-        timeout_sec = float(options.get("timeoutSec") or 15.0)
+        timeout_sec = float(options.get("timeoutSec") or 20.0)
+        use_sandbox = bool(options.get("sandbox", False))
         try:
             if resolved_script is not None and len(cmd_text.split()) == 1:
                 suffix = resolved_script.suffix.lower()
@@ -899,25 +1056,31 @@ def agent_file_op(options: dict) -> dict:
                     argv = ["/usr/bin/node", str(resolved_script)]
                 else:
                     argv = ["/usr/bin/bash", str(resolved_script)]
-                ran = run_sandboxed(
-                    argv,
-                    cwd=work_dir,
-                    writable_dirs=[home, work_dir],
-                    readonly_dirs=[home],
-                    allow_network=bool(options.get("allowNetwork", False)),
-                    timeout_sec=timeout_sec,
-                    shell=False,
-                )
+                if use_sandbox:
+                    ran = run_sandboxed(
+                        argv,
+                        cwd=work_dir,
+                        writable_dirs=[home, work_dir],
+                        readonly_dirs=[home],
+                        allow_network=bool(options.get("allowNetwork", False)),
+                        timeout_sec=timeout_sec,
+                        shell=False,
+                    )
+                else:
+                    ran = run_user_command(argv, cwd=work_dir, timeout_sec=timeout_sec, shell=False)
             else:
-                ran = run_sandboxed(
-                    cmd_text,
-                    cwd=work_dir,
-                    writable_dirs=[home, work_dir],
-                    readonly_dirs=[home],
-                    allow_network=bool(options.get("allowNetwork", False)),
-                    timeout_sec=timeout_sec,
-                    shell=True,
-                )
+                if use_sandbox:
+                    ran = run_sandboxed(
+                        cmd_text,
+                        cwd=work_dir,
+                        writable_dirs=[home, work_dir],
+                        readonly_dirs=[home],
+                        allow_network=bool(options.get("allowNetwork", False)),
+                        timeout_sec=timeout_sec,
+                        shell=True,
+                    )
+                else:
+                    ran = run_user_command(cmd_text, cwd=work_dir, timeout_sec=timeout_sec, shell=True)
         except SandboxError as exc:
             raise ToolError(exc.code, exc.message) from exc
 
@@ -1003,6 +1166,49 @@ def agent_file_op(options: dict) -> dict:
             "lines": lines or ["(empty file)"],
         }
 
+    if op == "open_editor":
+        target = _resolve_user_path(raw_target, allow_missing=True, last_dir=last_dir, allow_system=allow_system)
+        if target.exists() and target.is_dir():
+            raise ToolError("is_directory", "Cannot open a folder as a text/code file in the editor.")
+        before_existed = target.is_file()
+        rid = ""
+        if not before_existed:
+            after_sha = _atomic_write_text(target, "")
+            rid = _record_file_receipt(
+                store,
+                op="create",
+                target_path=str(target),
+                dest_path="",
+                before_sha="",
+                after_sha=after_sha,
+                backup_text=None,
+                before_existed=False,
+                now=now,
+            )
+            _save_store(store)
+        _sync_session_context_from_op(target, is_dir=False)
+        force_ext = bool(options.get("forceExternal", False)) or str(options.get("mode", "")).strip().lower() == "external"
+        handoff = build_editor_handoff(target, force_external=force_ext)
+        popup_info = handoff["editorPopup"]
+        if handoff["editorMode"] == "external":
+            summary_str = f"Opened large file {target.name} ({popup_info['lineCount']} lines, {popup_info['byteSize']} bytes) in default editor ({handoff['editorCommand']})."
+            lines_out = [_clean_line(f"External editor: {handoff['editorCommand']} {target}", 200)]
+        else:
+            rcpt_note = f", receipt {rid}" if rid else ""
+            summary_str = f"Opened {target.name} ({popup_info['lineCount']} lines, {popup_info['byteSize']} bytes{rcpt_note}) in Editor Popup."
+            raw_lines = popup_info["content"].splitlines()
+            lines_out = [_clean_line(ln, 200) for ln in raw_lines if ln.strip()][:20] or ["(empty file)"]
+        return {
+            "op": "open_editor",
+            "status": "completed",
+            "confirmStage": 0,
+            "targetPath": str(target),
+            "destPath": "",
+            "summary": _clean_line(summary_str, 240),
+            "lines": lines_out,
+            **handoff,
+        }
+
     if op in ("edit", "create", "patch"):
         target = _resolve_user_path(raw_target, allow_missing=True, last_dir=last_dir, allow_system=allow_system)
         if target.exists() and target.is_dir():
@@ -1021,8 +1227,8 @@ def agent_file_op(options: dict) -> dict:
 
         mode = "replace" if op == "patch" else str(options.get("mode", "write")).strip().lower()
         content = str(options.get("content", ""))
-        if len(content) > 16000:
-            raise ToolError("content_too_large", "Edit content exceeds the 16000-character limit.")
+        if len(content) > 65536:
+            raise ToolError("content_too_large", "Edit content exceeds the 65536-character limit.")
 
         existing = target.read_text(encoding="utf-8", errors="replace") if before_existed else ""
         if mode == "append":
@@ -1050,6 +1256,7 @@ def agent_file_op(options: dict) -> dict:
         )
         _save_store(store)
         _sync_session_context_from_op(target, is_dir=False)
+        handoff = build_editor_handoff(target, force_external=bool(options.get("forceExternal", False)))
         preview = [_clean_line(ln, 200) for ln in updated.splitlines() if ln.strip()][:20]
         return {
             "op": "edit",
@@ -1062,6 +1269,7 @@ def agent_file_op(options: dict) -> dict:
                 240,
             ),
             "lines": preview or ["(file saved)"],
+            **handoff,
         }
 
     if op in ("copy", "cut"):

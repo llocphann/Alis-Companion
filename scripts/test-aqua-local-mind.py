@@ -291,4 +291,68 @@ class Tests(unittest.TestCase):
         self.assertEqual([r['start'] for r in rows],[870,960,330,405])
         self.assertEqual([r['kind'] for r in rows][-2:],['calisthenics','cardio'])
 
+    def test_dual_model_routing_plusiq_and_mtp_in_local_mind_chat(self):
+        plusiq_mtp='DavidAU/Qwen3.5-9B-Defiant-Fable-plusIQ-MTP'
+        self.assertTrue(mind.thinking_capable(plusiq_mtp))
+        with tempfile.TemporaryDirectory(prefix='aqua-dual-chat-') as temporary, patch.dict(
+                os.environ, {'ALIS_AQUA_HISTORY_DB':str(Path(temporary)/'chat.sqlite3')}):
+            self.assertTrue(mind.clear_chat_history()['cleared'])
+            Handler.calls=[]
+            fast_res=mind.chat({
+                'endpoint':self.base,
+                'model':'tiny:local',
+                'actionModel':'tiny:local',
+                'thinkingModel':plusiq_mtp,
+                'autoModelRoutingEnabled':True,
+                'mtpOptimizeEnabled':True,
+                'prompt':'Bấm vào nút Save trên cửa sổ hiện tại',
+                'persistHistory':True,
+            })
+            self.assertEqual(fast_res['model'],'tiny:local')
+            self.assertEqual(fast_res['routedRole'],'action')
+            self.assertEqual(fast_res['thinkingEffort'],'off')
+            self.assertFalse(fast_res['mtpOptimized'])
+
+            Handler.calls=[]
+            deep_prompt='Phân tích chuyên sâu kiến trúc hệ thống và tối ưu thuật toán'
+            deep_res=mind.chat({
+                'endpoint':self.base,
+                'model':'tiny:local',
+                'actionModel':'tiny:local',
+                'thinkingModel':plusiq_mtp,
+                'autoModelRoutingEnabled':True,
+                'mtpOptimizeEnabled':True,
+                'prompt':deep_prompt,
+                'persistHistory':True,
+            })
+            self.assertEqual(deep_res['model'],plusiq_mtp)
+            self.assertEqual(deep_res['routedRole'],'thinking')
+            self.assertEqual(deep_res['inChatDirective'],'{REASON:xhigh}')
+            self.assertEqual(deep_res['thinkingEffort'],'high')
+            self.assertTrue(deep_res['mtpOptimized'])
+            chat_req=Handler.calls[-1][1]
+            self.assertEqual(chat_req['model'],plusiq_mtp)
+            self.assertTrue(chat_req['think'])
+            self.assertEqual(chat_req['options']['repeat_penalty'],1.0)
+            self.assertEqual(chat_req['options']['temperature'],0.7)
+            self.assertTrue(chat_req['messages'][-1]['content'].startswith('{REASON:xhigh}\n'))
+            # Persisted history must store clean user prompt without internal {REASON:...} prefix
+            rows=mind.chat_history({'limit':20})['messages']
+            self.assertEqual(rows[-2]['content'],deep_prompt)
+            self.assertNotIn('{REASON:',rows[-2]['content'])
+
+            # Disabling mtpOptimizeEnabled removes repeat_penalty override
+            Handler.calls=[]
+            mtp_off_res=mind.chat({
+                'endpoint':self.base,
+                'model':plusiq_mtp,
+                'autoModelRoutingEnabled':True,
+                'mtpOptimizeEnabled':False,
+                'prompt':'Phân tích triết học và sáng tạo sâu out of the box',
+            })
+            self.assertEqual(mtp_off_res['inChatDirective'],'{REASON:spoon}')
+            self.assertFalse(mtp_off_res['mtpOptimized'])
+            self.assertNotIn('repeat_penalty',Handler.calls[-1][1]['options'])
+            self.assertEqual(Handler.calls[-1][1]['options']['temperature'],0.65)
+
 if __name__=='__main__':unittest.main()

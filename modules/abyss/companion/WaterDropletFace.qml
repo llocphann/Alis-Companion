@@ -107,65 +107,67 @@ Item {
                         color: "#d6faff"
                     }
                 }
-                Item {
+                Loader {
                     anchors.fill: parent
-                    visible: GraphicsInfo.api === GraphicsInfo.Software || cornea.status === ShaderEffect.Error
-                    Shape {
-                        anchors.fill: parent
-                        antialiasing: true
-                        preferredRendererType: Shape.CurveRenderer
-                        ShapePath {
-                            strokeWidth: root.unit * 0.65
-                            strokeColor: Qt.alpha(root.accent, 0.68)
-                            fillGradient: RadialGradient {
-                                centerX: eye.width * 0.52; centerY: eye.height * 0.93
-                                centerRadius: eye.height * 0.91
-                                focalX: centerX; focalY: centerY
-                                GradientStop { position: 0; color: Qt.lighter(root.accent, 1.05) }
-                                GradientStop { position: 0.25; color: Qt.darker(root.accent, 1.25) }
-                                GradientStop { position: 0.50; color: root.ink }
-                                GradientStop { position: 1; color: "#010610" }
+                    active: GraphicsInfo.api === GraphicsInfo.Software || cornea.status === ShaderEffect.Error
+                    sourceComponent: Item {
+                        Shape {
+                            anchors.fill: parent
+                            antialiasing: true
+                            preferredRendererType: Shape.CurveRenderer
+                            ShapePath {
+                                strokeWidth: root.unit * 0.65
+                                strokeColor: Qt.alpha(root.accent, 0.68)
+                                fillGradient: RadialGradient {
+                                    centerX: eye.width * 0.52; centerY: eye.height * 0.93
+                                    centerRadius: eye.height * 0.91
+                                    focalX: centerX; focalY: centerY
+                                    GradientStop { position: 0; color: Qt.lighter(root.accent, 1.05) }
+                                    GradientStop { position: 0.25; color: Qt.darker(root.accent, 1.25) }
+                                    GradientStop { position: 0.50; color: root.ink }
+                                    GradientStop { position: 1; color: "#010610" }
+                                }
+                                startX: eye.width * 0.5; startY: 0
+                                PathCubic { x: eye.width; y: eye.height * 0.5; control1X: eye.width * 0.82; control1Y: 0; control2X: eye.width; control2Y: eye.height * 0.20 }
+                                PathCubic { x: eye.width * 0.5; y: eye.height; control1X: eye.width; control1Y: eye.height * 0.82; control2X: eye.width * 0.82; control2Y: eye.height }
+                                PathCubic { x: 0; y: eye.height * 0.5; control1X: eye.width * 0.18; control1Y: eye.height; control2X: 0; control2Y: eye.height * 0.82 }
+                                PathCubic { x: eye.width * 0.5; y: 0; control1X: 0; control1Y: eye.height * 0.20; control2X: eye.width * 0.18; control2Y: 0 }
                             }
-                            startX: eye.width * 0.5; startY: 0
-                            PathCubic { x: eye.width; y: eye.height * 0.5; control1X: eye.width * 0.82; control1Y: 0; control2X: eye.width; control2Y: eye.height * 0.20 }
-                            PathCubic { x: eye.width * 0.5; y: eye.height; control1X: eye.width; control1Y: eye.height * 0.82; control2X: eye.width * 0.82; control2Y: eye.height }
-                            PathCubic { x: 0; y: eye.height * 0.5; control1X: eye.width * 0.18; control1Y: eye.height; control2X: 0; control2Y: eye.height * 0.82 }
-                            PathCubic { x: eye.width * 0.5; y: 0; control1X: 0; control1Y: eye.height * 0.20; control2X: eye.width * 0.18; control2Y: 0 }
                         }
-                    }
-                    Shape {
-                        x: 2 * root.unit; y: 10 * root.unit
-                        width: 10 * root.unit; height: 7 * root.unit
-                        opacity: 0.65
-                        preferredRendererType: Shape.CurveRenderer
-                        ShapePath {
-                            strokeWidth: 0
-                            fillGradient: RadialGradient {
-                                centerX: 5 * root.unit; centerY: 4 * root.unit
-                                centerRadius: 3.4 * root.unit
-                                focalX: centerX; focalY: centerY
-                                GradientStop { position: 0; color: "#b2fcff" }
-                                GradientStop { position: 0.35; color: root.accent }
-                                GradientStop { position: 1; color: Qt.alpha(root.accent, 0) }
+                        Shape {
+                            x: 2 * root.unit; y: 10 * root.unit
+                            width: 10 * root.unit; height: 7 * root.unit
+                            opacity: 0.65
+                            preferredRendererType: Shape.CurveRenderer
+                            ShapePath {
+                                strokeWidth: 0
+                                fillGradient: RadialGradient {
+                                    centerX: 5 * root.unit; centerY: 4 * root.unit
+                                    centerRadius: 3.4 * root.unit
+                                    focalX: centerX; focalY: centerY
+                                    GradientStop { position: 0; color: "#b2fcff" }
+                                    GradientStop { position: 0.35; color: root.accent }
+                                    GradientStop { position: 1; color: Qt.alpha(root.accent, 0) }
+                                }
+                                startX: 0; startY: 3.5 * root.unit
+                                PathArc { x: 10 * root.unit; y: 3.5 * root.unit; radiusX: 5 * root.unit; radiusY: 3.5 * root.unit }
+                                PathArc { x: 0; y: 3.5 * root.unit; radiusX: 5 * root.unit; radiusY: 3.5 * root.unit }
                             }
-                            startX: 0; startY: 3.5 * root.unit
-                            PathArc { x: 10 * root.unit; y: 3.5 * root.unit; radiusX: 5 * root.unit; radiusY: 3.5 * root.unit }
-                            PathArc { x: 0; y: 3.5 * root.unit; radiusX: 5 * root.unit; radiusY: 3.5 * root.unit }
                         }
-                    }
-                    Rectangle {
-                        x: (2.5 + root.pupilX * 1.5) * root.unit; y: (2.4 + root.pupilY) * root.unit
-                        width: 4.0 * root.unit; height: 3.2 * root.unit
-                        radius: width / 2; rotation: -25; color: "#f1fdff"
-                    }
-                    Rectangle {
-                        x: (9 + root.pupilX) * root.unit; y: (10 + root.pupilY) * root.unit
-                        width: 2.2 * root.unit; height: width; radius: width / 2; color: "#d3f9ff"
-                    }
-                    Rectangle {
-                        x: 4 * root.unit; y: 13 * root.unit
-                        width: 4.8 * root.unit; height: 2.6 * root.unit; radius: height / 2
-                        rotation: -25; color: Qt.alpha(Qt.lighter(root.accent, 1.5), 0.75)
+                        Rectangle {
+                            x: (2.5 + root.pupilX * 1.5) * root.unit; y: (2.4 + root.pupilY) * root.unit
+                            width: 4.0 * root.unit; height: 3.2 * root.unit
+                            radius: width / 2; rotation: -25; color: "#f1fdff"
+                        }
+                        Rectangle {
+                            x: (9 + root.pupilX) * root.unit; y: (10 + root.pupilY) * root.unit
+                            width: 2.2 * root.unit; height: width; radius: width / 2; color: "#d3f9ff"
+                        }
+                        Rectangle {
+                            x: 4 * root.unit; y: 13 * root.unit
+                            width: 4.8 * root.unit; height: 2.6 * root.unit; radius: height / 2
+                            rotation: -25; color: Qt.alpha(Qt.lighter(root.accent, 1.5), 0.75)
+                        }
                     }
                 }
             }

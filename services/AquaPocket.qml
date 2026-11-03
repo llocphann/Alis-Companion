@@ -47,9 +47,10 @@ Singleton {
             return false
         }
         if (!dispatch("add",{urls:selection,source:source})) return false
-        opened=true
-        if (source === "picker")
+        if (source === "picker") {
+            opened=true
             filesSwallowed(selection.length)
+        }
         return true
     }
     function remove(id): bool {

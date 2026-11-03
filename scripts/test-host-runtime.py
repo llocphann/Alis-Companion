@@ -99,7 +99,7 @@ ShellRoot {
                 Config.setNestedValue("abyss.companion.enabled",true);root.step=1
             } else if (root.step===1 && AlisCompanion.session?.bridge.ready && surface.extension) {
                 if (AlisCompanion.outputs.length!==1 || !surface.extension.actor
-                        || surface.inputRegions.length!==5)
+                        || surface.inputRegions.length!==4)
                     {root.fail("output contract");return}
                 console.log("ALIS_COMPANION_NATIVE_READY")
                 if(Quickshell.env("ALIS_COMPANION_TEST_CONTEXT")==="1") {

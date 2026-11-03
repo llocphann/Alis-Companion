@@ -36,11 +36,20 @@ function fromParticipants(base, participants, modules) {
             : {x:record.edge==="left" ? 0 : base.width-depth,y:record.along,width:depth,height:record.span})
     }
     const excluded=Array.isArray(base?.excludeKeys) ? base.excludeKeys : []
-    const keys=Object.keys(participants ?? {}).filter(k=>!excluded.includes(k))
+    const keys=Object.keys(participants ?? {})
     // Capacity overflow fails closed rather than dropping a visible obstacle.
     if (keys.length>40) return Object.assign({},base,{records:records,blockers:[],surfaces:null})
+    const dockSuppressed=["settings","dashboard","controls","aux","clipboard","utility"].some(k=>{
+        const s=participants?.[k]?.geometry?.surface
+        return !!s && s.width>0 && s.height>0
+    })
     for (const key of keys) {
-        const participant=participants[key], geometry=participant?.geometry, r=geometry?.surface
+        const participant=participants[key]
+        const liveGeometry=participant?.geometry, resting=participant?.restingRecord, settled=participant?.surfaceSettled===true
+        const useResting=excluded.includes(key) && !(key==="dock" && dockSuppressed)
+            && resting?.surface?.width>0 && resting?.surface?.height>0
+        const geometry=useResting ? resting : liveGeometry
+        const r=geometry?.surface
         if (!geometry) continue
         if (!r || ![r.x,r.y,r.width,r.height].every(finite)
                 || r.width<0 || r.height<0 || !edges.includes(geometry.edge))
@@ -48,10 +57,16 @@ function fromParticipants(base, participants, modules) {
         // Match the shared field's visible-record rule, including custom IPC
         // participants without a body-host progress property.
         if (r.width<=0 || r.height<=0) continue
-        blockers.push({x:r.x,y:r.y,width:r.width,height:r.height,walkable:false})
-        if (edges.includes(geometry.edge))
-            surfaces.push({key:key,edge:geometry.edge,rect:blockers[blockers.length-1],
-                radius:Math.max(0,Number(base.rimRadius) || 0),settled:participant.surfaceSettled===true})
+        const minTopY=key==="settings" && geometry.edge==="bottom" && r.y>0
+            ? Math.ceil(Math.max(2,(Number(base.insets?.top)||0)+4*(base.scale||1)+2)+base.hostHeight+Math.max(2,2*(base.scale||1)))
+            : r.y
+        const topY=r.y<minTopY && r.y+r.height>minTopY+1 ? minTopY : r.y
+        blockers.push({x:r.x,y:topY,width:r.width,height:r.height-(topY-r.y),walkable:false,key:key,edge:geometry.edge})
+        if (edges.includes(geometry.edge) && !excluded.includes(key))
+            surfaces.push({key:key,edge:geometry.edge,
+                joinedEdge:edges.includes(geometry.joinedEdge) ? geometry.joinedEdge : "",
+                rect:blockers[blockers.length-1],
+                radius:Math.max(0,Number(base.rimRadius) || 0),settled:settled})
     }
     return Object.assign({},base,{records:records,blockers:blockers,surfaces:surfaces})
 }
@@ -168,6 +183,23 @@ function homePoint(scene, preferredEdge, preferredAlong) {
     if (!valid(scene)) return {qualified:false}
     const edge=edges.includes(preferredEdge) ? preferredEdge : "bottom"
     const along=finite(preferredAlong) ? clamp(preferredAlong,.08,.92) : .72
+    const horizontal=edge==="top" || edge==="bottom"
+    const extent=horizontal ? scene.width : scene.height
+    const span=horizontal ? scene.hostWidth : scene.hostHeight
+    const desired=extent*along, gap=Math.max(2,2*scene.scale)
+    for (const surface of scene.surfaces) {
+        if (surface.key!=="settings" || surface.edge!==edge) continue
+        const r=surface.rect, margin=Math.min(Number(surface.radius)||0,(horizontal ? r.width : r.height)/2)
+        const start=horizontal ? r.x : r.y, size=horizontal ? r.width : r.height
+        if (desired<start || desired>start+size) continue
+        const lo=start+margin, hi=start+size-margin-span
+        if (hi<lo) continue
+        const pos=clamp(desired-span/2,lo,hi)
+        const candidate=edge==="bottom" ? {x:pos,y:r.y-scene.hostHeight-gap}
+            : edge==="top" ? {x:pos,y:r.y+r.height+gap}
+            : edge==="left" ? {x:r.x+r.width+gap,y:pos} : {x:r.x-scene.hostWidth-gap,y:pos}
+        if (clearAt(scene,candidate)) return annotate(scene,candidate,edge,"surface",surface.key)
+    }
     const primary=edgePoint(scene,edge,along)
     if (primary.qualified && primary.grounded && clearAt(scene,primary)) return primary
     for (const candidateEdge of edges) {
@@ -266,9 +298,16 @@ function landingBelow(scene, point) {
     floors.sort((a,b)=>a.y-b.y)
     for (const floor of floors) {
         const next={x:point.x,y:floor.y-scene.hostHeight-Math.max(2,2*scene.scale)}
-        if (next.y<point.y+.1 || point.x<floor.from || point.x+scene.hostWidth>floor.to
-                || !clearSegment(scene,point,next) || !supportAt(scene,next)) continue
-        return annotate(scene,next,"bottom",floor.key==="bottom" ? "edge" : "surface",floor.key)
+        if (next.y>=point.y+.1 && point.x>=floor.from && point.x+scene.hostWidth<=floor.to
+                && clearSegment(scene,point,next) && supportAt(scene,next))
+            return annotate(scene,next,"bottom",floor.key==="bottom" ? "edge" : "surface",floor.key)
+        if (floor.key==="bottom") {
+            const shifted=edgePoint(scene,"bottom",(point.x+scene.hostWidth/2)/scene.width)
+            if (shifted.qualified && shifted.y>=point.y+.1
+                    && (clearSegment(scene,point,shifted) || path(scene,point,shifted).qualified)
+                    && supportAt(scene,shifted,"bottom"))
+                return shifted
+        }
     }
     return {qualified:false}
 }
@@ -335,18 +374,19 @@ function nearestWater(scene, point, avoid = null) {
 function drop(scene, x, y, previous) {
     if (!valid(scene) || !finite(x) || !finite(y)) return {qualified:false}
     const point={x:clamp(x,2,scene.width-scene.hostWidth-2),y:clamp(y,2,scene.height-scene.hostHeight-2)}
-    if (!clearAt(scene,point)) return clearAt(scene,previous) ? annotate(scene,previous,"top","drop","drop") : {qualified:false}
     // Snap to a nearby upper rim, never invent a surface under an airborne drop.
     const floors=[{y:scene.height-scene.insets.bottom,from:scene.insets.left,to:scene.width-scene.insets.right}]
     for (const s of scene.surfaces) {
         const margin=Math.min(Number(s.radius)||0,s.rect.width/2)
         floors.push({y:s.rect.y,from:s.rect.x+margin,to:s.rect.x+s.rect.width-margin})
     }
+    const gap=Math.max(2,2*scene.scale)
     for (const floor of floors) {
-        const candidate={x:point.x,y:floor.y-scene.hostHeight-2*scene.scale}
-        if (Math.abs(candidate.y-point.y)<12*scene.scale && point.x>=floor.from
+        const candidate={x:point.x,y:floor.y-scene.hostHeight-gap}
+        if (Math.abs(candidate.y-point.y)<18*scene.scale && point.x>=floor.from
             && point.x+scene.hostWidth<=floor.to && clearAt(scene,candidate)) {point.y=candidate.y;break}
     }
+    if (!clearAt(scene,point)) return clearAt(scene,previous) ? annotate(scene,previous,"top","drop","drop") : {qualified:false}
     return annotate(scene,point,"top","drop","drop")
 }
 
@@ -359,37 +399,89 @@ function ride(scene, point, previous) {
     const oldW=finite(previous.hostWidth) ? previous.hostWidth : scene.hostWidth
     const oldH=finite(previous.hostHeight) ? previous.hostHeight : scene.hostHeight
     const sizeChanged=Math.abs(oldW-scene.hostWidth)>.1 || Math.abs(oldH-scene.hostHeight)>.1
-    const candidates=scene.surfaces.filter(s=>s.key===previous.support.key || Slots.intersects(rect(scene,point),s.rect,1.5))
+    const candidates=scene.surfaces.filter(s=>Slots.intersects(rect(scene,point),s.rect,1.5)
+        || (sizeChanged && s.key===previous.support.key && supportAt(scene,point,edge)?.key===s.key)
+        || (s.key===previous.support.key && (s.key==="dock" || (edge==="bottom" && s.edge==="bottom" && s.rect.y>=point.y+oldH-2))))
+    const gap=Math.max(2,2*scene.scale)
     for (const surface of candidates) {
-        const r=surface.rect, margin=Math.min(Number(surface.radius)||0,(horizontal ? r.width : r.height)/2)
-        const extent=horizontal ? scene.hostWidth : scene.hostHeight
-        const lo=(horizontal ? r.x : r.y)+margin, hi=(horizontal ? r.x+r.width : r.y+r.height)-margin-extent
+        const r=surface.rect
+        const pushEdge=(surface.edge===edge && surface.key!=="settings" && surface.key!=="dock"
+            && edges.includes(surface.joinedEdge) && surface.joinedEdge!==edge)
+            ? surface.joinedEdge : surface.edge
+        const pushHorizontal=pushEdge==="top" || pushEdge==="bottom"
+        if (pushHorizontal!==horizontal) {
+            if (horizontal) {
+                const baseY=edges.includes(previous.support.key)
+                    ? (edge==="bottom"
+                        ? Math.min(scene.height-scene.hostHeight-2,scene.height-scene.insets.bottom-scene.hostHeight)
+                        : Math.max(2,scene.insets.top))
+                    : point.y
+                const pushedX=pushEdge==="right" ? r.x-scene.hostWidth-gap : r.x+r.width+gap
+                const dir=pushEdge==="right" ? -1 : 1
+                for (let step=0;step<=scene.width;step+=12) {
+                    const candidate={x:pushedX+dir*step,y:baseY}
+                    if (!clearAt(scene,candidate)) continue
+                    const sup=supportAt(scene,candidate,edge)
+                    if (sup && sup.edge===edge) {
+                        const isEdge=edges.includes(sup.key)
+                        return annotate(scene,candidate,edge,isEdge ? "edge" : "surface",sup.key)
+                    }
+                }
+            } else {
+                const baseX=edges.includes(previous.support.key)
+                    ? (edge==="right"
+                        ? Math.min(scene.width-scene.hostWidth-2,scene.width-scene.insets.right-scene.hostWidth)
+                        : Math.max(2,scene.insets.left))
+                    : point.x
+                const pushedY=pushEdge==="bottom" ? r.y-scene.hostHeight-gap : r.y+r.height+gap
+                const dir=pushEdge==="bottom" ? -1 : 1
+                for (let step=0;step<=scene.height;step+=12) {
+                    const candidate={x:baseX,y:pushedY+dir*step}
+                    if (!clearAt(scene,candidate)) continue
+                    const sup=supportAt(scene,candidate,edge)
+                    if (sup && sup.edge===edge) {
+                        const isEdge=edges.includes(sup.key)
+                        return annotate(scene,candidate,edge,isEdge ? "edge" : "surface",sup.key)
+                    }
+                }
+            }
+        }
+        const carryEdge=pushHorizontal===horizontal ? pushEdge : edge
+        const carryHorizontal=carryEdge==="top" || carryEdge==="bottom"
+        const margin=Math.min(Number(surface.radius)||0,(carryHorizontal ? r.width : r.height)/2)
+        const extent=carryHorizontal ? scene.hostWidth : scene.hostHeight
+        const lo=(carryHorizontal ? r.x : r.y)+margin, hi=(carryHorizontal ? r.x+r.width : r.y+r.height)-margin-extent
         if (hi<lo) continue
-        const desired=(horizontal ? point.x+(oldW-scene.hostWidth)/2 : point.y+(oldH-scene.hostHeight)/2)
-        const along=clamp(desired,lo,hi),gap=Math.max(2,2*scene.scale)
-        const makePoint=pos=>edge==="bottom" ? {x:pos,y:r.y-scene.hostHeight-gap}
-            : edge==="top" ? {x:pos,y:r.y+r.height+gap}
-            : edge==="left" ? {x:r.x+r.width+gap,y:pos} : {x:r.x-scene.hostWidth-gap,y:pos}
+        const desired=(carryHorizontal ? point.x+(oldW-scene.hostWidth)/2 : point.y+(oldH-scene.hostHeight)/2)
+        const along=clamp(desired,lo,hi)
+        const makePoint=pos=>carryEdge==="bottom" ? {x:pos,y:r.y-scene.hostHeight-gap}
+            : carryEdge==="top" ? {x:pos,y:r.y+r.height+gap}
+            : carryEdge==="left" ? {x:r.x+r.width+gap,y:pos} : {x:r.x-scene.hostWidth-gap,y:pos}
         const candidate=makePoint(along)
-        if (clearAt(scene,candidate)) return annotate(scene,candidate,edge,"surface",surface.key)
+        if (clearAt(scene,candidate)) return annotate(scene,candidate,carryEdge,"surface",surface.key)
         for (let step=12;step<=hi-lo;step+=12) {
             for (const dir of [-1,1]) {
                 const pos=along+dir*step
                 if (pos<lo || pos>hi) continue
                 const shifted=makePoint(pos)
-                if (clearAt(scene,shifted)) return annotate(scene,shifted,edge,"surface",surface.key)
+                if (clearAt(scene,shifted)) return annotate(scene,shifted,carryEdge,"surface",surface.key)
             }
         }
     }
-    if (edges.includes(previous.support.key) && sizeChanged) {
+    if (edges.includes(previous.support.key) && (sizeChanged || !clearAt(scene,point))) {
         const center=horizontal ? point.x+oldW/2 : point.y+oldH/2
         const edgeCandidate=edgePoint(scene,edge,center/(horizontal ? scene.width : scene.height))
         if (edgeCandidate.qualified) return edgeCandidate
     }
-    if (Array.isArray(scene.excludeKeys) && scene.excludeKeys.includes(previous.support.key)
+    if (((Array.isArray(scene.excludeKeys) && scene.excludeKeys.includes(previous.support.key))
+            || previous.support.key==="dock"
+            || (!edges.includes(previous.support.key) && edge==="bottom"))
             && edges.includes(edge) && !scene.surfaces.some(s=>s.key===previous.support.key)) {
-        const center=horizontal ? point.x+oldW/2 : point.y+oldH/2
-        const edgeCandidate=edgePoint(scene,edge,center/(horizontal ? scene.width : scene.height))
+        const blocker=scene.blockers.find(b=>b.key===previous.support.key)
+        const targetEdge=edges.includes(blocker?.edge) ? blocker.edge : edge
+        const targetHorizontal=targetEdge==="top" || targetEdge==="bottom"
+        const center=targetHorizontal ? point.x+oldW/2 : point.y+oldH/2
+        const edgeCandidate=edgePoint(scene,targetEdge,center/(targetHorizontal ? scene.width : scene.height))
         if (edgeCandidate.qualified) return edgeCandidate
     }
     return {qualified:false}

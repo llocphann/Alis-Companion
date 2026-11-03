@@ -42,6 +42,8 @@ Item {
     property bool retreating: false
     property bool releasedFlight: false
     property bool supportRecovery: false
+    property bool returningForChat: false
+    readonly property real nearHomeRadius: 240*(scene?.scale ?? 1)
     readonly property bool surfaceBound: true
     property bool peekIntro: false
     property bool peekOnly: false
@@ -68,6 +70,7 @@ Item {
     property real dragVelocityX: 0
     property real dragVelocityY: 0
     property double dragSampleTime: 0
+    property var dragSamples: []
     property real throwSpeed: 0
     property real throwArc: 0
     readonly property real throwThreshold: .8*(scene?.scale ?? 1)
@@ -168,14 +171,97 @@ Item {
     function isAtHome(point = position()): bool {
         const home=homePlacement()
         if (!home.qualified) return true
-        return placement.kind==="edge"
+        return placement.kind===home.kind
+            && placement.key===home.key
             && emergenceEdge===home.edge
             && Scene.distance(point,home)<=Math.max(8,12*(scene?.scale ?? 1))
     }
+    function isNearHome(point = position()): bool {
+        const home=homePlacement()
+        if (!home.qualified) return true
+        return placement.kind===home.kind
+            && placement.key===home.key
+            && emergenceEdge===home.edge
+            && Scene.distance(point,home)<=nearHomeRadius
+    }
+    function nearHomeTarget(from = position()): var {
+        const home=homePlacement()
+        if (!home.qualified || !Scene.valid(scene)) return home
+        const support=Scene.supportAt(scene,home,home.edge)
+        if (!support) return home
+        const scale=scene?.scale ?? 1
+        const horizontal=support.axis==="x", extent=horizontal ? scene.hostWidth : scene.hostHeight
+        const homeCoord=horizontal ? home.x : home.y
+        const fromCoord=horizontal ? from.x : from.y
+        const preferredDir=fromCoord>=homeCoord ? 1 : -1
+        const jitter=0.75+0.45*random()
+        for (const baseOffset of [110,75,45]) {
+            const dist=Math.min(nearHomeRadius*0.85,baseOffset*scale*jitter)
+            for (const sign of [preferredDir,-preferredDir]) {
+                const along=Scene.clamp(homeCoord+sign*dist,support.from,support.to-extent)
+                const point=horizontal ? {x:along,y:home.y} : {x:home.x,y:along}
+                const candidate=Scene.annotate(scene,point,support.edge,home.kind,home.key)
+                if (candidate.qualified && candidate.grounded && Scene.clearAt(scene,candidate)
+                        && Scene.distance(candidate,home)<=nearHomeRadius)
+                    return candidate
+            }
+        }
+        return home
+    }
+    function fastReturnNearHome(): bool {
+        if (!permitted || !Scene.valid(scene) || !homeEdge) return false
+        homeReturnDeadline.stop()
+        if (returningForChat && traveling) return true
+        if (!motionEnabled || !visitActive || retreating || !actor) {
+            returnToHome(true)
+            return false
+        }
+        peekDeadline.stop();peekIntro=false;peekOnly=false
+        if (requestedReveal>0) renderedReveal=1
+        if (actor.presentation<.99) {
+            const cur=position()
+            actor.adoptTo(
+                cur.x+(actor.scale-1)*actor.width/2,
+                cur.y+(actor.scale-1)*actor.height/2,
+                emergenceEdge,
+                1
+            )
+        }
+        if (isNearHome()) {
+            if (traveling || portalActive) pause(false)
+            return false
+        }
+        const here=Object.assign(position(),{edge:emergenceEdge})
+        const target=nearHomeTarget(here)
+        if (!target.qualified || !Scene.clearAt(scene,target)) {
+            returnToHome(true)
+            return false
+        }
+        const route=Scene.path(scene,here,target)
+        if (!route.qualified) {
+            returnToHome(true)
+            return false
+        }
+        disturb("depart",Scene.annotate(scene,here,placement.edge,placement.kind,placement.key))
+        clearMotion()
+        returningForChat=true
+        destination=target
+        if (route.mode==="walk") {
+            const roll=random()
+            const canJump=Scene.clearArc(scene,here,target,42*scene.scale,placement.support?.nx ?? 0,placement.support?.ny ?? -1)
+            mode=canJump && roll<.45 ? "jump" : roll<.82 ? "run" : "fly"
+            supportRecovery=mode==="fly"
+        } else {
+            mode="fly"
+            supportRecovery=true
+        }
+        retreating=false;waypoints=route.points;waypoint=0
+        traveling=true
+        advance()
+        return traveling
+    }
     function scheduleHomeReturn(): void {
         homeReturnDeadline.stop()
-        if (!permitted || !visitActive || retreating || dragging || traveling || portalActive || !homeEdge) return
-        if (!isAtHome()) homeReturnDeadline.start()
     }
     function returnToHome(immediate = false): bool {
         if (!permitted || !Scene.valid(scene) || !homeEdge) return false
@@ -245,7 +331,7 @@ Item {
             }
         }
         stopRequested()
-        traveling=false; releasedFlight=false; supportRecovery=false; throwSpeed=0; throwArc=0; waypoints=[]; waypoint=0
+        traveling=false; releasedFlight=false; supportRecovery=false; returningForChat=false; throwSpeed=0; throwArc=0; waypoints=[]; waypoint=0
     }
     function hideImmediately(): void {
         clearMotion()
@@ -319,15 +405,24 @@ Item {
     }
     function pause(force = false): void {
         if (portalActive) {
-            if (force || interactionHeld || !motionEnabled || !permitted || requestedReveal<.99) clearMotion()
+            if (force || interactionHeld || !motionEnabled || !permitted || requestedReveal<.99) {
+                clearMotion()
+                if (visitActive && !dragging && (!placement.grounded || !Scene.clearAt(scene,position())
+                        || !Scene.supportAt(scene,position(),placement.support?.edge ?? placement.edge)))
+                    recoverSupport()
+            }
             return
         }
-        if (!traveling || retreating || (!force && (ballistic || directed || releasedFlight || supportRecovery))) return
+        if (!traveling || retreating || (!force && (returningForChat || ballistic || !grounded || directed || releasedFlight || supportRecovery || !Scene.supportAt(scene,position())))) return
         const here=position(), support=Scene.supportAt(scene,here)
         targetX=here.x; targetY=here.y
         clearMotion()
+        if (!support && visitActive && !dragging) {
+            recoverSupport(here)
+            return
+        }
         const isEdge=!!support && Scene.edges.includes(support.key)
-        placement=Scene.annotate(scene,here,support?.edge ?? placement.edge,isEdge ? "edge" : placement.kind,isEdge ? support.key : placement.key)
+        placement=Scene.annotate(scene,here,support?.edge ?? placement.edge,support ? (isEdge ? "edge" : "surface") : placement.kind,support ? support.key : placement.key)
     }
     function beginTurn(clip): void {
         handoffActive=true
@@ -477,7 +572,7 @@ Item {
         if (waypoint>=waypoints.length) {
             const exiting=retreating
             placement=destination; targetX=placement.x; targetY=placement.y
-            traveling=false; releasedFlight=false; supportRecovery=false; waypoints=[]
+            traveling=false; releasedFlight=false; supportRecovery=false; returningForChat=false; waypoints=[]
             if (exiting) {
                 handoffRequested()
                 if (handoffActive) return
@@ -501,13 +596,15 @@ Item {
         if (!Scene.clearSegment(scene,here,next)) {hideImmediately();return}
         directionX=next.x-here.x; directionY=next.y-here.y
         const speed=releasedFlight
-            ? Math.max(220*scene.scale,Math.min(950*scene.scale,throwSpeed*1000))
+            ? Math.max(260*scene.scale,Math.min(1450*scene.scale,throwSpeed*780))
+            : returningForChat ? 420*scene.scale
             : (retreating || supportRecovery ? 300 : mode==="walk" ? 16 : mode==="run" ? 32 : 105)*scene.scale
         normalX=mode==="jump" ? placement.support?.nx ?? 0 : 0
         normalY=mode==="jump" ? placement.support?.ny ?? -1 : -1
-        arc=releasedFlight ? throwArc : mode==="jump" ? 42*scene.scale : mode==="fly" && !retreating
+        arc=releasedFlight ? throwArc : mode==="jump" ? 42*scene.scale : mode==="fly" && !retreating && !supportRecovery
             && Scene.clearArc(scene,here,next,12*scene.scale) ? 12*scene.scale : 0
-        duration=releasedFlight ? Math.max(220,Math.min(900,Math.round(Scene.distance(here,next)/speed*1000)))
+        duration=releasedFlight ? Math.max(200,Math.min(900,Math.round(Scene.distance(here,next)/speed*1000)))
+            : returningForChat ? Math.max(240,Math.min(680,Math.round(Scene.distance(here,next)/speed*1000)))
             : mode==="jump" ? 950
             : Math.max(180,Math.round(Scene.distance(here,next)/speed*1000))
         targetX=next.x; targetY=next.y
@@ -532,10 +629,6 @@ Item {
     }
     function explore(): void {
         if (!canExplore || traveling || directed || travelId===0) return
-        if (homeEdge.length>0 && !isAtHome()) {
-            returnToHome(false)
-            return
-        }
         const here=position(), support=Scene.supportAt(scene,here)
         if (!support) {
             const floor=Scene.landingBelow(scene,here)
@@ -547,12 +640,21 @@ Item {
             return
         }
         const horizontal=support.axis==="x",span=horizontal ? scene.hostWidth : scene.hostHeight
-        const along=Scene.clamp((horizontal ? here.x : here.y)+(travelFraction-.5)*240*scene.scale,
+        const delta=(travelFraction-.5)*240*scene.scale
+        const along=Scene.clamp((horizontal ? here.x : here.y)+delta,
             support.from,support.to-span)
         const isEdge=Scene.edges.includes(support.key)
-        const selected=Scene.annotate(scene,horizontal ? {x:along,y:here.y} : {x:here.x,y:along},
-            support.edge,isEdge ? "edge" : placement.kind,isEdge ? support.key : placement.key)
-        if (selected.qualified && Scene.distance(here,selected)>10*scene.scale) {
+        let selected=Scene.annotate(scene,horizontal ? {x:along,y:here.y} : {x:here.x,y:along},
+            support.edge,isEdge ? "edge" : "surface",support.key)
+        if (isEdge && (!selected.grounded || !Scene.clearAt(scene,selected) || !Scene.clearSegment(scene,here,selected) || Scene.distance(here,selected)<=10*scene.scale)) {
+            const revAlong=Scene.clamp((horizontal ? here.x : here.y)-delta,support.from,support.to-span)
+            const rev=Scene.annotate(scene,horizontal ? {x:revAlong,y:here.y} : {x:here.x,y:revAlong},support.edge,"edge",support.key)
+            if (rev.qualified && rev.grounded && Scene.clearAt(scene,rev) && Scene.clearSegment(scene,here,rev) && Scene.distance(here,rev)>10*scene.scale)
+                selected=rev
+            else if (!selected.grounded || !Scene.clearAt(scene,selected))
+                selected=Scene.edgePoint(scene,support.edge,(along+span/2)/(horizontal ? scene.width : scene.height))
+        }
+        if (selected.qualified && selected.grounded && Scene.clearAt(scene,selected) && Scene.distance(here,selected)>10*scene.scale) {
             const gait=random(), length=Scene.distance(here,selected)
             const movement=length>=35*scene.scale && gait<.18 ? "run"
                 : length>=35*scene.scale && length<=180*scene.scale && gait<(actor?.character!=="octo" ? .68 : .35) ? "jump"
@@ -580,7 +682,7 @@ Item {
         if (support) {
             clearMotion()
             const isEdge=Scene.edges.includes(support.key)
-            const safe=Scene.annotate(scene,from,support.edge,isEdge ? "edge" : placement.kind,isEdge ? support.key : placement.key)
+            const safe=Scene.annotate(scene,from,support.edge,isEdge ? "edge" : "surface",support.key)
             placement=safe;destination=safe;targetX=safe.x;targetY=safe.y
             scheduleSurface()
             scheduleHomeReturn()
@@ -607,16 +709,29 @@ Item {
         let from=position()
         const sizeChanged=Number.isFinite(placement?.hostWidth)
             && (Math.abs(placement.hostWidth-scene.hostWidth)>.1 || Math.abs(placement.hostHeight-scene.hostHeight)>.1)
-        const ride=Scene.ride(scene,from,placement)
+        const supportLost=!!placement?.support?.key && !Scene.edges.includes(placement.support.key)
+            && !scene.surfaces.some(s=>s.key===placement.support.key)
+        const ride=(grounded || sizeChanged || supportLost || !Scene.clearAt(scene,from))
+            ? Scene.ride(scene,from,placement) : ({qualified:false})
         if (ride.qualified && (sizeChanged || Scene.distance(from,ride)>.25 || placement.support?.key!==ride.support?.key)) {
             const oldKey=placement.support?.key,delta=Scene.distance(from,ride)
             const closedToEdge=!Scene.edges.includes(oldKey) && Scene.edges.includes(ride.key)
+            if (delta>.25) {directionX=ride.x-from.x;directionY=ride.y-from.y}
             clearMotion();placement=ride;destination=ride;targetX=ride.x;targetY=ride.y
             actor.carryTo(ride.x+(actor.scale-1)*actor.width/2,ride.y+(actor.scale-1)*actor.height/2)
             if (!sizeChanged && !closedToEdge && (oldKey!==ride.key || delta>6*scene.scale)) balance()
             return
         }
         if (!Scene.clearAt(scene,from)) {
+            const edgeHorizontal=emergenceEdge==="top" || emergenceEdge==="bottom"
+            const edgeFraction=(edgeHorizontal ? from.x+scene.hostWidth/2 : from.y+scene.hostHeight/2)
+                / (edgeHorizontal ? scene.width : scene.height)
+            const edgeSafe=Scene.edgePoint(scene,emergenceEdge,edgeFraction)
+            if (edgeSafe.qualified && Scene.clearAt(scene,edgeSafe)) {
+                if (Scene.distance(from,edgeSafe)>.25) {directionX=edgeSafe.x-from.x;directionY=edgeSafe.y-from.y}
+                clearMotion();placement=edgeSafe;destination=edgeSafe;targetX=edgeSafe.x;targetY=edgeSafe.y
+                actor.carryTo(edgeSafe.x+(actor.scale-1)*actor.width/2,edgeSafe.y+(actor.scale-1)*actor.height/2);balance();return
+            }
             // A crowded rim may no longer fit. Recover through a clear nearby
             // opening rather than hiding the actor behind a growing body.
             const points=Scene.surfacePoints(scene)
@@ -655,18 +770,38 @@ Item {
     function beginDrag(): void {
         if (!permitted || !actor || !actor.inputReady || retreating) return
         pause(true);dragging=true;surfaceDeadline.stop()
+        const start=position()
         shakeReversals=0;dragVelocityX=0;dragVelocityY=0;dragSampleTime=Date.now()
+        dragSamples=[{x:start.x,y:start.y,t:dragSampleTime}]
     }
     function dragTo(x,y): void {
         if (!dragging || !permitted) return
         const previous=position(), point=Scene.drop(scene,x,y,previous)
         if (!point.qualified) return
         const now=Date.now(),dt=Math.max(8,now-dragSampleTime)
-        const vx=(point.x-previous.x)/dt,vy=(point.y-previous.y)/dt
-        if (Math.hypot(vx,vy)>.65*scene.scale && Math.hypot(dragVelocityX,dragVelocityY)>.65*scene.scale
-                && vx*dragVelocityX+vy*dragVelocityY<0) {
+        const stepVx=(point.x-previous.x)/dt,stepVy=(point.y-previous.y)/dt
+        if (Math.hypot(stepVx,stepVy)>.65*scene.scale && Math.hypot(dragVelocityX,dragVelocityY)>.65*scene.scale
+                && stepVx*dragVelocityX+stepVy*dragVelocityY<0) {
             shakeReversals++;if (shakeReversals>=4) setReaction("angry",6000)
         }
+        if (dragSamples.length>0 && dragSampleTime<dragSamples[dragSamples.length-1].t)
+            dragSamples[dragSamples.length-1].t=dragSampleTime
+        const samples=dragSamples.filter(s=>now-s.t<=95)
+        if (!samples.length && dragSamples.length) samples.push(dragSamples[dragSamples.length-1])
+        let vx=stepVx,vy=stepVy
+        if (samples.length) {
+            let ref=samples[0]
+            for (let i=samples.length-1;i>=0;i--) {
+                if (now-samples[i].t>=16) {ref=samples[i];break}
+            }
+            const winDt=Math.max(8,now-ref.t)
+            const winVx=(point.x-ref.x)/winDt,winVy=(point.y-ref.y)/winDt
+            if (Math.hypot(winVx,winVy)>=Math.hypot(stepVx,stepVy)*.85 || now-dragSampleTime<8) {
+                vx=winVx;vy=winVy
+            }
+        }
+        samples.push({x:point.x,y:point.y,t:now})
+        dragSamples=samples
         dragVelocityX=vx;dragVelocityY=vy;dragSampleTime=now
         directionX=point.x-previous.x; directionY=point.y-previous.y
         placement=point; destination=point; targetX=point.x; targetY=point.y
@@ -674,11 +809,22 @@ Item {
     function throwCandidates(here, vx, vy): var {
         const speed=Math.hypot(vx,vy),scale=scene?.scale ?? 1
         if (!Scene.valid(scene) || speed<throwThreshold) return []
-        const flightMs=Math.max(150,Math.min(360,150+speed/scale*85))
+        const normSpeed=speed/scale
+        const flightMs=Math.max(180,Math.min(1100,140+normSpeed*280))
+        const minX=Math.max(2,scene.insets.left)
+        const maxX=Math.min(scene.width-scene.hostWidth-2,scene.width-scene.insets.right-scene.hostWidth)
+        const minY=Math.max(2,scene.insets.top)
+        const maxY=Math.min(scene.height-scene.hostHeight-2,scene.height-scene.insets.bottom-scene.hostHeight)
+        const tx=vx>.001 ? (maxX-here.x)/vx : vx<-.001 ? (minX-here.x)/vx : Infinity
+        const ty=vy>.001 ? (maxY-here.y)/vy : vy<-.001 ? (minY-here.y)/vy : Infinity
+        const tWall=Math.max(0,Math.min(tx,ty))
+        const reachesWall=Number.isFinite(tWall) && tWall<=flightMs*1.15
+        const tDirect=reachesWall && tWall>1 ? tWall : flightMs
         const predicted={
-            x:Scene.clamp(here.x+vx*flightMs,2,scene.width-scene.hostWidth-2),
-            y:Scene.clamp(here.y+vy*flightMs,2,scene.height-scene.hostHeight-2)
+            x:Scene.clamp(here.x+vx*tDirect,2,scene.width-scene.hostWidth-2),
+            y:Scene.clamp(here.y+vy*tDirect,2,scene.height-scene.hostHeight-2)
         }
+        const ballisticFloorX=Scene.clamp(here.x+vx*flightMs*1.35,2,scene.width-scene.hostWidth-2)
         const candidates=Scene.surfacePoints(scene).slice()
         const centerX=predicted.x+scene.hostWidth/2,centerY=predicted.y+scene.hostHeight/2
         for (const edge of ["top","right","bottom","left"]) {
@@ -687,6 +833,18 @@ Item {
             const point=Scene.edgePoint(scene,edge,fraction)
             if (point.qualified) candidates.push(point)
         }
+        if (Number.isFinite(tWall) && tWall>1) {
+            const wallX=Scene.clamp(here.x+vx*tWall,2,scene.width-scene.hostWidth-2)+scene.hostWidth/2
+            const wallY=Scene.clamp(here.y+vy*tWall,2,scene.height-scene.hostHeight-2)+scene.hostHeight/2
+            for (const edge of ["top","right","bottom","left"]) {
+                const fraction=(edge==="top" || edge==="bottom")
+                    ? wallX/scene.width : wallY/scene.height
+                const point=Scene.edgePoint(scene,edge,fraction)
+                if (point.qualified) candidates.push(point)
+            }
+        }
+        const floorHop=Scene.edgePoint(scene,"bottom",(ballisticFloorX+scene.hostWidth/2)/scene.width)
+        if (floorHop.qualified) candidates.push(floorHop)
         const scored=[]
         for (const candidate of candidates) {
             if (!candidate?.qualified || !candidate.grounded) continue
@@ -694,7 +852,11 @@ Item {
             if (distance<40*scale || !Scene.clearSegment(scene,here,candidate)) continue
             const alignment=(dx*vx+dy*vy)/(Math.max(.001,distance)*speed)
             if (alignment<-.12) continue
-            const predictionError=Math.hypot(candidate.x-predicted.x,candidate.y-predicted.y)
+            let predictionError=Math.hypot(candidate.x-predicted.x,candidate.y-predicted.y)
+            if (!reachesWall && Math.abs(vx)>=.22*speed && candidate.edge==="bottom") {
+                const floorError=Math.hypot(candidate.x-ballisticFloorX,candidate.y-maxY)
+                if (floorError<predictionError) predictionError=floorError
+            }
             scored.push({candidate:candidate,score:predictionError+(1-alignment)*150*scale})
         }
         scored.sort((a,b)=>a.score-b.score)
@@ -703,7 +865,7 @@ Item {
     function throwTo(candidate, speed): bool {
         const here=position(),scale=scene?.scale ?? 1
         if (!candidate?.qualified || !candidate.grounded || !Scene.clearSegment(scene,here,candidate)) return false
-        let desiredArc=Math.max(28*scale,Math.min(130*scale,24*scale+speed*72))
+        let desiredArc=Math.max(24*scale,Math.min(160*scale,18*scale+(speed/scale)*52+Math.abs(candidate.x-here.x)*.12))
         while (desiredArc>8*scale && !Scene.clearArc(scene,here,candidate,desiredArc,0,-1))
             desiredArc*=.62
         if (desiredArc<=8*scale || !Scene.clearArc(scene,here,candidate,desiredArc,0,-1))
@@ -729,12 +891,16 @@ Item {
     }
     function endDrag(): void {
         if (!dragging) return
-        const releaseVx=dragVelocityX,releaseVy=dragVelocityY
+        const stale=Date.now()-dragSampleTime>140
+        const releaseVx=stale ? 0 : dragVelocityX,releaseVy=stale ? 0 : dragVelocityY
+        dragSamples=[]
         dragging=false
         if (shakeReversals>=4) {annoyance=5;setReaction("angry",6000);hideForAWhile();return}
-        reconcileScene()
+        if (!permitted || !Scene.valid(scene)) {hideImmediately();return}
         if (requestedReveal<=0) {retreat();return}
         if (tryThrow(releaseVx,releaseVy)) return
+        reconcileScene()
+        if (traveling) return
         if (motionEnabled && !placement.grounded) {
             const here=position(), floor=Scene.landingBelow(scene,here)
             releasedFlight=false
@@ -762,8 +928,18 @@ Item {
         let next
         if (support) {
             const horizontal=support.axis==="x",axis=horizontal ? dx : dy,extent=horizontal ? scene.hostWidth : scene.hostHeight
-            const along=Scene.clamp((horizontal ? here.x : here.y)+(axis>=0 ? 1 : -1)*100*scene.scale,support.from,support.to-extent)
-            next=Scene.annotate(scene,horizontal ? {x:along,y:here.y} : {x:here.x,y:along},emergenceEdge,placement.kind,placement.key)
+            const step=(axis>=0 ? 1 : -1)*100*scene.scale
+            const along=Scene.clamp((horizontal ? here.x : here.y)+step,support.from,support.to-extent)
+            const isEdge=Scene.edges.includes(support.key)
+            next=Scene.annotate(scene,horizontal ? {x:along,y:here.y} : {x:here.x,y:along},support.edge,isEdge ? "edge" : "surface",support.key)
+            if (isEdge && (!next.grounded || !Scene.clearAt(scene,next) || !Scene.clearSegment(scene,here,next) || Scene.distance(here,next)<=10*scene.scale)) {
+                const revAlong=Scene.clamp((horizontal ? here.x : here.y)-step,support.from,support.to-extent)
+                const rev=Scene.annotate(scene,horizontal ? {x:revAlong,y:here.y} : {x:here.x,y:revAlong},support.edge,"edge",support.key)
+                if (rev.qualified && rev.grounded && Scene.clearAt(scene,rev) && Scene.clearSegment(scene,here,rev) && Scene.distance(here,rev)>10*scene.scale)
+                    next=rev
+                else if (!next.grounded || !Scene.clearAt(scene,next))
+                    next=Scene.edgePoint(scene,support.edge,(along+extent/2)/(horizontal ? scene.width : scene.height))
+            }
         } else {
             const floor=Scene.landingBelow(scene,here)
             if (floor.qualified) next=floor
@@ -773,7 +949,7 @@ Item {
             }
         }
         releasedFlight=false
-        if (next?.qualified) moveTo(next,false,support ? "run" : "")
+        if (next?.qualified && next.grounded && Scene.clearAt(scene,next)) moveTo(next,false,support ? "run" : "")
     }
     function nearbyClick(x,y): void {
         if (!permitted || !visitActive || dragging || !motionEnabled || actor.presentation<.2) return

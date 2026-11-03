@@ -161,7 +161,7 @@ def run_sandboxed(
     stdout_text = (out_bytes or b"").decode("utf-8", errors="replace")
     stderr_text = (err_bytes or b"").decode("utf-8", errors="replace")
     combined = (stdout_text + ("\n" + stderr_text if stderr_text.strip() else "")).strip()
-    lines = [ln.strip()[:220] for ln in combined.splitlines() if ln.strip()][:24]
+    lines = [ln.strip()[:220] for ln in combined.splitlines() if ln.strip()][:200]
 
     if timed_out:
         return {
@@ -170,8 +170,8 @@ def run_sandboxed(
             "exitCode": -1,
             "elapsedMs": elapsed_ms,
             "lines": lines or [f"(command timed out after {timeout:.1f}s; child processes reaped)"],
-            "stdout": stdout_text[:4000],
-            "stderr": stderr_text[:4000],
+            "stdout": stdout_text[:8000],
+            "stderr": stderr_text[:8000],
             "sandboxed": True,
         }
     exit_code = int(proc.returncode if proc.returncode is not None else -1)
@@ -184,7 +184,108 @@ def run_sandboxed(
         "exitCode": exit_code,
         "elapsedMs": elapsed_ms,
         "lines": lines,
-        "stdout": stdout_text[:4000],
-        "stderr": stderr_text[:4000],
+        "stdout": stdout_text[:8000],
+        "stderr": stderr_text[:8000],
         "sandboxed": True,
+    }
+
+
+def run_user_command(
+    argv_or_script,
+    cwd=None,
+    timeout_sec=20.0,
+    shell=True,
+):
+    """Run a command with the user's full local session environment and permissions."""
+    if os.environ.get("ALIS_AQUA_BWRAP_BIN") == "__MISSING__":
+        raise SandboxError(
+            "sandbox_unavailable",
+            "Missing dependency: bubblewrap (bwrap) is required for sandboxed command execution.",
+        )
+    home = Path.home().resolve(strict=False)
+    work_dir = Path(cwd or home).expanduser().resolve(strict=False)
+    if not work_dir.is_dir():
+        work_dir = home
+
+    timeout = max(0.5, min(180.0, float(timeout_sec or 20.0)))
+    if shell:
+        cmd = ["/usr/bin/bash", "-c", str(argv_or_script)]
+    elif isinstance(argv_or_script, (list, tuple)):
+        cmd = [str(x) for x in argv_or_script]
+    else:
+        cmd = ["/usr/bin/bash", "-c", str(argv_or_script)]
+
+    env = dict(os.environ)
+    cargo_bin = str(home / ".cargo/bin")
+    local_bin = str(home / ".local/bin")
+    current_path = env.get("PATH", "/usr/local/bin:/usr/bin:/bin")
+    env["PATH"] = f"{local_bin}:{cargo_bin}:{current_path}"
+    env["HOME"] = str(home)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+
+    started = time.monotonic()
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(work_dir),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        start_new_session=True,
+    )
+    timed_out = False
+    try:
+        out_bytes, err_bytes = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except OSError:
+            pass
+        try:
+            out_bytes, err_bytes = proc.communicate(timeout=0.5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            out_bytes, err_bytes = proc.communicate()
+    finally:
+        if proc.poll() is None:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            proc.wait(timeout=1)
+
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    stdout_text = (out_bytes or b"").decode("utf-8", errors="replace")
+    stderr_text = (err_bytes or b"").decode("utf-8", errors="replace")
+    combined = (stdout_text + ("\n" + stderr_text if stderr_text.strip() else "")).strip()
+    lines = [ln.strip()[:220] for ln in combined.splitlines() if ln.strip()][:200]
+
+    if timed_out:
+        return {
+            "status": "timed_out",
+            "timedOut": True,
+            "exitCode": -1,
+            "elapsedMs": elapsed_ms,
+            "lines": lines or [f"(command timed out after {timeout:.1f}s; child processes reaped)"],
+            "stdout": stdout_text[:8000],
+            "stderr": stderr_text[:8000],
+            "sandboxed": False,
+        }
+    exit_code = int(proc.returncode if proc.returncode is not None else -1)
+    status = "completed" if exit_code == 0 else "failed"
+    if not lines:
+        lines = ["(completed with exit 0)" if exit_code == 0 else f"(failed with exit {exit_code})"]
+    return {
+        "status": status,
+        "timedOut": False,
+        "exitCode": exit_code,
+        "elapsedMs": elapsed_ms,
+        "lines": lines,
+        "stdout": stdout_text[:8000],
+        "stderr": stderr_text[:8000],
+        "sandboxed": False,
     }

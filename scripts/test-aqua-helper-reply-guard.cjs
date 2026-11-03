@@ -93,6 +93,15 @@ assert.equal(reply("memory_forget",{deleted:false}).ok,true);
 invalid("memory_forget",{deleted:"true"});
 assert.equal(reply("memory_forget_all",{deletedCount:128}).ok,true);
 invalid("memory_forget_all",{deletedCount:-1});
+for (const op of ["list", "create_thread", "select_thread", "clear_thread", "duplicate_thread", "search_threads"]) {
+    assert.equal(reply("chat_threads", {op, activeThreadId:"default", threads:[], projects:[]}).ok, true);
+}
+const sixtyLongMsgs = Array.from({length: 60}, (_, i) => ({
+    id: i + 1, role: i % 2 === 0 ? "user" : "assistant", content: "m".repeat(3000), createdMs: i, model: "fixture"
+}));
+assert.equal(reply("history", {messages: sixtyLongMsgs, hasMore: true}).ok, true);
+assert.equal(reply("chat_threads", {op: "select_thread", activeThreadId: "default", threads: [], projects: [], messages: sixtyLongMsgs, hasMore: false}).ok, true);
+invalid("chat_threads", {op:"unknown_op", activeThreadId:"default", threads:[], projects:[]});
 
 // Invoke the product completion function so rejection also proves state safety.
 const qml = fs.readFileSync(path.join(root, "services/AquaMind.qml"), "utf8");

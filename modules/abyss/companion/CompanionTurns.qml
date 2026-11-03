@@ -11,7 +11,15 @@ Item {
     property bool allowed: false
     property bool alternating: false
     property bool interactionHeld: false
+    property string primaryCharacter: "aqua"
     property int offerInterval: 45000
+    readonly property real primaryShare: 0.7
+    readonly property real secondaryShare: 0.3
+    readonly property bool isPrimaryActive: (actor?.character ?? outgoing) === primaryCharacter
+    readonly property int primaryInterval: Math.round(offerInterval * 2 * primaryShare)
+    readonly property int secondaryInterval: Math.round(offerInterval * 2 * secondaryShare)
+    readonly property int activeOfferInterval: isPrimaryActive ? primaryInterval : secondaryInterval
+    property double turnStartedAt: Date.now()
     readonly property bool enabledPolicy: allowed && alternating && presence.permitted && actor.motionEnabled
     readonly property bool eligible: enabledPolicy && presence.qualified && presence.visitActive
         && presence.requestedReveal>.99 && actor.presentation>.99 && !active
@@ -42,6 +50,7 @@ Item {
         if (!active || actor.presentation>0 || actor.visible) return
         const next=incoming,point=replacementPlacement
         active=false
+        turnStartedAt=Date.now()
         characterChosen(next)
         presence.finishTurn(point)
         if(eligible)offer.restart()
@@ -55,14 +64,17 @@ Item {
     }
     function offerTurn(): void {if(due && eligible)begin()}
     onEligibleChanged: {
-        if(eligible){if(due)Qt.callLater(root.offerTurn);else if(!offer.running)offer.start()}
+        if(eligible){if(!turnStartedAt)turnStartedAt=Date.now();if(due)Qt.callLater(root.offerTurn);else if(!offer.running)offer.restart()}
     }
     onEnabledPolicyChanged: if(!enabledPolicy)cancel()
     onInteractionHeldChanged: if(interactionHeld && active)cancel()
     Connections {
         target:root.presence
         function onVisitActiveChanged(): void {if(!root.presence.visitActive && !root.active){offer.stop();root.due=false}}
-        function onHandoffRequested(): void {root.begin(true)}
+        function onHandoffRequested(): void {
+            if (!root.isPrimaryActive || root.due || (Date.now() - root.turnStartedAt) >= root.primaryInterval)
+                root.begin(true)
+        }
         function onSceneChanged(): void {
             if(root.active && (!Scene.clearAt(root.presence.scene,root.replacementPlacement)
                     || !Scene.supportAt(root.presence.scene,root.replacementPlacement,root.replacementPlacement.edge)))root.cancel()
@@ -72,5 +84,5 @@ Item {
         target:root.actor
         function onPresentationChanged(): void {if(root.active && root.actor.presentation===0)Qt.callLater(root.finish)}
     }
-    Timer {id:offer;objectName:"companionTurnDeadline";interval:root.offerInterval;repeat:false;onTriggered:{root.due=true;root.offerTurn()}}
+    Timer {id:offer;objectName:"companionTurnDeadline";interval:root.activeOfferInterval;repeat:false;onTriggered:{root.due=true;root.offerTurn()}}
 }

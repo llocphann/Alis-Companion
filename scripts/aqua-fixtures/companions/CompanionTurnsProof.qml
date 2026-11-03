@@ -53,6 +53,13 @@ Window {
         function prove():void {
             try {
                 root.place("bottom")
+                check(turns.primaryInterval * 3 === turns.secondaryInterval * 7, "7:3 turn duration ratio mismatch")
+                turns.primaryCharacter = "aqua"
+                root.character = "aqua"
+                check(turns.activeOfferInterval === turns.primaryInterval, "primary companion did not get 7-part interval")
+                root.character = "octo"
+                check(turns.activeOfferInterval === turns.secondaryInterval, "secondary companion did not get 3-part interval")
+                root.character = "aqua"
                 check(!turns.begin() && !guest.active,"single mode spawned a challenger")
                 root.alternate=true
                 root.held=true;wait(40);check(!turns.begin(),"turn interrupted chat/task")

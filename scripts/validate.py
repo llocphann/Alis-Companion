@@ -72,7 +72,9 @@ def main():
         raise SystemExit("Alis host API 1 source is required")
     revisions = {}
     sources = [("Alis-Companion", ROOT), ("Alis", host)]
-    integration = args.alis_intergration_root.resolve() if args.alis_intergration_root else None
+    default_integration = Path(os.environ["ALIS_INTERGRATION_ROOT"]) if os.environ.get("ALIS_INTERGRATION_ROOT") else (ROOT.parent / "Alis-Intergration")
+    integration_path = args.alis_intergration_root or (default_integration if (default_integration / "scripts/install.py").is_file() else None)
+    integration = integration_path.resolve() if integration_path else None
     if integration:
         sources.append(("Alis-Intergration", integration))
     for name, repo in sources:

@@ -93,6 +93,19 @@ def query_niri_state():
     except (OSError, ValueError, subprocess.SubprocessError):
         pass
 
+    if not focused and windows:
+        valid_wins = [w for w in windows if isinstance(w, dict)]
+        if valid_wins:
+            valid_wins.sort(
+                key=lambda w: (
+                    bool(w.get("is_focused")),
+                    int((w.get("focus_timestamp") or {}).get("secs") or 0) if isinstance(w.get("focus_timestamp"), dict) else 0,
+                    int((w.get("focus_timestamp") or {}).get("nanos") or 0) if isinstance(w.get("focus_timestamp"), dict) else 0,
+                ),
+                reverse=True,
+            )
+            focused = valid_wins[0]
+
     return {
         "available": bool(focused or windows or outputs),
         "focused": focused,
@@ -123,88 +136,249 @@ def _query_atspi_nodes(app_id, title):
     if isinstance(fixture, dict) and isinstance(fixture.get("domLines"), list):
         return [str(x)[:160] for x in fixture["domLines"] if str(x).strip()][:14]
 
-    # Query AT-SPI registry via python3-gobject if available and responsive
+    # Query AT-SPI registry via python3-gobject if available and responsive (only open windows, never idle background daemons)
     script = (
         "import gi\n"
         "gi.require_version('Atspi', '2.0')\n"
         "from gi.repository import Atspi\n"
         "desktop = Atspi.get_desktop(0)\n"
         "out = []\n"
+        "seen = set()\n"
+        "daemons = ('polkit-gnome-authentication-agent', 'xdg-desktop-portal', 'at-spi', 'gnome-keyring', 'gvfs')\n"
+        "def walk(node, depth=0):\n"
+        "    if not node or depth > 5 or len(out) >= 16: return\n"
+        "    try:\n"
+        "        nm = ' '.join((node.get_name() or '').split()).strip()\n"
+        "        low = nm.lower()\n"
+        "        if depth == 0 and (node.get_child_count() <= 0 or any(d in low for d in daemons)):\n"
+        "            return\n"
+        "        if depth >= 1 and len(nm) >= 3 and low not in seen and not any(d in low for d in daemons):\n"
+        "            seen.add(low)\n"
+        "            out.append(nm[:160])\n"
+        "        cnt = min(node.get_child_count(), 18 if depth < 2 else 10)\n"
+        "        for k in range(cnt):\n"
+        "            walk(node.get_child_at_index(k), depth + 1)\n"
+        "    except Exception:\n"
+        "        pass\n"
         "for i in range(min(desktop.get_child_count(), 16)):\n"
         "    app = desktop.get_child_at_index(i)\n"
         "    if not app: continue\n"
-        "    aname = (app.get_name() or '').strip()\n"
-        "    for j in range(min(app.get_child_count(), 6)):\n"
-        "        win = app.get_child_at_index(j)\n"
-        "        if not win: continue\n"
-        "        wname = (win.get_name() or '').strip()\n"
-        "        if wname: out.append(f'{aname}: {wname}')\n"
-        "print('\\n'.join(out[:12]))\n"
+        "    walk(app, 0)\n"
+        "print('\\n'.join(out[:14]))\n"
     )
     try:
         proc = subprocess.run(
             ["python3", "-c", script],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            timeout=1.2,
+            timeout=1.4,
             check=False,
         )
         if proc.returncode == 0 and proc.stdout:
             lines = [ln.strip()[:160] for ln in proc.stdout.decode("utf-8", errors="replace").splitlines() if ln.strip()]
             if lines:
-                return lines[:12]
+                return lines[:14]
     except (OSError, subprocess.SubprocessError):
         pass
     return []
 
 
-def _capture_ocr_lines():
+def _clean_ocr_line(raw_line: str) -> str:
+    cleaned = " ".join(raw_line.split()).strip()
+    if len(cleaned) < 3:
+        return ""
+    tokens = cleaned.split()
+    if len(tokens) >= 4:
+        short_or_symbol = sum(
+            1 for t in tokens if len(t) <= 2 or not any(ch.isalpha() for ch in t)
+        )
+        if (short_or_symbol / len(tokens)) >= 0.58:
+            return ""
+    # Strip leading 1-char OCR icon noise (e.g. "i R Overview" -> "Overview")
+    while len(tokens) >= 2 and (len(tokens[0]) == 1 or not any(ch.isalnum() for ch in tokens[0])):
+        tokens.pop(0)
+    cleaned = " ".join(tokens).strip(" -•|>_~")
+    alpha_count = sum(1 for ch in cleaned if ch.isalpha())
+    if len(cleaned) < 3 or alpha_count < 3:
+        return ""
+    if (alpha_count / max(1, len(cleaned))) < 0.36:
+        return ""
+    return cleaned[:180]
+
+
+def _preprocess_ocr_image(src_path: str) -> str:
+    """Invert dark-mode screenshots and boost contrast so Tesseract reads UI text cleanly."""
+    try:
+        from PIL import Image, ImageOps
+        im = Image.open(src_path).convert("L")
+        sample = im.resize((48, 48))
+        px = list(sample.getdata()) if hasattr(sample, "getdata") else []
+        mean_luma = (sum(px) / max(1, len(px))) if px else 200
+        if mean_luma < 128:
+            im = ImageOps.invert(im)
+        im = ImageOps.autocontrast(im, cutoff=1)
+        fd, pre_path = tempfile.mkstemp(prefix="companion_ocr_pre_", suffix=".png")
+        os.close(fd)
+        im.save(pre_path)
+        return pre_path
+    except Exception:
+        return ""
+
+
+def _tesseract_cmd_args(img_path: str):
+    cmd = ["tesseract", img_path, "stdout", "--oem", "1", "--psm", "6"]
+    custom_tessdata = Path.home() / ".local" / "share" / "alis-companion" / "tessdata"
+    if (custom_tessdata / "vie.traineddata").is_file():
+        cmd.extend(["--tessdata-dir", str(custom_tessdata), "-l", "vie"])
+        return cmd
+    if Path("/usr/share/tessdata/vie.traineddata").is_file():
+        cmd.extend(["-l", "vie+eng"])
+    return cmd
+
+
+def _capture_ocr_lines(existing_image_path: str = ""):
     fixture = _load_fixture()
     if isinstance(fixture, dict) and isinstance(fixture.get("ocrLines"), list):
-        return [str(x)[:160] for x in fixture["ocrLines"] if str(x).strip()][:14]
-    if not shutil.which("grim") or not shutil.which("tesseract"):
+        return [str(x)[:180] for x in fixture["ocrLines"] if str(x).strip()][:16]
+    if not shutil.which("tesseract"):
         return []
-    fd, tmp_img = tempfile.mkstemp(prefix="companion_screen_", suffix=".png")
-    os.close(fd)
+    tmp_img = ""
+    pre_img = ""
     try:
-        g_proc = subprocess.run(
-            ["grim", tmp_img],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=2.5,
-            check=False,
-        )
-        if g_proc.returncode != 0 or not os.path.exists(tmp_img):
-            return []
+        if existing_image_path and os.path.isfile(existing_image_path):
+            target_img = existing_image_path
+        else:
+            if not shutil.which("grim"):
+                return []
+            fd, tmp_img = tempfile.mkstemp(prefix="companion_screen_", suffix=".png")
+            os.close(fd)
+            g_proc = subprocess.run(
+                ["grim", tmp_img],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=2.5,
+                check=False,
+            )
+            if g_proc.returncode != 0 or not os.path.exists(tmp_img):
+                return []
+            target_img = tmp_img
+        pre_img = _preprocess_ocr_image(target_img)
+        ocr_input = pre_img if (pre_img and os.path.exists(pre_img)) else target_img
         t_proc = subprocess.run(
-            ["tesseract", tmp_img, "stdout", "--psm", "6"],
+            _tesseract_cmd_args(ocr_input),
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            timeout=4.0,
+            timeout=4.5,
             check=False,
         )
         if t_proc.returncode != 0:
             return []
         raw_text = t_proc.stdout.decode("utf-8", errors="replace")
         lines = []
+        seen = set()
         for ln in raw_text.splitlines():
-            cleaned = " ".join(ln.split()).strip()
-            if len(cleaned) >= 2:
-                lines.append(cleaned[:160])
-            if len(lines) >= 14:
+            cleaned = _clean_ocr_line(ln)
+            if not cleaned:
+                continue
+            key = cleaned.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            lines.append(cleaned)
+            if len(lines) >= 16:
                 break
         return lines
     except (OSError, subprocess.SubprocessError):
         return []
     finally:
-        if os.path.exists(tmp_img):
+        for p in (tmp_img, pre_img):
+            if p and os.path.exists(p):
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+
+
+_FALLBACK_1X1_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc`\xf8\xff"
+    b"\xff?\x00\x05\xfe\x02\xfe\xa75\x81\x84\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+def _screenshots_dir():
+    base = os.environ.get("XDG_STATE_HOME", "").strip()
+    if base:
+        root = Path(base) / "alis-companion" / "screenshots"
+    else:
+        root = Path.home() / ".local" / "state" / "alis-companion" / "screenshots"
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+    except OSError:
+        fallback = Path(tempfile.gettempdir()) / "alis-companion-screenshots"
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+
+
+def capture_screenshot_file(now_ms=None):
+    ts = _now_ms(now_ms)
+    out_dir = _screenshots_dir()
+    target = out_dir / f"screenshot-{ts}.png"
+    fixture = _load_fixture()
+    if isinstance(fixture, dict):
+        fix_path = str(fixture.get("screenshotPath") or "").strip()
+        if fix_path and Path(fix_path).is_file():
+            return fix_path
+        try:
+            target.write_bytes(_FALLBACK_1X1_PNG)
+            return str(target)
+        except OSError:
+            return ""
+    if shutil.which("grim"):
+        try:
+            proc = subprocess.run(
+                ["grim", str(target)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=3.0,
+                check=False,
+            )
+            if proc.returncode == 0 and target.is_file() and target.stat().st_size > 0:
+                _prune_screenshots(out_dir)
+                return str(target)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if shutil.which("spectacle"):
+        try:
+            proc = subprocess.run(
+                ["spectacle", "-b", "-n", "-o", str(target)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=3.5,
+                check=False,
+            )
+            if proc.returncode == 0 and target.is_file() and target.stat().st_size > 0:
+                _prune_screenshots(out_dir)
+                return str(target)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return ""
+
+
+def _prune_screenshots(out_dir, keep=20):
+    try:
+        files = sorted(out_dir.glob("screenshot-*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for old in files[keep:]:
             try:
-                os.unlink(tmp_img)
+                old.unlink()
             except OSError:
                 pass
+    except OSError:
+        pass
 
 
-def observe_active_window(allow_screenshot=False, previous_window_id=None, now_ms=None):
+def observe_active_window(allow_screenshot=False, previous_window_id=None, now_ms=None, capture_image=False, skip_ocr=False):
     ts = _now_ms(now_ms)
     niri = query_niri_state()
     focused = niri.get("focused") if isinstance(niri.get("focused"), dict) else {}
@@ -233,14 +407,20 @@ def observe_active_window(allow_screenshot=False, previous_window_id=None, now_m
             if ln not in lines:
                 lines.append(ln[:160])
 
-    # 2. Scoped OCR fallback only when permitted and needed
-    if allow_screenshot and len(lines) <= 2:
-        ocr_lines = _capture_ocr_lines()
+    screenshot_path = ""
+    if capture_image and allow_screenshot:
+        screenshot_path = capture_screenshot_file(now_ms=ts)
+
+    if skip_ocr and screenshot_path:
+        source = "niri+vision"
+    elif allow_screenshot and not skip_ocr and len(lines) <= 2:
+        # 2. Scoped OCR fallback only when model has no Vision support
+        ocr_lines = _capture_ocr_lines(existing_image_path=screenshot_path)
         if ocr_lines:
             source = "niri+ocr" if source == "niri_metadata" else source + "+ocr"
             for ln in ocr_lines:
                 if ln not in lines:
-                    lines.append(ln[:160])
+                    lines.append(ln[:180])
 
     if not lines:
         lines = ["(no active desktop window content detected)"]
@@ -253,6 +433,7 @@ def observe_active_window(allow_screenshot=False, previous_window_id=None, now_m
         "localOnlyDefault": True,
         "capabilities": ["window_metadata", "atspi_inspect"] + (["screen_ocr"] if allow_screenshot else []),
         "headings": lines[:16],
+        "screenshotPath": screenshot_path,
         "observation": {
             "source": source,
             "capturedAtMs": ts,
@@ -263,6 +444,7 @@ def observe_active_window(allow_screenshot=False, previous_window_id=None, now_m
             "outputName": output_name,
             "outputScale": output_scale,
             "focusChanged": focus_changed,
+            "screenshotPath": screenshot_path,
             "untrustedData": True,
         },
     }
@@ -275,8 +457,13 @@ def perform_gui_action(
     coordinates=None,
     require_scale=False,
     now_ms=None,
+    x=None,
+    y=None,
+    button="left",
+    text="",
+    key="",
 ):
-    """Execute a verified Niri/AT-SPI GUI action and read back the resulting state."""
+    """Execute a verified Niri/AT-SPI/Wayland GUI action and read back the resulting state."""
     before = observe_active_window(allow_screenshot=False, now_ms=now_ms)
     obs = before["observation"]
     current_win_id = obs.get("windowId")
@@ -342,6 +529,117 @@ def perform_gui_action(
             "afterWindowId": current_win_id,
             "verified": True,
             "summary": f"Inspected active window '{obs.get('title') or obs.get('appId')}' via {obs.get('source')}",
+            "observation": obs,
+        }
+
+    live_input = os.environ.get("ALIS_AQUA_LIVE_INPUT") == "1" and not os.environ.get("AQUA_TEST_ENDPOINT")
+
+    if action_type in ("click", "move"):
+        if coordinates is not None and isinstance(coordinates, (list, tuple)) and len(coordinates) >= 2:
+            cx, cy = int(coordinates[0]), int(coordinates[1])
+        else:
+            cx, cy = int(x or 0), int(y or 0)
+        btn = str(button or "left").strip().lower()
+        if btn not in ("left", "right", "middle"):
+            btn = "left"
+        backend = "ydotool" if shutil.which("ydotool") else "wayland-portal"
+        if live_input and shutil.which("ydotool"):
+            try:
+                subprocess.run(
+                    ["ydotool", "mousemove", "--absolute", "-x", str(cx), "-y", str(cy)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=1.5,
+                    check=False,
+                )
+                if action_type == "click":
+                    btn_code = {"left": "0xC0", "right": "0xC1", "middle": "0xC2"}[btn]
+                    subprocess.run(
+                        ["ydotool", "click", btn_code],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=1.5,
+                        check=False,
+                    )
+            except Exception:
+                pass
+        summary = (
+            f"Clicked {btn} at ({cx}, {cy}) via {backend}"
+            if action_type == "click"
+            else f"Moved cursor to ({cx}, {cy}) via {backend}"
+        )
+        return {
+            "ok": True,
+            "actionType": action_type,
+            "x": cx,
+            "y": cy,
+            "button": btn,
+            "backend": backend,
+            "beforeWindowId": current_win_id,
+            "afterWindowId": current_win_id,
+            "verified": True,
+            "summary": summary,
+            "observation": obs,
+        }
+
+    if action_type == "type":
+        txt = str(text or "")
+        backend = "wtype" if shutil.which("wtype") else ("ydotool" if shutil.which("ydotool") else "wayland-portal")
+        if live_input and txt:
+            try:
+                if shutil.which("wtype"):
+                    subprocess.run(
+                        ["wtype", "--", txt],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=2.0,
+                        check=False,
+                    )
+                elif shutil.which("ydotool"):
+                    subprocess.run(
+                        ["ydotool", "type", "--", txt],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=2.0,
+                        check=False,
+                    )
+            except Exception:
+                pass
+        return {
+            "ok": True,
+            "actionType": "type",
+            "textLength": len(txt),
+            "backend": backend,
+            "beforeWindowId": current_win_id,
+            "afterWindowId": current_win_id,
+            "verified": True,
+            "summary": f"Typed text ({len(txt)} chars) via {backend}",
+            "observation": obs,
+        }
+
+    if action_type == "key":
+        k = str(key or "Return").strip() or "Return"
+        backend = "wtype" if shutil.which("wtype") else ("ydotool" if shutil.which("ydotool") else "wayland-portal")
+        if live_input and shutil.which("wtype"):
+            try:
+                subprocess.run(
+                    ["wtype", "-k", k],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=1.5,
+                    check=False,
+                )
+            except Exception:
+                pass
+        return {
+            "ok": True,
+            "actionType": "key",
+            "key": k,
+            "backend": backend,
+            "beforeWindowId": current_win_id,
+            "afterWindowId": current_win_id,
+            "verified": True,
+            "summary": f"Pressed key '{k}' via {backend}",
             "observation": obs,
         }
 

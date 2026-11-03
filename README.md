@@ -2,7 +2,7 @@
 
 Aqua and Octo, expressive 3D desktop companions for [Alis](https://github.com/llocphann/Alis). Companion is an optional installation, disabled by default in Alis.
 
-This repository owns the procedural liquid renderer, Blender models and motion curves, behavior daemon, expressions, movement, curiosity, alternating characters, orbital cloud actions, chat, check-ins and Companion settings. Alis supplies the Abyss surfaces, theme, shared AI transport, Obsidian/Todo integration and a small optional host adapter.
+This repository owns the procedural liquid renderer, Blender models and motion curves, behavior daemon (`alis-companiond`), expressions, movement, curiosity, alternating characters, orbital cloud actions, the unified Left Sidebar **Intelligence** chat view (`AquaCompanionChatView.qml`, `AquaTalkCloud.qml`, `AquaChatSidebar.qml`), interactive `/` slash commands, Agent Skills (`skill_store.py`), RAG document indexing (`rag_store.py`), MCP client integration (`mcp_client.py`), Pocket SQLite capture, check-ins and Companion settings. Alis supplies the Abyss surfaces, theme, shared AI transport, Obsidian/Todo integration and a small optional host adapter.
 
 ## Integrated installation via Alis
 

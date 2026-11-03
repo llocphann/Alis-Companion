@@ -18,9 +18,9 @@ flowchart LR
 | Aqua/Octo Blender sources and sampled 3D motion curves | Existing Abyss screen edges, Dock, Sidebar, popup leases and water solver |
 | Liquid renderer/shaders, faces, gaze, bubbles, 30 actions per character | Shared theme, rendering/power policy and compositor services |
 | Presence, walking/running/flight, drag reactions, curiosity, cast turns | Finite discovery, session/output loaders and bounded presentation outputs |
-| Companion talk/cloud UI, personality and Companion settings | General AI catalog, text transport, local GGUF discovery/supervisor |
-| `alis-companiond` source/build and feature regressions | Core native helpers, package lifecycle and canonical maintainer validator |
-| Companion context/chat/history helpers and active local AI plans | Todo/Obsidian helpers and existing preference schema |
+| Companion talk/cloud UI, unified Left Sidebar `Intelligence` view (`AquaCompanionChatView.qml`, `AquaChatSidebar.qml`), personality and Companion settings | General AI catalog, text transport, local GGUF discovery/supervisor |
+| `alis-companiond` source/build (including `--pocket` SQLite store) and feature regressions | Core native helpers, package lifecycle and canonical maintainer validator |
+| Companion context/chat/history helpers, `/` slash commands, Agent Skills (`skill_store.py`), RAG (`rag_store.py`), MCP (`mcp_client.py`) and active local AI plans | Todo/Obsidian helpers and existing preference schema |
 
 The original import is pinned by [ALIS_IMPORT.json](ALIS_IMPORT.json), with source paths and original SHA-256 hashes. Native Rust protocol and binary name remain compatible. No runtime PNG/GIF sprites are introduced; Blender files stay in the authoring repository and outside the installed payload.
 
