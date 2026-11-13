@@ -536,6 +536,9 @@ ContentPage {
                         color: AbyssStyle.surface
                         border.width: 1
                         border.color: Qt.alpha(AbyssStyle.accent, 0.22)
+                        HoverHandler {
+                            id: previewHover
+                        }
                         WaterDropletBody {
                             id: preview
                             character: root.preferences.character
@@ -551,6 +554,9 @@ ContentPage {
                             motionScale: Preferences.motionScale(root.preferences.personality)
                             motionEnabled: root.preferences.animationsEnabled && AbyssStyle.motionEnabled && visible
                             effectsEnabled: root.preferences.effectsEnabled && Appearance.effectsEnabled && AbyssRenderPolicy.aquaQuality !== "performance"
+                            powerProfile: AbyssRenderPolicy.powerProfile
+                            bubblesEnabled: root.preferences.effectsEnabled && Appearance.effectsEnabled
+                            nearbyInteraction: previewHover.hovered || preview.hovered || root.previewMotion !== ""
                             renderQuality: AbyssRenderPolicy.aquaQuality
                             translucency: root.preferences.translucency
                         }

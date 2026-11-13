@@ -7,6 +7,8 @@ var dropletSize = [13.5, 14, 11, 6.5, 4, 4.5, 4, 3]
 var shineX = [9, 64, 4, 66, 58]
 var shineY = [20, 14, 48, 43, 73]
 var bubblePhase = [3.35, 0.40, 4.10, 5.40, 4.78, 5.08, 2.50, 0.03]
+var bubbleCos = bubblePhase.map(Math.cos)
+var bubbleSin = bubblePhase.map(Math.sin)
 var focusedExpressions = ["sleepy", "working", "thinking", "sad"]
 
 function resolve(expression, mood, activity) {

@@ -33,6 +33,10 @@ Item {
     property bool quietSettled: false
     property real motionScale: 1
     property bool effectsEnabled: Appearance.effectsEnabled && renderQuality !== "performance"
+    property string powerProfile: AbyssRenderPolicy.powerProfile
+    property bool bubblesEnabled: root.effectsEnabled
+    property bool nearbyInteraction: false
+    readonly property bool bubble2DMode: root.powerProfile === "power-saver"
     property bool floorReflectionEnabled: false
     property string renderQuality: "quality"
     property real translucency: 0.16
@@ -43,7 +47,10 @@ Item {
     property real sway: 0
     property real shimmer: 0
     property real orbitPhase: 0
-    readonly property real orbitAngle: curves.sample("orbit", "angle", orbitPhase)
+    readonly property int orbitStep: Math.floor((((orbitPhase % 1) + 1) % 1) * 720)
+    readonly property real orbitAngle: orbitStep * (Math.PI * 2 / 720)
+    readonly property real orbitBaseCos: Math.cos(orbitAngle)
+    readonly property real orbitBaseSin: Math.sin(orbitAngle)
     property real stateSquash: 0
     property real stateStretch: 0
     property real stateLean: 0
@@ -77,7 +84,7 @@ Item {
     readonly property vector4d handPoseUniform: zeroPoseUniform
     readonly property vector4d footPoseUniform: zeroPoseUniform
     readonly property vector4d limbPoseUniform: zeroPoseUniform
-    readonly property vector4d dropletMotionUniform: Qt.vector4d(shimmer, 0, pulse, 0)
+    readonly property vector4d dropletMotionUniform: Qt.vector4d(0.35, 0, Math.round(pulse * 20) / 20, 0)
     readonly property vector4d dropletOpticsUniform: Qt.vector4d(0, 1, 0, 0)
     readonly property var poseRotation: Pose.rotation(modelYaw,modelPitch,modelRoll)
     readonly property real poseScaleX: gait.scaleX
@@ -374,38 +381,82 @@ Item {
                 fragmentShader: Qt.resolvedUrl("WaterDropletMaterial.frag.qsb")
             }
             // Decorative droplets fit the enclosing host; the body hitbox stays 76x92.
+            ShaderEffect {
+                id: sharedDropletShader
+                objectName: "aquaSharedDropletShader"
+                width: 28; height: 28
+                visible: root.bubblesEnabled && !root.bubble2DMode && !root.softwareFallback
+                property color accent: root.liquidAccent
+                property color specular: root.reflectionColor
+                property vector4d motion: root.dropletMotionUniform
+                property vector4d optics: root.dropletOpticsUniform
+                property vector4d rendering: root.smallMaterialRenderingUniform
+                property vector4d pose: root.zeroPoseUniform
+                fragmentShader: Qt.resolvedUrl("WaterDropletMaterial.frag.qsb")
+            }
+            ShaderEffectSource {
+                id: sharedDropletSource
+                objectName: "aquaSharedDropletSource"
+                width: 28; height: 28
+                textureSize: Qt.size(28, 28)
+                sourceItem: (root.bubblesEnabled && !root.bubble2DMode && !root.softwareFallback && sharedDropletShader.status !== ShaderEffect.Error) ? sharedDropletShader : null
+                hideSource: true
+                smooth: true
+                mipmap: false
+                live: true
+                visible: false
+            }
             Repeater {
                 objectName: "aquaExternalDroplets"
-                model: !root.effectsEnabled ? 0 : root.qualityLevel > 1 ? 8 : root.qualityLevel > 0 ? 6 : 3
+                model: !root.bubblesEnabled ? 0 : root.qualityLevel > 1 ? 8 : root.qualityLevel > 0 ? 6 : 3
                 Item {
                     id: floatingDroplet
                     required property int index
-                    readonly property real angle: root.orbitAngle + Expressions.bubblePhase[index]
-                    readonly property real orbitCos: Math.cos(angle)
-                    readonly property real orbitSin: Math.sin(angle)
+                    readonly property real phaseCos: Expressions.bubbleCos[index]
+                    readonly property real phaseSin: Expressions.bubbleSin[index]
+                    readonly property real orbitCos: root.bubble2DMode ? phaseCos : (root.orbitBaseCos * phaseCos - root.orbitBaseSin * phaseSin)
+                    readonly property real orbitSin: root.bubble2DMode ? phaseSin : (root.orbitBaseSin * phaseCos + root.orbitBaseCos * phaseSin)
                     readonly property real localX: 47 * orbitCos
                     readonly property real localY: 4.14 - 37 * orbitSin
-                    readonly property real localZ: 25 * orbitSin
-                    readonly property real depth: root.projectZ(localX, localY, localZ)
-                    x:38+root.projectX(localX, localY, localZ)-width/2
-                    y:46.14-root.projectY(localX, localY, localZ)-height/2
-                    z: depth < 0 ? -1 : 2
-                    opacity: depth < 0 ? 0.78 : 1
+                    readonly property real localZ: root.bubble2DMode ? 0 : 25 * orbitSin
+                    readonly property real depth: root.bubble2DMode ? 1 : root.projectZ(localX, localY, localZ)
+                    x: (root.bubble2DMode ? (38 + localX * 0.92) : (38 + root.projectX(localX, localY, localZ))) - width / 2
+                    y: (root.bubble2DMode ? (46.14 - localY * 0.92) : (46.14 - root.projectY(localX, localY, localZ))) - height / 2
+                    z: root.bubble2DMode ? 1 : (depth < 0 ? -1 : 2)
+                    opacity: root.bubble2DMode ? 0.9 : (depth < 0 ? 0.78 : 1)
                     width: Expressions.dropletSize[index]; height: width
-                    ShaderEffect {
+                    Rectangle {
+                        objectName: "aquaDroplet2D"
                         anchors.fill: parent
-                        visible: !root.softwareFallback && material.status !== ShaderEffect.Error
-                        property color accent: root.liquidAccent
-                        property color specular: root.reflectionColor
-                        property vector4d motion: root.dropletMotionUniform
-                        property vector4d optics: root.dropletOpticsUniform
-                        property vector4d rendering: root.smallMaterialRenderingUniform
-                        property vector4d pose: root.zeroPoseUniform
-                        fragmentShader: Qt.resolvedUrl("WaterDropletMaterial.frag.qsb")
+                        visible: root.bubble2DMode
+                        radius: width * 0.5
+                        border.width: width >= 8 ? 0.85 : 0.6
+                        border.color: Qt.alpha(root.reflectionColor, 0.78)
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: Qt.alpha(root.reflectionColor, 0.88) }
+                            GradientStop { position: 0.42; color: Qt.alpha(root.liquidAccent, 0.42) }
+                            GradientStop { position: 1.0; color: Qt.alpha(root.liquidAccent, 0.82) }
+                        }
+                        Rectangle {
+                            visible: parent.width >= 6
+                            width: Math.max(1.6, parent.width * 0.26)
+                            height: width
+                            x: parent.width * 0.22
+                            y: parent.height * 0.18
+                            radius: width * 0.5
+                            color: Qt.alpha("#ffffff", 0.72)
+                        }
+                    }
+                    ShaderEffect {
+                        objectName: "aquaDroplet3D"
+                        anchors.fill: parent
+                        visible: !root.bubble2DMode && !root.softwareFallback && sharedDropletShader.status !== ShaderEffect.Error && material.status !== ShaderEffect.Error
+                        property var source: sharedDropletSource
                     }
                     Loader {
+                        objectName: "aquaDropletFallback"
                         anchors.fill: parent
-                        active: root.softwareFallback || material.status === ShaderEffect.Error
+                        active: !root.bubble2DMode && (root.softwareFallback || sharedDropletShader.status === ShaderEffect.Error || material.status === ShaderEffect.Error)
                         sourceComponent: Shape {
                             antialiasing: true
                             preferredRendererType: Shape.CurveRenderer
@@ -693,6 +744,7 @@ Item {
     }
     readonly property bool burstActive: squashBurst.running || tapBurst.running || reactionBounce.running || shineBurst.running || swallowBurst.running
     readonly property bool idleLoopPaused: root.quietSettled && !root.burstActive && !root.hovered && !root.dragging && !root.walking && !root.flying && !root.traveling && !root.pocketDragActive
+    readonly property bool effectiveNearbyInteraction: root.nearbyInteraction || root.hovered || root.dragging || root.walking || root.flying || root.traveling || root.pocketDragActive || root.burstActive
     SequentialAnimation on bob {
         running: root.motionEnabled && root.visible && !gait.active; paused: root.idleLoopPaused && running; loops: Animation.Infinite
         NumberAnimation { to: -1.2 - root.energy * 2.4; duration: 1570; easing.type: Easing.InOutSine }
@@ -709,8 +761,8 @@ Item {
         NumberAnimation { to: 0; duration: 4300; easing.type: Easing.InOutSine }
     }
     NumberAnimation on orbitPhase {
-        running: root.motionEnabled && root.visible && root.effectsEnabled
-        paused: root.idleLoopPaused && running
+        running: root.motionEnabled && root.visible && root.bubblesEnabled && !root.bubble2DMode
+        paused: running && root.powerProfile !== "performance" && !root.effectiveNearbyInteraction
         from: 0; to: 1; duration: curves.clips.orbit.duration
         loops: Animation.Infinite
     }

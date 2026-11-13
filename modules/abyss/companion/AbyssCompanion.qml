@@ -36,6 +36,9 @@ Item {
     property bool interactive: true
     property bool motionEnabled: AbyssStyle.motionEnabled
     property bool effectsEnabled: Appearance.effectsEnabled && renderQuality !== "performance"
+    property string powerProfile: AbyssRenderPolicy.powerProfile
+    property bool bubblesEnabled: root.effectsEnabled
+    property bool nearbyInteraction: false
     property bool quietSettled: false
     property real motionScale: 1
     property string renderQuality: "quality"
@@ -421,6 +424,9 @@ Item {
             viewPitch: root.pocketDragActive ? root.dragFaceY * 16
                 : root.attention.source === "pointer" ? root.attention.y * 12 : 0
             effectsEnabled: root.effectsEnabled
+            powerProfile: root.powerProfile
+            bubblesEnabled: root.bubblesEnabled
+            nearbyInteraction: root.nearbyInteraction || root.pointerFresh || root.hovered || root.dragging || root.moving || root.portalWalking || root.gesturing || (root.presentation > 0.001 && root.presentation < 0.999)
             stateSquash: root.motionEnabled ? root.bodySquash : 0
             stateStretch: root.motionEnabled ? root.bodyStretch : 0
             stateLean: root.motionEnabled ? root.bodyLean : 0

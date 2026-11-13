@@ -410,6 +410,12 @@ Item {
         motionEnabled: session.companionPreferences.animationsEnabled && AbyssStyle.motionEnabled
         effectsEnabled: session.companionPreferences.effectsEnabled && Appearance.effectsEnabled
             && AbyssRenderPolicy.aquaQuality!=="performance"
+        powerProfile: AbyssRenderPolicy.powerProfile
+        bubblesEnabled: session.companionPreferences.effectsEnabled && Appearance.effectsEnabled
+        nearbyInteraction: companion.pointerFresh || companion.hovered || companion.dragging
+            || pocketDrop.containsDrag || talkCloud.controlsVisible || root.talkCloudHovered
+            || root.pocketPaneHovered || AquaMind.conversationOpen || AquaMind.contextOpen
+            || AquaPocket.opened || companionCuriosity.busy
         quietSettled: root.companionQuietSettled
         motionScale: AquaPreferences.motionScale(session.companionPreferences.personality)
         renderQuality: AbyssRenderPolicy.aquaQuality
@@ -720,6 +726,7 @@ Item {
                 motionEnabled: false
                 quietSettled: true
                 effectsEnabled: false
+                bubblesEnabled: false
                 renderQuality: "performance"
                 translucency: session.companionPreferences.translucency
                 grounded: true
@@ -756,6 +763,7 @@ Item {
                     motionEnabled: false
                     quietSettled: true
                     effectsEnabled: Appearance.effectsEnabled && session.companionPreferences.renderQuality !== "performance"
+                    bubblesEnabled: false
                     renderQuality: session.companionPreferences.renderQuality
                     translucency: session.companionPreferences.translucency
                     grounded: true
