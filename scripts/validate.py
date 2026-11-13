@@ -19,7 +19,8 @@ def stage(host, target, integration=None, integration_sha=None):
     for name in ("modules", "services", "scripts", "defaults", "translations"):
         shutil.copytree(host / name, target / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     for name in ("assets", "docs", "to-do", "native", "sdata"):
-        (target / name).symlink_to(host / name)
+        if (host / name).exists():
+            (target / name).symlink_to(host / name)
     for path in host.glob("*.qml"):
         shutil.copy2(path, target / path.name)
     for path in ROOT.glob("aqua*.qml"):
@@ -87,7 +88,7 @@ def main():
         if args.require_clean and (revision.returncode or dirty):
             raise SystemExit("Exact committed source is required")
     checks = [["cargo", "test", "--locked", "--offline", "--workspace", "--manifest-path", str(ROOT / "native/Cargo.toml")]]
-    with tempfile.TemporaryDirectory(prefix="alis-companion-validation-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="alis-comp-val-") as temporary:
         work = stage(host, Path(temporary) / "host", integration, revisions.get(integration))
         environment = os.environ.copy()
         environment.update(ALIS_ROOT=str(work), ALIS_COMPANION_SOURCE=str(ROOT), PYTHONDONTWRITEBYTECODE="1")
@@ -108,7 +109,8 @@ def main():
             "test-aqua-memory-store.py", "test-aqua-local-persona.py", "test-aqua-companion-voice-run.py", "test-aqua-companion-settings.py", "test-aqua-quality-ui.py", "test-aqua-mind-ui.py", "test-aqua-journal-ui.py",
             "test-aqua-immersion-runtime.py", "test-aqua-cloud-orbit.py", "test-aqua-cowork-qml.py", "test-aqua-cowork-native.py",
             "test-aqua-ambient-controller.py", "test-aqua-pocket-store.py", "test-aqua-pocket-ui.py", "test-aqua-pocket-wayland.py",
-            "test-aqua-local-tools.py", "test-aqua-agent-f11.py")]
+            "test-aqua-local-tools.py", "test-aqua-agent-f11.py", "test-deepseek-harness-upgrades.py",
+            "test-companion-jump-stutter-silent.py")]
         qml_parser = "/usr/lib/qt6/bin/qmlformat" if Path("/usr/lib/qt6/bin/qmlformat").is_file() else shutil.which("qmlformat")
         if not qml_parser:
             raise SystemExit("Qt qmlformat is required")
@@ -128,14 +130,14 @@ def main():
             "test-aqua-mind-ui.py", "test-aqua-journal-ui.py", "test-aqua-cloud-orbit.py",
             "test-aqua-pocket-ui.py",
         }
-        sessions = work / "validation-sessions"
+        sessions = work / "vs"
         sessions.mkdir()
-        for command in checks:
+        for idx, command in enumerate(checks):
             label = Path(command[1]).name if command[0] != "cargo" else "Rust behavior/protocol tests"
             if args.only and label not in args.only:
                 continue
             if label in private_fixtures:
-                session_root = sessions / label
+                session_root = sessions / f"s{idx}"
                 session_root.mkdir()
                 # Fresh private windows prevent parent-compositor occlusion and
                 # pointer/focus interference with another running Qt validator.
@@ -145,13 +147,15 @@ def main():
                 # the helper restores a known previous target unless the
                 # Owner changed focus in the meantime. Pixel/input oracles
                 # and deadlines remain unchanged.
-                with native_session.private_wayland(session_root, capture_focus=label in {
-                        "test-companion-volume.py", "test-aqua-cloud-orbit.py"}) as native_environment:
+                with native_session.private_wayland(session_root) as native_environment:
                     run_environment = base_environment.copy()
                     if native_environment:
-                        for key in ("WAYLAND_DISPLAY", "NIRI_SOCKET", "QT_QPA_PLATFORM",
+                        for key in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "NIRI_SOCKET", "QT_QPA_PLATFORM",
                                     "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"):
-                            run_environment[key] = native_environment[key]
+                            if key in native_environment:
+                                run_environment[key] = native_environment[key]
+                            else:
+                                run_environment.pop(key, None)
                         for key in ("QS_CONFIG_NAME", "QS_CONFIG_PATH", "QS_MANIFEST"):
                             run_environment.pop(key, None)
                     else:
@@ -159,7 +163,7 @@ def main():
                     result = subprocess.run(command, cwd=work, env=run_environment, stdout=subprocess.PIPE,
                                             stderr=subprocess.STDOUT, text=True, timeout=180)
             else:
-                # Native host/immersion fixtures already own private compositors.
+                # Native host/immersion fixtures always run in silent, zero-focus mode.
                 result = subprocess.run(command, cwd=work, env=base_environment, stdout=subprocess.PIPE,
                                         stderr=subprocess.STDOUT, text=True,
                                         timeout=430 if label == "test-module-hover-runtime.py" else 180)

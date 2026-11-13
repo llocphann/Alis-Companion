@@ -21,7 +21,7 @@ properties = {key: json.loads(value) for key, value in re.findall(
     r'property (?:bool|string|real) (\w+): ([^\n]+)', schema)}
 assert properties == defaults, "typed persistence and shipped defaults must agree"
 mind_schema = (ROOT / "modules/common/Config.qml").read_text().split(
-    "property JsonObject companionMind: JsonObject {", 1)[1].split("}", 1)[0]
+    "property JsonObject companionMind: JsonObject {", 1)[1].split("property JsonObject companion:", 1)[0]
 mind_defaults = json.loads((ROOT / "defaults/config.json").read_text())["abyss"]["companionMind"]
 mind_properties = {key: json.loads(value) for key, value in re.findall(
     r'property (?:bool|string|real|int) (\w+): ([^\n]+)', mind_schema)}

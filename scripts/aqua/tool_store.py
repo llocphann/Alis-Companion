@@ -10,6 +10,7 @@ Permissions and path model:
   8-line or 10-line truncation.
 """
 from __future__ import annotations
+import difflib
 import hashlib
 import json
 import os
@@ -23,6 +24,7 @@ import time
 from code_tools import retrieve_rag
 from sandbox_runner import SandboxError, run_sandboxed, run_user_command
 from screen_context import observe_active_window
+from spill_store import SpillError, maybe_spill_tool_output, read_spill as read_spill_store
 
 PROPOSAL_TTL_MS = 120_000
 MAX_PROPOSALS = 64
@@ -443,6 +445,209 @@ def resolve_candidate_path(raw_path: str, last_dir: str = "") -> Path:
     return chosen_raw.resolve(strict=False)
 
 
+_SEARCH_EXCLUDE_DIRS = frozenset({
+    ".git", "node_modules", ".cache", ".local", ".cargo", ".rustup",
+    ".lmstudio", ".mozilla", ".gemini", "__pycache__", ".venv", "venv",
+    ".npm", ".pnpm-store", ".gradle", ".m2", "target", "dist", "build",
+    ".vscode", ".vscode-oss", ".cursor", ".copilot", ".codex", ".nvm",
+    ".pyenv", ".steam", ".var", ".Trash", ".wine",
+})
+
+
+def search_files_in_home(
+    query: str,
+    last_dir: str = "",
+    max_results: int = 25,
+    timeout_sec: float = 2.5,
+) -> list[Path]:
+    """Search $HOME for files or folders matching `query` by exact or partial filename."""
+    text = str(query or "").strip().strip("'\"`")
+    if not text or "\x00" in text or "\r" in text or "\n" in text:
+        return []
+    home = Path.home().resolve()
+    q_name = Path(text).name or text
+    q_lower = q_name.lower()
+    if not q_lower:
+        return []
+
+    found_raw: list[Path] = []
+    obs_vault = home / "Shared_Documents" / "Obsidian-Vault"
+    seen_index_by_real: dict[str, int] = {}
+
+    def _add(p: Path) -> None:
+        try:
+            rp = p.resolve(strict=False)
+            if not rp.exists() or not ((rp == home) or rp.is_relative_to(home)):
+                return
+            cand_p = p if ((p == home or p.is_relative_to(home)) and p.exists()) else rp
+            real_key = str(rp)
+            if real_key in seen_index_by_real:
+                idx = seen_index_by_real[real_key]
+                prev_p = found_raw[idx]
+                if obs_vault.exists() and cand_p.is_relative_to(obs_vault) and not prev_p.is_relative_to(obs_vault):
+                    found_raw[idx] = cand_p
+                return
+            seen_index_by_real[real_key] = len(found_raw)
+            found_raw.append(cand_p)
+        except OSError:
+            pass
+
+    try:
+        direct = resolve_candidate_path(text, last_dir=last_dir)
+        if direct.exists():
+            _add(direct)
+    except ToolError:
+        pass
+
+    priority_roots: list[Path] = []
+    if last_dir:
+        ld_p = Path(last_dir).expanduser().resolve(strict=False)
+        if ld_p.is_dir() and ((ld_p == home) or ld_p.is_relative_to(home)):
+            priority_roots.append(ld_p)
+    for sub in ("Shared_Documents", "Desktop", "Documents", "Projects", "Downloads", ".obsidian", ".config"):
+        cand_root = home / sub
+        if cand_root.is_dir() and cand_root not in priority_roots:
+            priority_roots.append(cand_root)
+
+    fd_bin = shutil.which("fd") or shutil.which("fdfind")
+    used_fd = False
+    if fd_bin:
+        base_flags = [fd_bin, "-H", "-I", "-L"]
+        for ex in sorted(_SEARCH_EXCLUDE_DIRS):
+            base_flags.extend(["-E", ex])
+        # Pass 1: priority user/vault roots so exact matches inside Obsidian-Vault / active project are never crowded out
+        if priority_roots:
+            cmd_prio = [
+                *base_flags,
+                "--max-results",
+                str(max(150, max_results * 8)),
+                "-F",
+                q_name,
+                *[str(r) for r in priority_roots],
+            ]
+            try:
+                proc_p = subprocess.run(
+                    cmd_prio,
+                    capture_output=True,
+                    text=True,
+                    timeout=min(1.5, timeout_sec),
+                    check=False,
+                )
+                if proc_p.returncode in (0, 1):
+                    used_fd = True
+                    for ln in proc_p.stdout.splitlines():
+                        ln_s = ln.strip()
+                        if ln_s:
+                            _add(Path(ln_s))
+            except (OSError, subprocess.SubprocessError):
+                pass
+
+        # Pass 2: full $HOME sweep if still needed
+        cmd_home = [
+            *base_flags,
+            "--max-results",
+            str(max(300, max_results * 12)),
+            "-F",
+            q_name,
+            str(home),
+        ]
+        try:
+            proc = subprocess.run(
+                cmd_home,
+                capture_output=True,
+                text=True,
+                timeout=timeout_sec,
+                check=False,
+            )
+            if proc.returncode in (0, 1):
+                used_fd = True
+                for ln in proc.stdout.splitlines():
+                    ln_s = ln.strip()
+                    if ln_s:
+                        _add(Path(ln_s))
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+        # Pass 3: separator-flexible search (e.g. TTSP_BIEUMAU -> TTSP.Bieumau.TTBDNVSP.2026) if literal search had 0 hits
+        if not found_raw and re.search(r"[._\-\s]+", q_name):
+            sep_tokens = [re.escape(tok) for tok in re.split(r"[._\-\s]+", q_name) if tok]
+            if len(sep_tokens) >= 2:
+                sep_pattern = r"[._\-\s]*".join(sep_tokens)
+                sep_passes = [[str(r) for r in priority_roots], [str(home)]] if priority_roots else [[str(home)]]
+                for sep_roots in sep_passes:
+                    if found_raw or not sep_roots:
+                        break
+                    cmd_sep = [
+                        *base_flags,
+                        "-i",
+                        "--max-results",
+                        str(max(100, max_results * 4)),
+                        sep_pattern,
+                        *sep_roots,
+                    ]
+                    try:
+                        proc_sep = subprocess.run(
+                            cmd_sep,
+                            capture_output=True,
+                            text=True,
+                            timeout=min(1.5, timeout_sec),
+                            check=False,
+                        )
+                        if proc_sep.returncode in (0, 1):
+                            for ln in proc_sep.stdout.splitlines():
+                                ln_s = ln.strip()
+                                if ln_s:
+                                    _add(Path(ln_s))
+                    except (OSError, subprocess.SubprocessError):
+                        pass
+
+    q_norm = re.sub(r"[._\-\s]+", "", q_lower)
+    if not used_fd:
+        deadline = time.monotonic() + timeout_sec
+        walk_roots = list(priority_roots)
+        if home not in walk_roots:
+            walk_roots.append(home)
+
+        visited_dirs: set[str] = set()
+        for root_dir in walk_roots:
+            if time.monotonic() > deadline or len(found_raw) >= max_results * 4:
+                break
+            for cur_root, dirs, files in os.walk(root_dir, topdown=True, followlinks=True):
+                if time.monotonic() > deadline or len(found_raw) >= max_results * 4:
+                    break
+                cur_key = str(Path(cur_root).resolve(strict=False))
+                if cur_key in visited_dirs:
+                    dirs[:] = []
+                    continue
+                visited_dirs.add(cur_key)
+                dirs[:] = [
+                    d for d in dirs
+                    if d not in _SEARCH_EXCLUDE_DIRS
+                ]
+                for entry in files + dirs:
+                    elower = entry.lower()
+                    if elower == q_lower or q_lower in elower:
+                        _add(Path(cur_root) / entry)
+                    elif len(q_norm) >= 4 and re.search(r"[._\-\s]+", q_lower):
+                        enorm = re.sub(r"[._\-\s]+", "", elower)
+                        if q_norm in enorm:
+                            _add(Path(cur_root) / entry)
+
+    ld_resolved = Path(last_dir).expanduser().resolve(strict=False) if last_dir else None
+    obs_vault = home / "Shared_Documents" / "Obsidian-Vault"
+
+    def _rank(p: Path) -> tuple[int, int, int, int, str]:
+        pname = p.name
+        plower = pname.lower()
+        exact_tier = 0 if pname == q_name else (1 if plower == q_lower else 2)
+        in_last_dir = 0 if (ld_resolved and (p == ld_resolved or p.is_relative_to(ld_resolved))) else 1
+        in_vault = 0 if (obs_vault.exists() and p.is_relative_to(obs_vault)) else 1
+        return (exact_tier, in_last_dir, in_vault, len(p.parts), str(p).lower())
+
+    found_raw.sort(key=_rank)
+    return found_raw[:max_results]
+
+
 def _resolve_user_path(raw_path: str, allow_missing: bool = False, last_dir: str = "", allow_system: bool = False) -> Path:
     home = Path.home().resolve()
     resolved = resolve_candidate_path(raw_path, last_dir=last_dir)
@@ -492,7 +697,47 @@ def _atomic_write_text(target: Path, content: str) -> str:
     return after_sha
 
 
-def _record_file_receipt(store: dict, op: str, target_path: str, dest_path: str, before_sha: str, after_sha: str, backup_text: str | None, before_existed: bool, now: int) -> str:
+def _file_receipt_dir() -> Path:
+    base = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+    folder = (base / "alis-companion" / "file-receipts").resolve()
+    folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return folder
+
+
+def _compute_diff_metrics(before_text: str | None, after_text: str | None, file_name: str = "file") -> dict:
+    old_lines = (before_text or "").splitlines(keepends=True) if before_text is not None else []
+    new_lines = (after_text or "").splitlines(keepends=True) if after_text is not None else []
+    diff_gen = list(
+        difflib.unified_diff(
+            old_lines,
+            new_lines,
+            fromfile=f"a/{file_name}",
+            tofile=f"b/{file_name}",
+        )
+    )
+    added = sum(1 for ln in diff_gen if ln.startswith("+") and not ln.startswith("+++"))
+    removed = sum(1 for ln in diff_gen if ln.startswith("-") and not ln.startswith("---"))
+    preview_lines = [ln.rstrip("\r\n") for ln in diff_gen[:40]]
+    return {
+        "addedLines": added,
+        "removedLines": removed,
+        "diffPreview": "\n".join(preview_lines),
+    }
+
+
+def _record_file_receipt(
+    store: dict,
+    op: str,
+    target_path: str,
+    dest_path: str,
+    before_sha: str,
+    after_sha: str,
+    backup_text: str | None,
+    before_existed: bool,
+    now: int,
+    *,
+    new_content: str | None = None,
+) -> str:
     core = {
         "op": op,
         "targetPath": target_path,
@@ -503,16 +748,197 @@ def _record_file_receipt(store: dict, op: str, target_path: str, dest_path: str,
     }
     digest = _digest(core)
     rid = "rcpt_" + digest[:16]
+    diff_metrics = _compute_diff_metrics(
+        backup_text if before_existed else "",
+        new_content if new_content is not None else "",
+        Path(target_path).name or "file",
+    )
+    safe_backup = backup_text if (backup_text is not None and len(backup_text) <= 262144) else None
     entry = {
         **core,
         "receiptId": rid,
+        "path": target_path,
         "digest": digest,
         "beforeExisted": before_existed,
-        "backupText": backup_text if (backup_text is not None and len(backup_text) <= 262144) else None,
+        "existedBefore": before_existed,
+        "backupText": safe_backup,
+        "oldContent": safe_backup,
+        "addedLines": diff_metrics["addedLines"],
+        "removedLines": diff_metrics["removedLines"],
+        "diffPreview": diff_metrics["diffPreview"],
+        "timestamp": now,
         "rolledBack": False,
     }
     store["fileReceipts"] = (store.get("fileReceipts", []) + [entry])[-MAX_FILE_RECEIPTS:]
+    try:
+        rcpt_file = _file_receipt_dir() / f"{rid}.json"
+        rcpt_file.write_text(json.dumps(entry, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        pass
     return rid
+
+
+def _save_file_receipt(
+    path: str | Path,
+    op: str,
+    new_content: str | None = None,
+    *,
+    before_text: str | None = None,
+    before_existed: bool | None = None,
+    dest_path: str = "",
+    now: int | None = None,
+) -> dict:
+    """Create and persist a file mutation receipt with unified diff metrics (+X / -Y)."""
+    target = Path(path).expanduser().resolve(strict=False)
+    existed = target.is_file() if before_existed is None else bool(before_existed)
+    old_txt = before_text
+    if old_txt is None and existed and target.is_file():
+        try:
+            if target.stat().st_size <= 262144:
+                old_txt = target.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            old_txt = None
+    before_sha = _file_sha256(target) if (existed and target.is_file()) else ""
+    after_sha = (
+        hashlib.sha256(new_content.encode("utf-8")).hexdigest()
+        if isinstance(new_content, str)
+        else ""
+    )
+    ts = _now_ms(now)
+    store = _load_store()
+    rid = _record_file_receipt(
+        store,
+        op=op,
+        target_path=str(target),
+        dest_path=dest_path,
+        before_sha=before_sha,
+        after_sha=after_sha,
+        backup_text=old_txt,
+        before_existed=existed,
+        now=ts,
+        new_content=new_content,
+    )
+    _save_store(store)
+    matched = store["fileReceipts"][-1]
+    return {
+        "receiptId": rid,
+        "addedLines": matched["addedLines"],
+        "removedLines": matched["removedLines"],
+        "diffPreview": matched["diffPreview"],
+        "existedBefore": existed,
+        "path": str(target),
+    }
+
+
+def rollback_file_receipt(
+    receipt_id: str = "",
+    *,
+    store: dict | None = None,
+    raise_on_missing: bool = False,
+) -> dict:
+    """Restore a file to its pre-mutation state using its receiptId."""
+    req_id = str(receipt_id or "").strip()
+    own_store = store is None
+    st = _load_store() if store is None else store
+    file_receipts = st.get("fileReceipts", [])
+    matched = None
+    for r in reversed(file_receipts):
+        if req_id and r.get("receiptId") != req_id:
+            continue
+        if not r.get("rolledBack"):
+            matched = r
+            break
+
+    rcpt_file = (_file_receipt_dir() / f"{req_id}.json") if req_id else None
+    if matched is None and rcpt_file is not None and rcpt_file.is_file():
+        try:
+            loaded_rcpt = json.loads(rcpt_file.read_text(encoding="utf-8"))
+            if isinstance(loaded_rcpt, dict) and not loaded_rcpt.get("rolledBack"):
+                matched = loaded_rcpt
+        except (OSError, ValueError):
+            matched = None
+
+    if not matched:
+        if raise_on_missing:
+            raise ToolError("receipt_missing", "No matching recoverable file receipt found.")
+        return {"ok": False, "error": f"Receipt not found: {req_id}"}
+
+    rop = str(matched.get("op") or "edit")
+    raw_tpath = matched.get("targetPath") or matched.get("path") or ""
+    tpath = Path(raw_tpath)
+    dpath = Path(matched["destPath"]) if matched.get("destPath") else None
+    existed_before = bool(matched.get("beforeExisted", matched.get("existedBefore", False)))
+    backup = matched.get("backupText") if "backupText" in matched else matched.get("oldContent")
+
+    if rop in ("edit", "create", "patch", "write", "append", "replace_lines", "apply_patch"):
+        if not existed_before:
+            if tpath.is_file() and not tpath.is_symlink():
+                tpath.unlink()
+        elif backup is not None:
+            if tpath.suffix.lower() in (".docx", ".pdf", ".xlsx"):
+                import code_tools
+                code_tools.convert_or_create_document(str(backup), tpath)
+            else:
+                _atomic_write_text(tpath, str(backup))
+        else:
+            if raise_on_missing:
+                raise ToolError("rollback_unavailable", "Backup payload not available for this file receipt.")
+            return {"ok": False, "error": "Backup payload not available for this file receipt."}
+    elif rop == "delete":
+        if backup is not None:
+            if tpath.suffix.lower() in (".docx", ".pdf", ".xlsx"):
+                import code_tools
+                code_tools.convert_or_create_document(str(backup), tpath)
+            else:
+                _atomic_write_text(tpath, str(backup))
+        else:
+            if raise_on_missing:
+                raise ToolError("rollback_unavailable", "Deleted directory or binary file cannot be restored.")
+            return {"ok": False, "error": "Deleted directory or binary file cannot be restored."}
+    elif rop == "copy" and dpath and dpath.is_file() and not dpath.is_symlink():
+        dpath.unlink()
+    elif rop == "cut" and dpath and dpath.exists() and not tpath.exists():
+        shutil.move(str(dpath), str(tpath))
+
+    matched["rolledBack"] = True
+    rid = str(matched.get("receiptId") or req_id)
+    if own_store:
+        for r in file_receipts:
+            if r.get("receiptId") == rid:
+                r["rolledBack"] = True
+    _save_store(st)
+    if rid:
+        rf = _file_receipt_dir() / f"{rid}.json"
+        if rf.is_file():
+            try:
+                rf_data = json.loads(rf.read_text(encoding="utf-8"))
+                if isinstance(rf_data, dict):
+                    rf_data["rolledBack"] = True
+                    rf.write_text(json.dumps(rf_data, ensure_ascii=False, indent=2), encoding="utf-8")
+            except (OSError, ValueError):
+                pass
+
+    return {
+        "ok": True,
+        "op": "rollback",
+        "status": "completed",
+        "confirmStage": 0,
+        "receiptId": rid,
+        "restored": str(tpath),
+        "existedBefore": existed_before,
+        "targetPath": str(tpath),
+        "destPath": str(dpath) if dpath else "",
+        "summary": _clean_line(f"Rolled back {rop} on {tpath.name} ({rid}).", 240),
+        "lines": [_clean_line(f"Restored receipt: {rid}", 180)],
+    }
+
+
+def file_receipt_rollback(options_or_id: dict | str = "") -> dict:
+    if isinstance(options_or_id, dict):
+        rid = str(options_or_id.get("receiptId") or options_or_id.get("id") or "").strip()
+    else:
+        rid = str(options_or_id or "").strip()
+    return rollback_file_receipt(rid)
 
 
 def _sync_session_context_from_op(target_path: Path, is_dir: bool, candidate_files: list[str] | None = None) -> None:
@@ -908,7 +1334,11 @@ def build_editor_handoff(target: Path, force_external: bool = False) -> dict:
         try:
             raw_bytes = target.read_bytes()
             byte_size = len(raw_bytes)
-            if b"\x00" in raw_bytes[:4096]:
+            if target.suffix.lower() in (".docx", ".pdf", ".xlsx"):
+                import code_tools
+                text = code_tools.read_file(target).get("text", "")
+                line_count = len(text.splitlines()) if text else 0
+            elif b"\x00" in raw_bytes[:4096]:
                 is_binary = True
             else:
                 text = raw_bytes.decode("utf-8", errors="replace")
@@ -954,13 +1384,27 @@ def build_editor_handoff(target: Path, force_external: bool = False) -> dict:
 
 
 def agent_file_op(options: dict) -> dict:
-    op = str(options.get("op", "")).strip().lower()
+    raw_op = str(options.get("op", "")).strip().lower()
+    mode_override = ""
+    if raw_op == "write":
+        op = "edit"
+        mode_override = "write"
+    elif raw_op == "append":
+        op = "edit"
+        mode_override = "append"
+    elif raw_op in ("replace_lines", "apply_patch"):
+        op = "patch"
+        mode_override = "replace"
+    elif raw_op == "file_receipt_rollback":
+        op = "rollback"
+    else:
+        op = raw_op
     valid_ops = (
         "access", "list", "search", "create", "edit", "patch", "open_editor",
         "copy", "cut", "delete", "cancel_delete", "rollback", "run",
     )
     if op not in valid_ops:
-        raise ToolError("invalid_op", f"Unsupported agent file operation: {op}")
+        raise ToolError("invalid_op", f"Unsupported agent file operation: {raw_op}")
     now = _now_ms(options.get("nowMs"))
     allow_system = bool(options.get("allowSystem", False))
     last_dir = str(options.get("lastDirectory") or "").strip()
@@ -981,50 +1425,10 @@ def agent_file_op(options: dict) -> dict:
         }
 
     if op == "rollback":
-        req_id = str(options.get("receiptId", "")).strip()
-        file_receipts = store.get("fileReceipts", [])
-        matched = None
-        for r in reversed(file_receipts):
-            if req_id and r.get("receiptId") != req_id:
-                continue
-            if not r.get("rolledBack"):
-                matched = r
-                break
-        if not matched:
-            raise ToolError("receipt_missing", "No matching recoverable file receipt found.")
-        rop = matched.get("op")
-        tpath = Path(matched["targetPath"])
-        dpath = Path(matched["destPath"]) if matched.get("destPath") else None
-        if rop in ("edit", "create", "patch"):
-            if not matched.get("beforeExisted"):
-                if tpath.is_file() and not tpath.is_symlink():
-                    tpath.unlink()
-            elif matched.get("backupText") is not None:
-                _atomic_write_text(tpath, matched["backupText"])
-            else:
-                raise ToolError("rollback_unavailable", "Backup payload not available for this file receipt.")
-        elif rop == "delete":
-            if matched.get("backupText") is not None:
-                _atomic_write_text(tpath, matched["backupText"])
-            else:
-                raise ToolError("rollback_unavailable", "Deleted directory or binary file cannot be restored.")
-        elif rop == "copy" and dpath and dpath.is_file() and not dpath.is_symlink():
-            dpath.unlink()
-        elif rop == "cut" and dpath and dpath.exists() and not tpath.exists():
-            shutil.move(str(dpath), str(tpath))
-        matched["rolledBack"] = True
-        _save_store(store)
-        return {
-            "op": "rollback",
-            "status": "completed",
-            "confirmStage": 0,
-            "targetPath": str(tpath),
-            "destPath": str(dpath) if dpath else "",
-            "summary": _clean_line(f"Rolled back {rop} on {tpath.name} ({matched['receiptId']}).", 240),
-            "lines": [_clean_line(f"Restored receipt: {matched['receiptId']}", 180)],
-        }
+        req_id = str(options.get("receiptId") or options.get("id") or "").strip()
+        return rollback_file_receipt(req_id, store=store, raise_on_missing=True)
 
-    raw_target = str(options.get("targetPath", "")).strip()
+    raw_target = str(options.get("targetPath") or options.get("path") or "").strip()
     if op == "run":
         cmd_text = str(options.get("content", "")).strip() or raw_target
         if not cmd_text or "\x00" in cmd_text:
@@ -1084,8 +1488,15 @@ def agent_file_op(options: dict) -> dict:
         except SandboxError as exc:
             raise ToolError(exc.code, exc.message) from exc
 
+        full_run_text = "\n".join(ran["lines"])
+        spill_preview, spill_meta = maybe_spill_tool_output(
+            full_run_text,
+            session_id=str(options.get("threadId") or options.get("sessionId") or "chat_default"),
+            call_id=str(options.get("callId") or ""),
+            tool_name="shell_run",
+        )
         out_lines = [_clean_line(ln, 200) for ln in ran["lines"] if ln.strip()][:200]
-        return {
+        run_res = {
             "op": "run",
             "status": ran["status"],
             "confirmStage": 0,
@@ -1094,6 +1505,12 @@ def agent_file_op(options: dict) -> dict:
             "summary": _clean_line(f"Ran '{target_label}' ({ran['status']}, exit {ran['exitCode']}).", 240),
             "lines": out_lines or [f"({ran['status']} with exit code {ran['exitCode']})"],
         }
+        if spill_meta is not None:
+            run_res["spilled"] = True
+            run_res["spillId"] = spill_meta["spillId"]
+            run_res["spillPath"] = spill_meta["path"]
+            run_res["spillPreview"] = spill_preview
+        return run_res
 
     if op == "access" and not raw_target:
         observed = observe_active_window(
@@ -1140,7 +1557,32 @@ def agent_file_op(options: dict) -> dict:
 
         _sync_session_context_from_op(target, is_dir=False)
         size = target.stat().st_size
-        if size > 512 * 1024:
+        suffix_low = target.suffix.lower()
+        if suffix_low in (".docx", ".pdf", ".xlsx", ".pptx", ".odt", ".epub"):
+            import code_tools
+            start_line = max(1, int(options.get("startLine") or 1))
+            end_line = max(start_line, int(options.get("endLine") or (start_line + 199)))
+            doc_info = code_tools.read_file(target, start_line=start_line, end_line=end_line)
+            lines = [_clean_line(ln, 200) for ln in (doc_info.get("lines") or []) if ln.strip()][:200]
+            return {
+                "op": "access",
+                "status": "completed",
+                "confirmStage": 0,
+                "targetPath": str(target),
+                "destPath": "",
+                "summary": _clean_line(f"Read {target.name} ({size} bytes, sha256:{_file_sha256(target)[:12]}).", 240),
+                "lines": lines or ["(empty document)"],
+                "tables": doc_info.get("tables") or [],
+                "markdownTables": doc_info.get("markdownTables") or [],
+            }
+        is_binary = False
+        if size > 0:
+            try:
+                with target.open("rb") as fh:
+                    is_binary = b"\x00" in fh.read(4096)
+            except OSError:
+                is_binary = False
+        if size > 4 * 1024 * 1024 or (size > 512 * 1024 and is_binary):
             return {
                 "op": "access",
                 "status": "completed",
@@ -1152,11 +1594,22 @@ def agent_file_op(options: dict) -> dict:
             }
         raw_text = target.read_text(encoding="utf-8", errors="replace")
         all_lines = raw_text.splitlines()
+        explicit_range = options.get("startLine") is not None or options.get("endLine") is not None
+        spill_preview, spill_meta = (
+            maybe_spill_tool_output(
+                raw_text,
+                session_id=str(options.get("threadId") or options.get("sessionId") or "chat_default"),
+                call_id=str(options.get("callId") or ""),
+                tool_name="file_inspect",
+            )
+            if not explicit_range
+            else (raw_text, None)
+        )
         start_line = max(1, int(options.get("startLine") or 1))
         end_line = min(len(all_lines), int(options.get("endLine") or (start_line + 199)))
         sliced = all_lines[start_line - 1:end_line] if all_lines else []
         lines = [_clean_line(ln, 200) for ln in sliced if ln.strip()][:200]
-        return {
+        access_res = {
             "op": "access",
             "status": "completed",
             "confirmStage": 0,
@@ -1165,6 +1618,12 @@ def agent_file_op(options: dict) -> dict:
             "summary": _clean_line(f"Read {target.name} ({size} bytes, sha256:{_file_sha256(target)[:12]}).", 240),
             "lines": lines or ["(empty file)"],
         }
+        if spill_meta is not None:
+            access_res["spilled"] = True
+            access_res["spillId"] = spill_meta["spillId"]
+            access_res["spillPath"] = spill_meta["path"]
+            access_res["spillPreview"] = spill_preview
+        return access_res
 
     if op == "open_editor":
         target = _resolve_user_path(raw_target, allow_missing=True, last_dir=last_dir, allow_system=allow_system)
@@ -1173,7 +1632,12 @@ def agent_file_op(options: dict) -> dict:
         before_existed = target.is_file()
         rid = ""
         if not before_existed:
-            after_sha = _atomic_write_text(target, "")
+            if target.suffix.lower() in (".docx", ".pdf", ".xlsx"):
+                import code_tools
+                code_tools.convert_or_create_document("", target, title=target.stem)
+                after_sha = _file_sha256(target)
+            else:
+                after_sha = _atomic_write_text(target, "")
             rid = _record_file_receipt(
                 store,
                 op="create",
@@ -1225,24 +1689,105 @@ def agent_file_op(options: dict) -> dict:
                 f"File '{target.name}' was modified externally since last read; refusing to overwrite.",
             )
 
-        mode = "replace" if op == "patch" else str(options.get("mode", "write")).strip().lower()
-        content = str(options.get("content", ""))
+        mode = mode_override or ("replace" if op == "patch" else str(options.get("mode", "write")).strip().lower())
+        content = str(options.get("content") if options.get("content") is not None else (options.get("patch") or options.get("newText") or ""))
         if len(content) > 65536:
             raise ToolError("content_too_large", "Edit content exceeds the 65536-character limit.")
 
-        existing = target.read_text(encoding="utf-8", errors="replace") if before_existed else ""
+        is_rich_doc_out = target.suffix.lower() in (".docx", ".pdf", ".xlsx")
+        if is_rich_doc_out and before_existed:
+            import code_tools
+            existing = code_tools.read_file(target).get("text", "")
+        else:
+            existing = target.read_text(encoding="utf-8", errors="replace") if before_existed else ""
         if mode == "append":
             sep = "\n" if existing and not existing.endswith("\n") else ""
             updated = existing + sep + content + ("\n" if not content.endswith("\n") else "")
         elif mode == "replace":
-            search_text = str(options.get("searchText", ""))
-            if not search_text or search_text not in existing:
+            search_text = str(options.get("searchText") or options.get("oldText") or "")
+            has_line_range = options.get("startLine") is not None or options.get("endLine") is not None
+            if search_text:
+                if search_text not in existing:
+                    raise ToolError("search_not_found", "Target text to replace was not found in file.")
+                updated = existing.replace(search_text, content, 1)
+            elif has_line_range:
+                orig_lines = existing.splitlines(keepends=True)
+                s_line = max(1, int(options.get("startLine") or 1))
+                e_line = max(s_line, int(options.get("endLine") or s_line))
+                if s_line > len(orig_lines) + 1:
+                    raise ToolError("line_range_out_of_bounds", f"startLine {s_line} exceeds file length ({len(orig_lines)} lines).")
+                keep_trailing_nl = existing.endswith("\n") or (e_line <= len(orig_lines) and orig_lines[min(e_line - 1, len(orig_lines) - 1)].endswith("\n"))
+                repl_text = content + ("\n" if (content and not content.endswith("\n") and keep_trailing_nl) else "")
+                updated = "".join(orig_lines[: s_line - 1]) + repl_text + "".join(orig_lines[e_line:])
+            elif "@@" in content or "\n-" in ("\n" + content):
+                # Parse and apply unified diff hunks
+                hunk_re = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+                patch_lines = content.splitlines()
+                hunks: list[tuple[int, list[str], list[str]]] = []
+                cur_start = 1
+                cur_old: list[str] = []
+                cur_new: list[str] = []
+                in_hunk = False
+                for pl in patch_lines:
+                    m = hunk_re.match(pl)
+                    if m:
+                        if in_hunk:
+                            hunks.append((cur_start, cur_old, cur_new))
+                        cur_start = int(m.group(1))
+                        cur_old, cur_new = [], []
+                        in_hunk = True
+                        continue
+                    if pl.startswith(("--- ", "+++ ", "diff ", "index ")):
+                        continue
+                    if not in_hunk and pl.startswith(("-", "+", " ")):
+                        in_hunk = True
+                    if in_hunk:
+                        if pl.startswith("-"):
+                            cur_old.append(pl[1:])
+                        elif pl.startswith("+"):
+                            cur_new.append(pl[1:])
+                        elif pl.startswith(" "):
+                            cur_old.append(pl[1:])
+                            cur_new.append(pl[1:])
+                        elif pl == "\\ No newline at end of file":
+                            continue
+                if in_hunk:
+                    hunks.append((cur_start, cur_old, cur_new))
+                if not hunks:
+                    raise ToolError("invalid_patch", "No valid unified diff hunks found in patch content.")
+                work_text = existing
+                applied_any = False
+                for h_start, h_old, h_new in hunks:
+                    old_block = "\n".join(h_old)
+                    new_block = "\n".join(h_new)
+                    if h_old and old_block in work_text:
+                        work_text = work_text.replace(old_block, new_block, 1)
+                        applied_any = True
+                    else:
+                        w_lines = work_text.splitlines()
+                        idx0 = max(0, min(len(w_lines), h_start - 1))
+                        if not h_old or w_lines[idx0 : idx0 + len(h_old)] == h_old:
+                            w_lines[idx0 : idx0 + len(h_old)] = h_new
+                            work_text = "\n".join(w_lines) + ("\n" if existing.endswith("\n") else "")
+                            applied_any = True
+                if not applied_any:
+                    raise ToolError("search_not_found", "Patch hunks did not match target file content.")
+                updated = work_text
+            else:
                 raise ToolError("search_not_found", "Target text to replace was not found in file.")
-            updated = existing.replace(search_text, content, 1)
         else:
             updated = content
 
-        after_sha = _atomic_write_text(target, updated)
+        if is_rich_doc_out:
+            import code_tools
+            code_tools.convert_or_create_document(
+                updated,
+                target,
+                title=str(options.get("title") or ""),
+            )
+            after_sha = _file_sha256(target)
+        else:
+            after_sha = _atomic_write_text(target, updated)
         rid = _record_file_receipt(
             store,
             op="edit" if op != "create" else "create",
@@ -1253,7 +1798,9 @@ def agent_file_op(options: dict) -> dict:
             backup_text=existing if before_existed else None,
             before_existed=before_existed,
             now=now,
+            new_content=updated,
         )
+        rcpt_entry = store["fileReceipts"][-1]
         _save_store(store)
         _sync_session_context_from_op(target, is_dir=False)
         handoff = build_editor_handoff(target, force_external=bool(options.get("forceExternal", False)))
@@ -1264,8 +1811,12 @@ def agent_file_op(options: dict) -> dict:
             "confirmStage": 0,
             "targetPath": str(target),
             "destPath": "",
+            "receiptId": rid,
+            "addedLines": rcpt_entry["addedLines"],
+            "removedLines": rcpt_entry["removedLines"],
+            "diffPreview": rcpt_entry["diffPreview"],
             "summary": _clean_line(
-                f"Updated {target.name} ({len(updated.encode('utf-8'))} bytes, receipt {rid}).",
+                f"Updated {target.name} (+{rcpt_entry['addedLines']} / -{rcpt_entry['removedLines']} lines, {len(updated.encode('utf-8'))} bytes, receipt {rid}).",
                 240,
             ),
             "lines": preview or ["(file saved)"],
@@ -1305,6 +1856,7 @@ def agent_file_op(options: dict) -> dict:
             shutil.move(str(src), str(dst))
             verb = "Moved (cut)"
         after_sha = _file_sha256(dst) if dst.is_file() else ""
+        dst_new_text = dst.read_text(encoding="utf-8", errors="replace") if (dst.is_file() and dst.stat().st_size <= 262144) else None
         rid = _record_file_receipt(
             store,
             op=op,
@@ -1315,7 +1867,9 @@ def agent_file_op(options: dict) -> dict:
             backup_text=dst_backup,
             before_existed=dst_existed,
             now=now,
+            new_content=dst_new_text,
         )
+        rcpt_entry = store["fileReceipts"][-1]
         _save_store(store)
         return {
             "op": op,
@@ -1323,6 +1877,10 @@ def agent_file_op(options: dict) -> dict:
             "confirmStage": 0,
             "targetPath": str(src),
             "destPath": str(dst),
+            "receiptId": rid,
+            "addedLines": rcpt_entry["addedLines"],
+            "removedLines": rcpt_entry["removedLines"],
+            "diffPreview": rcpt_entry["diffPreview"],
             "summary": _clean_line(f"{verb} {src.name} -> {dst} (receipt {rid})", 240),
             "lines": [_clean_line(f"From: {src}", 180), _clean_line(f"To: {dst}", 180)],
         }
@@ -1368,7 +1926,11 @@ def agent_file_op(options: dict) -> dict:
         before_sha = _file_sha256(target) if target.is_file() else ""
         backup_text = None
         if target.is_file() and target.stat().st_size <= 262144:
-            backup_text = target.read_text(encoding="utf-8", errors="replace")
+            if target.suffix.lower() in (".docx", ".pdf", ".xlsx"):
+                import code_tools
+                backup_text = code_tools.read_file(target).get("text", "")
+            else:
+                backup_text = target.read_text(encoding="utf-8", errors="replace")
         if target.is_dir():
             shutil.rmtree(target)
         else:
@@ -1384,7 +1946,9 @@ def agent_file_op(options: dict) -> dict:
             backup_text=backup_text,
             before_existed=True,
             now=now,
+            new_content="",
         )
+        rcpt_entry = store["fileReceipts"][-1]
         _save_store(store)
         return {
             "op": "delete",
@@ -1392,7 +1956,49 @@ def agent_file_op(options: dict) -> dict:
             "confirmStage": 2,
             "targetPath": str(target),
             "destPath": "",
+            "receiptId": rid,
+            "addedLines": rcpt_entry["addedLines"],
+            "removedLines": rcpt_entry["removedLines"],
+            "diffPreview": rcpt_entry["diffPreview"],
             "summary": _clean_line(f"Deleted '{target.name}' after 2x confirmation (receipt {rid}).", 240),
             "lines": [_clean_line(f"Removed: {target}", 180)],
         }
     raise ToolError("invalid_confirm_step", "Invalid delete confirmation step.")
+
+
+def delegate_subagent(role: str, task: str, context_hint: str = "", **kwargs) -> dict:
+    """Delegate a scoped subtask to an isolated-context specialist Subagent on the single loaded local model."""
+    import agent_runtime
+
+    return agent_runtime.delegate_subagent(role=role, task=task, context_hint=context_hint, **kwargs)
+
+
+def assess_task_scale_for_subagents(prompt: str, options: dict | None = None) -> dict:
+    """Assess whether a prompt is a large/multi-phase workload for sequential subagent decomposition."""
+    import agent_runtime
+
+    return agent_runtime.assess_task_scale_for_subagents(prompt=prompt, options=options)
+
+
+def read_spill_tool(options: dict) -> dict:
+    """Read a line slice or grep matches from a session-confined tool output spill file."""
+    opts = options if isinstance(options, dict) else {}
+    session_id = str(opts.get("sessionId") or opts.get("threadId") or "chat_default").strip() or "chat_default"
+    spill_id = str(opts.get("spillId") or opts.get("spill_id") or "").strip()
+    path = str(opts.get("path") or "").strip()
+    offset_line = opts.get("offsetLine", opts.get("offset_line", 1))
+    limit_lines = opts.get("limitLines", opts.get("limit_lines", 120))
+    grep = str(opts.get("grep") or "")
+    try:
+        return read_spill_store(
+            session_id=session_id,
+            spill_id=spill_id,
+            path=path,
+            offset_line=offset_line,
+            limit_lines=limit_lines,
+            grep=grep,
+        )
+    except SpillError as exc:
+        raise ToolError(exc.code, exc.message) from exc
+
+

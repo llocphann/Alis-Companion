@@ -126,7 +126,7 @@ ShellRoot {
       console.info("COMPANION_HOVER_ENTER",edge,state,kind,JSON.stringify({module:module.hovered,anchor:popup._anchorHover.hovered,requested:popup.requestedVisible,content:popup._contentHovered,lease:!!popup.companionLease,slots:bar.liquidController.activePopups.length}))
       check(popup.requestedVisible,kind+" hover did not open with "+state+" on "+edge)
       if(state!=="disabled"){
-       const observer=findChild(host.contentItem,"aquaRimPointerObserver")
+       const observer=findChild(host.contentItem,"aquaRimPointerObserver") ?? findChild(host,"aquaRimPointerObserver")
        check(observer && observer.parent===AlisCompanion.outputs[0].overlayParent && observer.blocking===false,"observer left existing ancestor")
        check(observer.hovered,"restored module hover lost Companion pointer tracking")
        const point=module.mapToItem(null,module.width/2,module.height/2)

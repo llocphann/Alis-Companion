@@ -78,7 +78,11 @@ def public_text(value):
         raise UnsafeReply("malformed_structured_output")
     if _ACTION_CLAIM.search(candidate):
         raise UnsafeReply("unverified_action_claim")
-    text = re.sub(r"\n{3,}", "\n\n", re.sub(r"[ \t]+\n", "\n", re.sub(r"\r\n?", "\n", candidate))).strip()[:420]
+    text = re.sub(r"\r\n?", "\n", candidate)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"^\s*\*\*🖥\s*[^\n*]*$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()[:420]
+    text = re.sub(r"\n+(?:1[.)][ \t]+[^\n]*\n+)?[ \t]*\d+[.)][ \t]*$", "", text).strip()
     if not text:
         raise UnsafeReply("empty_text")
     return text

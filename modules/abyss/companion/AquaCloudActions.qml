@@ -51,7 +51,7 @@ Item {
         return String(Math.floor(secs / 60)).padStart(2, "0") + ":" + String(secs % 60).padStart(2, "0")
     }
     readonly property bool eligible: allowed && actor.visible && actor.inputReady && revealed
-        && !AquaMind.conversationOpen && !AquaMind.contextOpen && !AquaPocket.opened
+        && !AquaMind.conversationOpen && !AquaMind.contextOpen && !AquaPocket.opened && AquaMind.checkInStage.length === 0
     readonly property var orbit: eligible ? Orbit.layout(outputWidth,outputHeight,{
         x:actor.x,y:actor.y,width:actor.width,height:actor.height,scale:actor.scale,
         sideAlignment:actor.sideAlignment ?? 0,floorAlignment:actor.floorAlignment ?? 0,

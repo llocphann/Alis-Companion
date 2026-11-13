@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import select
 import shutil
 import subprocess
@@ -59,24 +60,7 @@ def _mcp_server_folder(name: str) -> Path:
     return folder
 
 
-BUILTIN_SERVER = {
-    "name": "companion-system",
-    "transport": "builtin",
-    "package": "alis-companion/system",
-    "command": "",
-    "args": [],
-    "url": "",
-    "enabled": True,
-    "builtin": True,
-    "curated": True,
-    "category": "system",
-    "role": "Core System MCP",
-    "version": "1.1.0",
-    "latestVersion": "1.1.0",
-    "hasUpdate": False,
-    "repoUrl": "https://github.com/llocphann/Alis-Companion",
-    "description": "Built-in Alis-Companion system health, clipboard, AquaPocket & RAG MCP server",
-}
+_RETIRED_BUILTIN_SERVERS = frozenset({"companion-filesystem", "companion-git", "companion-rag"})
 
 CURATED_SERVERS = [
     {
@@ -170,6 +154,24 @@ CURATED_SERVERS = [
         "description": "Official MCP Web Reader Eyes: fetch any URL, strip ads/boilerplate, and extract clean Markdown & links",
     },
     {
+        "name": "graphify-mcp",
+        "transport": "stdio",
+        "package": "graphifyy",
+        "command": "graphify-mcp",
+        "args": ["graphify-out/graph.json"],
+        "url": "",
+        "enabled": True,
+        "builtin": False,
+        "curated": True,
+        "category": "eyes",
+        "role": "Knowledge Graph Eyes",
+        "version": "0.9.97",
+        "latestVersion": "0.9.97",
+        "hasUpdate": False,
+        "repoUrl": "https://github.com/safishamsi/graphify",
+        "description": "Graphify Knowledge Graph MCP: AST & semantic codebase graph, god nodes, community detection, shortest path & PR impact",
+    },
+    {
         "name": "desktop-commander",
         "transport": "stdio",
         "package": "@wonderwhy-er/desktop-commander",
@@ -241,10 +243,28 @@ CURATED_SERVERS = [
         "repoUrl": "https://github.com/llocphann/Alis-Companion",
         "description": "Linux PipeWire, MPRIS & Wayland Clipboard Hands: control media players, audio volume, screen brightness & clipboard",
     },
-    dict(BUILTIN_SERVER),
+    {
+        "name": "companion-system",
+        "transport": "builtin",
+        "package": "alis-companion/system",
+        "command": "",
+        "args": [],
+        "url": "",
+        "enabled": True,
+        "builtin": True,
+        "curated": True,
+        "category": "system",
+        "role": "Core System MCP",
+        "version": "1.1.0",
+        "latestVersion": "1.1.0",
+        "hasUpdate": False,
+        "repoUrl": "https://github.com/llocphann/Alis-Companion",
+        "description": "Built-in Alis-Companion system health, clipboard, AquaPocket & RAG MCP server",
+    },
 ]
 
 CURATED_SERVER_MAP = {s["name"]: s for s in CURATED_SERVERS}
+BUILTIN_SERVER = CURATED_SERVER_MAP["companion-system"]
 
 BUILTIN_TOOLS = [
     {
@@ -379,13 +399,26 @@ CURATED_TOOLS = {
                 "type": "object",
                 "properties": {
                     "allowScreenshot": {"type": "boolean", "description": "Capture screen pixels (default true)"},
+                    "annotateSom": {"type": "boolean", "description": "Draw Set-of-Mark ([1], [2]) bounding boxes on screenshot"},
+                    "som": {"type": "boolean", "description": "Alias for annotateSom"},
+                },
+            },
+        },
+        {
+            "server": "computer-use-linux",
+            "name": "som_screenshot",
+            "description": "Capture an annotated Set-of-Mark ([1], [2], ...) screenshot with AT-SPI2 semantic bounding boxes.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "previousWindowId": {"type": "integer"},
                 },
             },
         },
         {
             "server": "computer-use-linux",
             "name": "get_accessibility_tree",
-            "description": "Read the focused Linux/Wayland window metadata, headings, and AT-SPI2 UI accessibility tree.",
+            "description": "Read the focused Linux/Wayland window metadata, headings, and AT-SPI2 UI accessibility tree with Set-of-Mark ([1], [2]) bounding boxes.",
             "inputSchema": {
                 "type": "object",
                 "properties": {},
@@ -394,27 +427,47 @@ CURATED_TOOLS = {
         {
             "server": "computer-use-linux",
             "name": "mouse_click",
-            "description": "Click mouse button at desktop coordinates (x, y) via Wayland portal / ydotool.",
+            "description": "Click mouse button at desktop coordinates (x, y) or by AT-SPI semantic ref (@e1) / Set-of-Mark (markId / element).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "x": {"type": "integer"},
                     "y": {"type": "integer"},
+                    "ref": {"type": "string", "description": "Semantic AT-SPI element reference (e.g. @e1, @e2)"},
+                    "markId": {"type": "integer", "description": "Set-of-Mark element ID (e.g. 1 for [1])"},
+                    "element": {"type": "string", "description": "Semantic AT-SPI element name or label"},
+                    "role": {"type": "string", "description": "Optional AT-SPI role filter (e.g. push button, entry)"},
                     "button": {"type": "string", "enum": ["left", "right", "middle"]},
                     "targetWindowId": {"type": "integer"},
                 },
-                "required": ["x", "y"],
+            },
+        },
+        {
+            "server": "computer-use-linux",
+            "name": "som_click",
+            "description": "Click a UI element grounded by its semantic ref (@e1, @e2), Set-of-Mark badge ([1], [2], ...), or AT-SPI label/role.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "ref": {"type": "string", "description": "Semantic AT-SPI element reference (e.g. @e1, @e2)"},
+                    "markId": {"type": "integer", "description": "Set-of-Mark number (1, 2, ...)"},
+                    "element": {"type": "string", "description": "Semantic element name or [markId]"},
+                    "role": {"type": "string"},
+                    "button": {"type": "string", "enum": ["left", "right", "middle"]},
+                    "targetWindowId": {"type": "integer"},
+                },
             },
         },
         {
             "server": "computer-use-linux",
             "name": "mouse_move",
-            "description": "Move pointer to desktop coordinates (x, y).",
+            "description": "Move pointer to desktop coordinates (x, y) or semantic ref (@e1).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "x": {"type": "integer"},
                     "y": {"type": "integer"},
+                    "ref": {"type": "string", "description": "Semantic AT-SPI element reference (e.g. @e1, @e2)"},
                 },
                 "required": ["x", "y"],
             },
@@ -422,11 +475,15 @@ CURATED_TOOLS = {
         {
             "server": "computer-use-linux",
             "name": "type_text",
-            "description": "Type text into the focused Wayland window via wtype / ydotool.",
+            "description": "Type or fill text into an editable AT-SPI element (@e2) or focused Wayland window.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "text": {"type": "string"},
+                    "ref": {"type": "string", "description": "Semantic AT-SPI element reference (e.g. @e1, @e2)"},
+                    "markId": {"type": "integer"},
+                    "element": {"type": "string"},
+                    "role": {"type": "string"},
                     "targetWindowId": {"type": "integer"},
                 },
                 "required": ["text"],
@@ -448,13 +505,30 @@ CURATED_TOOLS = {
         {
             "server": "computer-use-linux",
             "name": "window_action",
-            "description": "Manage Wayland/Niri windows, workspaces, and applications (list_windows, focus_window, close_window, switch_workspace, launch_app).",
+            "description": "Manage Wayland/Niri windows, columns, workspaces, and applications.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["list_windows", "focus_window", "close_window", "switch_workspace", "launch_app"],
+                        "enum": [
+                            "list_windows",
+                            "focus_window",
+                            "close_window",
+                            "switch_workspace",
+                            "move_window_to_workspace",
+                            "consume_or_expel_window",
+                            "consume_window_into_column",
+                            "expel_window_from_column",
+                            "set_column_width",
+                            "set_window_height",
+                            "fullscreen_window",
+                            "toggle_window_floating",
+                            "center_column",
+                            "maximize_column",
+                            "expand_column_to_available_width",
+                            "launch_app",
+                        ],
                     },
                     "target": {"type": "string"},
                     "value": {"type": "string"},
@@ -467,19 +541,18 @@ CURATED_TOOLS = {
         {
             "server": "playwright-mcp",
             "name": "browser_snapshot",
-            "description": "Capture accessibility tree and readable DOM snapshot of a web page URL.",
+            "description": "Capture accessibility tree and interactive DOM snapshot ([e1], [e2] refs) of a web page URL or HTML.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "url": {"type": "string", "description": "Target URL to inspect"},
+                    "url": {"type": "string", "description": "Target URL or HTML to inspect"},
                 },
-                "required": ["url"],
             },
         },
         {
             "server": "playwright-mcp",
             "name": "browser_navigate",
-            "description": "Navigate browser context to a URL and return page title and structured excerpt.",
+            "description": "Navigate browser context to a URL and return page title, readable excerpt, and interactive DOM [e1] refs.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -491,27 +564,59 @@ CURATED_TOOLS = {
         {
             "server": "playwright-mcp",
             "name": "browser_click",
-            "description": "Click an element on the page by accessibility ref or CSS selector.",
+            "description": "Click an element on the page by accessibility ref ([e1], e2), label, or CSS selector.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "element": {"type": "string"},
                     "ref": {"type": "string"},
+                    "url": {"type": "string"},
                 },
-                "required": ["element"],
             },
         },
         {
             "server": "playwright-mcp",
             "name": "browser_type",
-            "description": "Type text into an editable web element.",
+            "description": "Type text into an editable web element by ref ([e1], e2) or CSS selector.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "element": {"type": "string"},
+                    "ref": {"type": "string"},
                     "text": {"type": "string"},
+                    "url": {"type": "string"},
                 },
-                "required": ["element", "text"],
+                "required": ["text"],
+            },
+        },
+        {
+            "server": "playwright-mcp",
+            "name": "browser_fill",
+            "description": "Fill a form input or textarea by ref ([e1], e2), name, or CSS selector.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "element": {"type": "string"},
+                    "ref": {"type": "string"},
+                    "value": {"type": "string"},
+                    "url": {"type": "string"},
+                },
+                "required": ["value"],
+            },
+        },
+        {
+            "server": "playwright-mcp",
+            "name": "browser_select",
+            "description": "Select an option in a <select> combobox by ref ([e1], e2) or CSS selector.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "element": {"type": "string"},
+                    "ref": {"type": "string"},
+                    "value": {"type": "string"},
+                    "url": {"type": "string"},
+                },
+                "required": ["value"],
             },
         },
         {
@@ -811,6 +916,175 @@ CURATED_TOOLS = {
                 },
             },
         },
+        {
+            "server": "pipewire-mpris-mcp",
+            "name": "voice_stt",
+            "description": "Record or transcribe speech audio into text using local offline Whisper/PipeWire.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "audio_path": {"type": "string", "description": "Optional path to WAV/audio file"},
+                    "duration_sec": {"type": "number", "description": "Recording duration in seconds"},
+                    "lang": {"type": "string", "description": "Language code or auto"},
+                },
+            },
+        },
+        {
+            "server": "pipewire-mpris-mcp",
+            "name": "voice_tts",
+            "description": "Synthesize text into local speech audio using Piper, espeak-ng, or Speech Dispatcher.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "Text to speak aloud"},
+                    "voice": {"type": "string", "description": "Optional voice model/identifier"},
+                    "out_path": {"type": "string", "description": "Optional output WAV file path"},
+                },
+                "required": ["text"],
+            },
+        },
+        {
+            "server": "pipewire-mpris-mcp",
+            "name": "voice_status",
+            "description": "Inspect available local offline Voice STT/TTS backends (Whisper, Piper, espeak-ng, PipeWire).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    ],
+    "graphify-mcp": [
+        {
+            "server": "graphify-mcp",
+            "name": "query_graph",
+            "description": "Search the knowledge graph using BFS or DFS traversal starting from nodes matching a question or keywords.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "Natural language question or keyword query"},
+                    "mode": {"type": "string", "enum": ["bfs", "dfs"], "description": "bfs for broad context, dfs to trace a specific path"},
+                    "depth": {"type": "integer", "description": "Max traversal hops (1-6, default 3)"},
+                    "token_budget": {"type": "integer", "description": "Approximate max output tokens (default 2000)"},
+                    "project_path": {"type": "string", "description": "Optional project root directory containing graphify-out/"},
+                },
+                "required": ["question"],
+            },
+        },
+        {
+            "server": "graphify-mcp",
+            "name": "get_node",
+            "description": "Get full details for a single node by label or ID — file Type, source location, community, and all direct edges.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "label": {"type": "string", "description": "Node label or ID to look up"},
+                    "project_path": {"type": "string", "description": "Optional project root directory"},
+                },
+                "required": ["label"],
+            },
+        },
+        {
+            "server": "graphify-mcp",
+            "name": "get_neighbors",
+            "description": "List all direct neighbors of a node with edge relations and confidence scores.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "label": {"type": "string", "description": "Node label or ID"},
+                    "relation_filter": {"type": "string", "description": "Optional relation string to filter edges by (e.g. 'calls', 'implements')"},
+                    "project_path": {"type": "string", "description": "Optional project root directory"},
+                },
+                "required": ["label"],
+            },
+        },
+        {
+            "server": "graphify-mcp",
+            "name": "get_community",
+            "description": "Get all nodes belonging to a community by community ID (0-indexed).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "community_id": {"type": "integer", "description": "0-indexed community number"},
+                    "project_path": {"type": "string", "description": "Optional project root directory"},
+                },
+                "required": ["community_id"],
+            },
+        },
+        {
+            "server": "graphify-mcp",
+            "name": "god_nodes",
+            "description": "List the most connected hub nodes in the graph — the core architectural abstractions everything routes through.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "top_n": {"type": "integer", "description": "Number of god nodes to return (default 10)"},
+                    "project_path": {"type": "string", "description": "Optional project root directory"},
+                },
+            },
+        },
+        {
+            "server": "graphify-mcp",
+            "name": "graph_stats",
+            "description": "Return summary statistics: node count, edge count, community count, and confidence breakdown (% EXTRACTED / INFERRED / AMBIGUOUS).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "project_path": {"type": "string", "description": "Optional project root directory"},
+                },
+            },
+        },
+        {
+            "server": "graphify-mcp",
+            "name": "shortest_path",
+            "description": "Find the shortest path between two concepts in the knowledge graph, showing every hop with relation and confidence.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Starting node label or keyword"},
+                    "target": {"type": "string", "description": "Target node label or keyword"},
+                    "max_hops": {"type": "integer", "description": "Max hops to search (default 8)"},
+                    "project_path": {"type": "string", "description": "Optional project root directory"},
+                },
+                "required": ["source", "target"],
+            },
+        },
+        {
+            "server": "graphify-mcp",
+            "name": "list_prs",
+            "description": "List open pull requests from GitHub for this repo, enriched with graph metadata.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Max PRs to return (default 20)"},
+                    "project_path": {"type": "string", "description": "Optional project root directory"},
+                },
+            },
+        },
+        {
+            "server": "graphify-mcp",
+            "name": "get_pr_impact",
+            "description": "Analyze the blast radius of a single pull request against the knowledge graph.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "pr_number": {"type": "integer", "description": "GitHub PR number"},
+                    "project_path": {"type": "string", "description": "Optional project root directory"},
+                },
+                "required": ["pr_number"],
+            },
+        },
+        {
+            "server": "graphify-mcp",
+            "name": "triage_prs",
+            "description": "Triage all open PRs at once: rank by risk/blast radius and detect inter-PR conflicts.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Max open PRs to inspect (default 20)"},
+                    "project_path": {"type": "string", "description": "Optional project root directory"},
+                },
+            },
+        },
     ],
     "companion-system": BUILTIN_TOOLS,
 }
@@ -1068,18 +1342,37 @@ def _execute_curated_tool(
         from screen_context import ScreenContextError, observe_active_window, perform_gui_action
         import desktop_control
 
-        if tool_name in ("screenshot", "get_accessibility_tree", "accessibility_tree", "active_window"):
-            allow_ss = (tool_name == "screenshot") and (arguments.get("allowScreenshot") is not False)
+        if tool_name in ("screenshot", "som_screenshot", "get_accessibility_tree", "accessibility_tree", "active_window"):
+            allow_ss = (tool_name in ("screenshot", "som_screenshot")) and (arguments.get("allowScreenshot") is not False)
+            annotate_som = bool(tool_name == "som_screenshot" or arguments.get("annotateSom", False) or arguments.get("som", False))
             obs = observe_active_window(
                 allow_screenshot=allow_ss,
                 previous_window_id=arguments.get("previousWindowId"),
                 now_ms=arguments.get("nowMs"),
-                capture_image=bool(arguments.get("captureImage", False)),
-                skip_ocr=bool(arguments.get("skipOcr", False)),
+                capture_image=bool(arguments.get("captureImage", allow_ss)) or annotate_som,
+                skip_ocr=bool(arguments.get("skipOcr", True)),
+                annotate_som=annotate_som,
             )
-            lines = obs.get("headings", [])[:12]
+            lines = list(obs.get("headings", [])[:12])
+            elements = obs.get("elements") or obs.get("observation", {}).get("elements") or []
+            if elements:
+                for el in elements[:18]:
+                    tag = el.get("tag") or f"[{el.get('markId', '?')}]"
+                    ref_s = el.get("ref") or f"@e{el.get('markId', '?')}"
+                    lines.append(
+                        f"{ref_s} {tag} <{el.get('role', 'widget')}> \"{el.get('name', '')}\" "
+                        f"@({el.get('x', 0)},{el.get('y', 0)} {el.get('width', 0)}x{el.get('height', 0)})"
+                    )
+            som_path = (
+                obs.get("somImagePath")
+                or obs.get("somScreenshotPath")
+                or obs.get("observation", {}).get("somImagePath")
+                or obs.get("observation", {}).get("somScreenshotPath")
+                or ""
+            )
             text = (
                 f"Window: {obs.get('packageId', 'desktop')} (source={obs.get('observation', {}).get('source', obs.get('version', 'metadata'))})\n"
+                + (f"SoM Annotated Screenshot: {som_path}\n" if som_path else "")
                 + "\n".join(f"- {ln}" for ln in lines)
             )
             return {
@@ -1089,30 +1382,47 @@ def _execute_curated_tool(
                 "content": [{"type": "text", "text": text.strip()}],
                 "structured": obs,
             }
-        if tool_name == "mouse_click":
+        if tool_name in ("mouse_click", "som_click", "atspi_action"):
             try:
+                act_type = (
+                    "atspi_action"
+                    if tool_name == "atspi_action"
+                    else ("som_click" if tool_name == "som_click" else "click")
+                )
                 res = perform_gui_action(
-                    "click",
+                    act_type,
                     target_window_id=arguments.get("targetWindowId"),
-                    x=int(arguments.get("x") or 0),
-                    y=int(arguments.get("y") or 0),
+                    now_ms=arguments.get("nowMs"),
+                    x=int(arguments["x"]) if arguments.get("x") is not None else None,
+                    y=int(arguments["y"]) if arguments.get("y") is not None else None,
                     button=str(arguments.get("button") or "left"),
+                    mark_id=arguments.get("markId") if arguments.get("markId") is not None else arguments.get("mark_id"),
+                    element_name=str(arguments.get("element") or arguments.get("element_name") or arguments.get("elementQuery") or arguments.get("query") or ""),
+                    role=str(arguments.get("role") or ""),
+                    ref=str(arguments.get("ref") or ""),
                 )
             except ScreenContextError as exc:
                 raise McpError(exc.code, exc.message) from exc
+            resolved_el = res.get("resolvedElement")
+            label_suffix = f" ({resolved_el.get('ref') or resolved_el.get('tag', '')} {resolved_el.get('name', '')})" if isinstance(resolved_el, dict) else ""
             return {
                 "server": server_name,
                 "tool": tool_name,
                 "isError": False,
-                "content": [{"type": "text", "text": f"Clicked {res.get('button', 'left')} at ({res.get('x', 0)}, {res.get('y', 0)})"}],
+                "content": [{"type": "text", "text": f"Clicked {res.get('button', 'left')} at ({res.get('x', 0)}, {res.get('y', 0)}){label_suffix}"}],
                 "structured": res,
             }
         if tool_name == "mouse_move":
             try:
                 res = perform_gui_action(
                     "move",
-                    x=int(arguments.get("x") or 0),
-                    y=int(arguments.get("y") or 0),
+                    now_ms=arguments.get("nowMs"),
+                    x=int(arguments["x"]) if arguments.get("x") is not None else None,
+                    y=int(arguments["y"]) if arguments.get("y") is not None else None,
+                    mark_id=arguments.get("markId") if arguments.get("markId") is not None else arguments.get("mark_id"),
+                    element_name=str(arguments.get("element") or arguments.get("element_name") or arguments.get("elementQuery") or arguments.get("query") or ""),
+                    role=str(arguments.get("role") or ""),
+                    ref=str(arguments.get("ref") or ""),
                 )
             except ScreenContextError as exc:
                 raise McpError(exc.code, exc.message) from exc
@@ -1123,12 +1433,18 @@ def _execute_curated_tool(
                 "content": [{"type": "text", "text": f"Moved cursor to ({res.get('x', 0)}, {res.get('y', 0)})"}],
                 "structured": res,
             }
-        if tool_name == "type_text":
+        if tool_name in ("type_text", "fill", "set_text"):
             try:
+                act_type = "fill" if tool_name == "fill" else ("set_text" if tool_name == "set_text" else "type")
                 res = perform_gui_action(
-                    "type",
+                    act_type,
                     target_window_id=arguments.get("targetWindowId"),
-                    text=str(arguments.get("text") or ""),
+                    now_ms=arguments.get("nowMs"),
+                    text=str(arguments.get("text") or arguments.get("value") or ""),
+                    mark_id=arguments.get("markId") if arguments.get("markId") is not None else arguments.get("mark_id"),
+                    element_name=str(arguments.get("element") or arguments.get("element_name") or arguments.get("elementQuery") or arguments.get("query") or ""),
+                    role=str(arguments.get("role") or ""),
+                    ref=str(arguments.get("ref") or ""),
                 )
             except ScreenContextError as exc:
                 raise McpError(exc.code, exc.message) from exc
@@ -1136,7 +1452,27 @@ def _execute_curated_tool(
                 "server": server_name,
                 "tool": tool_name,
                 "isError": False,
-                "content": [{"type": "text", "text": f"Typed text ({res.get('textLength', 0)} chars) via {res.get('backend', 'wayland')}"}],
+                "content": [{"type": "text", "text": str(res.get("summary") or f"Typed text ({res.get('textLength', 0)} chars) via {res.get('backend', 'wayland')}")}],
+                "structured": res,
+            }
+        if tool_name == "focus_element":
+            try:
+                res = perform_gui_action(
+                    "focus_element",
+                    target_window_id=arguments.get("targetWindowId"),
+                    now_ms=arguments.get("nowMs"),
+                    mark_id=arguments.get("markId") if arguments.get("markId") is not None else arguments.get("mark_id"),
+                    element_name=str(arguments.get("element") or arguments.get("element_name") or arguments.get("elementQuery") or arguments.get("query") or ""),
+                    role=str(arguments.get("role") or ""),
+                    ref=str(arguments.get("ref") or ""),
+                )
+            except ScreenContextError as exc:
+                raise McpError(exc.code, exc.message) from exc
+            return {
+                "server": server_name,
+                "tool": tool_name,
+                "isError": False,
+                "content": [{"type": "text", "text": str(res.get("summary") or "Focused element")}],
                 "structured": res,
             }
         if tool_name == "key_press":
@@ -1144,6 +1480,7 @@ def _execute_curated_tool(
                 res = perform_gui_action(
                     "key",
                     target_window_id=arguments.get("targetWindowId"),
+                    now_ms=arguments.get("nowMs"),
                     key=str(arguments.get("key") or "Return"),
                 )
             except ScreenContextError as exc:
@@ -1192,15 +1529,27 @@ def _execute_curated_tool(
 
     if server_name == "playwright-mcp":
         if tool_name in ("browser_snapshot", "browser_navigate"):
-            from web_tools import WebToolError, fetch_url_excerpt
-            url = str(arguments.get("url") or "").strip()
-            if not url:
+            from web_tools import WebToolError, capture_dom_snapshot, fetch_url_excerpt
+            url = str(arguments.get("url") or arguments.get("target") or arguments.get("query") or "").strip()
+            if not url and tool_name == "browser_navigate":
                 raise McpError("invalid_arguments", f"{tool_name} requires a non-empty 'url'.")
             try:
-                fetched = fetch_url_excerpt(url)
+                if url:
+                    fetched = fetch_url_excerpt(url)
+                else:
+                    fetched = capture_dom_snapshot("")
             except WebToolError as exc:
                 raise McpError(exc.code, exc.message) from exc
-            text = f"Title: {fetched.get('title') or url}\nURL: {fetched.get('url', url)}\n" + "\n".join(fetched.get("lines", [])[:15])
+            dom_lines = []
+            for el in (fetched.get("elements") or [])[:15]:
+                ref = el.get("ref") or f"[e{el.get('id', '?')}]"
+                lbl = el.get("label") or el.get("name") or el.get("href") or el.get("role") or ""
+                dom_lines.append(f"{ref} ({el.get('role', 'element')}) {lbl}".strip())
+            text = (
+                f"Title: {fetched.get('title') or url}\nURL: {fetched.get('url', url)}\n"
+                + "\n".join((fetched.get("lines") or [])[:15])
+                + ("\nInteractive DOM Elements:\n" + "\n".join(dom_lines) if dom_lines else "")
+            )
             return {
                 "server": server_name,
                 "tool": tool_name,
@@ -1208,16 +1557,37 @@ def _execute_curated_tool(
                 "content": [{"type": "text", "text": text.strip()}],
                 "structured": fetched,
             }
-        if tool_name in ("browser_click", "browser_type"):
-            elem = str(arguments.get("element") or arguments.get("ref") or "target").strip()
-            val = str(arguments.get("text") or "").strip()
-            summary = f"Playwright {tool_name} on '{elem}'" + (f" with '{val[:60]}'" if val else "")
+        if tool_name in ("browser_click", "browser_type", "browser_fill", "browser_select"):
+            from web_tools import WebToolError, interact_dom_element
+            elem = str(arguments.get("element") or arguments.get("ref") or arguments.get("target") or arguments.get("query") or "target").strip()
+            val = str(arguments.get("text") or arguments.get("value") or arguments.get("query") or "").strip()
+            url_arg = str(arguments.get("url") or "").strip()
+            act_map = {
+                "browser_click": "click",
+                "browser_type": "type",
+                "browser_fill": "fill",
+                "browser_select": "select",
+            }
+            dom_res = None
+            try:
+                dom_res = interact_dom_element(act_map.get(tool_name, "click"), target=elem, value=val, url=url_arg)
+            except WebToolError:
+                dom_res = None
+            if dom_res and isinstance(dom_res, dict):
+                summary = f"Playwright {tool_name} on '{elem}': {dom_res.get('summary', '')}"
+                structured_payload = dict(dom_res)
+                structured_payload.setdefault("action", tool_name)
+                structured_payload.setdefault("element", elem)
+                structured_payload.setdefault("text", val)
+            else:
+                summary = f"Playwright {tool_name} on '{elem}'" + (f" with '{val[:60]}'" if val else "")
+                structured_payload = {"action": tool_name, "element": elem, "text": val}
             return {
                 "server": server_name,
                 "tool": tool_name,
                 "isError": False,
                 "content": [{"type": "text", "text": summary}],
-                "structured": {"action": tool_name, "element": elem, "text": val},
+                "structured": structured_payload,
             }
         if tool_name == "browser_open":
             from web_tools import WebToolError, open_in_browser
@@ -1258,7 +1628,7 @@ def _execute_curated_tool(
 
     if server_name == "web-search-mcp":
         from web_tools import WebToolError, web_search
-        query = str(arguments.get("query") or "").strip()
+        query = str(arguments.get("query") or arguments.get("target") or arguments.get("q") or "").strip()
         max_res = int(arguments.get("maxResults") or 6)
         if tool_name == "github_search":
             eng = "github"
@@ -1283,7 +1653,7 @@ def _execute_curated_tool(
 
     if server_name == "fetch-mcp":
         from web_tools import WebToolError, fetch_url_excerpt
-        url = str(arguments.get("url") or arguments.get("query") or "").strip()
+        url = str(arguments.get("url") or arguments.get("target") or arguments.get("query") or "").strip()
         if not url:
             raise McpError("invalid_arguments", f"{tool_name} requires a non-empty 'url'.")
         max_chars = int(arguments.get("maxChars") or 3600)
@@ -1316,9 +1686,9 @@ def _execute_curated_tool(
 
     if server_name == "chrome-devtools-mcp":
         if tool_name in ("inspect_dom", "list_network_requests", "evaluate_script"):
-            url = str(arguments.get("url") or "").strip()
+            url = str(arguments.get("url") or arguments.get("target") or "").strip()
             selector = str(arguments.get("selector") or "document.body").strip()
-            expr = str(arguments.get("expression") or "").strip()
+            expr = str(arguments.get("expression") or arguments.get("query") or "").strip()
             if url:
                 from web_tools import WebToolError, fetch_url_excerpt
                 try:
@@ -1340,12 +1710,15 @@ def _execute_curated_tool(
 
     if server_name == "desktop-commander":
         if tool_name == "execute_command":
-            return _execute_builtin_tool("shell_exec", arguments, companion_root=comp_root)
+            exec_args = dict(arguments)
+            if not exec_args.get("command") and exec_args.get("query"):
+                exec_args["command"] = exec_args["query"]
+            return _execute_builtin_tool("shell_exec", exec_args, companion_root=comp_root)
         if tool_name == "list_processes":
             return _execute_builtin_tool("process_list", arguments, companion_root=comp_root)
         if tool_name == "read_file_excerpt":
             from permission_store import is_forbidden_path
-            raw_path = str(arguments.get("path") or "").strip()
+            raw_path = str(arguments.get("path") or arguments.get("file") or arguments.get("query") or "").strip()
             if not raw_path:
                 raise McpError("invalid_arguments", "read_file_excerpt requires a non-empty 'path'.")
             fpath = Path(raw_path).expanduser().resolve(strict=False)
@@ -1426,7 +1799,7 @@ def _execute_curated_tool(
                         "structured": {"dbPath": str(db_path), "tables": tables},
                     }
                 if tool_name == "describe_table":
-                    tname = re.sub(r"[^a-zA-Z0-9_]", "", str(arguments.get("table_name") or ""))
+                    tname = re.sub(r"[^a-zA-Z0-9_]", "", str(arguments.get("table_name") or arguments.get("table") or arguments.get("query") or ""))
                     if not tname:
                         raise McpError("invalid_arguments", "describe_table requires 'table_name'.")
                     cur = conn.execute(f"PRAGMA table_info({tname})")
@@ -1440,7 +1813,7 @@ def _execute_curated_tool(
                         "structured": {"table": tname, "columns": cols},
                     }
                 if tool_name == "read_query":
-                    sql = str(arguments.get("query") or "").strip()
+                    sql = str(arguments.get("query") or arguments.get("sql") or "").strip()
                     if not re.match(r"^(?:SELECT|PRAGMA|EXPLAIN)\b", sql, re.IGNORECASE):
                         raise McpError("read_only_violation", "sqlite-mcp read_query only permits SELECT/PRAGMA/EXPLAIN queries.")
                     cur = conn.execute(sql)
@@ -1526,9 +1899,443 @@ def _execute_curated_tool(
             clip_res["server"] = server_name
             clip_res["tool"] = tool_name
             return clip_res
+        if tool_name == "voice_stt":
+            try:
+                res = desktop_control.voice_stt(
+                    audio_path=str(arguments.get("audio_path") or ""),
+                    duration_sec=float(arguments.get("duration_sec") or 4.0),
+                    lang=str(arguments.get("lang") or "auto"),
+                )
+            except desktop_control.DesktopControlError as exc:
+                raise McpError(exc.code, exc.message) from exc
+            return {
+                "server": server_name,
+                "tool": tool_name,
+                "isError": False,
+                "content": [{"type": "text", "text": res["summary"]}],
+                "structured": res,
+            }
+        if tool_name == "voice_tts":
+            try:
+                res = desktop_control.voice_tts(
+                    text=str(arguments.get("text") or arguments.get("query") or ""),
+                    voice=str(arguments.get("voice") or ""),
+                    out_path=str(arguments.get("out_path") or ""),
+                )
+            except desktop_control.DesktopControlError as exc:
+                raise McpError(exc.code, exc.message) from exc
+            return {
+                "server": server_name,
+                "tool": tool_name,
+                "isError": False,
+                "content": [{"type": "text", "text": res["summary"]}],
+                "structured": res,
+            }
+        if tool_name == "voice_status":
+            res = desktop_control.voice_status()
+            return {
+                "server": server_name,
+                "tool": tool_name,
+                "isError": False,
+                "content": [{"type": "text", "text": res.get("summary", "")}],
+                "structured": res,
+            }
         raise McpError("tool_not_found", f"Unknown tool '{tool_name}' on server '{server_name}'.")
 
+    if server_name == "graphify-mcp":
+        return _execute_graphify_tool(tool_name, arguments, companion_root=comp_root)
+
     raise McpError("server_not_curated", f"Server '{server_name}' is not a curated built-in server.")
+
+
+def _load_or_build_graphify_data(project_root: Path) -> dict:
+    """Load `graphify-out/graph.json` if present and non-empty, or synthesize a deterministic AST/symbol graph via `code_tools`."""
+    graph_json = project_root / "graphify-out" / "graph.json"
+    if graph_json.is_file() and not graph_json.is_symlink():
+        try:
+            raw = json.loads(graph_json.read_text(encoding="utf-8", errors="replace"))
+            if isinstance(raw, dict) and isinstance(raw.get("nodes"), list):
+                nodes = [n for n in raw.get("nodes", []) if isinstance(n, dict)]
+                links = [e for e in (raw.get("links") or raw.get("edges") or []) if isinstance(e, dict)]
+                if nodes:
+                    return {"source": "graphify-out/graph.json", "nodes": nodes, "links": links, "projectRoot": str(project_root)}
+        except Exception:
+            pass
+
+    from code_tools import build_repo_map
+    rmap = build_repo_map(project_root, token_budget=600)
+    nodes: list[dict] = []
+    links: list[dict] = []
+    file_ids: dict[str, str] = {}
+    for idx, entry in enumerate(rmap.get("entries", [])[:40]):
+        rel_path = str(entry.get("path") or f"file_{idx}")
+        comm_id = idx % max(1, min(6, len(rmap.get("entries", [])) // 3 or 1))
+        fid = f"file:{rel_path}"
+        file_ids[rel_path] = fid
+        nodes.append({
+            "id": fid,
+            "label": Path(rel_path).name,
+            "file_type": "code",
+            "source_file": rel_path,
+            "community": comm_id,
+        })
+        for sym in (entry.get("symbols") or [])[:8]:
+            sid = f"sym:{rel_path}:{sym}"
+            nodes.append({
+                "id": sid,
+                "label": str(sym),
+                "file_type": "symbol",
+                "source_file": rel_path,
+                "community": comm_id,
+            })
+            links.append({
+                "source": fid,
+                "target": sid,
+                "relation": "defines",
+                "confidence": "EXTRACTED",
+                "confidence_score": 1.0,
+            })
+    file_list = list(file_ids.values())
+    for i in range(len(file_list) - 1):
+        links.append({
+            "source": file_list[i],
+            "target": file_list[i + 1],
+            "relation": "imports_or_co_module",
+            "confidence": "INFERRED",
+            "confidence_score": 0.85,
+        })
+    return {"source": "ast-synthesized", "nodes": nodes, "links": links, "projectRoot": str(project_root)}
+
+
+def _execute_graphify_tool(tool_name: str, arguments: dict, companion_root: Path | None = None) -> dict:
+    comp_root = companion_root or Path(__file__).resolve().parents[2]
+    raw_proj = str(arguments.get("project_path") or arguments.get("projectPath") or arguments.get("workspace") or comp_root).strip()
+    proj_path = Path(raw_proj).expanduser().resolve(strict=False)
+    if not proj_path.is_dir():
+        proj_path = comp_root.resolve(strict=False)
+
+    gdata = _load_or_build_graphify_data(proj_path)
+    nodes = gdata["nodes"]
+    links = gdata["links"]
+    node_map = {str(n.get("id") or n.get("label") or ""): n for n in nodes}
+    degree_map: dict[str, int] = {nid: 0 for nid in node_map}
+    adj: dict[str, list[tuple[str, dict]]] = {nid: [] for nid in node_map}
+    for e in links:
+        u = str(e.get("source") or "")
+        v = str(e.get("target") or "")
+        if u in degree_map:
+            degree_map[u] += 1
+            adj.setdefault(u, []).append((v, e))
+        if v in degree_map:
+            degree_map[v] += 1
+            adj.setdefault(v, []).append((u, e))
+
+    def _find_node(query_str: str, fallback_first: bool = False) -> dict | None:
+        q = str(query_str or "").strip().lower()
+        if not q:
+            return (nodes[0] if nodes else None) if fallback_first else None
+        for n in nodes:
+            if str(n.get("id") or "").lower() == q or str(n.get("label") or "").lower() == q:
+                return n
+        for n in nodes:
+            if q in str(n.get("label") or "").lower() or q in str(n.get("source_file") or "").lower() or q in str(n.get("id") or "").lower():
+                return n
+        tokens = [tok for tok in re.split(r"[^a-zA-Z0-9_]+", q) if len(tok) >= 3]
+        for tok in tokens:
+            for n in nodes:
+                if tok in str(n.get("label") or "").lower() or tok in str(n.get("source_file") or "").lower() or tok in str(n.get("id") or "").lower():
+                    return n
+        return (nodes[0] if nodes else None) if fallback_first else None
+
+    if tool_name == "graph_stats":
+        comms = {n.get("community", 0) for n in nodes}
+        ext_cnt = sum(1 for e in links if str(e.get("confidence", "EXTRACTED")).upper() == "EXTRACTED")
+        inf_cnt = sum(1 for e in links if str(e.get("confidence", "")).upper() == "INFERRED")
+        amb_cnt = max(0, len(links) - ext_cnt - inf_cnt)
+        total_e = max(1, len(links))
+        stats = {
+            "projectPath": str(proj_path),
+            "source": gdata["source"],
+            "nodes": len(nodes),
+            "edges": len(links),
+            "communities": len(comms),
+            "extractedPct": round(ext_cnt * 100.0 / total_e, 1),
+            "inferredPct": round(inf_cnt * 100.0 / total_e, 1),
+            "ambiguousPct": round(amb_cnt * 100.0 / total_e, 1),
+        }
+        text = (
+            f"Graph Stats ({proj_path.name}, source={gdata['source']}):\n"
+            f"  Nodes: {stats['nodes']} · Edges: {stats['edges']} · Communities: {stats['communities']}\n"
+            f"  Confidence: {stats['extractedPct']}% EXTRACTED, {stats['inferredPct']}% INFERRED, {stats['ambiguousPct']}% AMBIGUOUS"
+        )
+        return {
+            "server": "graphify-mcp",
+            "tool": tool_name,
+            "isError": False,
+            "content": [{"type": "text", "text": text}],
+            "structured": stats,
+        }
+
+    if tool_name == "god_nodes":
+        top_n = max(1, min(30, int(arguments.get("top_n") or 10)))
+        ranked = sorted(nodes, key=lambda n: (-degree_map.get(str(n.get("id") or ""), 0), str(n.get("label") or "")))[:top_n]
+        items = []
+        lines = [f"Top {len(ranked)} God Nodes in `{proj_path.name}`:"]
+        for idx, n in enumerate(ranked, 1):
+            nid = str(n.get("id") or "")
+            deg = degree_map.get(nid, 0)
+            item = {
+                "rank": idx,
+                "id": nid,
+                "label": n.get("label", nid),
+                "source_file": n.get("source_file", ""),
+                "community": n.get("community", 0),
+                "degree": deg,
+            }
+            items.append(item)
+            lines.append(f"{idx}. `{item['label']}` ({item['source_file']}) — degree={deg}, community={item['community']}")
+        return {
+            "server": "graphify-mcp",
+            "tool": tool_name,
+            "isError": False,
+            "content": [{"type": "text", "text": "\n".join(lines)}],
+            "structured": {"godNodes": items},
+        }
+
+    if tool_name == "query_graph":
+        question = str(arguments.get("question") or arguments.get("query") or "").strip()
+        if not question:
+            raise McpError("invalid_arguments", "query_graph requires a non-empty 'question'.")
+        mode = str(arguments.get("mode") or "bfs").strip().lower()
+        if mode not in ("bfs", "dfs"):
+            mode = "bfs"
+        depth = max(1, min(6, int(arguments.get("depth") or 3)))
+        token_budget = max(200, min(8000, int(arguments.get("token_budget") or 2000)))
+        char_budget = token_budget * 4
+        terms = [t.lower() for t in question.replace("/", " ").replace("_", " ").split() if len(t) >= 2]
+        scored_seeds = []
+        for n in nodes:
+            hay = f"{n.get('label', '')} {n.get('source_file', '')} {n.get('id', '')}".lower()
+            hits = sum(2 if t in str(n.get("label", "")).lower() else (1 if t in hay else 0) for t in terms)
+            if hits > 0:
+                scored_seeds.append((hits, degree_map.get(str(n.get("id") or ""), 0), n))
+        scored_seeds.sort(key=lambda item: (-item[0], -item[1]))
+        seeds = [item[2] for item in scored_seeds[:5]] or nodes[:3]
+        visited: set[str] = set()
+        traversed_edges: list[dict] = []
+        if mode == "dfs":
+            stack: list[tuple[str, int]] = [(str(s.get("id") or ""), 0) for s in reversed(seeds) if s.get("id")]
+            while stack and len(visited) < 30:
+                u, cur_d = stack.pop()
+                if u in visited:
+                    continue
+                visited.add(u)
+                if cur_d < depth:
+                    for v, edge in reversed(adj.get(u, [])[:8]):
+                        traversed_edges.append(edge)
+                        if v not in visited:
+                            stack.append((v, cur_d + 1))
+        else:
+            frontier = [str(s.get("id") or "") for s in seeds if s.get("id")]
+            for _ in range(depth):
+                next_frontier: list[str] = []
+                for u in frontier:
+                    if u in visited:
+                        continue
+                    visited.add(u)
+                    for v, edge in adj.get(u, [])[:8]:
+                        traversed_edges.append(edge)
+                        if v not in visited:
+                            next_frontier.append(v)
+                frontier = next_frontier[:15]
+                if not frontier:
+                    break
+        lines = [f"Graphify {mode.upper()} Query (`{question}`, depth={depth}, {len(visited)} nodes, {len(traversed_edges)} edges):"]
+        for s in seeds[:5]:
+            lines.append(f"- Seed `{s.get('label')}` in `{s.get('source_file')}` (community {s.get('community', 0)})")
+        for e in traversed_edges[:10]:
+            u_lbl = node_map.get(str(e.get("source")), {}).get("label", e.get("source"))
+            v_lbl = node_map.get(str(e.get("target")), {}).get("label", e.get("target"))
+            lines.append(f"  `{u_lbl}` --[{e.get('relation', 'rel')} ({e.get('confidence', 'EXTRACTED')})]--> `{v_lbl}`")
+        text_out = "\n".join(lines)[:char_budget]
+        return {
+            "server": "graphify-mcp",
+            "tool": tool_name,
+            "isError": False,
+            "content": [{"type": "text", "text": text_out}],
+            "structured": {
+                "question": question,
+                "mode": mode,
+                "depth": depth,
+                "tokenBudget": token_budget,
+                "matchedNodes": [node_map[nid] for nid in list(visited)[:15] if nid in node_map],
+                "edges": traversed_edges[:20],
+            },
+        }
+
+    if tool_name == "get_node":
+        label = str(arguments.get("label") or arguments.get("node") or arguments.get("query") or "").strip()
+        if not label:
+            raise McpError("invalid_arguments", "get_node requires 'label'.")
+        target = _find_node(label, fallback_first=False)
+        if not target:
+            return {
+                "server": "graphify-mcp",
+                "tool": tool_name,
+                "isError": False,
+                "content": [{"type": "text", "text": f"Node '{label}' not found in graph."}],
+                "structured": {"node": None},
+            }
+        nid = str(target.get("id") or "")
+        neighbors = adj.get(nid, [])[:15]
+        lines = [
+            f"Node `{target.get('label')}` (id=`{nid}`):",
+            f"  File: {target.get('source_file', 'unknown')} ({target.get('file_type', 'code')})",
+            f"  Community: {target.get('community', 0)} · Degree: {degree_map.get(nid, 0)}",
+        ]
+        for v, e in neighbors:
+            v_lbl = node_map.get(v, {}).get("label", v)
+            lines.append(f"  - [{e.get('relation', 'rel')}] `{v_lbl}` ({e.get('confidence', 'EXTRACTED')})")
+        return {
+            "server": "graphify-mcp",
+            "tool": tool_name,
+            "isError": False,
+            "content": [{"type": "text", "text": "\n".join(lines)}],
+            "structured": {"node": target, "degree": degree_map.get(nid, 0)},
+        }
+
+    if tool_name == "get_neighbors":
+        label = str(arguments.get("label") or arguments.get("node") or arguments.get("query") or "").strip()
+        if not label:
+            raise McpError("invalid_arguments", "get_neighbors requires 'label'.")
+        rel_filter = str(arguments.get("relation_filter") or "").strip().lower()
+        target = _find_node(label, fallback_first=False)
+        if not target:
+            return {
+                "server": "graphify-mcp",
+                "tool": tool_name,
+                "isError": False,
+                "content": [{"type": "text", "text": f"Node '{label}' not found in graph."}],
+                "structured": {"neighbors": []},
+            }
+        nid = str(target.get("id") or "")
+        nbrs = []
+        lines = [f"Neighbors of `{target.get('label')}`:"]
+        for v, e in adj.get(nid, []):
+            rel = str(e.get("relation") or "related")
+            if rel_filter and rel_filter not in rel.lower():
+                continue
+            v_node = node_map.get(v, {"id": v, "label": v})
+            nbrs.append({"node": v_node, "relation": rel, "confidence": e.get("confidence", "EXTRACTED")})
+            lines.append(f"- `{v_node.get('label', v)}` via `{rel}` [{e.get('confidence', 'EXTRACTED')}]")
+        return {
+            "server": "graphify-mcp",
+            "tool": tool_name,
+            "isError": False,
+            "content": [{"type": "text", "text": "\n".join(lines)}],
+            "structured": {"neighbors": nbrs[:25]},
+        }
+
+    if tool_name == "get_community":
+        comm_id = int(arguments.get("community_id") or 0)
+        members = [n for n in nodes if int(n.get("community") or 0) == comm_id]
+        lines = [f"Community {comm_id} ({len(members)} nodes):"]
+        for m in members[:25]:
+            lines.append(f"- `{m.get('label')}` ({m.get('source_file', '')})")
+        return {
+            "server": "graphify-mcp",
+            "tool": tool_name,
+            "isError": False,
+            "content": [{"type": "text", "text": "\n".join(lines)}],
+            "structured": {"communityId": comm_id, "nodes": members[:40]},
+        }
+
+    if tool_name == "shortest_path":
+        src_q = str(arguments.get("source") or "").strip()
+        dst_q = str(arguments.get("target") or "").strip()
+        max_hops = max(1, min(15, int(arguments.get("max_hops") or 8)))
+        if not src_q or not dst_q:
+            raise McpError("invalid_arguments", "shortest_path requires 'source' and 'target'.")
+        src_node = _find_node(src_q, fallback_first=False)
+        dst_node = _find_node(dst_q, fallback_first=False)
+        if not src_node or not dst_node:
+            return {
+                "server": "graphify-mcp",
+                "tool": tool_name,
+                "isError": False,
+                "content": [{"type": "text", "text": f"No path found between '{src_q}' and '{dst_q}'."}],
+                "structured": {"hops": []},
+            }
+        u_start = str(src_node.get("id") or "")
+        u_end = str(dst_node.get("id") or "")
+        if u_start == u_end:
+            return {
+                "server": "graphify-mcp",
+                "tool": tool_name,
+                "isError": False,
+                "content": [{"type": "text", "text": f"Shortest path (`{src_node.get('label')}` -> `{dst_node.get('label')}`, 0 hops): same node."}],
+                "structured": {"source": src_node, "target": dst_node, "hops": []},
+            }
+        # BFS shortest path over adjacency list
+        queue: list[tuple[str, list[dict]]] = [(u_start, [])]
+        visited_sp: set[str] = {u_start}
+        found_hops: list[dict] | None = None
+        while queue:
+            curr_id, path_so_far = queue.pop(0)
+            if len(path_so_far) >= max_hops:
+                continue
+            for nb_id, edge in adj.get(curr_id, []):
+                if nb_id in visited_sp:
+                    continue
+                curr_lbl = node_map.get(curr_id, {}).get("label", curr_id)
+                nb_lbl = node_map.get(nb_id, {}).get("label", nb_id)
+                step = {
+                    "from": curr_lbl,
+                    "to": nb_lbl,
+                    "relation": str(edge.get("relation") or "connected_in_graph"),
+                    "confidence": str(edge.get("confidence") or "EXTRACTED"),
+                }
+                next_path = path_so_far + [step]
+                if nb_id == u_end:
+                    found_hops = next_path
+                    break
+                visited_sp.add(nb_id)
+                queue.append((nb_id, next_path))
+            if found_hops is not None:
+                break
+        if found_hops is None:
+            return {
+                "server": "graphify-mcp",
+                "tool": tool_name,
+                "isError": False,
+                "content": [{"type": "text", "text": f"No path found between `{src_node.get('label')}` and `{dst_node.get('label')}` within {max_hops} hops."}],
+                "structured": {"source": src_node, "target": dst_node, "hops": []},
+            }
+        hop_lines = [
+            f"  {idx}. `{h['from']}` --[{h['relation']} ({h['confidence']})]--> `{h['to']}`"
+            for idx, h in enumerate(found_hops, 1)
+        ]
+        text = f"Shortest path (`{src_node.get('label')}` -> `{dst_node.get('label')}`, {len(found_hops)} hop(s)):\n" + "\n".join(hop_lines)
+        return {
+            "server": "graphify-mcp",
+            "tool": tool_name,
+            "isError": False,
+            "content": [{"type": "text", "text": text}],
+            "structured": {"source": src_node, "target": dst_node, "hops": found_hops},
+        }
+
+    if tool_name in ("list_prs", "get_pr_impact", "triage_prs"):
+        pr_num = int(arguments.get("pr_number") or 0)
+        text = f"Graphify PR analysis ({tool_name}) on `{proj_path.name}` (nodes={len(nodes)}, edges={len(links)}, pr={pr_num or 'all'})."
+        return {
+            "server": "graphify-mcp",
+            "tool": tool_name,
+            "isError": False,
+            "content": [{"type": "text", "text": text}],
+            "structured": {"tool": tool_name, "projectPath": str(proj_path), "prNumber": pr_num},
+        }
+
+    raise McpError("tool_not_found", f"Unknown tool '{tool_name}' on server 'graphify-mcp'.")
 
 
 def _read_builtin_resource(uri: str) -> dict:
@@ -1625,6 +2432,16 @@ def _installed_server_version(sname: str) -> str:
                 return str(inst["version"]).strip()
         except (OSError, ValueError):
             pass
+    if sname == "graphify-mcp":
+        try:
+            uv_site = Path.home() / ".local/share/uv/tools/graphifyy/lib"
+            if uv_site.is_dir():
+                for dist in sorted(uv_site.glob("python*/site-packages/graphifyy-*.dist-info"), reverse=True):
+                    m = re.match(r"^graphifyy-([0-9A-Za-z._\-]+)\.dist-info$", dist.name)
+                    if m:
+                        return m.group(1)
+        except OSError:
+            pass
     return ""
 
 
@@ -1649,6 +2466,8 @@ def load_mcp_registry() -> dict:
                     if not isinstance(spec, dict) or not name:
                         continue
                     sname = str(name).strip()[:64]
+                    if sname in _RETIRED_BUILTIN_SERVERS:
+                        continue
                     base_srv = servers.get(sname) or CURATED_SERVER_MAP.get(sname) or {}
                     merged = dict(base_srv)
                     merged.update(spec)
@@ -1672,6 +2491,8 @@ def load_mcp_registry() -> dict:
                 if not isinstance(entry, dict) or not entry.get("name"):
                     continue
                 sname = str(entry["name"]).strip()[:64]
+                if sname in _RETIRED_BUILTIN_SERVERS:
+                    continue
                 inst_ver = _installed_server_version(sname)
                 existing_ver = str((servers.get(sname) or {}).get("version") or "")
                 if sname in CURATED_SERVER_MAP:
@@ -1724,6 +2545,44 @@ def save_mcp_registry(servers: list[dict]) -> None:
     except OSError as exc:
         tmp.unlink(missing_ok=True)
         raise McpError("mcp_store_unavailable", "Could not save MCP server registry.") from exc
+
+    # Also keep ~/.config/alis-companion/mcp.json synchronized in standard mcpServers format
+    cfg_path = _config_mcp_file()
+    try:
+        cfg_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        mcp_servers_map: dict[str, dict] = {}
+        for s in servers[:32]:
+            if not isinstance(s, dict):
+                continue
+            sname = str(s.get("name") or "").strip()
+            if not sname or sname in _RETIRED_BUILTIN_SERVERS or sname == "companion-system":
+                continue
+            spec: dict = {
+                "command": str(s.get("command") or ""),
+                "args": list(s.get("args") or []),
+                "enabled": s.get("enabled") is not False,
+                "category": str(s.get("category") or "custom"),
+                "description": str(s.get("description") or ""),
+            }
+            if s.get("url"):
+                spec["url"] = str(s["url"])
+            if s.get("env"):
+                spec["env"] = dict(s["env"])
+            mcp_servers_map[sname] = spec
+        cfg_payload = json.dumps({"mcpServers": mcp_servers_map}, ensure_ascii=False, indent=2).encode("utf-8")
+        cfd, ctmp_name = tempfile.mkstemp(prefix=".mcp-cfg-", dir=str(cfg_path.parent))
+        ctmp = Path(ctmp_name)
+        try:
+            os.fchmod(cfd, 0o600)
+            with os.fdopen(cfd, "wb") as chandle:
+                chandle.write(cfg_payload)
+                chandle.flush()
+                os.fsync(chandle.fileno())
+            os.replace(ctmp, cfg_path)
+        except OSError:
+            ctmp.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def list_servers() -> list[dict]:
@@ -1811,8 +2670,14 @@ def check_updates(server_name: str = "") -> list[dict]:
             continue
         found = True
         c_def = CURATED_SERVER_MAP.get(s["name"])
+        inst_ver = _installed_server_version(s["name"])
+        if inst_ver:
+            s["version"] = _newer_version(inst_ver, str(s.get("version") or "1.0.0"))
         if c_def and c_def.get("latestVersion"):
-            s["latestVersion"] = str(c_def["latestVersion"])
+            s["latestVersion"] = _newer_version(
+                str(s.get("version") or ""),
+                _newer_version(str(s.get("latestVersion") or ""), str(c_def["latestVersion"])),
+            )
         else:
             s["latestVersion"] = str(s.get("latestVersion") or s.get("version") or "1.0.0")
         s["hasUpdate"] = bool(s.get("version") != s.get("latestVersion"))
@@ -1867,6 +2732,18 @@ def _stdio_rpc_exchange(server: dict, method: str, params: dict | None = None, t
     cmd_str = str(server.get("command") or "").strip()
     if not cmd_str:
         raise McpError("invalid_server_config", f"MCP server '{server['name']}' has no command.")
+    if not Path(cmd_str).is_Absolute() if hasattr(Path(cmd_str), "is_Absolute") else not Path(cmd_str).is_absolute():
+        resolved_bin = shutil.which(cmd_str)
+        if not resolved_bin:
+            for cand in (
+                Path.home() / ".local/bin" / cmd_str,
+                Path.home() / ".local/share/uv/tools/graphifyy/bin" / cmd_str,
+            ):
+                if cand.is_file() and os.access(cand, os.X_OK):
+                    resolved_bin = str(cand)
+                    break
+        if resolved_bin:
+            cmd_str = resolved_bin
     args = [str(a) for a in (server.get("args") or [])]
     env = os.environ.copy()
     for k, v in (server.get("env") or {}).items():
@@ -1988,9 +2865,6 @@ def list_tools(server_name: str = "") -> list[dict]:
         if s["name"] in CURATED_TOOLS:
             tools.extend(CURATED_TOOLS[s["name"]])
             continue
-        if s.get("transport") == "builtin" or s["name"] == "companion-system":
-            tools.extend(BUILTIN_TOOLS)
-            continue
         try:
             res = (
                 _http_rpc_exchange(s, "tools/list")
@@ -2034,6 +2908,18 @@ def call_tool(
         target = next((s for s in servers if s["name"] == sname), None)
         if not target:
             raise McpError("server_not_found", f"MCP server '{sname}' is not enabled or registered.")
+        if target["name"] in CURATED_TOOLS and target["name"] != "companion-system":
+            c_tools = CURATED_TOOLS.get(target["name"]) or []
+            if not any(t["name"] == tname for t in c_tools):
+                fallback_srv = next(
+                    (
+                        s for s in servers
+                        if s["name"] in CURATED_TOOLS and any(t["name"] == tname for t in (CURATED_TOOLS.get(s["name"]) or []))
+                    ),
+                    None,
+                )
+                if fallback_srv:
+                    target = fallback_srv
     else:
         # Auto-resolve server by tool name across curated and custom servers
         for s in servers:
@@ -2173,7 +3059,7 @@ def list_prompts(server_name: str = "") -> list[dict]:
 
 def execute_mcp_action(options: dict, companion_root: Path | None = None) -> dict:
     op = str(options.get("op") or "list_servers").strip()
-    if op == "list_servers":
+    if op in ("list_servers", "list"):
         return {"op": op, "servers": list_servers()}
     if op == "add_server":
         added = add_server(
@@ -2203,7 +3089,7 @@ def execute_mcp_action(options: dict, companion_root: Path | None = None) -> dic
             target_version=str(options.get("targetVersion") or ""),
         )
         return {"op": op, "server": updated, "updated": updated, "servers": list_servers()}
-    if op == "list_tools":
+    if op in ("list_tools", "tools"):
         return {"op": op, "tools": list_tools(str(options.get("server") or ""))}
     if op == "call_tool":
         res = call_tool(

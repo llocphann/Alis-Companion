@@ -13,11 +13,25 @@ import qs.modules.settings
 Item {
     id:root
     property Item actor: null
+    property bool embeddedMode: false
     property bool confirmClear:false
+    signal closeRequested()
+    function closePane(): void {
+        if (root.embeddedMode)
+            root.closeRequested()
+        else
+            AquaPocket.close()
+    }
+    readonly property bool hovered: root.visible && pocketPaneHover.hovered
     implicitHeight: layoutCol.implicitHeight
     focus:true
     Component.onCompleted: Qt.callLater(() => { if (root.visible) root.forceActiveFocus() })
-    Keys.onEscapePressed: AquaPocket.close()
+    onVisibleChanged: if (!root.visible) picker.close()
+    Keys.onEscapePressed: root.closePane()
+    HoverHandler {
+        id: pocketPaneHover
+        blocking: false
+    }
     DropArea {
         id: paneDrop
         anchors.fill:parent
@@ -180,6 +194,32 @@ Item {
                         }
                     }
                     RippleButton {
+                        id:sendToChatBtn
+                        objectName:"aquaPocketSendToChat-"+row.modelData.id
+                        Layout.preferredWidth:26;Layout.preferredHeight:26
+                        implicitWidth:26;implicitHeight:26
+                        buttonRadius:13
+                        enabled:!!row.modelData.path
+                        Accessible.name:"Send to Chat"
+                        onClicked: {
+                            root.confirmClear=false
+                            AquaMind.attachFile(row.modelData.path)
+                            root.closePane()
+                            if (!root.embeddedMode)
+                                AquaMind.openChat()
+                        }
+                        StyledToolTip {
+                            extraVisibleCondition:sendToChatBtn.buttonHovered
+                            text:"Send to Chat"
+                        }
+                        contentItem:MaterialSymbol {
+                            anchors.centerIn:parent
+                            text:"chat"
+                            iconSize:15
+                            color:Appearance.colors.colPrimary
+                        }
+                    }
+                    RippleButton {
                         id:openItemBtn
                         Layout.preferredWidth:26;Layout.preferredHeight:26
                         implicitWidth:26;implicitHeight:26
@@ -238,13 +278,13 @@ Item {
         title:Translation.tr("Choose files for Pocket")
         fileMode:FileDialog.OpenFiles
         options:FileDialog.ReadOnly | FileDialog.DontResolveSymlinks
-        onAccepted:if(AquaPocket.permitted && AquaPocket.opened)
-            AquaPocket.addFiles(Array.from(selectedFiles,value=>String(value)),"picker")
+        onAccepted:if(AquaPocket.permitted && (root.embeddedMode || AquaPocket.opened))
+            AquaPocket.addFiles(Array.from(selectedFiles,value=>String(value)),"picker",!root.embeddedMode)
     }
     SettingsNativeDialogGuard {dialog:picker;dialogKey:"companion-pocket-picker"}
     Connections {
         target:AquaPocket
         function onPermittedChanged():void {if(!AquaPocket.permitted)picker.close()}
-        function onOpenedChanged():void {if(!AquaPocket.opened)picker.close()}
+        function onOpenedChanged():void {if(!root.embeddedMode && !AquaPocket.opened)picker.close()}
     }
 }

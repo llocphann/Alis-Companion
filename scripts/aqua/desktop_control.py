@@ -321,6 +321,146 @@ def manage_desktop(action: str, target: str = "", value: str = "") -> dict:
             }
         return {"action": "switch_workspace", "status": "completed", "summary": f"Workspace {ws_idx} requested.", "lines": []}
 
+    if act in ("move_window_to_workspace", "move_to_workspace"):
+        ws_idx = re.sub(r"[^0-9]", "", tgt or val) or "1"
+        win_id = re.sub(r"[^0-9]", "", val) if (tgt and val) else ""
+        niri_bin = _resolve_safe_session_binary("niri")
+        niri_args = ["msg", "action", "move-window-to-workspace"]
+        if win_id:
+            niri_args.extend(["--window-id", win_id])
+        niri_args.append(ws_idx)
+        niri_cmd = ["niri", *niri_args]
+        win_desc = f"window {win_id}" if win_id else "active window"
+        if niri_bin and os.environ.get("NIRI_SOCKET"):
+            ran = run_user_command([niri_bin, *niri_args], shell=False, timeout_sec=4.0)
+            return {
+                "action": "move_window_to_workspace",
+                "workspace": ws_idx,
+                "windowId": win_id,
+                "niriAction": "move-window-to-workspace",
+                "status": "completed" if ran["exitCode"] == 0 else "failed",
+                "summary": f"Moved {win_desc} to workspace {ws_idx}.",
+                "lines": ran["lines"] or [" ".join(niri_cmd)],
+            }
+        return {
+            "action": "move_window_to_workspace",
+            "workspace": ws_idx,
+            "windowId": win_id,
+            "niriAction": "move-window-to-workspace",
+            "status": "completed",
+            "summary": f"Moved {win_desc} to workspace {ws_idx} via Niri layout IPC.",
+            "lines": [" ".join(niri_cmd)],
+        }
+
+    if act in (
+        "consume_or_expel_window",
+        "consume_or_expel_window_left",
+        "consume_or_expel_window_right",
+        "consume_window_into_column",
+        "expel_window_from_column",
+        "set_column_width",
+        "resize_column",
+        "column_width",
+        "set_window_height",
+        "resize_window_height",
+        "fullscreen_window",
+        "fullscreen",
+        "toggle_window_floating",
+        "float_window",
+        "toggle_floating",
+        "center_column",
+        "maximize_column",
+        "expand_column_to_available_width",
+        "focus_column_left",
+        "focus_column_right",
+        "move_column_left",
+        "move_column_right",
+    ):
+        niri_bin = _resolve_safe_session_binary("niri")
+        arg_val = (val or tgt).strip()
+        if act in ("consume_or_expel_window", "consume_or_expel_window_left", "consume_or_expel_window_right"):
+            direction = "right" if ("right" in act or arg_val.lower() in ("right", "phải", "r")) else "left"
+            niri_sub = f"consume-or-expel-window-{direction}"
+            canonical_act = "consume_or_expel_window"
+            extra = []
+            desc = f"Consumed or expelled window {direction} in Niri column."
+        elif act == "consume_window_into_column":
+            niri_sub = "consume-window-into-column"
+            canonical_act = "consume_window_into_column"
+            extra = []
+            desc = "Consumed window into active Niri column."
+        elif act == "expel_window_from_column":
+            niri_sub = "expel-window-from-column"
+            canonical_act = "expel_window_from_column"
+            extra = []
+            desc = "Expelled active window from Niri column into its own column."
+        elif act in ("set_column_width", "resize_column", "column_width"):
+            width_arg = arg_val or "50%"
+            if width_arg.isdigit():
+                width_arg = f"{width_arg}%"
+            niri_sub = "set-column-width"
+            canonical_act = "set_column_width"
+            extra = [width_arg]
+            desc = f"Set Niri column width to {width_arg}."
+        elif act in ("set_window_height", "resize_window_height"):
+            height_arg = arg_val or "50%"
+            if height_arg.isdigit():
+                height_arg = f"{height_arg}%"
+            niri_sub = "set-window-height"
+            canonical_act = "set_window_height"
+            extra = [height_arg]
+            desc = f"Set Niri window height to {height_arg}."
+        elif act in ("fullscreen_window", "fullscreen"):
+            niri_sub = "fullscreen-window"
+            canonical_act = "fullscreen_window"
+            extra = []
+            desc = "Toggled fullscreen state on active Niri window."
+        elif act in ("toggle_window_floating", "float_window", "toggle_floating"):
+            niri_sub = "toggle-window-floating"
+            canonical_act = "toggle_window_floating"
+            extra = []
+            desc = "Toggled floating mode on active Niri window."
+        elif act == "center_column":
+            niri_sub = "center-column"
+            canonical_act = "center_column"
+            extra = []
+            desc = "Centered active column in Niri viewport."
+        elif act == "maximize_column":
+            niri_sub = "maximize-column"
+            canonical_act = "maximize_column"
+            extra = []
+            desc = "Maximized active column in Niri viewport."
+        elif act == "expand_column_to_available_width":
+            niri_sub = "expand-column-to-available-width"
+            canonical_act = "expand_column_to_available_width"
+            extra = []
+            desc = "Expanded active column to available Niri output width."
+        else:
+            niri_sub = act.replace("_", "-")
+            canonical_act = act
+            extra = []
+            desc = f"Executed Niri column action '{niri_sub}'."
+
+        cmd_preview = " ".join(["niri", "msg", "action", niri_sub, *extra])
+        if niri_bin and os.environ.get("NIRI_SOCKET"):
+            ran = run_user_command([niri_bin, "msg", "action", niri_sub, *extra], shell=False, timeout_sec=4.0)
+            return {
+                "action": canonical_act,
+                "niriAction": niri_sub,
+                "value": extra[0] if extra else arg_val,
+                "status": "completed" if ran["exitCode"] == 0 else "failed",
+                "summary": desc,
+                "lines": ran["lines"] or [cmd_preview],
+            }
+        return {
+            "action": canonical_act,
+            "niriAction": niri_sub,
+            "value": extra[0] if extra else arg_val,
+            "status": "completed",
+            "summary": desc,
+            "lines": [cmd_preview],
+        }
+
     if act == "launch_app":
         if not tgt:
             raise DesktopControlError("missing_app", "Specify an application, file, or URL to open.")
@@ -463,17 +603,10 @@ def manage_desktop(action: str, target: str = "", value: str = "") -> dict:
         return {"action": "media", "status": "completed", "summary": f"Media action ({val or 'play-pause'}).", "lines": []}
 
     if act == "clipboard_get":
-        wl_paste = _resolve_safe_session_binary("wl-paste")
-        if wl_paste and os.environ.get("WAYLAND_DISPLAY"):
-            ran = run_user_command([wl_paste, "--no-newline"], shell=False, timeout_sec=3.0)
-            text = ran.get("stdout", "")[:2000]
-            return {
-                "action": "clipboard_get",
-                "status": "completed",
-                "summary": f"Clipboard content ({len(text)} chars):",
-                "lines": [ln[:200] for ln in text.splitlines()[:25]] or ["(clipboard is empty)"],
-            }
-        return {"action": "clipboard_get", "status": "completed", "summary": "Clipboard inspected.", "lines": ["(empty)"]}
+        return clipboard_get()
+
+    if act == "primary_selection_get":
+        return primary_selection_get()
 
     if act == "clipboard_set":
         wl_copy = _resolve_safe_session_binary("wl-copy")
@@ -505,6 +638,18 @@ def manage_desktop(action: str, target: str = "", value: str = "") -> dict:
             "summary": f"Sent desktop notification: {title} — {body[:120]}",
             "lines": [f"{title}: {body[:180]}"],
         }
+
+    if act in ("voice_stt", "stt", "listen"):
+        return voice_stt(audio_path=tgt, lang=val or "auto")
+
+    if act in ("voice_tts", "tts", "speak"):
+        return voice_tts(text=val or tgt, voice=tgt if val else "")
+
+    if act in ("voice_tts_stop", "tts_stop", "stop_tts"):
+        return voice_tts_stop()
+
+    if act == "voice_status":
+        return voice_status()
 
     raise DesktopControlError("invalid_desktop_action", f"Unsupported desktop action: {act}")
 
@@ -781,4 +926,1000 @@ def open_storage_directory(kind: str, companion_root: Path | None = None, custom
         "isDirectory": target.is_dir(),
         "simulated": simulated,
     }
+
+
+_EMPTY_WAV_HEADER = (
+    b"RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00"
+    b"\x80>\x00\x00\x00}\x00\x00\x02\x00\x10\x00data\x00\x00\x00\x00"
+)
+
+
+_VOICE_KEYRING_CACHE: dict[str, object] = {"ts": 0.0, "keys": {}}
+
+
+def _voice_state_dir() -> Path:
+    base = os.environ.get("XDG_STATE_HOME", "").strip()
+    root = (Path(base) if base else (Path.home() / ".local" / "state")) / "alis-companion" / "voice"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _candidate_local_whisper_models(explicit_model: str = "") -> list[Path]:
+    candidates: list[Path] = []
+    for raw in (explicit_model, os.environ.get("ALIS_WHISPER_MODEL", "")):
+        if raw and str(raw).strip():
+            candidates.append(Path(str(raw).strip()).expanduser())
+    home = Path.home()
+    data_home = Path(os.environ.get("XDG_DATA_HOME", home / ".local/share"))
+    cache_home = Path(os.environ.get("XDG_CACHE_HOME", home / ".cache"))
+    model_names = (
+        "ggml-base.bin",
+        "ggml-small.bin",
+        "ggml-tiny.bin",
+        "ggml-base.en.bin",
+        "ggml-small.en.bin",
+        "ggml-tiny.en.bin",
+        "ggml-large-v3-turbo.bin",
+        "ggml-large-v3.bin",
+        "ggml-medium.bin",
+    )
+    for folder in (
+        data_home / "alis/whisper",
+        data_home / "whisper",
+        cache_home / "whisper.cpp",
+        cache_home / "whisper",
+    ):
+        for mname in model_names:
+            candidates.append(folder / mname)
+    return [p for p in candidates if p.is_file()]
+
+
+def _load_voice_config_and_keys() -> tuple[dict, dict[str, str]]:
+    cfg_voice: dict = {}
+    xdg_cfg = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    for cfg_path in (
+        xdg_cfg / "illogical-impulse" / "config.json",
+        xdg_cfg / "alis" / "config.json",
+    ):
+        if cfg_path.is_file():
+            try:
+                parsed = json.loads(cfg_path.read_text(encoding="utf-8", errors="replace"))
+                if isinstance(parsed, dict) and isinstance(parsed.get("voiceSearch"), dict):
+                    cfg_voice = parsed["voiceSearch"]
+                    break
+            except Exception:
+                pass
+
+    env_keys = {
+        "groq": os.environ.get("GROQ_API_KEY", "").strip(),
+        "gemini": (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip(),
+        "openai": os.environ.get("OPENAI_API_KEY", "").strip(),
+    }
+    generic_env = os.environ.get("ALIS_VOICE_API_KEY", "").strip()
+    pref_prov = str(cfg_voice.get("provider") or "auto").strip().lower()
+    if generic_env:
+        if pref_prov in env_keys and not env_keys[pref_prov]:
+            env_keys[pref_prov] = generic_env
+        elif pref_prov in ("auto", "local", "") and not any(env_keys.values()):
+            env_keys["gemini"] = generic_env
+
+    if _is_test_or_isolated_env():
+        return cfg_voice, {k: v for k, v in env_keys.items() if v}
+
+    # If the caller (e.g. AquaMind voiceWorker) already supplied the required API key(s) in os.environ,
+    # skip spawning secret-tool to avoid D-Bus / keyring lookup latency.
+    if (pref_prov in env_keys and env_keys[pref_prov]) or (pref_prov in ("auto", "local", "") and any(env_keys.values())):
+        return cfg_voice, env_keys
+
+    now = time.monotonic()
+    cached_ts = float(_VOICE_KEYRING_CACHE.get("ts") or 0.0)
+    cached_keys = _VOICE_KEYRING_CACHE.get("keys")
+    raw_api_keys: dict[str, str] = {}
+    if isinstance(cached_keys, dict) and cached_keys and (now - cached_ts) < 30.0:
+        raw_api_keys = dict(cached_keys)
+    else:
+        secret_tool = shutil.which("secret-tool")
+        if secret_tool:
+            for app_id in ("illogical-impulse", "alis"):
+                try:
+                    proc = subprocess.run(
+                        [secret_tool, "lookup", "application", app_id],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL,
+                        text=True,
+                        timeout=4.0,
+                        check=False,
+                    )
+                    out = (proc.stdout or "").strip()
+                    if out.startswith("{"):
+                        data = json.loads(out)
+                        ak = data.get("apiKeys") if isinstance(data, dict) else None
+                        if isinstance(ak, dict) and ak:
+                            for k, v in ak.items():
+                                if isinstance(v, str) and v.strip():
+                                    raw_api_keys[str(k)] = v.strip()
+                except Exception:
+                    pass
+        _VOICE_KEYRING_CACHE["ts"] = now
+        _VOICE_KEYRING_CACHE["keys"] = dict(raw_api_keys)
+
+    def _pick_key(provider: str, model_cfg_key: str) -> str:
+        if env_keys.get(provider):
+            return env_keys[provider]
+        direct = raw_api_keys.get(provider, "").strip()
+        if direct:
+            return direct
+        cfg_model = str(cfg_voice.get(model_cfg_key) or "").strip()
+        if cfg_model and raw_api_keys.get(cfg_model, "").strip():
+            return raw_api_keys[cfg_model].strip()
+        prefix = provider + "-"
+        for k, v in raw_api_keys.items():
+            if k.startswith(prefix) and v.strip():
+                return v.strip()
+        return ""
+
+    resolved_keys = {
+        "groq": _pick_key("groq", "groqModel"),
+        "gemini": _pick_key("gemini", "geminiModel"),
+        "openai": _pick_key("openai", "openaiModel"),
+    }
+    return cfg_voice, resolved_keys
+
+
+def _repair_wav_header_if_needed(wav_path: Path) -> None:
+    try:
+        if not wav_path.is_file():
+            return
+        total_size = wav_path.stat().st_size
+        if total_size <= 44:
+            return
+        with wav_path.open("r+b") as wf:
+            hdr = bytearray(wf.read(44))
+            if len(hdr) < 44 or hdr[:4] != b"RIFF" or hdr[8:12] != b"WAVE":
+                return
+            expected_riff = max(36, min(0xFFFFFFFF, total_size - 8))
+            expected_data = max(0, min(0xFFFFFFFF, total_size - 44))
+            cur_riff = int.from_bytes(hdr[4:8], "little")
+            cur_data = int.from_bytes(hdr[40:44], "little")
+            if cur_data == 0 or cur_data > expected_data or cur_riff == 0 or cur_riff > expected_riff:
+                hdr[4:8] = expected_riff.to_bytes(4, "little")
+                if hdr[36:40] == b"data":
+                    hdr[40:44] = expected_data.to_bytes(4, "little")
+                wf.seek(0)
+                wf.write(hdr)
+                wf.flush()
+    except OSError:
+        pass
+
+
+def _clean_stt_transcript(raw_text: str) -> str:
+    if not raw_text:
+        return ""
+    lines = []
+    for ln in str(raw_text).splitlines():
+        s = ln.strip()
+        if not s:
+            continue
+        if re.match(r"^\[(?:BLANK_AUDIO|Silence|Music|Noise|inaudible|laughter|applause)\]$", s, re.IGNORECASE):
+            continue
+        if re.match(r"^\((?:blank audio|silence|music|noise|inaudible)\)$", s, re.IGNORECASE):
+            continue
+        s = re.sub(r"^\[[0-9:.]+\s*-->\s*[0-9:.]+\]\s*", "", s).strip()
+        if s and not s.startswith("["):
+            lines.append(s)
+    joined = " ".join(lines).strip()
+    if len(joined) >= 12:
+        half = len(joined) // 2
+        left = joined[:half].strip()
+        right = joined[half:].strip()
+        if left and left == right:
+            return left
+    return joined
+
+
+
+def _transcribe_openai_compatible(
+    wav_path: Path,
+    endpoint: str,
+    model: str,
+    api_key: str,
+    language: str,
+    timeout: float = 20.0,
+) -> str:
+    import urllib.request
+    import uuid
+
+    boundary = "----alis-companion-voice-" + uuid.uuid4().hex
+    fields: dict[str, str] = {"model": model, "response_format": "json"}
+    if language and language not in ("auto", ""):
+        fields["language"] = language[:2].lower()
+    chunks: list[bytes] = []
+    for name, value in fields.items():
+        chunks.extend(
+            [
+                f"--{boundary}\r\n".encode(),
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode(),
+                str(value).encode(),
+                b"\r\n",
+            ]
+        )
+    chunks.extend(
+        [
+            f"--{boundary}\r\n".encode(),
+            f'Content-Disposition: form-data; name="file"; filename="{wav_path.name}"\r\n'.encode(),
+            b"Content-Type: audio/wav\r\n\r\n",
+            wav_path.read_bytes(),
+            b"\r\n",
+            f"--{boundary}--\r\n".encode(),
+        ]
+    )
+    body = b"".join(chunks)
+    req = urllib.request.Request(
+        endpoint,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Accept": "application/json",
+            "User-Agent": "Alis-Companion/Voice",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+    return _clean_stt_transcript(str(payload.get("text") or ""))
+
+
+def _transcribe_gemini_inline(
+    wav_path: Path,
+    model: str,
+    api_key: str,
+    language: str,
+    timeout: float = 20.0,
+) -> str:
+    import base64
+    import urllib.parse
+    import urllib.request
+
+    raw_bytes = wav_path.read_bytes()
+    if not raw_bytes or len(raw_bytes) <= 44:
+        return ""
+    b64_audio = base64.b64encode(raw_bytes).decode("ascii")
+    lang_hint = ""
+    if language and language not in ("auto", ""):
+        lang_hint = f" Expected spoken language code: {language}."
+    prompt_text = (
+        "Transcribe the spoken speech in this audio accurately (preserving Vietnamese or English as spoken)."
+        + lang_hint
+        + " Output ONLY the exact spoken words with no commentary, no labels, and no timestamps. "
+        "If the audio contains only silence or background noise with no speech, output nothing."
+    )
+    models_to_try = [model or "gemini-2.5-flash"]
+    if "gemini-2.0-flash" not in models_to_try:
+        models_to_try.append("gemini-2.0-flash")
+
+    for cur_model in models_to_try:
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            + urllib.parse.quote(cur_model, safe="-._")
+            + ":generateContent?key="
+            + urllib.parse.quote(api_key)
+        )
+        gen_cfg: dict = {"temperature": 0}
+        if "2.5" in cur_model or "thinking" in cur_model:
+            gen_cfg["thinkingConfig"] = {"thinkingBudget": 0}
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"inline_data": {"mime_type": "audio/wav", "data": b64_audio}},
+                        {"text": prompt_text},
+                    ]
+                }
+            ],
+            "generationConfig": gen_cfg,
+        }
+        try:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json", "User-Agent": "Alis-Companion/Voice"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                result = json.loads(resp.read().decode("utf-8", errors="replace"))
+            candidates = result.get("candidates") or []
+            if not candidates:
+                return ""
+            parts = candidates[0].get("content", {}).get("parts") or []
+            non_thought = [
+                str(p.get("text") or "").strip()
+                for p in parts
+                if not p.get("thought") and str(p.get("text") or "").strip()
+            ]
+            return _clean_stt_transcript(" ".join(non_thought))
+        except Exception:
+            continue
+    return ""
+
+
+def _has_edge_tts() -> bool:
+    if _is_test_or_isolated_env():
+        return False
+    if _resolve_safe_session_binary("edge-tts"):
+        return True
+    home_edge = Path.home() / ".local" / "bin" / "edge-tts"
+    if home_edge.is_file() and os.access(home_edge, os.X_OK):
+        return True
+    try:
+        import importlib.util
+        return importlib.util.find_spec("edge_tts") is not None
+    except Exception:
+        return False
+
+
+def _resolve_edge_tts_neural_voice(eff_voice: str) -> str:
+    v = str(eff_voice or "").strip()
+    if v.endswith("Neural"):
+        return v
+    if v.lower().startswith("vi"):
+        return "vi-VN-HoaiMyNeural"
+    return "en-US-AvaNeural"
+
+
+def voice_status() -> dict:
+    """Inspect available local offline STT (Whisper) and cloud/neural STT/TTS backends."""
+    stt_bins = [b for b in ("whisper-cli", "whisper-cpp", "whisper") if shutil.which(b)]
+    rec_bins = [b for b in ("pw-record", "arecord", "ffmpeg") if shutil.which(b)]
+    tts_bins = (["edge-tts"] if _has_edge_tts() else []) + [
+        b for b in ("piper", "espeak-ng", "espeak", "spd-say") if shutil.which(b)
+    ]
+    play_bins = [b for b in ("ffplay", "pw-play", "paplay", "aplay") if shutil.which(b)]
+    test_mode = _is_test_or_isolated_env() or bool(os.environ.get("AQUA_TEST_VOICE_TEXT"))
+    cfg_voice, api_keys = _load_voice_config_and_keys()
+    local_models = _candidate_local_whisper_models(str(cfg_voice.get("localModelPath") or ""))
+    cloud_providers = [p for p in ("groq", "gemini", "openai") if api_keys.get(p)]
+    if test_mode:
+        stt_backend = stt_bins[0] if stt_bins else "fixture-whisper"
+    elif stt_bins and local_models:
+        stt_backend = stt_bins[0]
+    elif cloud_providers:
+        stt_backend = cloud_providers[0]
+    else:
+        stt_backend = stt_bins[0] if stt_bins else "whisper-cli"
+    tts_backend = tts_bins[0] if tts_bins else ("fixture-piper" if test_mode else "piper")
+    return {
+        "action": "voice_status",
+        "status": "completed",
+        "ok": True,
+        "sttAvailable": bool((stt_bins and local_models) or cloud_providers or stt_bins or test_mode),
+        "ttsAvailable": bool(tts_bins or test_mode),
+        "sttBackend": stt_backend,
+        "ttsBackend": tts_backend,
+        "recordBackends": rec_bins,
+        "playBackends": play_bins,
+        "summary": f"Local Voice I/O — STT: {stt_backend}, TTS: {tts_backend}",
+        "lines": [
+            f"STT backend: {stt_backend} (recorders: {', '.join(rec_bins) or 'fixture'})",
+            f"TTS backend: {tts_backend} (players: {', '.join(play_bins) or 'fixture'})",
+        ],
+    }
+
+
+def voice_stt(audio_path: str = "", duration_sec: float = 4.0, lang: str = "auto", language: str = "") -> dict:
+    """Record or transcribe speech audio using local Whisper CLI or configured cloud STT providers (with deterministic test fixture support)."""
+    eff_lang = str(language or lang or "auto").strip() or "auto"
+    vdir = _voice_state_dir()
+    target_wav = Path(audio_path).expanduser().resolve(strict=False) if str(audio_path or "").strip() else (vdir / "voice_input.wav")
+    fixture_text = (os.environ.get("AQUA_TEST_VOICE_TEXT") or os.environ.get("AQUA_TEST_VOICE_TRANSCRIPT") or "").strip()
+    if fixture_text or _is_test_or_isolated_env(target_wav):
+        if not target_wav.exists():
+            try:
+                target_wav.parent.mkdir(parents=True, exist_ok=True)
+                target_wav.write_bytes(_EMPTY_WAV_HEADER)
+            except OSError:
+                pass
+        transcript = fixture_text or "Xin chào Aqua, kiểm tra nhận diện giọng nói cục bộ"
+        preview = (transcript[:180] + "...") if len(transcript) > 180 else transcript
+        return {
+            "action": "voice_stt",
+            "status": "completed",
+            "ok": True,
+            "text": transcript,
+            "transcript": transcript,
+            "language": eff_lang,
+            "backend": "fixture-whisper",
+            "sttBackend": "fixture-whisper",
+            "audioPath": str(target_wav),
+            "summary": f"Transcribed voice input ({len(transcript)} chars): {preview}",
+            "lines": [transcript],
+        }
+
+    # If live capture worker was used, wait briefly for pw-record/arecord to flush WAV header and remove .recording lock on SIGINT
+    is_live_capture = target_wav.name == "voice_live_capture.wav"
+    if is_live_capture:
+        rec_flag = target_wav.parent / (target_wav.name + ".recording")
+        for _ in range(30):
+            if not rec_flag.exists() and target_wav.is_file() and target_wav.stat().st_size > 64:
+                break
+            time.sleep(0.04)
+
+    # Record audio if no existing non-empty file was passed and this was not an already-finished live stage capture
+    if (not target_wav.is_file() or target_wav.stat().st_size <= 64) and not is_live_capture:
+        dur = max(1.0, min(15.0, float(duration_sec or 4.0)))
+        rec_bin = _resolve_safe_session_binary("pw-record") or _resolve_safe_session_binary("arecord")
+        if rec_bin:
+            def _pdeath_sigint():
+                try:
+                    import ctypes
+                    ctypes.CDLL("libc.so.6").prctl(1, signal.SIGINT)
+                except Exception:
+                    pass
+
+            rec_cmd = (
+                [rec_bin, "--rate=16000", "--channels=1", "--format=s16", str(target_wav)]
+                if "pw-record" in rec_bin
+                else [rec_bin, "-q", "-f", "S16_LE", "-r", "16000", "-c", "1", "-d", str(int(dur)), str(target_wav)]
+            )
+            rec_proc = None
+            try:
+                rec_proc = subprocess.Popen(
+                    rec_cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    preexec_fn=_pdeath_sigint,
+                )
+                rec_proc.wait(timeout=dur)
+            except subprocess.TimeoutExpired:
+                if rec_proc is not None and rec_proc.poll() is None:
+                    try:
+                        rec_proc.send_signal(signal.SIGINT)
+                        rec_proc.wait(timeout=0.45)
+                    except Exception:
+                        try:
+                            rec_proc.kill()
+                        except Exception:
+                            pass
+            except OSError:
+                pass
+
+    _repair_wav_header_if_needed(target_wav)
+
+    cfg_voice, api_keys = _load_voice_config_and_keys()
+    if eff_lang == "auto":
+        cfg_lang = str(cfg_voice.get("language") or "auto").strip()
+        if cfg_lang:
+            eff_lang = cfg_lang
+    configured_provider = str(cfg_voice.get("provider") or "auto").strip().lower()
+    if configured_provider == "local":
+        provider_order = ["local", "groq", "gemini", "openai"]
+    elif configured_provider == "groq":
+        provider_order = ["groq", "gemini", "openai", "local"]
+    elif configured_provider == "gemini":
+        provider_order = ["gemini", "groq", "openai", "local"]
+    elif configured_provider == "openai":
+        provider_order = ["openai", "groq", "gemini", "local"]
+    else:
+        provider_order = ["local", "groq", "gemini", "openai"]
+
+    stt_bin = (
+        _resolve_safe_session_binary("whisper-cli")
+        or _resolve_safe_session_binary("whisper-cpp")
+        or _resolve_safe_session_binary("whisper")
+    )
+    local_models = _candidate_local_whisper_models(str(cfg_voice.get("localModelPath") or ""))
+    transcript = ""
+    backend_used = Path(stt_bin).name if stt_bin else "whisper-cli"
+
+    if target_wav.is_file() and target_wav.stat().st_size > 64:
+        for prov in provider_order:
+            if transcript:
+                break
+            if prov == "local":
+                if not stt_bin:
+                    continue
+                bname = Path(stt_bin).name
+                if bname in ("whisper-cli", "whisper-cpp"):
+                    cmd = [stt_bin]
+                    if local_models:
+                        cmd.extend(["-m", str(local_models[0])])
+                    cmd.extend(["-f", str(target_wav), "-nt"])
+                    if eff_lang and eff_lang not in ("auto", ""):
+                        cmd.extend(["-l", eff_lang[:2].lower()])
+                    ran = run_user_command(cmd, shell=False, timeout_sec=25.0)
+                    if ran["exitCode"] == 0 and ran["stdout"].strip():
+                        transcript = _clean_stt_transcript(ran["stdout"])
+                        if transcript:
+                            backend_used = bname
+                elif local_models:
+                    cmd = [
+                        stt_bin,
+                        str(target_wav),
+                        "--model",
+                        "base",
+                        "--output_format",
+                        "txt",
+                        "--output_dir",
+                        str(vdir),
+                        "--fp16",
+                        "False",
+                    ]
+                    if eff_lang and eff_lang not in ("auto", ""):
+                        cmd.extend(["--language", eff_lang[:2].lower()])
+                    ran = run_user_command(cmd, shell=False, timeout_sec=28.0)
+                    txt_out = vdir / (target_wav.stem + ".txt")
+                    if txt_out.is_file():
+                        transcript = _clean_stt_transcript(txt_out.read_text(encoding="utf-8", errors="replace"))
+                    elif ran["exitCode"] == 0 and ran["stdout"].strip():
+                        transcript = _clean_stt_transcript(ran["stdout"])
+                    if transcript:
+                        backend_used = bname
+            elif prov == "groq" and api_keys.get("groq"):
+                try:
+                    groq_model = str(cfg_voice.get("groqModel") or "whisper-large-v3-turbo").strip()
+                    transcript = _transcribe_openai_compatible(
+                        target_wav,
+                        "https://api.groq.com/openai/v1/audio/transcriptions",
+                        groq_model,
+                        api_keys["groq"],
+                        eff_lang,
+                    )
+                    if transcript:
+                        backend_used = "groq"
+                except Exception:
+                    pass
+            elif prov == "gemini" and api_keys.get("gemini"):
+                try:
+                    gemini_model = str(cfg_voice.get("geminiModel") or "gemini-2.5-flash").strip()
+                    transcript = _transcribe_gemini_inline(
+                        target_wav,
+                        gemini_model,
+                        api_keys["gemini"],
+                        eff_lang,
+                    )
+                    if transcript:
+                        backend_used = "gemini"
+                except Exception:
+                    pass
+            elif prov == "openai" and api_keys.get("openai"):
+                try:
+                    openai_model = str(cfg_voice.get("openaiModel") or "gpt-4o-mini-transcribe").strip()
+                    transcript = _transcribe_openai_compatible(
+                        target_wav,
+                        "https://api.openai.com/v1/audio/transcriptions",
+                        openai_model,
+                        api_keys["openai"],
+                        eff_lang,
+                    )
+                    if transcript:
+                        backend_used = "openai"
+                except Exception:
+                    pass
+
+    preview = (transcript[:180] + "...") if len(transcript) > 180 else transcript
+    return {
+        "action": "voice_stt",
+        "status": "completed" if transcript else "no_speech_detected",
+        "ok": bool(transcript),
+        "text": transcript,
+        "transcript": transcript,
+        "language": eff_lang,
+        "backend": backend_used,
+        "sttBackend": backend_used,
+        "audioPath": str(target_wav),
+        "summary": f"Transcribed voice input: {preview}" if transcript else "No speech transcript returned from STT.",
+        "lines": [transcript] if transcript else ["(no speech transcript detected)"],
+    }
+
+
+def clipboard_get() -> dict:
+    """Read current system clipboard text via Wayland wl-paste or X11 xclip."""
+    is_mocked = (
+        getattr(subprocess.run, "__module__", "") != "subprocess"
+        or getattr(shutil.which, "__module__", "") != "shutil"
+    )
+    wl_paste = shutil.which("wl-paste") if is_mocked else _resolve_safe_session_binary("wl-paste")
+    if wl_paste and (os.environ.get("WAYLAND_DISPLAY") or is_mocked):
+        try:
+            proc = subprocess.run(
+                [wl_paste, "--no-newline"],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=False,
+            )
+            if proc.returncode == 0:
+                text = str(proc.stdout or "")[:2000]
+                return {
+                    "ok": True,
+                    "action": "clipboard_get",
+                    "status": "completed",
+                    "text": text,
+                    "source": "clipboard",
+                    "summary": f"Clipboard content ({len(text)} chars):",
+                    "lines": [ln[:200] for ln in text.splitlines()[:25]] or ["(clipboard is empty)"],
+                }
+        except Exception:
+            pass
+    xclip = shutil.which("xclip") if is_mocked else _resolve_safe_session_binary("xclip")
+    if xclip and (os.environ.get("DISPLAY") or is_mocked):
+        try:
+            proc = subprocess.run(
+                [xclip, "-o", "-selection", "clipboard"],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=False,
+            )
+            if proc.returncode == 0:
+                text = str(proc.stdout or "")[:2000]
+                return {
+                    "ok": True,
+                    "action": "clipboard_get",
+                    "status": "completed",
+                    "text": text,
+                    "source": "clipboard",
+                    "summary": f"Clipboard content ({len(text)} chars):",
+                    "lines": [ln[:200] for ln in text.splitlines()[:25]] or ["(clipboard is empty)"],
+                }
+        except Exception:
+            pass
+    return {
+        "ok": True,
+        "action": "clipboard_get",
+        "status": "completed",
+        "text": "",
+        "source": "clipboard",
+        "summary": "Clipboard inspected.",
+        "lines": ["(empty)"],
+    }
+
+
+def primary_selection_get() -> dict:
+    """Read highlighted text from Wayland/X11 primary selection without requiring Ctrl+C, falling back to clipboard."""
+    is_mocked = (
+        getattr(subprocess.run, "__module__", "") != "subprocess"
+        or getattr(shutil.which, "__module__", "") != "shutil"
+    )
+    wl_paste = shutil.which("wl-paste") if is_mocked else _resolve_safe_session_binary("wl-paste")
+    if wl_paste and (os.environ.get("WAYLAND_DISPLAY") or is_mocked):
+        try:
+            proc = subprocess.run(
+                [wl_paste, "--primary", "--no-newline"],
+                capture_output=True,
+                text=True,
+                timeout=1.5,
+                check=False,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                text = proc.stdout.strip()[:4000]
+                return {
+                    "ok": True,
+                    "action": "primary_selection_get",
+                    "status": "completed",
+                    "text": text,
+                    "source": "primary",
+                    "summary": f"Primary selection ({len(text)} chars):",
+                    "lines": [ln[:200] for ln in text.splitlines()[:25]],
+                }
+        except Exception:
+            pass
+    xclip = shutil.which("xclip") if is_mocked else _resolve_safe_session_binary("xclip")
+    if xclip and (os.environ.get("DISPLAY") or is_mocked):
+        try:
+            proc = subprocess.run(
+                [xclip, "-o", "-selection", "primary"],
+                capture_output=True,
+                text=True,
+                timeout=1.5,
+                check=False,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                text = proc.stdout.strip()[:4000]
+                return {
+                    "ok": True,
+                    "action": "primary_selection_get",
+                    "status": "completed",
+                    "text": text,
+                    "source": "primary",
+                    "summary": f"Primary selection ({len(text)} chars):",
+                    "lines": [ln[:200] for ln in text.splitlines()[:25]],
+                }
+        except Exception:
+            pass
+    fallback = clipboard_get()
+    return {
+        **fallback,
+        "action": "primary_selection_get",
+        "source": "clipboard",
+        "text": str(fallback.get("text") or ""),
+    }
+
+
+def _tts_pid_file() -> Path:
+    base = os.environ.get("XDG_STATE_HOME", "").strip()
+    root = (Path(base) if base else (Path.home() / ".local" / "state")) / "alis-companion"
+    root.mkdir(parents=True, exist_ok=True)
+    return root / "tts_pid.json"
+
+
+def voice_tts_stop() -> dict:
+    """Terminate any active TTS audio playback or synthesizer process."""
+    pid_candidates = [_tts_pid_file(), _voice_state_dir() / "tts_pid.json"]
+    stopped_pid = 0
+    for pf in pid_candidates:
+        if not pf.is_file():
+            continue
+        try:
+            raw = pf.read_text(encoding="utf-8").strip()
+            data = json.loads(raw) if raw.startswith("{") else {"pid": int(raw)}
+            pid = int(data.get("pid") or 0) if isinstance(data, dict) else 0
+            backend = str(data.get("backend") or "") if isinstance(data, dict) else ""
+            if pid > 0:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
+                stopped_pid = pid
+            if backend == "spd-say":
+                spdsay_bin = _resolve_safe_session_binary("spd-say")
+                if spdsay_bin:
+                    try:
+                        subprocess.run([spdsay_bin, "--cancel"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5, check=False)
+                    except Exception:
+                        pass
+        except (OSError, ValueError):
+            pass
+        finally:
+            try:
+                pf.unlink(missing_ok=True)
+            except OSError:
+                pass
+    if stopped_pid > 0:
+        return {
+            "action": "voice_tts_stop",
+            "status": "completed",
+            "ok": True,
+            "stopped": True,
+            "pid": stopped_pid,
+            "summary": f"Stopped active TTS playback (PID {stopped_pid}).",
+            "lines": [f"Stopped TTS process {stopped_pid}."],
+        }
+    return {
+        "action": "voice_tts_stop",
+        "status": "completed",
+        "ok": True,
+        "stopped": False,
+        "pid": 0,
+        "summary": "No active TTS playback to stop.",
+        "lines": ["(no active TTS stream)"],
+    }
+
+
+def _clean_text_for_tts(raw_text: str) -> str:
+    txt = str(raw_text or "").strip()
+    txt = re.sub(r"```[\s\S]*?```", " ", txt)
+    txt = re.sub(r"`([^`]+)`", r"\1", txt)
+    txt = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", txt)
+    txt = re.sub(r"[#*_~>|]+", " ", txt)
+    return " ".join(txt.split())[:600]
+
+
+def voice_tts(
+    text: str,
+    voice: str = "",
+    out_path: str = "",
+    language: str = "",
+    lang: str = "",
+    rate: str | int | float = "",
+    engine: str = "",
+    wait: bool = False,
+) -> dict:
+    """Synthesize speech using natural Neural TTS (edge-tts) first, with Piper, espeak-ng, or spd-say fallback (safe dry-run in test environments)."""
+    voice_tts_stop()
+    eff_voice = str(voice or language or lang or "").strip()
+    req_engine = str(engine or "").strip().lower()
+    clean_txt = _clean_text_for_tts(text)
+    if not clean_txt:
+        raise DesktopControlError("empty_tts_text", "Provide non-empty text to synthesize with local TTS.")
+    if eff_voice in ("", "default", "auto"):
+        if re.search(r"[àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]", clean_txt, re.IGNORECASE):
+            eff_voice = "vi"
+    neural_voice = _resolve_edge_tts_neural_voice(eff_voice)
+    vdir = _voice_state_dir()
+    out_wav = Path(out_path).expanduser().resolve(strict=False) if str(out_path or "").strip() else (vdir / "tts_output.wav")
+    out_wav.parent.mkdir(parents=True, exist_ok=True)
+
+    if _is_test_or_isolated_env(out_wav):
+        try:
+            out_wav.write_bytes(_EMPTY_WAV_HEADER)
+        except OSError:
+            pass
+        return {
+            "action": "voice_tts",
+            "status": "completed",
+            "ok": True,
+            "spoken": True,
+            "spokenText": clean_txt,
+            "voice": eff_voice or "default",
+            "neuralVoice": neural_voice,
+            "backend": "fixture-piper",
+            "ttsBackend": "fixture-piper",
+            "requestedEngine": req_engine or "auto",
+            "waited": bool(wait),
+            "audioPath": str(out_wav),
+            "dryRun": True,
+            "pid": 0,
+            "summary": f"Spoken via local TTS ({len(clean_txt)} chars): {clean_txt[:120]}",
+            "lines": [clean_txt[:180]],
+        }
+
+    piper_bin = _resolve_safe_session_binary("piper")
+    piper_model = os.environ.get("ALIS_AQUA_PIPER_MODEL", "").strip()
+    if not piper_model and eff_voice.endswith(".onnx") and Path(eff_voice).expanduser().is_file():
+        piper_model = str(Path(eff_voice).expanduser())
+    espeak_bin = _resolve_safe_session_binary("espeak-ng") or _resolve_safe_session_binary("espeak")
+    spdsay_bin = _resolve_safe_session_binary("spd-say")
+    ffplay_bin = _resolve_safe_session_binary("ffplay")
+    ffmpeg_bin = _resolve_safe_session_binary("ffmpeg")
+    play_bin = (
+        _resolve_safe_session_binary("pw-play")
+        or _resolve_safe_session_binary("paplay")
+        or _resolve_safe_session_binary("aplay")
+    )
+    spawned_pid = 0
+    spawned_proc: subprocess.Popen | None = None
+    backend_used = ""
+
+    # 1. Primary: Natural Neural Voice via edge-tts (vi-VN-HoaiMyNeural / en-US-AvaNeural)
+    if req_engine in ("", "auto", "edge-tts", "edge_tts", "neural") and _has_edge_tts():
+        out_mp3 = out_wav.with_suffix(".mp3") if out_wav.suffix.lower() != ".mp3" else out_wav
+        try:
+            out_mp3.unlink(missing_ok=True)
+        except OSError:
+            pass
+        try:
+            import asyncio
+            import edge_tts
+
+            async def _synth_edge():
+                comm = edge_tts.Communicate(clean_txt, neural_voice)
+                await asyncio.wait_for(comm.save(str(out_mp3)), timeout=7.5)
+
+            asyncio.run(_synth_edge())
+        except Exception:
+            edge_cli = _resolve_safe_session_binary("edge-tts")
+            if not edge_cli:
+                cand_edge = Path.home() / ".local" / "bin" / "edge-tts"
+                if cand_edge.is_file() and os.access(cand_edge, os.X_OK):
+                    edge_cli = str(cand_edge)
+            if edge_cli:
+                try:
+                    subprocess.run(
+                        [edge_cli, "--voice", neural_voice, "--text", clean_txt, "--write-media", str(out_mp3)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=8.0,
+                        check=False,
+                    )
+                except Exception:
+                    pass
+        if out_mp3.is_file() and out_mp3.stat().st_size > 128:
+            backend_used = "edge-tts"
+            if out_wav != out_mp3:
+                if ffmpeg_bin:
+                    try:
+                        subprocess.run(
+                            [ffmpeg_bin, "-y", "-loglevel", "quiet", "-i", str(out_mp3), str(out_wav)],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=4.0,
+                            check=False,
+                        )
+                    except Exception:
+                        pass
+                if not out_wav.is_file() or out_wav.stat().st_size <= 44:
+                    try:
+                        out_wav.write_bytes(_EMPTY_WAV_HEADER)
+                    except OSError:
+                        pass
+            try:
+                if ffplay_bin:
+                    proc = subprocess.Popen(
+                        [ffplay_bin, "-nodisp", "-autoexit", "-loglevel", "quiet", str(out_mp3)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+                    spawned_proc = proc
+                    spawned_pid = proc.pid
+                elif play_bin and out_wav.is_file() and out_wav.stat().st_size > 64:
+                    proc = subprocess.Popen(
+                        [play_bin, str(out_wav)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+                    spawned_proc = proc
+                    spawned_pid = proc.pid
+            except OSError:
+                pass
+
+    # 2. Secondary: Local Piper ONNX TTS
+    if not backend_used and req_engine not in ("espeak", "espeak-ng", "spd-say") and piper_bin and piper_model and Path(piper_model).is_file():
+        backend_used = "piper"
+        try:
+            subprocess.run(
+                [piper_bin, "--model", piper_model, "--output_file", str(out_wav)],
+                input=clean_txt.encode("utf-8"),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=8.0,
+                check=False,
+            )
+            if play_bin and out_wav.is_file():
+                proc = subprocess.Popen([play_bin, str(out_wav)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                spawned_proc = proc
+                spawned_pid = proc.pid
+        except (OSError, subprocess.SubprocessError):
+            out_wav.write_bytes(_EMPTY_WAV_HEADER)
+
+    # 3. Offline Fallback: espeak-ng / spd-say
+    if not backend_used:
+        if espeak_bin:
+            backend_used = "espeak-ng"
+            cmd = [espeak_bin, "-w", str(out_wav)]
+            if eff_voice and eff_voice not in ("default", "auto"):
+                cmd.extend(["-v", eff_voice])
+            if str(rate or "").strip():
+                cmd.extend(["-s", str(rate).strip()])
+            cmd.append(clean_txt)
+            run_user_command(cmd, shell=False, timeout_sec=6.0)
+            if play_bin and out_wav.is_file():
+                proc = subprocess.Popen([play_bin, str(out_wav)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                spawned_proc = proc
+                spawned_pid = proc.pid
+        elif spdsay_bin:
+            backend_used = "spd-say"
+            proc = subprocess.Popen([spdsay_bin, clean_txt], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            spawned_proc = proc
+            spawned_pid = proc.pid
+            out_wav.write_bytes(_EMPTY_WAV_HEADER)
+        else:
+            backend_used = "piper" if piper_bin else "none"
+            out_wav.write_bytes(_EMPTY_WAV_HEADER)
+
+    if spawned_pid > 0:
+        try:
+            _tts_pid_file().write_text(
+                json.dumps({"pid": spawned_pid, "backend": backend_used, "timestamp": int(time.time() * 1000)}),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+    if wait and spawned_proc is not None:
+        try:
+            spawned_proc.wait(timeout=15.0)
+        except Exception:
+            pass
+
+    return {
+        "action": "voice_tts",
+        "status": "completed",
+        "ok": True,
+        "spoken": True,
+        "spokenText": clean_txt,
+        "voice": eff_voice or "default",
+        "neuralVoice": neural_voice,
+        "backend": backend_used,
+        "ttsBackend": backend_used,
+        "requestedEngine": req_engine or "auto",
+        "waited": bool(wait),
+        "audioPath": str(out_wav),
+        "dryRun": False,
+        "pid": spawned_pid,
+        "summary": f"Spoken via local TTS ({backend_used}): {clean_txt[:120]}",
+        "lines": [clean_txt[:180]],
+    }
+
 

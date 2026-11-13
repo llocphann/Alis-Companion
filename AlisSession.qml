@@ -94,9 +94,10 @@ Item {
         if(!contextState.enabled)contextConnected=false
         const focusCategory=contextState.director?.focus ?? "none"
         const hasAgent=Object.keys(contextState.director?.sessions ?? ({})).length>0
-        if(companionSessionVisible && (focusCategory==="editor" || focusCategory==="terminal" || hasAgent || previewLaptopActive))
+        if(companionSessionVisible && !local?.modalOpen && companionBridge.visibility!=="present"
+                && (focusCategory==="editor" || focusCategory==="terminal" || hasAgent || previewLaptopActive))
             companionBridge.show()
-        if(contextConnected && contextState.enabled && focusCategory==="other" && !hasAgent && !previewLaptopActive) {
+        if(contextConnected && contextState.enabled && !local?.modalOpen && focusCategory==="other" && !hasAgent && !previewLaptopActive) {
             if(!readingFocusActive && !readingFocusSettle.running)readingFocusSettle.restart()
         } else {
             readingFocusSettle.stop()
@@ -154,7 +155,7 @@ Item {
     // Re-evaluate the Director's existing focus-settle deadline; this is not a
     // Focus session clock and never loads a model or starts a second actor.
     Timer {id:contextSettle;interval:750;onTriggered:root.evaluateContext()}
-    Timer {id:readingFocusSettle;interval:450;onTriggered:{root.readingFocusActive=true;if(root.companionSessionVisible)companionBridge.show()}}
+    Timer {id:readingFocusSettle;interval:450;onTriggered:{root.readingFocusActive=true;if(root.companionSessionVisible && companionBridge.visibility!=="present")companionBridge.show()}}
     Timer {
         id:quietIdleSettle
         interval:8000

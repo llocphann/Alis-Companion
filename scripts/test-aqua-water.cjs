@@ -92,7 +92,7 @@ assert.equal(dockHeld(true,true,{key:'top'},{key:'dock'},true),true);
 assert.equal(dockHeld(true,true,{key:'top'},{key:'dock'},false),false);
 assert.equal(dockHeld(true,false,{key:'dock'}),false);
 assert.equal(dockHeld(false,true,{key:'dock'}),false);
-const permission=perimeter.match(/readonly property bool companionPermission: ([\s\S]*?)\n\s*readonly property bool companionHostActive:/)[1];
+const permission=perimeter.match(/readonly property bool companionPermission: ([\s\S]*?)\n\s*readonly property (?:var companionScene|bool companionHostActive):/)[1];
 function fieldPermission(count,capacity=40){return vm.runInNewContext(permission,{
     AquaHostPolicy:{hostActive:()=>true},session:{},root:{companionOccluded:false},companionBridge:{},host:{},
     liquid:{records:Array(count)},field:{capacity}});}

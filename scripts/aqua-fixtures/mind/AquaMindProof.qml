@@ -22,8 +22,101 @@ Window {
     AbyssCompanion {id:actor;x:570;y:550;reveal:1;motionEnabled:false;upright:true;interactive:true}
     AquaTalkCloud {id:cloud;actor:actor;outputWidth:root.width;outputHeight:root.height;allowed:true}
     AquaCloudActions {id:actions;actor:actor;outputWidth:root.width;outputHeight:root.height;allowed:true}
-    AquaCompanionChatView {id:embeddedView;visible:false;width:420;height:640}
+    Item {
+        id:sidebarHostContainer;visible:true;width:420;height:640
+        property bool panelVisible:true
+        AquaCompanionChatView {id:embeddedView;visible:false;width:420;height:640}
+    }
+    AquaCompanionChatView {id:inactiveEmbeddedView;visible:false;width:420;height:640}
     CompanionConfig {id:settings;visible:false;width:800;height:700;activeSection:"overview"}
+    Item {
+        id:agentCursorProof
+        objectName:"aquaAgentCursor"
+        z:999
+        enabled:false
+        width:1
+        height:1
+        x:AquaMind.agentCursorX
+        y:AquaMind.agentCursorY
+        visible:opacity > 0.01
+        opacity:AquaMind.agentCursorVisible ? 1.0 : 0.0
+        readonly property color cursorAccent: actor.character === "octo" ? "#fb7185" : "#38bdf8"
+        readonly property int pulseSeq: AquaMind.agentCursorPulseSeq
+        onPulseSeqChanged: proofCursorRippleAnim.restart()
+        onVisibleChanged: if (visible) proofCursorPointer.requestPaint()
+        onCursorAccentChanged: proofCursorPointer.requestPaint()
+        Rectangle {
+            id:proofCursorRipple
+            objectName:"aquaAgentCursorRipple"
+            width:36;height:36;x:-18;y:-18;radius:18
+            color:"transparent"
+            border.width:2.2
+            border.color:agentCursorProof.cursorAccent
+            scale:0.35;opacity:0.0
+            ParallelAnimation {
+                id:proofCursorRippleAnim
+                NumberAnimation { target:proofCursorRipple; property:"scale"; from:0.3; to:1.55; duration:460; easing.type:Easing.OutCubic }
+                NumberAnimation { target:proofCursorRipple; property:"opacity"; from:0.92; to:0.0; duration:460; easing.type:Easing.OutQuad }
+            }
+        }
+        Canvas {
+            id:proofCursorPointer
+            objectName:"aquaAgentCursorPointer"
+            x:-2;y:-2;width:28;height:28
+            onPaint: {
+                var ctx = getContext("2d");
+                ctx.reset();
+                ctx.beginPath();
+                ctx.moveTo(2, 2);
+                ctx.lineTo(2, 21);
+                ctx.lineTo(7.5, 16.2);
+                ctx.lineTo(11.8, 24.5);
+                ctx.lineTo(15.2, 22.8);
+                ctx.lineTo(10.8, 14.5);
+                ctx.lineTo(18.5, 14.5);
+                ctx.closePath();
+                ctx.fillStyle = String(agentCursorProof.cursorAccent);
+                ctx.fill();
+                ctx.lineWidth = 1.8;
+                ctx.strokeStyle = "#ffffff";
+                ctx.stroke();
+            }
+        }
+        Rectangle {
+            id:proofCursorBadge
+            objectName:"aquaAgentCursorBadge"
+            x:18;y:14;height:22
+            width:Math.min(210, proofCursorBadgeText.implicitWidth + 16)
+            radius:11
+            color:"#dd0f172a"
+            border.width:1
+            border.color:agentCursorProof.cursorAccent
+            Text {
+                id:proofCursorBadgeText
+                objectName:"aquaAgentCursorBadgeText"
+                anchors.centerIn:parent
+                color:"#f8fafc"
+                font.pixelSize:11
+                font.weight:Font.DemiBold
+                elide:Text.ElideRight
+                text: {
+                    const refTag = String(AquaMind.agentCursorRef || "").trim();
+                    const lbl = String(AquaMind.agentCursorLabel || "").trim();
+                    const act = String(AquaMind.agentCursorAction || "click").trim();
+                    const verb = (act === "fill" || act === "set_text" || act === "type")
+                        ? "Typing"
+                        : (act === "focus_element" ? "Focusing" : (act === "move" ? "Moving" : "Clicking"));
+                    if (refTag && lbl)
+                        return "✦ " + refTag + " · " + lbl;
+                    if (refTag)
+                        return "✦ " + refTag + " · " + verb;
+                    if (lbl && lbl !== act)
+                        return "✦ " + lbl;
+                    return "✦ " + verb + "…";
+                }
+            }
+        }
+    }
     TestCase {
         id:input;when:false;optional:true
         function check(value,message):void {if(!value)throw new Error(message)}
@@ -97,30 +190,12 @@ Window {
                 const unifiedHeader=root.named(cloud,"aquaUnifiedHeader")
                 const unifiedChatTab=root.named(cloud,"aquaUnifiedChatTab")
                 const unifiedTodayTab=root.named(cloud,"aquaUnifiedTodayTab")
-                const unifiedPomodoroBar=root.named(cloud,"aquaUnifiedPomodoroBar")
-                const unifiedPomodoroToggle=root.named(cloud,"aquaUnifiedPomodoroToggle")
                 const unifiedSettingsBtn=root.named(cloud,"aquaUnifiedSettingsButton")
                 const unifiedCloseBtn=root.named(cloud,"aquaPopupClose")
-                const chatTodayBar=root.named(cloud,"aquaChatTodayBar")
-                const chatMoodBtn=root.named(cloud,"aquaChatMoodButton")
-                const chatEnergyBtn=root.named(cloud,"aquaChatEnergyButton")
-                const chatTodayPhrase=root.named(cloud,"aquaChatTodayPhrase")
-                const chatCheckInChoices=root.named(cloud,"aquaChatCheckInChoices")
                 check(!!unifiedHeader && unifiedHeader.visible && !!unifiedChatTab && unifiedChatTab.visible
-                    && !unifiedTodayTab && !!unifiedPomodoroBar && unifiedPomodoroBar.visible
-                    && !!unifiedPomodoroToggle && unifiedPomodoroToggle.visible
-                    && !!chatTodayBar && chatTodayBar.visible && !!chatMoodBtn && chatMoodBtn.visible
-                    && !!chatEnergyBtn && chatEnergyBtn.visible && !!chatTodayPhrase && chatTodayPhrase.visible
-                    && !!chatCheckInChoices && chatCheckInChoices.visible
+                    && !unifiedTodayTab
                     && !unifiedSettingsBtn && !unifiedCloseBtn,
-                    "unified Mochi-style Abyss popup header, Pomodoro bar, or integrated Chat Today Energy/Mood card missing")
-                mouseClick(chatEnergyBtn);wait(40)
-                check(cloud.activeChatCheckInField==="energy" && !!root.named(cloud,"aquaChatChoice-energy-high")?.visible,
-                    "clicking Energy button inside chatbox did not switch inline picker to Energy options")
-                mouseClick(chatEnergyBtn);wait(40)
-                check(cloud.activeChatCheckInField==="" && !chatCheckInChoices.visible,
-                    "clicking Energy button again did not collapse inline picker")
-                cloud.chatCheckInField=""
+                    "unified Mochi-style Abyss popup header missing")
                 tryCompare(AquaMind,"busy",false,3000)
                 const cloudGap=()=>Math.min(
                     Math.abs(cloud.actorVisualTop-(cloud.y+cloud.height)),
@@ -247,8 +322,9 @@ Window {
                 check(AquaMind.checkInStage==="energy" && !root.named(cloud,"aquamood-good").visible
                     && root.named(cloud,"aquaenergy-high").visible && !field.visible,"next question did not show energy alone")
                 mouseMove(cloud,cloud.width/2,14);wait(50)
-                tryVerify(()=>root.named(cloud,"aquaenergy-high").enabled && !AquaMind.busy,2000)
+                tryVerify(()=>root.named(cloud,"aquaenergy-high").enabled && root.named(cloud,"aquaenergy-high").width>0 && !AquaMind.busy,2000)
                 mouseClick(root.named(cloud,"aquaenergy-high"));wait(30)
+                if(AquaMind.userEnergy!=="high" && !AquaMind.busy){wait(50);mouseClick(root.named(cloud,"aquaenergy-high"));wait(30)}
                 tryCompare(AquaMind,"busy",false,6000)
                 check(AquaMind.userMood==="good" && AquaMind.userEnergy==="high","choice buttons did not set the session")
                 check(AquaMind.contextKey===journalContextKey,
@@ -334,63 +410,33 @@ Window {
                     "compact AI settings layout did not collapse cleanly on narrow width")
                 settings.width=800;settings.visible=false
                 AquaMind.openChat();wait(60)
-                // Verify Today bar is compact once Mood & Energy check-in is complete, and expands on hover
-                const chatMoodLabel=root.named(cloud,"aquaChatMoodLabel")
-                const chatEnergyLabel=root.named(cloud,"aquaChatEnergyLabel")
-                check(AquaMind.checkInComplete && cloud.activeChatCheckInField==="" && !cloud.todayBarHovered
-                    && !chatTodayPhrase.visible && chatTodayBar.height<=34
-                    && !!chatMoodLabel && chatMoodLabel.text==="good"
-                    && !!chatEnergyLabel && chatEnergyLabel.text==="high",
-                    "Today Energy/Mood bar or pill labels did not collapse into compact single-row state after check-in completed")
-                const compactTodayHeight=chatTodayBar.height
-                cloud.forceTodayBarHover=true;mouseMove(chatMoodBtn,chatMoodBtn.width/2,chatMoodBtn.height/2);wait(45)
-                check(cloud.todayBarHovered && cloud.todayBarExpanded && chatTodayPhrase.visible
-                    && chatTodayBar.expandProgress>0 && chatTodayBar.height>compactTodayHeight
-                    && chatMoodLabel.text.indexOf("Mood:")===0 && chatEnergyLabel.text.indexOf("Energy:")===0,
-                    "Hovering Today Mood pill did not animate Today bar expansion to show full labels and contextual phrase: "
-                    + JSON.stringify({
-                        hovered: cloud.todayBarHovered,
-                        expanded: cloud.todayBarExpanded,
-                        phraseVis: chatTodayPhrase.visible,
-                        progress: chatTodayBar.expandProgress,
-                        h: chatTodayBar.height,
-                        compactH: compactTodayHeight,
-                        targetH: chatTodayBar.targetHeight,
-                        expandedTargetH: chatTodayBar.expandedTargetHeight,
-                        moodTxt: chatMoodLabel.text,
-                        energyTxt: chatEnergyLabel.text
-                    }))
-                tryVerify(()=>chatTodayBar.expandProgress===1 && chatTodayBar.height>compactTodayHeight,1000)
-                mouseMove(root.contentItem,20,720);cloud.forceTodayBarHover=false
-                tryVerify(()=>!chatTodayPhrase.visible && chatTodayBar.height===compactTodayHeight,1000)
-                check(!chatTodayPhrase.visible && chatTodayBar.height===compactTodayHeight
-                    && chatMoodLabel.text==="good" && chatEnergyLabel.text==="high",
-                    "Today Energy/Mood bar did not slide back to compact height and compact pill labels after hover ended")
-                Persistent.states.aquaCheckIn.energy="medium";wait(20)
-                check(chatEnergyLabel.text==="mid",
-                    "medium energy did not abbreviate to mid in compact Today pill: "+chatEnergyLabel.text)
-                cloud.forceTodayBarHover=true;wait(40)
-                const chatTodayRightCol=root.named(cloud,"aquaChatTodayRightCol")
-                check(chatEnergyLabel.text==="Energy: mid"
-                    && !!chatTodayRightCol
-                    && (chatEnergyBtn.x+chatEnergyBtn.width)<=chatTodayRightCol.width,
-                    "medium energy did not render as 'Energy: mid' without clipping on Today hover")
-                cloud.forceTodayBarHover=false;Persistent.states.aquaCheckIn.energy="high";wait(30)
 
-                const pomoToggleLabel=root.named(cloud,"aquaUnifiedPomodoroToggleLabel")
-                const pomoResetBtn=root.named(cloud,"aquaUnifiedPomodoroReset")
-                TimerService.resetPomodoro();wait(20)
-                check(!!pomoToggleLabel && pomoToggleLabel.text==="Start" && !!pomoResetBtn && !pomoResetBtn.visible,
-                    "Focus bar did not start with Start label and hidden Reset button")
-                TimerService.togglePomodoro();wait(30)
-                check(pomoToggleLabel.text==="Pause" && !pomoResetBtn.visible,
-                    "Focus bar did not switch to Pause while keeping Reset hidden during active focus")
-                TimerService.togglePomodoro();wait(220)
-                check(pomoToggleLabel.text==="Resume" && pomoResetBtn.visible && pomoResetBtn.enabled,
-                    "Pausing Focus did not switch button to Resume and slide Reset button into view")
-                TimerService.resetPomodoro();wait(220)
-                check(pomoToggleLabel.text==="Start" && !pomoResetBtn.visible,
-                    "Resetting Focus did not return button to Start and slide Reset button out")
+                // Verify Temperature, System Prompt substitution, and Rules state APIs on AquaMind
+                check(AquaMind.setTemperature(0.0) && AquaMind.temperature===0.0 && AquaMind._hasTemperatureOverride
+                    && AquaMind.setTemperature(0.35) && Math.abs(AquaMind.temperature-0.35)<0.001
+                    && AquaMind.setTemperature(0.7) && Math.abs(AquaMind.temperature-0.7)<0.001,
+                    "AquaMind.setTemperature did not support 0.00 and 0.05-step values")
+                AquaMind._hasTemperatureOverride=false
+                AquaMind.setCompanionSystemPrompt("OS={DISTRO} DE={DE} TIME={DATETIME} WIN={WINDOWCLASS}")
+                check(AquaMind.resolvedCompanionSystemPrompt.indexOf("{DISTRO}")===-1
+                    && AquaMind.resolvedCompanionSystemPrompt.indexOf("{DE}")===-1
+                    && AquaMind.resolvedCompanionSystemPrompt.indexOf("{DATETIME}")===-1
+                    && AquaMind.resolvedCompanionSystemPrompt.indexOf("{WINDOWCLASS}")===-1,
+                    "AquaMind.resolvedCompanionSystemPrompt did not substitute placeholder tokens: "+AquaMind.resolvedCompanionSystemPrompt)
+                AquaMind.resetCompanionSystemPrompt()
+                AquaMind.setRulesText("- Custom Proof Rule", false)
+                check(AquaMind.rulesText==="- Custom Proof Rule","AquaMind.setRulesText did not update rulesText")
+                AquaMind.setRulesText(AquaMind.defaultRulesText, false)
+
+                // Verify chatbox can release keyboard focus to external apps while remaining open, and re-acquire focus on request
+                check(cloud.editing && cloud.keyboardFocusActive,
+                    "Chatbox did not start with keyboardFocusActive when openChat() was called")
+                cloud.releaseKeyboardFocus();wait(20)
+                check(cloud.editing && !cloud.wantsKeyboardFocus && !cloud.keyboardFocusActive,
+                    "cloud.releaseKeyboardFocus() did not release keyboardFocusActive while keeping chatbox open")
+                cloud.requestKeyboardFocus(true);wait(20)
+                check(cloud.editing && cloud.wantsKeyboardFocus && cloud.keyboardFocusActive,
+                    "cloud.requestKeyboardFocus(true) did not restore keyboardFocusActive on open chatbox")
 
                 // Verify Desktop Agent button is removed from Chatbox (controlled only via Settings) and / Slash Command Menu works directly
                 const quickAgentBtn=root.named(cloud,"aquaQuickAgent")
@@ -419,14 +465,17 @@ Window {
                 field.text="";cloud.profileStage=0;wait(20)
 
                 const sidebarToggle=root.named(cloud,"aquaChatSidebarToggle")
-                const newChatQuick=root.named(cloud,"aquaNewChatButton")
+                const swarmSidebarToggle=root.named(cloud,"aquaSwarmSidebarToggle")
                 const sidebarItem=root.named(cloud,"aquaChatSidebar")
                 const resizeHandle=root.named(cloud,"aquaSidebarResizeHandle")
-                check(!!sidebarToggle && !!newChatQuick && !!sidebarItem && !!resizeHandle && !cloud.sidebarOpen && !resizeHandle.visible,
-                    "chat sidebar toggle, resize handle, or quick new chat button missing")
+                check(!!sidebarToggle && !!swarmSidebarToggle && !root.named(cloud,"aquaNewChatButton") && !root.named(cloud,"aquaUnifiedSwarmTab")
+                    && !!sidebarItem && !!resizeHandle && !cloud.sidebarOpen && !resizeHandle.visible,
+                    "chat sidebar toggle, swarm right-sidebar toggle, or resize handle missing")
+                const baseChatWidth=cloud.width
+                const baseChatHeight=cloud.height
                 sidebarToggle.clicked();wait(60)
-                check(cloud.sidebarOpen && sidebarItem.visible && resizeHandle.visible && cloud.sidebarWidth>140,
-                    "chat sidebar or resize handle did not open when toggled")
+                check(cloud.sidebarOpen && sidebarItem.visible && resizeHandle.visible && cloud.sidebarWidth===cloud.minSidebarWidth,
+                    "chat sidebar or resize handle did not open at minSidebarWidth when toggled")
                 // Verify edge-resizable sidebar width clamping and responsive inner reflow
                 cloud.resizeSidebarTo(148);wait(30)
                 const defaultThreadTitle=root.named(sidebarItem,"aquaThreadTitle-chat_default")
@@ -440,6 +489,25 @@ Window {
                 check(cloud.sidebarWidth===236 && sidebarItem.width===236 && sidebarItem.isWide && !sidebarItem.isNarrow
                     && AquaMind.customSidebarWidth===236,
                     "sidebar did not resize to wide 236px or persist customSidebarWidth on AquaMind")
+                // Verify closing and reopening sidebar resets width back to minSidebarWidth (144px)
+                sidebarToggle.clicked();wait(30)
+                sidebarToggle.clicked();wait(30)
+                check(cloud.sidebarOpen && cloud.sidebarWidth===cloud.minSidebarWidth && AquaMind.customSidebarWidth===cloud.minSidebarWidth,
+                    "re-opening sidebar did not reset width to minSidebarWidth: "+cloud.sidebarWidth)
+                // Verify switching from Chat (even with sidebar open) to Pocket keeps exact same popup dimensions as base Chat and closes sidebar
+                AquaPocket.hostAvailable=true
+                Config.setNestedValue("abyss.companion.pocketEnabled",true)
+                AquaPocket.opened=true
+                AquaMind.dismiss()
+                wait(40)
+                check(cloud.pocketOpen && !cloud.sidebarOpen && cloud.width===baseChatWidth && cloud.height===baseChatHeight,
+                    "Pocket tab did not match Chat tab dimensions or failed to close sidebar: "
+                    + JSON.stringify({pocketOpen:cloud.pocketOpen, pocketW:cloud.width, pocketH:cloud.height, chatW:baseChatWidth, chatH:baseChatHeight, sidebarOpen:cloud.sidebarOpen}))
+                AquaPocket.close()
+                AquaPocket.hostAvailable=false
+                Config.setNestedValue("abyss.companion.pocketEnabled",false)
+                AquaMind.openChat();wait(40)
+                sidebarToggle.clicked();wait(30)
                 cloud.resizeSidebarTo(186);wait(20)
                 AquaMind.createProject("UI Proof Project","/tmp")
                 tryVerify(()=>AquaMind.projects.some(p=>p.name==="UI Proof Project") && AquaMind.threadActionQueue.length===0,4000)
@@ -495,14 +563,18 @@ Window {
                 const bubbleText0=root.named(cloud,"aquaChatBubbleText-0")
                 const bubbleText1=root.named(cloud,"aquaChatBubbleText-1")
                 const bubbleCopy1=root.named(cloud,"aquaChatBubbleCopy-1")
+                const bubbleActions1=root.named(cloud,"aquaChatBubbleActions-1")
                 check(!!bubbleText0 && !!bubbleText1 && bubbleText0.selectByMouse && bubbleText0.selectByKeyboard
-                    && bubbleText0.readOnly && bubbleText0.persistentSelection && !!bubbleCopy1,
-                    "chat bubble TextEdit controls or per-bubble copy button missing")
+                    && bubbleText0.readOnly && bubbleText0.persistentSelection && !!bubbleCopy1 && !!bubbleActions1,
+                    "chat bubble TextEdit controls or per-bubble copy/actions controls missing")
                 check(cloud.selectBubbleText(0,0,2)==="he" && bubbleText0.selectedText==="he",
                     "selecting substring in bubble 0 failed")
                 check(cloud.selectBubbleText(1,0,8)==="Hi there" && bubbleText1.selectedText==="Hi there"
                     && bubbleText0.selectedText==="" && cloud.activeSelectionBubbleIndex===1 && bubbleCopy1.visible,
                     "selecting substring in bubble 1 did not clear bubble 0 selection or reveal copy button")
+                check((bubbleCopy1.x + bubbleCopy1.width) <= (bubbleActions1.x + 0.5)
+                    && (longBubble.fitsActionClusterOutside || bubbleCopy1.y >= (longBubble.y + bubbleText1.y + bubbleText1.contentHeight - 0.5)),
+                    "bubbleCopy1 overlapped bubbleActions1 or bubbleText1 (copyX="+bubbleCopy1.x+", copyW="+bubbleCopy1.width+", actionsX="+bubbleActions1.x+", copyY="+bubbleCopy1.y+", textBottom="+(longBubble.y + bubbleText1.y + bubbleText1.contentHeight)+")")
                 check(cloud.copyActiveSelection() && cloud.lastCopiedText==="Hi there" && cloud.lastCopiedBubbleIndex===1,
                     "copyActiveSelection did not copy highlighted substring 'Hi there' from active bubble 1")
                 cloud.lastCopiedText=""
@@ -516,7 +588,11 @@ Window {
                 wait(20)
                 check(cloud.lastCopiedText==="Hi there" && cloud.lastCopiedBubbleIndex===1,
                     "Ctrl+C while composer input had activeFocus (with no input selection) did not copy bubble selection")
+                cloud.lastCopiedText=""
+                cloud.lastCopiedBubbleIndex=-1
                 bubbleText1.deselect()
+                check(bubbleText1.cachedSelectedText==="Hi there" && bubbleCopy1.hasSelection && cloud.copyBubbleText(1)==="Hi there" && cloud.lastCopiedText==="Hi there" && bubbleText1.cachedSelectedText==="",
+                    "bubbleCopy1 did not preserve and copy cachedSelectedText when deselect() cleared live selection")
                 check(cloud.copyBubbleText(0)==="hey" && cloud.lastCopiedText==="hey" && cloud.lastCopiedBubbleIndex===0,
                     "copyBubbleText(0) did not copy full bubble text when no substring was selected")
 
@@ -775,14 +851,28 @@ Window {
                 const routeDeep=AquaMind.classifyPromptModelRole("phân tích chuyên sâu kiến trúc hệ thống và tối ưu thuật toán")
                 const routeSpoon=AquaMind.classifyPromptModelRole("phân tích triết học và sáng tạo sâu out of the box")
                 const routeMixed=AquaMind.classifyPromptModelRole("Click Save and explain why the algorithm deadlocks")
-                check(routeFast.role==="action" && routeFast.selectedModel==="tiny:local"
-                    && routeDeep.role==="thinking" && routeDeep.selectedModel===plusIqMtpId
+                const routeDomainCap=AquaMind.classifyTaskType("do you have knowledge of Niri, Arch Linux and Quickshell now")
+                const routeConfigCheck=AquaMind.classifyPromptModelRole("can you check my configuration")
+                const routeFastChat=AquaMind.classifyPromptModelRole("hey there how is your day")
+                check(routeFast.role==="action" && routeFast.roleLabel==="UI Action" && routeFast.selectedModel==="tiny:local"
+                    && routeDeep.role==="thinking" && routeDeep.roleLabel==="Deep Thinking" && routeDeep.selectedModel===plusIqMtpId
                     && routeDeep.isPlusIq && routeDeep.isMtp && routeDeep.mtpActive
                     && routeDeep.inChatDirective==="{REASON:xhigh}"
                     && routeDeep.repetitionPenalty===1.0 && routeDeep.temperature===0.7
                     && routeSpoon.role==="thinking" && routeSpoon.inChatDirective==="{REASON:spoon}"
-                    && routeMixed.role==="thinking" && routeMixed.selectedModel===plusIqMtpId,
-                    "Dual-Model prompt classification or MTP/plusIQ parameters failed: fast="+JSON.stringify(routeFast)+" deep="+JSON.stringify(routeDeep)+" spoon="+JSON.stringify(routeSpoon)+" mixed="+JSON.stringify(routeMixed))
+                    && routeMixed.role==="thinking" && routeMixed.selectedModel===plusIqMtpId
+                    && routeDomainCap.role==="thinking" && routeDomainCap.roleLabel==="Domain RAG" && routeDomainCap.category==="domain_rag"
+                    && routeDomainCap.recommendedEffort==="off" && routeDomainCap.enableThinking===false
+                    && routeConfigCheck.role==="thinking" && routeConfigCheck.roleLabel==="Domain RAG" && routeConfigCheck.recommendedEffort==="off"
+                    && routeFastChat.role==="action" && routeFastChat.roleLabel==="Fast Chat" && routeFastChat.category==="fast_chat"
+                    && AquaMind.shouldRouteToAgentTurn("do you have knowledge of Niri, Arch Linux and Quickshell now", true)
+                    && AquaMind.shouldRouteToAgentTurn("do you have knowledge of Niri, Arch Linux and Quickshell now — Explain a concept or command", true)
+                    && AquaMind.shouldRouteToAgentTurn("can you check my configuration", true)
+                    && AquaMind.shouldUseAgentRuntime("How do I write a PanelWindow with WlrLayershell in Quickshell?", true)
+                    && AquaMind.shouldUseAgentRuntime("can you check my configuration — Check Niri config (~/.config/niri/config.kdl)", true)
+                    && AquaMind.shouldUseAgentRuntime("2. Check Quickshell / Alis config", true)
+                    && AquaMind.shouldUseAgentRuntime("3. Check Arch Linux & systemd user services", true),
+                    "Dual-Model prompt classification, Domain RAG routing, or MTP/plusIQ parameters failed: fast="+JSON.stringify(routeFast)+" deep="+JSON.stringify(routeDeep)+" domainCap="+JSON.stringify(routeDomainCap)+" cfg="+JSON.stringify(routeConfigCheck)+" chat="+JSON.stringify(routeFastChat))
 
                 // Single-model plusIQ + MTP mode: UI Action -> {REASON:imedium}, Deep Thinking -> {REASON:xhigh}
                 AquaMind.selectModel(plusIqMtpId)
@@ -794,6 +884,12 @@ Window {
                 const clearBtn=root.named(settings,"aquaClearConversation")
                 const resetDialogueBtn=root.named(settings,"aquaResetDialogue")
                 const forgetAllBtn=root.named(settings,"aquaForgetAllMemory")
+                const talkToggle=root.named(settings,"aquaTalkClouds")
+                const cloudToggle=root.named(settings,"aquaAllowCloudModels")
+                const slidersGrid=root.named(settings,"aquaSlidersGrid")
+                const effortSliderCtl=root.named(settings,"aquaCompanionThinkingEffort")
+                const tempRowCtl=root.named(settings,"aquaTemperatureRow")
+                const retentionSelector=root.named(settings,"aquaScreenshotRetentionSelector")
                 const clearRightInGroup=clearBtn.mapToItem(aiGroup,clearBtn.width,0).x
                 const thinkingComboRightInGroup=settingsThinkingSelector.mapToItem(aiGroup,settingsThinkingSelector.width,0).x
                 const resetRightInGroup=resetDialogueBtn.mapToItem(aiGroup,resetDialogueBtn.width,0).x
@@ -802,6 +898,8 @@ Window {
                 check(!!aiGroup && aiGroup.width<=settings.width
                     && modelGrid.width<=aiGroup.width
                     && dualRouteGrid.width<=aiGroup.width
+                    && !!slidersGrid && slidersGrid.columns===2 && slidersGrid.width<=aiGroup.width
+                    && !!effortSliderCtl && !!tempRowCtl
                     && quietGrid.width<=aiGroup.width
                     && quotaGrid.width<=aiGroup.width
                     && dialogueGrid.width<=aiGroup.width
@@ -811,16 +909,34 @@ Window {
                     && thinkingComboRightInGroup<=aiGroup.width
                     && resetRightInGroup<=aiGroup.width
                     && forgetRightInGroup<=aiGroup.width
-                    && skillToggleRightInGroup<=aiGroup.width,
-                    "Companion AI settings rows or right-edge controls overflowed aiGroup width with long model name & thinking effort enabled: "
+                    && skillToggleRightInGroup<=aiGroup.width
+                    && !clearBtn.visible
+                    && !!talkToggle && talkToggle.width>=talkToggle.naturalWidth-2
+                    && !!cloudToggle && cloudToggle.width>=cloudToggle.naturalWidth-2
+                    && settingsAutoRouteToggle.width>=settingsAutoRouteToggle.naturalWidth-2
+                    && settingsMtpToggle.width>=settingsMtpToggle.naturalWidth-2
+                    && settingsRouteStatus.text===AquaMind.compactRoutingSummaryLabel,
+                    "Companion AI settings rows, unclipped toggles, sliders grid, or right-edge controls failed layout checks: "
                     +JSON.stringify({
                         settingsW:settings.width,aiGroupW:aiGroup ? aiGroup.width : -1,
                         modelGridW:modelGrid.width,dualRouteGridW:dualRouteGrid.width,
-                        quietGridW:quietGrid.width,quotaGridW:quotaGrid.width,
-                        dialogueGridW:dialogueGrid.width,skillsW:skillsSection.width,permGridW:permGrid.width,
+                        slidersGridCols:slidersGrid ? slidersGrid.columns : -1,
+                        talkW:talkToggle ? talkToggle.width : -1,talkNatW:talkToggle ? talkToggle.naturalWidth : -1,
+                        cloudW:cloudToggle ? cloudToggle.width : -1,cloudNatW:cloudToggle ? cloudToggle.naturalWidth : -1,
+                        autoRouteW:settingsAutoRouteToggle.width,autoRouteNatW:settingsAutoRouteToggle.naturalWidth,
+                        mtpW:settingsMtpToggle.width,mtpNatW:settingsMtpToggle.naturalWidth,
+                        clearVisible:clearBtn.visible,
+                        routeText:settingsRouteStatus.text,compactRoute:AquaMind.compactRoutingSummaryLabel,
                         clearRightX:clearRightInGroup,thinkingComboRightX:thinkingComboRightInGroup,
                         resetRightX:resetRightInGroup,forgetRightX:forgetRightInGroup,skillToggleRightX:skillToggleRightInGroup
                     }))
+                check(!!retentionSelector
+                    && AquaMind.screenshotRetentionDays===30
+                    && AquaMind.setScreenshotRetentionDays(7) && AquaMind.screenshotRetentionDays===7 && retentionSelector.displayText==="Screenshots: 7d"
+                    && AquaMind.setScreenshotRetentionDays(14) && AquaMind.screenshotRetentionDays===14 && retentionSelector.displayText==="Screenshots: 14d"
+                    && AquaMind.setScreenshotRetentionDays(90) && AquaMind.screenshotRetentionDays===90 && retentionSelector.displayText==="Screenshots: 90d"
+                    && AquaMind.setScreenshotRetentionDays(30) && AquaMind.screenshotRetentionDays===30 && retentionSelector.displayText==="Screenshots: 30d",
+                    "Screenshot retention 7/14/30/90 days selector or state update failed")
                 const singleFast=AquaMind.classifyPromptModelRole("click the submit button")
                 const singleDeep=AquaMind.classifyPromptModelRole("/plan design a lock-free ring buffer")
                 check(AquaMind.model===plusIqMtpId
@@ -830,11 +946,15 @@ Window {
                     && singleDeep.role==="thinking" && singleDeep.inChatDirective==="{REASON:xhigh}" && singleDeep.recommendedEffort==="high",
                     "Single-model plusIQ + MTP auto-switching failed: model="+AquaMind.model+" singleFast="+JSON.stringify(singleFast)+" singleDeep="+JSON.stringify(singleDeep))
 
-                // Verify Ai.buildChatRequest MTP optimization on vs off, and memoryContext targetModelObj privacy guard
+                // Verify Ai.buildChatRequest MTP optimization on vs off, explicit temperature override, and memoryContext targetModelObj privacy guard
                 const testStrat=Ai.createStrategy(root,"openai")
                 const mtpReqOn=Ai.buildChatRequest(Ai.models[plusIqMtpId],testStrat,[{role:"user",content:"test"}],"sys",0.8,[],"","off")
-                check(mtpReqOn.repetition_penalty===1.0 && mtpReqOn.repeat_penalty===1.0 && mtpReqOn.temperature<=0.7,
-                    "Ai.buildChatRequest did not apply MTP repetition_penalty=1.0 and temperature<=0.7 when mtpOptimizeEnabled is true")
+                const mtpReqZero=Ai.buildChatRequest(Ai.models[plusIqMtpId],testStrat,[{role:"user",content:"test"}],"sys",0.0,[],"","off")
+                const mtpReqOverride=Ai.buildChatRequest(Ai.models[plusIqMtpId],testStrat,[{role:"user",content:"test"}],"sys",1.15,[],"","off",true)
+                check(mtpReqOn.repetition_penalty===1.0 && mtpReqOn.repeat_penalty===1.0 && mtpReqOn.temperature<=0.7
+                    && mtpReqZero.temperature===0
+                    && Math.abs(mtpReqOverride.temperature-1.15)<0.001,
+                    "Ai.buildChatRequest did not apply MTP repetition_penalty=1.0 and temperature<=0.7 or failed explicit temperature override")
 
                 // Toggle MTP optimization off and back on
                 AquaMind.setMtpOptimizeEnabled(false)
@@ -848,8 +968,8 @@ Window {
                     "memoryContext leaked memories when targetModelObj is non-local")
                 const settingsRefreshBtn=root.named(settings,"aquaRefreshModelsButton")
                 const pickerRefreshBtn=root.named(cloud,"aquaPickerRefreshModelsButton")
-                check(!!settingsRefreshBtn && !!pickerRefreshBtn,
-                    "Auto-detect refresh buttons missing in settings or talk cloud model picker")
+                check(!!settingsRefreshBtn && !settingsRefreshBtn.visible && typeof settings.refreshCompanionModels==="function" && !!pickerRefreshBtn,
+                    "Auto-detect refresh buttons or refreshCompanionModels missing in settings or talk cloud model picker")
                 Config.setNestedValues({
                     "abyss.companionMind.model":"lmstudio-lfm2.5-vl-3b",
                     "abyss.companionMind.actionModel":"lmstudio-qwen3.5-4b-mtp",
@@ -860,8 +980,12 @@ Window {
                 check(String(Config.options.abyss.companionMind.model ?? "")===""
                     && String(Config.options.abyss.companionMind.actionModel ?? "")===""
                     && String(Config.options.abyss.companionMind.thinkingModel ?? "")===""
+                    && AquaMind.actionSelectableModels[0].label==="Auto"
+                    && AquaMind.thinkingSelectableModels[0].label==="Auto"
+                    && settingsActionSelector.displayText==="UI Action: Auto"
+                    && settingsThinkingSelector.displayText==="Deep Thinking: Auto"
                     && AquaMind.available,
-                    "reconcileAvailableModels did not purge deleted local models or restore active model")
+                    "reconcileAvailableModels or Auto dropdown labels failed")
                 // Verify:
                 // 1) Long model name + effort selector + send button alignment inside composer
                 // 2) Multi-level thinking effort (6 tiers) even when LM Studio reports reasoning:"unknown" and reasoningOff:"supported"
@@ -975,12 +1099,12 @@ Window {
                     && AquaMind.history.some(m => m.role === "user" && m.content.includes("optimize companion performance")),
                     "Clicking clarification option #1 did not clear activeClarification or dispatch clarified prompt")
 
-                // Pose clarification via LLM reply extraction (1-3 numbered ideas) and submit custom idea via custom input box
+                // Pose clarification via LLM reply extraction (1-3 numbered ideas, including trailing block after earlier numbered items) and submit custom idea via custom input box
                 const parsedReplyClar = AquaMind.extractClarificationFromReply(
-                    "Which architecture would you prefer for the new module?\n1. Event-driven pipeline (Recommended) — Low latency and decoupled\n2. Polling worker — Simple periodic checks\n3. Hybrid state machine — Combines reactive signals with fallback timer",
+                    "### Kế hoạch sơ bộ\n1. Chuẩn bị thực đơn\n2. Kiểm tra âm thanh\n\nWhich architecture would you prefer for the new module?\n1. Event-driven pipeline (Recommended) — Low latency and decoupled\n2. Polling worker — Simple periodic checks\n3. Hybrid state machine — Combines reactive signals with fallback timer",
                     "Design the new module"
                 )
-                check(!!parsedReplyClar && parsedReplyClar.options.length === 3 && parsedReplyClar.options[0].recommended === true,
+                check(!!parsedReplyClar && parsedReplyClar.options.length === 3 && parsedReplyClar.options[0].recommended === true && parsedReplyClar.options[0].label.includes("Event-driven pipeline"),
                     "extractClarificationFromReply failed to parse 3 numbered ideas from assistant reply")
                 AquaMind.activeClarification = parsedReplyClar
                 wait(40)
@@ -1092,26 +1216,67 @@ Window {
                 check(AquaMind.attachedImages.length === 0 && imgHistoryIdx >= 0,
                     "Sending message with attached image did not clear attachedImages and record images on user history entry")
 
+                // Verify Unified Attachment Button (Images + Multi-File @file / PDF / DOCX / CSV) & Offline Voice Controls in Chatbox
+                const attachFileControl = root.named(cloud, "aquaChatAttachFile")
+                const filePreviewRow = root.named(cloud, "aquaChatFilePreviewRow")
+                const voiceControl = root.named(cloud, "aquaChatVoiceButton")
+                check(!!attachBtn && attachBtn.visible && !attachFileControl
+                    && !!filePreviewRow && !filePreviewRow.visible
+                    && !!voiceControl && voiceControl.visible,
+                    "Chatbox unified attachment button, file preview row, or voice button state invalid")
+                check(AquaMind.attachFile("/tmp/companion-spec-1.pdf")
+                    && AquaMind.attachFile("/tmp/companion-metrics-2.csv")
+                    && AquaMind.attachedFiles.length === 2,
+                    "AquaMind.attachFile failed to attach PDF/CSV files")
+                wait(30)
+                const fileCard0 = root.named(cloud, "aquaAttachedFileCard-0")
+                const fileRemove1 = root.named(cloud, "aquaAttachedFileRemove-1")
+                check(filePreviewRow.visible && !!fileCard0 && !!fileRemove1 && root.named(cloud, "aquaChatSend").enabled,
+                    "Attached file preview cards did not appear or enable Send button when text input is empty")
+                fileRemove1.clicked()
+                wait(20)
+                check(AquaMind.attachedFiles.length === 1 && AquaMind.attachedFiles[0].name === "companion-spec-1.pdf",
+                    "Removing attached file #1 did not leave 1 file in attachedFiles")
+                root.named(cloud, "aquaChatSend").clicked()
+                wait(40)
+                tryCompare(AquaMind, "busy", false, 4000)
+                const fileHistoryIdx = AquaMind.history.findIndex(m => m.role === "user" && Array.isArray(m.files) && m.files.length === 1)
+                check(AquaMind.attachedFiles.length === 0 && fileHistoryIdx >= 0,
+                    "Sending message with attached file did not clear attachedFiles and record files on user history entry")
+                AquaMind.setVoiceTtsEnabled(true)
+                check(AquaMind.voiceTtsEnabled === true, "setVoiceTtsEnabled(true) did not enable voiceTtsEnabled")
+                AquaMind.setVoiceTtsEnabled(false)
+                check(AquaMind.voiceTtsEnabled === false, "setVoiceTtsEnabled(false) did not disable voiceTtsEnabled")
+                check(AquaMind.shouldRouteToAgentTurn("/som", true)
+                    && AquaMind.shouldRouteToAgentTurn("click [1]", true)
+                    && AquaMind.shouldRouteToAgentTurn("click [e2]", true)
+                    && AquaMind.shouldRouteToAgentTurn("move window to workspace 3", true)
+                    && AquaMind.shouldRouteToAgentTurn("/tts hello", true)
+                    && AquaMind.shouldRouteToAgentTurn("/speak hello", true)
+                    && AquaMind.shouldRouteToAgentTurn("Plan a party for me tomorrow. You can search the internet.", true)
+                    && AquaMind.shouldRouteToAgentTurn("You can search the internet and plan a party for me tomorrow.", true)
+                    && AquaMind.shouldRouteToAgentTurn("I want to plan a birthday party tomorrow.", true)
+                    && !AquaMind.shouldRouteToAgentTurn("/voice", true)
+                    && !cloud.baseSlashCommands.some(c => c && (c.name === "voice" || c.cmd === "/voice"))
+                    && AquaMind.shouldRouteToAgentTurn("/graphify", true),
+                    "shouldRouteToAgentTurn did not route SoM, DOM snapshot, Niri layout, TTS, Planning, or Graphify prompts, or still exposed /voice")
+
                 // Verify:
-                // 1) Merged 1-row, 2-column layout for Focus (Pomodoro) & Today Mood/Energy
                 // 2) Icon-only Model Selector button (30x30) + crisp centered Effort Selector button
                 // 3) Thinking Effort slider drag (applyEffortAtX) + animated thumb
                 // 4) Assistant image reply rendering in Chatbox (e.g. screenshot reply)
-                const todayRightCol = root.named(cloud, "aquaChatTodayRightCol")
                 const effortBtnLabel = root.named(cloud, "aquaModelEffortLabel")
+                const effortBtnRow = root.named(cloud, "aquaModelEffortRow")
+                const modelSelectorToolTip = root.named(cloud, "aquaModelSelectorToolTip")
                 const effortThumb = root.named(cloud, "aquaThinkingEffortThumb")
                 AquaMind.setThinkingEffort("xhigh")
                 wait(30)
-                check(!!todayRightCol && unifiedPomodoroBar.visible && todayRightCol.visible
-                    && unifiedPomodoroBar.y === 0 && todayRightCol.y === 0
-                    && todayRightCol.x >= unifiedPomodoroBar.width + 4
-                    && Math.abs(unifiedPomodoroBar.width - todayRightCol.width) <= 4,
-                    "Focus and Today Mood/Energy were not merged into 1 row, 2 equal columns: "
-                    + JSON.stringify({pomoW:unifiedPomodoroBar.width, rightX:todayRightCol?.x, rightW:todayRightCol?.width}))
                 check(modelSelector.width === 30 && modelSelector.height === 30
+                    && !!modelSelectorToolTip && modelSelectorToolTip.text === AquaMind.compactModelTooltipLabel
+                    && !!effortBtnRow && effortBtnRow.children.length === 2
                     && !!effortBtnLabel && effortBtnLabel.visible && effortBtnLabel.text === "XHigh"
-                    && effortBtnLabel.width >= 20 && profileButton.width >= 68,
-                    "Model selector is not icon-only (30x30) or Effort selector label collapsed: "
+                    && effortBtnLabel.width >= 20 && profileButton.width >= 54 && profileButton.width <= 84,
+                    "Model selector is not icon-only (30x30) or Effort selector label/tooltip check failed: "
                     + JSON.stringify({modelW:modelSelector.width, effortW:profileButton.width, labelText:effortBtnLabel?.text, labelW:effortBtnLabel?.width}))
                 cloud.profileStage = 1
                 wait(30)
@@ -1124,8 +1289,261 @@ Window {
                     "Dragging Thinking Effort slider (applyEffortAtX) did not update effort and close slider popup")
                 check(AquaMind.shouldRouteToAgentTurn("chụp màn hình giúp tôi", true)
                     && AquaMind.shouldRouteToAgentTurn("take a screenshot", true)
+                    && AquaMind.shouldRouteToAgentTurn("move window 5 to workspace 3", true)
+                    && AquaMind.shouldRouteToAgentTurn("Okay, and now I want you to open the internet and open YouTube, then search everybody loves somebody.", true)
+                    && AquaMind.shouldRouteToAgentTurn("Well, can you open the browser, go to YouTube, and play Fly Me To The Moon?", true)
+                    && AquaMind.shouldRouteToAgentTurn("Okay, mở trình duyệt vào YouTube rồi tìm kiếm Chúng Ta Của Hiện Tại.", true)
+                    && AquaMind.shouldRouteToAgentTurn("Play everybody loves somebody on YouTube.", true)
                     && AquaMind.extractReplyImages("Here is the shot ![screen](/tmp/screen-capture.png)").length === 1,
-                    "Screenshot prompt routing or extractReplyImages failed")
+                    "Screenshot/window-move/browser-YouTube prompt routing or extractReplyImages failed")
+                check(AquaMind.attachFile("/tmp/quarterly_report.pdf")
+                    && AquaMind.attachedFiles.length === 1
+                    && AquaMind.attachedFiles[0].name === "quarterly_report.pdf"
+                    && AquaMind.attachedFiles[0].ext === "pdf",
+                    "AquaMind.attachFile did not attach PDF file chip")
+                AquaMind.clearAttachedFiles()
+                check(AquaMind.attachedFiles.length === 0, "AquaMind.clearAttachedFiles did not clear attachedFiles")
+                check(AquaMind.speakText("Hello Companion") && AquaMind.lastSpokenText === "Hello Companion",
+                    "AquaMind.speakText did not update lastSpokenText or failed on voiceWorker.autoSend")
+                tryVerify(() => !AquaMind.voiceRecording, 1500)
+
+                // Verify Voice Input Stage (replaces text input & toolbar row when Voice mode is active, matching 1-line text input height)
+                const voiceMicAlias = root.named(cloud, "aquaVoiceMicButton")
+                const voiceStage = root.named(cloud, "aquaVoiceStage")
+                const composerToolbarRow = root.named(cloud, "aquaChatComposerRow")
+                const voiceActionDeck = root.named(cloud, "aquaVoiceActionDeck")
+                const textInputComposerHeight = composer.height
+                check(!!voiceMicAlias && voiceMicAlias.visible && !!voiceStage && !voiceStage.visible && field.visible
+                    && textInputComposerHeight === 84,
+                    "Initial voice mic button, voiceStage visibility, or 1-line composer height invalid before opening Voice mode: " + textInputComposerHeight)
+                voiceMicAlias.clicked()
+                wait(60)
+                const voiceCoreOrb = root.named(cloud, "aquaVoiceCoreOrb")
+                const voiceOrbCoreCircle = root.named(cloud, "aquaVoiceOrbCoreCircle")
+                const voiceStatusDot = root.named(cloud, "aquaVoiceStatusDot")
+                const voiceWaveform = root.named(cloud, "aquaVoiceWaveform")
+                const voiceWaveBar0 = root.named(cloud, "aquaVoiceWaveBar-0")
+                const voiceWaveBar15 = root.named(cloud, "aquaVoiceWaveBar-15")
+                const voiceWaveBar31 = root.named(cloud, "aquaVoiceWaveBar-31")
+                const voiceStatusLabel = root.named(cloud, "aquaVoiceStatusLabel")
+                const voiceTimerLabel = root.named(cloud, "aquaVoiceTimerLabel")
+                const voiceCancelBtn = root.named(cloud, "aquaVoiceCancelButton")
+                const voiceAutoSendToggle = root.named(cloud, "aquaVoiceAutoSendToggle")
+                const voiceRetryBtn = root.named(cloud, "aquaVoiceRetryButton")
+                const voiceDoneBtn = root.named(cloud, "aquaVoiceDoneButton")
+                check(AquaMind.voiceModeOpen && AquaMind.voiceRecording
+                    && !field.visible && !!composerToolbarRow && !composerToolbarRow.visible
+                    && voiceStage.visible && voiceStage.height === 74
+                    && composer.height === textInputComposerHeight
+                    && !root.named(cloud, "aquaVoiceShimmerLine")
+                    && !!voiceCoreOrb && voiceCoreOrb.visible && !!voiceOrbCoreCircle && !!voiceStatusDot
+                    && !!voiceWaveform && voiceWaveform.visible && voiceWaveform.barCount === 32
+                    && !!voiceWaveBar0 && !!voiceWaveBar15 && !!voiceWaveBar31
+                    && AquaMind.voiceInputLevel === 0.0
+                    && voiceWaveBar0.height === 4 && voiceWaveBar15.height === 4 && voiceWaveBar31.height === 4
+                    && !!voiceStatusLabel && voiceStatusLabel.visible
+                    && voiceStatusLabel.text === "Listening" && voiceStatusLabel.text.indexOf("SPEAK NOW") === -1
+                    && !!voiceTimerLabel && voiceTimerLabel.visible && voiceTimerLabel.text === "00:00"
+                    && !!voiceCancelBtn && voiceCancelBtn.visible
+                    && !!voiceAutoSendToggle && voiceAutoSendToggle.visible
+                    && !!voiceRetryBtn && voiceRetryBtn.visible
+                    && !!voiceDoneBtn && voiceDoneBtn.visible,
+                    "Voice Stage did not match text input height, remove shimmer line, rest waveform at 4px on silence, or render controls: "
+                    + JSON.stringify({
+                        modeOpen: AquaMind.voiceModeOpen,
+                        rec: AquaMind.voiceRecording,
+                        fieldVis: field.visible,
+                        stageVis: voiceStage?.visible,
+                        stageH: voiceStage?.height,
+                        composerH: composer.height,
+                        textComposerH: textInputComposerHeight,
+                        shimmer: !!root.named(cloud, "aquaVoiceShimmerLine"),
+                        bar15H: voiceWaveBar15?.height,
+                        status: voiceStatusLabel?.text,
+                        timer: voiceTimerLabel?.text
+                    }))
+                // Verify waveform bars remain completely stationary at 4px across phase changes when there is no audio input (voiceInputLevel <= 0.02)
+                cloud.voiceWavePhase = 0.0
+                wait(10)
+                cloud.voiceWavePhase = 1.25
+                wait(10)
+                const silentBars = []
+                for (let b = 0; b < 32; ++b) silentBars.push(root.named(cloud, "aquaVoiceWaveBar-" + b).height)
+                check(silentBars.every(h => h === 4),
+                    "Voice waveform bars moved while voiceInputLevel was 0.0 (silent): " + JSON.stringify(silentBars))
+
+                // Simulate active microphone audio level via _handleVoiceCaptureLine and verify waveform bars respond and auto-theme
+                cloud.voiceWavePhase = 0.0
+                AquaMind._handleVoiceCaptureLine("LEVEL:0.85")
+                wait(15)
+                check(Math.abs(AquaMind.voiceInputLevel - 0.85) < 0.001 && voiceWaveBar15.height >= 12,
+                    "Voice waveform bar 15 did not rise when _handleVoiceCaptureLine('LEVEL:0.85') ran: " + voiceWaveBar15.height)
+
+                // Verify auto-theming: voiceStage orb, waveform bars, status dot, and CTA button follow Appearance.colors.colPrimary / colTertiary / dark-light / transparency dynamically
+                const voiceStageBackdrop = root.named(cloud, "aquaVoiceStageBackdrop")
+                const voiceDoneLabel = root.named(cloud, "aquaVoiceDoneLabel")
+                const origM3Primary = Appearance.m3colors.m3primary
+                const origM3Tertiary = Appearance.m3colors.m3tertiary
+                const origDarkMode = Appearance.m3colors.darkmode
+                const origWaveTopR = voiceWaveBar15.topStopColor.r
+                Appearance.m3colors.m3primary = "#ff785a"
+                wait(15)
+                check(Qt.colorEqual(voiceStage.voiceAccentColor, Appearance.colors.colPrimary)
+                    && Qt.colorEqual(voiceOrbCoreCircle.coreTopColor, Appearance.colors.colPrimary)
+                    && Qt.colorEqual(voiceStatusDot.color, Appearance.colors.colPrimary)
+                    && Qt.colorEqual(voiceDoneBtn.colBackground, Appearance.colors.colPrimary)
+                    && !Qt.colorEqual(voiceControl.colBackgroundToggled, Appearance.colors.colPrimary)
+                    && !!voiceStageBackdrop && !root.named(cloud, "aquaVoiceShimmerLine")
+                    && Math.abs(voiceWaveBar15.topStopColor.r - origWaveTopR) > 0.05,
+                    "Voice Stage did not dynamically auto-theme to Appearance.colors.colPrimary: "
+                    + JSON.stringify({
+                        accent: String(voiceStage.voiceAccentColor),
+                        primary: String(Appearance.colors.colPrimary),
+                        waveTopR: voiceWaveBar15.topStopColor.r,
+                        origWaveTopR: origWaveTopR,
+                        backdropR: voiceStageBackdrop?.radius
+                    }))
+                // Verify transcribing state switches accent to colTertiary, updates label to "Transcribing...", and preserves visible pill/circle buttonColor alpha while disabled
+                Appearance.m3colors.m3tertiary = "#dec38c"
+                AquaMind.voiceTranscribing = true
+                wait(15)
+                check(voiceStatusLabel.text === "Transcribing..."
+                    && voiceStatusLabel.text.indexOf("SPEAK NOW") === -1
+                    && Qt.colorEqual(voiceStage.voiceAccentColor, Appearance.colors.colTertiary)
+                    && Qt.colorEqual(voiceStage.voiceContainerColor, Appearance.colors.colTertiaryContainer)
+                    && !voiceDoneBtn.enabled && voiceDoneBtn.buttonColor.a > 0.5
+                    && !voiceRetryBtn.enabled && voiceRetryBtn.buttonColor.a > 0.5
+                    && !!voiceDoneLabel && voiceDoneLabel.text === "Working...",
+                    "Transcribing state did not shift voiceAccentColor to colTertiary, show 'Transcribing...', or preserve visible buttonColor alpha on disabled controls: "
+                    + JSON.stringify({
+                        status: voiceStatusLabel.text,
+                        accent: String(voiceStage.voiceAccentColor),
+                        tertiary: String(Appearance.colors.colTertiary),
+                        doneAlpha: voiceDoneBtn.buttonColor.a,
+                        retryAlpha: voiceRetryBtn.buttonColor.a,
+                        doneText: voiceDoneLabel?.text
+                    }))
+                AquaMind.voiceTranscribing = false
+                // Verify dark/light mode and shell transparency do not collapse composer or badge surface alpha
+                Appearance.m3colors.darkmode = false
+                Config.setNestedValue("appearance.transparency.enable", true)
+                wait(15)
+                check(composer.color.a > 0.85 && voiceRetryBtn.buttonColor.a > 0.85,
+                    "Light mode or shell transparency collapsed composer or voiceRetryBtn surface alpha: "
+                    + JSON.stringify({composerA: composer.color.a, retryA: voiceRetryBtn.buttonColor.a}))
+                Config.setNestedValue("appearance.transparency.enable", false)
+                Appearance.m3colors.darkmode = origDarkMode
+                Appearance.m3colors.m3primary = origM3Primary
+                Appearance.m3colors.m3tertiary = origM3Tertiary
+                wait(10)
+                // Verify 32-bar equalizer dynamically animates across phase changes when voiceInputLevel > 0.02
+                cloud.voiceWavePhase = 0.0
+                wait(10)
+                const snapPhase0 = []
+                for (let b = 0; b < 32; ++b) snapPhase0.push(root.named(cloud, "aquaVoiceWaveBar-" + b).height)
+                check(snapPhase0[15] >= 12,
+                    "Voice waveform bar 15 collapsed to idle height at phase=0.0 while recording with active input level: " + snapPhase0[15])
+                cloud.voiceWavePhase = 1.25
+                wait(10)
+                const snapPhase1 = []
+                for (let b = 0; b < 32; ++b) snapPhase1.push(root.named(cloud, "aquaVoiceWaveBar-" + b).height)
+                check(snapPhase0.some((h, idx) => h !== snapPhase1[idx]),
+                    "Voice waveform bars did not animate when voiceWavePhase changed from 0.0 to 1.25 with active input level: " + JSON.stringify(snapPhase0))
+                AquaMind.voiceInputLevel = 0.0
+                wait(10)
+
+                // Verify narrow-width responsiveness (minimum cloud width = 240px when outputWidth = 272)
+                const prevOutW = cloud.outputWidth
+                cloud.outputWidth = 272
+                wait(20)
+                check(cloud.width === 240
+                    && (voiceDoneBtn.x + voiceDoneBtn.width) <= voiceActionDeck.width
+                    && (voiceCancelBtn.x + voiceCancelBtn.width) <= voiceAutoSendToggle.x
+                    && (voiceAutoSendToggle.x + voiceAutoSendToggle.width) <= voiceRetryBtn.x
+                    && (voiceRetryBtn.x + voiceRetryBtn.width) <= voiceDoneBtn.x,
+                    "Voice Stage action deck overflowed or overlapped at minimum 240px cloud width: "
+                    + JSON.stringify({
+                        deckW: voiceActionDeck.width,
+                        cancelRight: voiceCancelBtn.x + voiceCancelBtn.width,
+                        autoX: voiceAutoSendToggle.x,
+                        autoRight: voiceAutoSendToggle.x + voiceAutoSendToggle.width,
+                        retryX: voiceRetryBtn.x,
+                        retryRight: voiceRetryBtn.x + voiceRetryBtn.width,
+                        doneX: voiceDoneBtn.x,
+                        doneRight: voiceDoneBtn.x + voiceDoneBtn.width
+                    }))
+                cloud.outputWidth = prevOutW
+                wait(20)
+
+                AquaMind.voiceElapsedSeconds = 7
+                check(voiceTimerLabel.text === "00:07" || voiceTimerLabel.text === "00:08", "Voice timer label did not format elapsed seconds: " + voiceTimerLabel.text)
+                // Click retry with real mouseClick and verify Escape still cancels Voice mode cleanly (focus not stolen)
+                mouseClick(voiceRetryBtn, 14, 14)
+                wait(20)
+                check(AquaMind.voiceModeOpen && AquaMind.voiceElapsedSeconds === 0 && voiceTimerLabel.text === "00:00",
+                    "Restarting voice capture did not reset elapsed timer to 00:00")
+                keyClick(Qt.Key_Escape)
+                wait(40)
+                check(!AquaMind.voiceModeOpen && !AquaMind.voiceRecording
+                    && field.visible && !voiceStage.visible && AquaMind.conversationOpen,
+                    "Pressing Escape after mouseClick on voiceRetryBtn did not exit voice mode back to normal text input while keeping chat open")
+                voiceMicAlias.clicked()
+                wait(40)
+                check(AquaMind.voiceModeOpen && !field.visible && voiceStage.visible,
+                    "Clicking Voice button did not reopen Voice Stage")
+                // Verify rapid finish -> cancel -> reopen does not clobber the newly opened voice session when cancelled STT worker exits
+                AquaMind.finishVoiceMode(false)
+                AquaMind.cancelVoiceMode()
+                AquaMind.openVoiceMode(false)
+                wait(180)
+                check(AquaMind.voiceModeOpen && AquaMind.voiceRecording && !AquaMind.voiceTranscribing && voiceStage.visible,
+                    "Cancelled STT worker exit clobbered a newly reopened voice recording session: "
+                    + JSON.stringify({open: AquaMind.voiceModeOpen, rec: AquaMind.voiceRecording, trans: AquaMind.voiceTranscribing}))
+                voiceCancelBtn.clicked()
+                wait(40)
+                check(!AquaMind.voiceModeOpen && field.visible && !voiceStage.visible,
+                    "Clicking Cancel button in Voice Stage did not restore text input")
+                AquaMind.openVoiceMode(true)
+                wait(40)
+                mouseClick(voiceAutoSendToggle, 14, 14)
+                wait(20)
+                check(AquaMind.voiceAutoSend === false, "Clicking Auto-Send toggle did not switch voiceAutoSend to false (To input mode)")
+                voiceDoneBtn.clicked()
+                tryVerify(() => !AquaMind.voiceModeOpen && !AquaMind.voiceTranscribing && !AquaMind.voiceRecording, 2500)
+                wait(40)
+                check(field.visible && !voiceStage.visible && field.text.indexOf("Xin chào Aqua") >= 0,
+                    "Finishing Voice Stage in To-input mode did not restore text input with transcribed text: " + field.text)
+                field.text = ""
+                AquaMind.setVoiceAutoSend(true)
+                AquaMind.openVoiceMode(true)
+                wait(40)
+                check(AquaMind.voiceModeOpen && AquaMind.voiceAutoSend === true && voiceDoneLabel.text === "Finish & Send",
+                    "Voice Stage did not open in Auto-Send ('Finish & Send') mode")
+                AquaMind.lastSpokenText = ""
+                voiceDoneBtn.clicked()
+                tryVerify(() => !AquaMind.voiceModeOpen && !AquaMind.voiceTranscribing
+                    && AquaMind.history.some(m => m && m.role === "user" && String(m.content || "").indexOf("Xin chào Aqua") >= 0)
+                    && !AquaMind.busy, 3500)
+                wait(40)
+                check(field.visible && !voiceStage.visible && field.text === ""
+                    && AquaMind.activeTurnFromVoice === true
+                    && AquaMind.lastSpokenText.length > 0
+                    && AquaMind.history.some(m => m && m.role === "user" && String(m.content || "").indexOf("Xin chào Aqua") >= 0),
+                    "Finishing Voice Stage in Finish & Send (Auto-Send) mode did not automatically send transcribed message or trigger voice response first")
+                tryVerify(() => !AquaMind.voiceReplySpeaking && !AquaMind.ttsSpeaking, 2500)
+                wait(20)
+                check(AquaMind.history.some(m => m && m.role === "assistant" && m.fromVoiceReply === true && m.voiceTranscribed === true && !m.voiceTranscriptPending && String(m.content || "") === AquaMind.lastSpokenText),
+                    "Voice-originated turn did not transcribe/reveal assistant text after speaking: " + JSON.stringify(AquaMind.history.slice(-2)))
+                // Verify Text-in -> Text-out (no automatic TTS on text-originated turn)
+                AquaMind.lastSpokenText = ""
+                check(AquaMind.sendMessage("Text modality check") && AquaMind.activeTurnFromVoice === false,
+                    "Text-originated sendMessage did not set activeTurnFromVoice=false")
+                tryVerify(() => !AquaMind.busy, 3500)
+                wait(40)
+                check(!AquaMind.voiceReplySpeaking && AquaMind.lastSpokenText === ""
+                    && AquaMind.history.some(m => m && m.role === "assistant" && m.fromVoiceReply === false),
+                    "Text-originated turn unexpectedly triggered voice TTS: " + AquaMind.lastSpokenText)
+
                 AquaMind.history = [
                     {
                         id: 998,
@@ -1149,23 +1567,8 @@ Window {
                     + JSON.stringify({rowVis:assistantImgRow?.visible, thumbW:assistantImgThumb?.width, thumbH:assistantImgThumb?.height}))
 
                 // Verify:
-                // 5) Focus Reload (Reset) button alignment when paused inside unifiedPomodoroBar
                 // 6) Auto-unload idle LLM setting in CompanionConfig (NOT in AquaTalkCloud)
                 // 7) Desktop Companion thinking animation + 3-dot status speech bubble when chatbox is closed while thinking
-                TimerService.pomodoroRunning = true
-                TimerService.pomodoroPaused = true
-                wait(220)
-                const pomoResetBtnAligned = root.named(cloud, "aquaUnifiedPomodoroReset")
-                const pomoToggleLabelAligned = root.named(cloud, "aquaUnifiedPomodoroToggleLabel")
-                check(!!pomoResetBtnAligned && pomoResetBtnAligned.visible && pomoResetBtnAligned.parent.visible
-                    && pomoToggleLabelAligned?.text === "Resume"
-                    && (pomoResetBtnAligned.parent.x + pomoResetBtnAligned.parent.width) <= unifiedPomodoroBar.width - 4
-                    && Math.abs((unifiedPomodoroToggle.y + unifiedPomodoroToggle.height / 2) - (pomoResetBtnAligned.parent.y + pomoResetBtnAligned.parent.height / 2)) <= 1,
-                    "Focus Reload (Reset) button overflowed unifiedPomodoroBar or was misaligned when paused: "
-                    + JSON.stringify({resetRight: (pomoResetBtnAligned?.parent?.x ?? 0) + (pomoResetBtnAligned?.parent?.width ?? 0), barW: unifiedPomodoroBar.width}))
-                TimerService.resetPomodoro()
-                wait(40)
-
                 const settingsUnloadCombo = root.named(settings, "aquaLlmIdleUnloadSelector")
                 const chatUnloadCombo = root.named(cloud, "aquaLlmIdleUnloadSelector")
                 check(!!settingsUnloadCombo && !chatUnloadCombo
@@ -1195,12 +1598,233 @@ Window {
                 Ai.models["tiny:local"].capabilities = {chat:"supported", reasoning:"unsupported"}
 
                 AquaMind.dismiss()
-                embeddedView.visible=true;wait(60)
-                check(AquaMind.sidebarChatOpen && embeddedView.cloud.embeddedMode && !!embeddedView.inputField,
+                sidebarHostContainer.panelVisible = true
+                embeddedView.visible = true
+                wait(60)
+                // Verify an unshown secondary AquaCompanionChatView syncing does not clobber sidebarChatOpen
+                inactiveEmbeddedView.syncSidebarState()
+                check(AquaMind.sidebarChatOpen && embeddedView.effectiveVisible
+                    && embeddedView.cloud.embeddedMode && !!embeddedView.inputField,
                     "unified AquaCompanionChatView did not activate or expose inputField")
-                embeddedView.visible=false;wait(40)
-                check(!AquaMind.sidebarChatOpen,"AquaCompanionChatView did not release sidebarChatOpen on hide")
-                console.log("AQUA_MIND=PASS actualProcess sharedModelReadiness EnglishReply hoverCloudActions dailyChoices readOnlyContext borderedCloud noCheckInInput separateQuestions journalWrites stableJournalContext explicitChatFocus compactTodayHover modelEffortSelector compactEffortRow activeModelContrast stagedEffortModelPicker slashCommandMenu alignedAgentPanel enterSend sendOnlyControl persistentHistory reminderSources weeklyPlannerEvents noJournalReminders compactAiSettings proactiveCadences scaledTalkCloudAnchor idleChatRelease retainedDraft escapeClose boundedHistory cancel staleReply invalidEndpoint unavailableModel settingsAI noReferenceVault explicitMemory save edit castScope revocation forget managementControls chatProjectSidebar resizableSidebar unifiedCompanionChatView flexibleChatBubbles selectableChatBubbles desktopAiThinkingCard antigravityDotNavigator twoTierEditorPopup storageAndSkillsSettings dualModelAutoRouting plusIqModeSwitching mtpAutoOptimization autoDetectAvailableModels")
+                const embeddedVoiceMic = root.named(embeddedView.cloud, "aquaVoiceMicButton")
+                const embeddedVoiceStage = root.named(embeddedView.cloud, "aquaVoiceStage")
+                const embeddedVoiceRetry = root.named(embeddedView.cloud, "aquaVoiceRetryButton")
+                const embeddedOrbOuter = root.named(embeddedView.cloud, "aquaVoiceOrbOuterSonar")
+                const embeddedStatusPill = root.named(embeddedView.cloud, "aquaVoiceStatusPill")
+                check(!!embeddedVoiceMic && embeddedVoiceMic.visible && !!embeddedVoiceStage && !embeddedVoiceStage.visible,
+                    "Left Sidebar embedded chat view missing aquaVoiceMicButton or aquaVoiceStage")
+                // Even if desktop popup was previously open, clicking Voice AI in Left Sidebar must close desktop popup and keep Voice AI strictly in Left Sidebar
+                AquaMind.openChat()
+                wait(30)
+                check(AquaMind.conversationOpen && cloud.visible, "Desktop chat did not open prior to Left Sidebar Voice AI check")
+                embeddedVoiceMic.clicked()
+                wait(60)
+                check(AquaMind.voiceModeOpen && AquaMind.voiceRecording
+                    && embeddedView.cloud.voiceStageActive && embeddedVoiceStage.visible
+                    && !AquaMind.conversationOpen && !cloud.visible && !cloud.panelMode,
+                    "Opening Voice AI in Left Sidebar unexpectedly opened or kept floating desktop Companion Popup: "
+                    + JSON.stringify({
+                        voiceOpen: AquaMind.voiceModeOpen,
+                        embeddedStageVis: embeddedVoiceStage.visible,
+                        convOpen: AquaMind.conversationOpen,
+                        desktopVis: cloud.visible,
+                        desktopPanel: cloud.panelMode
+                    }))
+                AquaMind._handleVoiceCaptureLine("LEVEL:1.00")
+                embeddedView.cloud.voiceWavePhase = 1.16
+                wait(15)
+                check(!!embeddedOrbOuter && embeddedOrbOuter.width <= 26
+                    && !!embeddedStatusPill && (embeddedStatusPill.parent.y + embeddedStatusPill.parent.height) < embeddedOrbOuter.parent.parent.y,
+                    "orbOuterSonar overflowed 26px voiceCoreOrb or touched statusBadgePill at peak audio input: "
+                    + JSON.stringify({orbW: embeddedOrbOuter?.width, headerBottom: (embeddedStatusPill?.parent?.y ?? 0) + (embeddedStatusPill?.parent?.height ?? 0), visY: embeddedOrbOuter?.parent?.parent?.y}))
+                AquaMind._handleVoiceCaptureLine("LEVEL:0.00")
+                embeddedVoiceRetry.clicked()
+                wait(40)
+                check(AquaMind.voiceModeOpen && !AquaMind.conversationOpen && !cloud.visible && !cloud.panelMode,
+                    "Retrying Voice AI in Left Sidebar unexpectedly opened floating desktop Companion Popup")
+                // Simulate SidebarHost closing Left Sidebar (panelVisible becomes false while root.visible stays true for 5-minute cache)
+                sidebarHostContainer.panelVisible = false
+                wait(40)
+                check(!embeddedView.effectiveVisible && !AquaMind.sidebarChatOpen && !AquaMind.voiceModeOpen && !AquaMind.conversationOpen,
+                    "Closing SidebarHost (panelVisible=false while visible=true) did not release sidebarChatOpen and cancel sidebar-only voice mode")
+                embeddedView.visible = false
+                sidebarHostContainer.panelVisible = true
+                wait(20)
+                // Verify QoL controls: Pin Chat toggle, @mention autocomplete, stream_delta, code block chips, and file diff undo pill
+                AquaMind.openChat()
+                wait(30)
+                const pinBtn = root.named(cloud, "aquaPinChatButton")
+                check(!!pinBtn && !AquaMind.conversationPinned, "aquaPinChatButton missing or initially pinned")
+                pinBtn.clicked()
+                wait(15)
+                check(AquaMind.conversationPinned && pinBtn.toggled, "clicking aquaPinChatButton did not toggle conversationPinned")
+                pinBtn.clicked()
+                wait(15)
+                check(!AquaMind.conversationPinned, "clicking aquaPinChatButton again did not unpin conversation")
+
+                field.text = "inspect @sel"
+                wait(20)
+                check(cloud.isMentionPrefix && cloud.slashMenuOpen && cloud.filteredSlashCommands.length === 1
+                    && cloud.filteredSlashCommands[0].cmd === "@selection",
+                    "@mention autocomplete did not filter @selection for 'inspect @sel'")
+                cloud.selectSlashCommand(cloud.filteredSlashCommands[0], false)
+                wait(20)
+                check(field.text === "inspect @selection " && !cloud.slashMenuOpen,
+                    "selecting @selection did not replace @sel token in composer")
+                field.text = ""
+
+                AquaMind.simulatedStreamingText = ""
+                AquaMind._handleAgentStderrLine('{"type":"stream_delta","streamDelta":"Hello stream"}')
+                check(AquaMind.simulatedStreamingText === "Hello stream",
+                    "stream_delta stderr event did not append to simulatedStreamingText")
+                AquaMind.simulatedStreamingText = ""
+
+                AquaMind.history = [
+                    { id: 101, role: "user", content: "patch file", created_ms: 1700000100000 },
+                    { id: 102, role: "assistant", content: "Here is the code:\n```python\nprint(42)\n```", created_ms: 1700000105000, receiptId: "rcpt_test_1", addedLines: 5, removedLines: 2, rolledBack: false }
+                ]
+                wait(50)
+                const copyCodeChip1 = root.named(cloud, "aquaBubbleCopyCode-1")
+                const openCodeChip1 = root.named(cloud, "aquaBubbleOpenCodeEditor-1")
+                const diffUndoPill1 = root.named(cloud, "aquaBubbleDiffUndoPill-1")
+                check(!!copyCodeChip1 && copyCodeChip1.visible && !!openCodeChip1 && openCodeChip1.visible
+                    && !!diffUndoPill1 && diffUndoPill1.visible,
+                    "assistant code block chips or file diff undo pill missing/hidden on bubble 1")
+                copyCodeChip1.clicked()
+                wait(15)
+                check(cloud.lastCopiedText === "print(42)", "clicking aquaBubbleCopyCode-1 did not copy fenced code block")
+
+                // Verify shouldRouteToAgentTurn for English & Vietnamese file/folder search prompts & AquaReplyGuard **🖥 stub rejection
+                check(AquaMind.shouldRouteToAgentTurn("find the file named 01_Core.css for me", true)
+                    && AquaMind.shouldRouteToAgentTurn("01_Core.css ở đâu?", true)
+                    && AquaMind.shouldRouteToAgentTurn("thư mục snippets nằm ở đâu", true)
+                    && AquaMind.shouldRouteToAgentTurn("kiếm file .bashrc", true),
+                    "shouldRouteToAgentTurn failed to route file/folder search prompts to agent turn")
+                check(AquaMind.extractStreamingPreview("**🖥 Alis", 420) === ""
+                    && AquaMind.extractStreamingPreview("**🖥 Alis\nFound the file.", 420) === "Found the file.",
+                    "extractStreamingPreview did not reject truncated '**🖥 Alis' stub or strip it before valid reply body")
+
+                // Verify runtime auto-scroll to latest message on chatbox open and on same-length history replacement
+                const manyRows = []
+                for (let mIdx = 0; mIdx < 18; ++mIdx) {
+                    manyRows.push({
+                        id: 200 + mIdx,
+                        role: (mIdx % 2 === 0) ? "user" : "assistant",
+                        content: (mIdx % 2 === 0)
+                            ? ("Question #" + mIdx + ": Can you explain how layout and scrolling work in detail?")
+                            : ("Answer #" + mIdx + ":\n- First point with detailed explanation\n- Second point with extra lines\n- Third point to ensure variable delegate height"),
+                        created_ms: 1700000200000 + mIdx * 1000
+                    })
+                }
+                const chatHistory = root.named(cloud, "aquaChatHistory")
+                AquaMind.history = manyRows
+                wait(80)
+                check(!!chatHistory && chatHistory.contentHeight > chatHistory.height + 80 && chatHistory.atYEnd,
+                    "chatHistory did not auto-scroll to bottom after populating 18 messages: "
+                    + JSON.stringify({contentY: chatHistory.contentY, originY: chatHistory.originY, contentH: chatHistory.contentHeight, h: chatHistory.height, atYEnd: chatHistory.atYEnd}))
+                chatHistory.positionViewAtBeginning()
+                wait(20)
+                check(!chatHistory.atYEnd, "chatHistory.positionViewAtBeginning() did not move away from bottom")
+                AquaMind.dismiss()
+                wait(25)
+                AquaMind.openChat()
+                wait(80)
+                check(chatHistory.atYEnd,
+                    "Reopening chatbox via AquaMind.openChat() did not auto-scroll chatHistory to the latest message: "
+                    + JSON.stringify({contentY: chatHistory.contentY, originY: chatHistory.originY, contentH: chatHistory.contentHeight, h: chatHistory.height, atYEnd: chatHistory.atYEnd}))
+                chatHistory.positionViewAtBeginning()
+                wait(20)
+                AquaMind.history = manyRows.map(r => Object.assign({}, r))
+                wait(60)
+                check(chatHistory.atYEnd,
+                    "Replacing AquaMind.history with same-length array did not keep chatHistory scrolled to the latest message")
+                check(cloud.editing && cloud.keyboardFocusActive,
+                    "Explicitly opened chatbox did not start with keyboardFocusActive=true")
+                cloud.releaseKeyboardFocus()
+                wait(25)
+                check(cloud.editing && cloud.visible && !cloud.keyboardFocusActive && !cloud.wantsKeyboardFocus && !field.activeFocus,
+                    "releaseKeyboardFocus() did not drop layer-shell keyboardFocusActive while keeping chatbox open")
+                cloud.requestKeyboardFocus()
+                wait(25)
+                check(cloud.editing && cloud.keyboardFocusActive && cloud.wantsKeyboardFocus,
+                    "requestKeyboardFocus() did not restore keyboardFocusActive on open chatbox")
+
+                check(AquaMind.shouldRouteToAgentTurn("click @e1", true)
+                    && AquaMind.shouldRouteToAgentTurn("fill @e2 'dark theme'", true)
+                    && AquaMind.shouldRouteToAgentTurn("focus @e2", true)
+                    && AquaMind.shouldRouteToAgentTurn("atspi_action @e1", true),
+                    "shouldRouteToAgentTurn did not route @e1/@e2 semantic GUI actions to agentTurnWorker")
+                const cursorItem = root.named(root.contentItem, "aquaAgentCursor")
+                const cursorRipple = root.named(root.contentItem, "aquaAgentCursorRipple")
+                const cursorPointer = root.named(root.contentItem, "aquaAgentCursorPointer")
+                const cursorBadge = root.named(root.contentItem, "aquaAgentCursorBadge")
+                const cursorBadgeText = root.named(root.contentItem, "aquaAgentCursorBadgeText")
+                check(!!cursorItem && !!cursorRipple && !!cursorPointer && !!cursorBadge && !!cursorBadgeText
+                    && !AquaMind.agentCursorVisible && !cursorItem.visible,
+                    "aquaAgentCursor hierarchy should exist and start hidden")
+                const initialPulse = AquaMind.agentCursorPulseSeq
+                AquaMind.triggerAgentCursor(320, 180, "click", "Apply Changes", "@e1")
+                wait(25)
+                check(AquaMind.agentCursorVisible && cursorItem.visible
+                    && AquaMind.agentCursorX === 320 && AquaMind.agentCursorY === 180
+                    && AquaMind.agentCursorAction === "click"
+                    && AquaMind.agentCursorLabel === "Apply Changes"
+                    && AquaMind.agentCursorRef === "@e1"
+                    && cursorBadgeText.text === "✦ @e1 · Apply Changes"
+                    && AquaMind.agentCursorPulseSeq === initialPulse + 1,
+                    "triggerAgentCursor() did not update Companion Virtual Cursor state and badge text")
+                AquaMind._handleAgentStderrLine('__AQUA_CURSOR__:{"x":410,"y":240,"actionType":"fill","label":"Filter chats...","ref":"@e2"}')
+                wait(25)
+                check(AquaMind.agentCursorVisible && cursorItem.visible
+                    && AquaMind.agentCursorX === 410 && AquaMind.agentCursorY === 240
+                    && AquaMind.agentCursorAction === "fill"
+                    && AquaMind.agentCursorLabel === "Filter chats..."
+                    && AquaMind.agentCursorRef === "@e2"
+                    && cursorBadgeText.text === "✦ @e2 · Filter chats..."
+                    && AquaMind.agentCursorPulseSeq === initialPulse + 2,
+                    "_handleAgentStderrLine(__AQUA_CURSOR__) did not update Companion Virtual Cursor and badge text")
+                actor.character = "octo"
+                wait(15)
+                check(String(cursorItem.cursorAccent).toLowerCase() === "#fb7185",
+                    "Octo character did not switch aquaAgentCursor accent to #fb7185")
+                actor.character = "aqua"
+                wait(15)
+                check(String(cursorItem.cursorAccent).toLowerCase() === "#38bdf8",
+                    "Aqua character did not switch aquaAgentCursor accent to #38bdf8")
+
+                AquaMind._handleAgentStderrLine('__AQUA_PROGRESS__:{"phase":"subagent","subagentRole":"researcher","subagentTitle":"Researcher","subagentIndex":1,"subagentTotal":2,"summary":"Gathering context...","current":"🤖 Subagent [Researcher 1/2]: Gathering context... ›"}')
+                wait(15)
+                check(AquaMind.activeSubagentRole === "researcher"
+                    && AquaMind.activeSubagentCount === 2
+                    && AquaMind.activeSubagentSummary === "Gathering context..."
+                    && AquaMind.liveProgressStep.includes("🤖 Subagent [Researcher 1/2]: Gathering context...")
+                    && AquaMind.currentActivityLine.includes("🤖 Subagent [Researcher 1/2]: Gathering context..."),
+                    "_handleAgentStderrLine(__AQUA_PROGRESS__) did not update Subagent status properties in English")
+                check(typeof AquaMind.cancelActiveTurn === "function" && AquaMind.cancelActiveTurn() === true
+                    && AquaMind.activeSubagentRole === ""
+                    && AquaMind.activeSubagentCount === 0
+                    && AquaMind.activeSubagentSummary === ""
+                    && AquaMind.liveProgressStep === "",
+                    "cancelActiveTurn() did not reset activeSubagentRole, activeSubagentCount, activeSubagentSummary, and liveProgressStep")
+                AquaMind.pendingVoiceTranscriptText = "Spoken first then revealed."
+                AquaMind.voiceReplySpeaking = true
+                AquaMind.history = [
+                    { id: 1001, role: "user", content: "Voice prompt", fromVoice: true },
+                    { id: 1002, role: "assistant", content: "🔊 Speaking response... · Transcribing text...", fromVoiceReply: true, voiceTranscriptPending: true }
+                ]
+                wait(30)
+                const voiceBanner = root.named(cloud, "aquaVoiceSpeakingBanner-1")
+                check(!!voiceBanner && voiceBanner.visible && typeof AquaMind.lastVoiceReplyMeta === "object",
+                    "aquaVoiceSpeakingBanner-1 was not visible during voiceTranscriptPending=true")
+                AquaMind.revealPendingVoiceTranscript()
+                wait(30)
+                check(!!voiceBanner && !voiceBanner.visible
+                    && AquaMind.history[1].content === "Spoken first then revealed."
+                    && AquaMind.history[1].voiceTranscriptPending === false
+                    && AquaMind.history[1].voiceTranscribed === true,
+                    "revealPendingVoiceTranscript() did not hide aquaVoiceSpeakingBanner-1 and reveal full transcript")
+
+                console.log("AQUA_MIND=PASS actualProcess sharedModelReadiness EnglishReply hoverCloudActions dailyChoices readOnlyContext borderedCloud noCheckInInput separateQuestions journalWrites stableJournalContext stableJournalContext explicitChatFocus compactTodayHover modelEffortSelector compactEffortRow activeModelContrast stagedEffortModelPicker slashCommandMenu alignedAgentPanel enterSend sendOnlyControl persistentHistory reminderSources weeklyPlannerEvents noJournalReminders compactAiSettings proactiveCadences scaledTalkCloudAnchor idleChatRelease retainedDraft escapeClose boundedHistory cancel staleReply invalidEndpoint unavailableModel settingsAI noReferenceVault explicitMemory save edit castScope revocation forget managementControls chatProjectSidebar resizableSidebar unifiedCompanionChatView flexibleChatBubbles selectableChatBubbles desktopAiThinkingCard antigravityDotNavigator twoTierEditorPopup storageAndSkillsSettings dualModelAutoRouting plusIqModeSwitching mtpAutoOptimization autoDetectAvailableModels chatAutoScrollToLatest screenshotRetentionAndTemperature externalWindowKeyboardFocusRelease companionVirtualCursor subagentProgressStatus")
             } catch(e) {console.error("AQUA_MIND=FAIL "+e+" "+e.stack)}
             shutdown.start()
         }

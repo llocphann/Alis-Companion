@@ -55,6 +55,7 @@ unsafe_replies=[
     "Hello [[ Function:",
     "x"*421+" [[ Function: open_file({}) ]]",
     "x"*421+" <thi\x01nk>private fixture</thi\x01nk>",
+    "**🖥 Alis",
 ]
 removed_controls=[chr(code) for code in range(32) if code not in (9,10,13)]+[chr(127)]
 for control in removed_controls:
@@ -91,6 +92,7 @@ benign_replies=[
     ("I would not delete your files.","I would not delete your files."),
     ("First point.   \r\n\n\n\n- Detail one.  \n- Detail two.","First point.\n\n- Detail one.\n- Detail two."),
     ("Line one.  \r\r\rLine two.","Line one.\n\nLine two."),
+    ("**🖥 Alis\nFound the file.","Found the file."),
 ]
 for reply,text in benign_replies:
     assert mod.public_text(reply)==text

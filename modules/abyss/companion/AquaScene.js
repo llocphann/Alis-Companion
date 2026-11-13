@@ -39,7 +39,7 @@ function fromParticipants(base, participants, modules) {
     const keys=Object.keys(participants ?? {})
     // Capacity overflow fails closed rather than dropping a visible obstacle.
     if (keys.length>40) return Object.assign({},base,{records:records,blockers:[],surfaces:null})
-    const dockSuppressed=["settings","dashboard","controls","aux","clipboard","utility"].some(k=>{
+    const dockSuppressed=["settings","dashboard","nexus","controls","aux","clipboard","utility"].some(k=>{
         const s=participants?.[k]?.geometry?.surface
         return !!s && s.width>0 && s.height>0
     })
@@ -57,7 +57,7 @@ function fromParticipants(base, participants, modules) {
         // Match the shared field's visible-record rule, including custom IPC
         // participants without a body-host progress property.
         if (r.width<=0 || r.height<=0) continue
-        const minTopY=key==="settings" && geometry.edge==="bottom" && r.y>0
+        const minTopY=(key==="settings" || key==="dashboard" || key==="nexus") && geometry.edge==="bottom" && r.y>0
             ? Math.ceil(Math.max(2,(Number(base.insets?.top)||0)+4*(base.scale||1)+2)+base.hostHeight+Math.max(2,2*(base.scale||1)))
             : r.y
         const topY=r.y<minTopY && r.y+r.height>minTopY+1 ? minTopY : r.y
@@ -188,7 +188,7 @@ function homePoint(scene, preferredEdge, preferredAlong) {
     const span=horizontal ? scene.hostWidth : scene.hostHeight
     const desired=extent*along, gap=Math.max(2,2*scene.scale)
     for (const surface of scene.surfaces) {
-        if (surface.key!=="settings" || surface.edge!==edge) continue
+        if ((surface.key!=="settings" && surface.key!=="dashboard" && surface.key!=="nexus") || surface.edge!==edge) continue
         const r=surface.rect, margin=Math.min(Number(surface.radius)||0,(horizontal ? r.width : r.height)/2)
         const start=horizontal ? r.x : r.y, size=horizontal ? r.width : r.height
         if (desired<start || desired>start+size) continue
@@ -301,7 +301,8 @@ function landingBelow(scene, point) {
         if (next.y>=point.y+.1 && point.x>=floor.from && point.x+scene.hostWidth<=floor.to
                 && clearSegment(scene,point,next) && supportAt(scene,next))
             return annotate(scene,next,"bottom",floor.key==="bottom" ? "edge" : "surface",floor.key)
-        if (floor.key==="bottom") {
+        if (floor.key==="bottom" && Array.isArray(scene.excludeKeys) && scene.excludeKeys.length>0
+                && scene.blockers.some(b=>scene.excludeKeys.includes(b.key) && Slots.intersects(rect(scene,next),b,1.5))) {
             const shifted=edgePoint(scene,"bottom",(point.x+scene.hostWidth/2)/scene.width)
             if (shifted.qualified && shifted.y>=point.y+.1
                     && (clearSegment(scene,point,shifted) || path(scene,point,shifted).qualified)

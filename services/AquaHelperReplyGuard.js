@@ -29,7 +29,9 @@ function history(result) {
             object(row) && positiveId(row.id) && ["user", "assistant"].includes(row.role)
             && string(row.content, 6000, false)
             && integer(row.createdMs, 0, Number.MAX_SAFE_INTEGER)
-            && string(row.model, 160, true))
+            && string(row.model, 160, true)
+            && (row.interrupted === undefined || typeof row.interrupted === "boolean")
+            && (row.stopReason === undefined || string(row.stopReason, 64, true)))
 }
 
 function context(result) {
@@ -137,6 +139,8 @@ function validResult(action, result) {
         && typeof result.dryRun === "boolean"
         && Array.isArray(result.providers)
         && string(result.summary, 320, false)
+    if (action === "voice_action") return (typeof result.ok === "boolean" || ["completed", "failed"].includes(result.status))
+        && (result.summary === undefined || string(result.summary, 400, false))
     if (action === "model_route") return ["action", "thinking"].includes(result.role)
         && string(result.roleLabel, 64, false)
         && string(result.category, 64, false)
@@ -154,10 +158,15 @@ function validResult(action, result) {
     if (action === "agent_rules") return Array.isArray(result.rules) || typeof result.triggered === "boolean" || typeof result.deleted === "boolean"
     if (action === "agent_status") return integer(result.contractVersion, 1, 10)
         && Array.isArray(result.reconciledRuns) && object(result.sessionContext) && object(result.permissions)
+    if (action === "screenshot_retention") return [7, 14, 30, 90].includes(result.retentionDays)
+        && Array.isArray(result.allowedDays) && integer(result.prunedCount, 0, Number.MAX_SAFE_INTEGER)
+        && integer(result.remainingCount, 0, Number.MAX_SAFE_INTEGER)
     if (action === "rag_action") return ["list", "add", "remove", "query"].includes(result.op)
         && (Array.isArray(result.sources) || Array.isArray(result.snippets))
     if (action === "mcp_action") return ["list_servers", "add_server", "remove_server", "enable_server", "disable_server", "check_updates", "update_server", "list_tools", "call_tool", "list_resources", "read_resource", "list_prompts"].includes(result.op)
     if (action === "skill_action") return ["list", "inspect", "view", "reference", "match", "run", "create", "patch", "learn", "write_reference", "feedback", "reflections", "enable", "disable", "delete"].includes(result.op)
+    if (action === "swarm_action") return ["get", "run", "post", "add_member", "remove_member", "stop", "clear"].includes(result.op)
+        && object(result.swarm) && Array.isArray(result.swarm.members) && Array.isArray(result.swarm.board) && object(result.swarm.graph)
     if (action === "chat_threads") return ["list", "create_thread", "select_thread", "rename_thread", "pin_thread", "move_thread", "delete_thread", "clear_thread", "duplicate_thread", "search_threads", "create_project", "rename_project", "pin_project", "toggle_project_collapsed", "move_project", "delete_project"].includes(result.op)
         && string(result.activeThreadId, 128, false)
         && Array.isArray(result.threads) && result.threads.length <= 200
@@ -173,9 +182,42 @@ function validResult(action, result) {
     if (action === "history") return history(result)
     if (action === "history_append") return positiveId(result.userMessageId)
         && positiveId(result.assistantMessageId) && result.assistantMessageId > result.userMessageId
+    if (action === "history_append_cancelled") return typeof result.saved === "boolean"
+        && typeof result.interrupted === "boolean"
+        && string(result.stopReason, 64, true)
+        && ((result.saved === false && result.userMessageId === 0 && result.assistantMessageId === 0)
+            || (result.saved === true && positiveId(result.userMessageId) && positiveId(result.assistantMessageId) && result.assistantMessageId > result.userMessageId))
+    if (action === "read_spill") return result.ok === true
+        && string(result.sessionId, 128, false)
+        && string(result.spillId, 128, false)
+        && path(result.path, false)
+        && integer(result.totalLines, 0, Number.MAX_SAFE_INTEGER)
+        && typeof result.content === "string" && result.content.length <= 131072
+    if (action === "context_enqueue") return result.queued === true
+        && string(result.sessionId, 128, false)
+        && integer(result.pendingCount, 0, 128)
+    if (action === "context_drain") return string(result.sessionId, 128, false)
+        && typeof result.hasUpdates === "boolean"
+        && typeof result.contextBlock === "string" && result.contextBlock.length <= 65536
     if (action === "history_clear") return result.cleared === true
     if (action === "context") return context(result)
     if (action === "check_in") return checkIn(result)
+    if (action === "voice_tts_stop") return typeof result.stopped === "boolean"
+        && (result.summary === undefined || string(result.summary, 400, false))
+    if (action === "file_receipt_rollback") return ["rollback"].includes(result.op)
+        && ["completed", "failed"].includes(result.status)
+        && path(result.targetPath, true)
+        && string(result.summary, 320, false)
+    if (action === "primary_selection_get") return typeof result.ok === "boolean"
+        && typeof result.text === "string"
+        && ["primary", "clipboard", "none"].includes(result.source)
+    if (action === "export_finetune") return result.op === "export_finetune"
+        && path(result.outputPath || result.path, false)
+        && integer(result.count, 0, Number.MAX_SAFE_INTEGER)
+    if (action === "pocket_save_item") return result.saved === true
+        && path(result.path, false)
+        && string(result.name, 255, false)
+        && Array.isArray(result.items)
     if (action === "chat") return chat(result)
     if (action === "probe") return probe(result)
     return false
@@ -184,9 +226,12 @@ function validResult(action, result) {
 function invalid() { return {ok:false, malformed:true, error:{message:invalidMessage}} }
 
 function parse(action, raw, exitCode) {
-    if (typeof raw !== "string" || raw.length > (["memory_list", "agent_file_op", "agent_turn", "rag_action", "mcp_action", "skill_action", "agent_status", "chat_threads", "history", "history_append", "history_clear"].includes(action) ? 786432 : 32768) || exitCode !== 0) return invalid()
+    if (typeof raw !== "string" || raw.length > (["memory_list", "agent_file_op", "file_receipt_rollback", "read_spill", "context_enqueue", "context_drain", "primary_selection_get", "export_finetune", "pocket_save_item", "agent_turn", "rag_action", "mcp_action", "skill_action", "swarm_action", "agent_status", "chat_threads", "history", "history_append", "history_append_cancelled", "history_clear"].includes(action) ? 786432 : 32768) || exitCode !== 0) return invalid()
+    const cleaned = raw.indexOf("__AQUA_") !== -1
+        ? raw.split("\n").filter(ln => !ln.startsWith("__AQUA_CURSOR__:") && !ln.startsWith("__AQUA_STEP__:") && !ln.startsWith("__AQUA_SWARM__:")).join("\n")
+        : raw
     let envelope
-    try { envelope = JSON.parse(raw) } catch (e) { return invalid() }
+    try { envelope = JSON.parse(cleaned) } catch (e) { return invalid() }
     if (!object(envelope) || typeof envelope.ok !== "boolean") return invalid()
     if (envelope.ok === false) {
         if (!object(envelope.error) || !string(envelope.error.message, 160, false)) return invalid()

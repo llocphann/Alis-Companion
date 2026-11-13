@@ -40,7 +40,11 @@ Singleton {
         opened=true
         return dispatch("list",null)
     }
-    function addFiles(values, source): bool {
+    function refresh(): bool {
+        if (!canSelect) return false
+        return dispatch("list",null)
+    }
+    function addFiles(values, source, openFloating = true): bool {
         const selection=Policy.urls(values)
         if (!selection || !["picker","drop"].includes(source)) {
             notice="Choose up to eight local files at a time."
@@ -48,7 +52,8 @@ Singleton {
         }
         if (!dispatch("add",{urls:selection,source:source})) return false
         if (source === "picker") {
-            opened=true
+            if (openFloating !== false)
+                opened=true
             filesSwallowed(selection.length)
         }
         return true

@@ -377,24 +377,62 @@ def advance_turn(run_id, error_signature="", token_delta=None, checkpoint=None, 
     }
 
 
-def finish_run(run_id, status="completed", checkpoint=None, now_ms=None):
-    ts = _now_ms(now_ms)
+def finish_run(
+    run_id,
+    status="completed",
+    checkpoint=None,
+    now_ms=None,
+    final_reply="",
+    interrupted=False,
+    stop_reason="",
+    partial_reasoning="",
+):
     with closing(_connect()) as db:
         row = db.execute("SELECT * FROM agent_runs WHERE run_id = ?", (str(run_id),)).fetchone()
         if not row:
             return None
-        cp = checkpoint if isinstance(checkpoint, dict) else json.loads(row["checkpoint_json"] or "{}")
+        ts = (
+            int(row["updated_ms"])
+            if (now_ms is None and str(row["status"]) == str(status) and row["updated_ms"])
+            else _now_ms(now_ms)
+        )
+        try:
+            cp = json.loads(row["checkpoint_json"] or "{}")
+            if not isinstance(cp, dict):
+                cp = {}
+        except Exception:
+            cp = {}
+        if isinstance(checkpoint, dict):
+            cp.update(checkpoint)
+        if final_reply:
+            cp["finalReply"] = str(final_reply)[:12000]
+        if interrupted or str(status) == "cancelled":
+            has_prefix = bool(str(final_reply or "").strip() or str(partial_reasoning or "").strip())
+            cp["stopReason"] = str(stop_reason or "cancelled")
+            cp["interrupted"] = bool(interrupted or has_prefix)
+            if partial_reasoning:
+                cp["partialReasoning"] = str(partial_reasoning)[:12000]
+            if final_reply:
+                cp["partialContent"] = str(final_reply)[:12000]
         db.execute(
             "UPDATE agent_runs SET status = ?, updated_ms = ?, checkpoint_json = ? WHERE run_id = ?",
-            (str(status), ts, json.dumps(cp), str(run_id)),
+            (str(status), ts, json.dumps(cp, ensure_ascii=False), str(run_id)),
         )
         db.commit()
     return get_run(run_id)
 
 
-def cancel_active_runs(reason="cancelled_by_user", now_ms=None):
+def cancel_active_runs(
+    reason="cancelled_by_user",
+    now_ms=None,
+    partial_content="",
+    partial_reasoning="",
+):
     ts = _now_ms(now_ms)
     cancelled_ids = []
+    clean_content = str(partial_content or "").strip()
+    clean_reasoning = str(partial_reasoning or "").strip()
+    has_prefix = bool(clean_content or clean_reasoning)
     with closing(_connect()) as db:
         rows = db.execute(
             "SELECT * FROM agent_runs WHERE status IN ('running', 'awaiting_confirmation')"
@@ -403,9 +441,16 @@ def cancel_active_runs(reason="cancelled_by_user", now_ms=None):
             cp = json.loads(row["checkpoint_json"] or "{}")
             cp["cancelledReason"] = str(reason)
             cp["cancelledAtMs"] = ts
+            cp["stopReason"] = "cancelled"
+            cp["interrupted"] = has_prefix or bool(cp.get("interrupted", False))
+            if clean_content:
+                cp["partialContent"] = clean_content[:12000]
+                cp["finalReply"] = clean_content[:12000]
+            if clean_reasoning:
+                cp["partialReasoning"] = clean_reasoning[:12000]
             db.execute(
                 "UPDATE agent_runs SET status = 'cancelled', updated_ms = ?, checkpoint_json = ? WHERE run_id = ?",
-                (ts, json.dumps(cp), row["run_id"]),
+                (ts, json.dumps(cp, ensure_ascii=False), row["run_id"]),
             )
             cancelled_ids.append(row["run_id"])
         db.commit()

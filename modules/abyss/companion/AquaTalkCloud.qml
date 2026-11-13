@@ -5,12 +5,14 @@ import QtQuick.Layouts
 import qs.services
 import "../../../services"
 import qs.modules.common
+import qs.modules.common.functions
 import qs.modules.common.widgets
 import qs.modules.abyss.looks
 
 // One question offers one choice row. Only explicit chat requests input focus.
 Item {
     id: root
+    objectName: embeddedMode ? "aquaCompanionEmbeddedCloud" : "aquaTalkCloud"
     property Item actor: null
     property real outputWidth: 420
     property real outputHeight: 680
@@ -19,6 +21,63 @@ Item {
     property bool embeddedMode: false
     readonly property alias inputField: message
     readonly property bool hasSidebarInputFocus: chatSidebar.visible && chatSidebar.hasActiveInputFocus
+    property bool wantsKeyboardFocus: false
+    property bool swarmOpen: false
+    readonly property AquaSwarmPane activeSwarmPane: (root.visible && swarmPaneLoader.active) ? (swarmPaneLoader.item as AquaSwarmPane) : null
+    readonly property bool hasSwarmInputFocus: Boolean(activeSwarmPane && activeSwarmPane.visible && activeSwarmPane.hasActiveInputFocus)
+    readonly property bool hasActiveTextInputFocus: message.activeFocus || editorTextArea.activeFocus || clarificationCustomField.activeFocus || root.hasSidebarInputFocus || root.hasSwarmInputFocus || root.anySelectableTextFocused || root.voiceStageActive
+    readonly property bool keyboardFocusActive: root.visible && (root.wantsKeyboardFocus || root.hasActiveTextInputFocus)
+    readonly property bool cloudHovered: root.visible && talkCloudHover.hovered
+    readonly property AquaPocketPane activePocketPane: (root.visible && pocketPaneLoader.active) ? (pocketPaneLoader.item as AquaPocketPane) : null
+    readonly property Item pocketPaneItem: (activePocketPane && activePocketPane.visible) ? activePocketPane : null
+    readonly property bool pocketPaneHovered: Boolean(activePocketPane && activePocketPane.visible && activePocketPane.hovered)
+    readonly property bool popupOpen: root.visible && !root.embeddedMode && (root.panelMode || root.editing || root.swarmOpen || root.pocketOpen || AquaMind.conversationOpen || AquaMind.contextOpen || root.voiceStageActive || AquaMind.text.length > 0)
+    PointHandler {
+        id: talkCloudFocusTap
+        acceptedButtons: Qt.AllButtons
+        onActiveChanged: {
+            if (active && root.visible && !root.embeddedMode) {
+                root.wantsKeyboardFocus = true;
+                Qt.callLater(() => {
+                    if (root.visible && !root.embeddedMode && !root.hasActiveTextInputFocus)
+                        root.focusPrimaryInput();
+                });
+            }
+        }
+    }
+    HoverHandler {
+        id: talkCloudHover
+        blocking: false
+    }
+    onHasSidebarInputFocusChanged: if (hasSidebarInputFocus)
+        root.wantsKeyboardFocus = true
+    onHasSwarmInputFocusChanged: if (hasSwarmInputFocus)
+        root.wantsKeyboardFocus = true
+    function focusPrimaryInput(): void {
+        root.wantsKeyboardFocus = true;
+        if (root.hasSwarmInputFocus && root.activeSwarmPane) {
+            root.activeSwarmPane.focusComposer();
+        } else if (root.editing && !root.voiceStageActive && message.visible && message.enabled) {
+            message.forceActiveFocus();
+        } else {
+            root.forceActiveFocus();
+        }
+    }
+    function requestKeyboardFocus(): void {
+        root.wantsKeyboardFocus = true;
+        root.focusPrimaryInput();
+    }
+    function releaseKeyboardFocus(): void {
+        root.wantsKeyboardFocus = false;
+        if (message.activeFocus)
+            message.focus = false;
+        if (editorTextArea.activeFocus)
+            editorTextArea.focus = false;
+        if (clarificationCustomField.activeFocus)
+            clarificationCustomField.focus = false;
+        if (root.activeFocus)
+            root.focus = false;
+    }
     // 0 = closed, 1 = thinking effort, 2 = model picker.
     property int profileStage: 0
     property int lastProfileStage: 0
@@ -32,30 +91,105 @@ Item {
         onTriggered: root.effortClosingHold = false
     }
     function triggerEffortSlideClose(): void {
-        root.lastProfileStage = 1
+        root.lastProfileStage = 1;
         if (AquaMind.liveModelAutoDetectAllowed) {
-            root.effortClosingHold = true
-            effortCloseHoldTimer.restart()
+            root.effortClosingHold = true;
+            effortCloseHoldTimer.restart();
         } else {
-            root.effortClosingHold = false
+            root.effortClosingHold = false;
         }
-        root.profileStage = 0
-        Qt.callLater(() => { if (root.editing) message.forceActiveFocus() })
+        root.profileStage = 0;
+        Qt.callLater(() => {
+            if (root.editing)
+                message.forceActiveFocus();
+        });
     }
     onProfileStageChanged: {
         if (profileStage !== 0) {
-            root.lastProfileStage = profileStage
-            root.effortClosingHold = false
-            effortCloseHoldTimer.stop()
-            root.slashMenuDismissed = true
-            root.chatCheckInField = "none"
+            root.lastProfileStage = profileStage;
+            root.effortClosingHold = false;
+            effortCloseHoldTimer.stop();
+            root.slashMenuDismissed = true;
         } else {
-            root.modelPickerRole = "primary"
+            root.modelPickerRole = "primary";
         }
     }
-    readonly property bool pocketOpen: AquaPocket.opened && AquaPocket.permitted
-    readonly property bool editing: visible && (embeddedMode || AquaMind.conversationOpen) && !pocketOpen
+    property bool embeddedPocketOpen: false
+    readonly property bool pocketOpen: (root.embeddedMode ? root.embeddedPocketOpen : AquaPocket.opened) && AquaPocket.permitted
+    Connections {
+        target: AquaPocket
+        function onPermittedChanged(): void {
+            if (!AquaPocket.permitted)
+                root.embeddedPocketOpen = false;
+        }
+    }
+    onPocketOpenChanged: {
+        if (pocketOpen)
+            root.swarmOpen = false;
+        if (pocketOpen && !embeddedMode) {
+            sidebarOpen = false;
+            if (AquaMind.editorPopupOpen)
+                AquaMind.closeEditorPopup();
+        }
+    }
+    readonly property bool editing: (embeddedMode ? (parent?.objectName === "aquaCompanionChatView" ? Boolean(parent.hostSidebarOpen) : visible) : (visible && AquaMind.conversationOpen)) && !pocketOpen
     readonly property bool editorMode: root.editing && AquaMind.editorPopupOpen && AquaMind.editorFilePath.length > 0
+    readonly property bool voiceStageActive: root.editing && (AquaMind.voiceModeOpen || AquaMind.voiceRecording || AquaMind.voiceTranscribing)
+    readonly property real activeVoiceLevel: Math.max(0.0, Math.min(1.0, Number(AquaMind.voiceInputLevel) || 0.0))
+    readonly property bool hasVoiceAudioInput: AquaMind.voiceRecording && !AquaMind.voiceTranscribing && root.activeVoiceLevel > 0.02
+    readonly property color voiceAccentColor: AquaMind.voiceTranscribing ? (Appearance.colors.colTertiary ?? Appearance.colors.colPrimary) : Appearance.colors.colPrimary
+    readonly property color voiceContainerColor: AquaMind.voiceTranscribing ? (Appearance.colors.colTertiaryContainer ?? Appearance.colors.colPrimaryContainer) : Appearance.colors.colPrimaryContainer
+    readonly property color voiceOnAccentColor: AquaMind.voiceTranscribing ? (Appearance.colors.colOnTertiary ?? Appearance.colors.colOnPrimary) : Appearance.colors.colOnPrimary
+    readonly property color voiceOnContainerColor: AquaMind.voiceTranscribing ? (Appearance.colors.colOnTertiaryContainer ?? Appearance.colors.colOnPrimaryContainer) : Appearance.colors.colOnPrimaryContainer
+    readonly property color voiceLayer1Color: Appearance.colors.colLayer1.a < 0.85 ? (Appearance.colors.colLayer1Base ?? Appearance.colors.colLayer1) : Appearance.colors.colLayer1
+    readonly property color voiceLayer2Color: Appearance.colors.colLayer2.a < 0.85 ? (Appearance.colors.colLayer2Base ?? Appearance.colors.colLayer2) : Appearance.colors.colLayer2
+    property real voiceWavePhase: 0.0
+    Timer {
+        id: voiceWaveAnimTimer
+        interval: 55
+        repeat: true
+        running: root.visible && root.voiceStageActive && (root.hasVoiceAudioInput || AquaMind.voiceTranscribing)
+        onTriggered: root.voiceWavePhase = (root.voiceWavePhase + 0.24) % (Math.PI * 64)
+    }
+    function formatVoiceTimer(sec): string {
+        const s = Math.max(0, Math.floor(Number(sec) || 0));
+        const m = Math.floor(s / 60);
+        const r = s % 60;
+        return (m < 10 ? "0" + m : String(m)) + ":" + (r < 10 ? "0" + r : String(r));
+    }
+    function voiceBarHeight(index, total, phase, recording, transcribing, inputLevel = 0.0): real {
+        const count = Math.max(2, Number(total) || 32);
+        const norm = index / Math.max(1, count - 1);
+        const envelope = Math.sin(norm * Math.PI);
+        if (transcribing) {
+            const shimmer = 0.5 + 0.5 * Math.sin(phase * 3.0 - index * 0.35);
+            return Math.round(4 + (3 + 11 * shimmer) * (0.35 + 0.65 * envelope));
+        }
+        const level = Math.max(0.0, Math.min(1.0, Number(inputLevel) || 0.0));
+        if (!recording || level <= 0.02) {
+            return 4;
+        }
+        const w1 = Math.sin(phase * 2.5 + index * 0.48);
+        const w2 = Math.cos(phase * 1.7 - index * 0.73);
+        const w3 = Math.sin(phase * 3.8 + index * 1.19);
+        const energy = Math.max(0.12, Math.min(1.0, 0.54 + 0.26 * w1 + 0.16 * w2 + 0.12 * w3));
+        return Math.round(4 + 19 * level * energy * (0.30 + 0.70 * envelope));
+    }
+    onVoiceStageActiveChanged: {
+        if (voiceStageActive) {
+            root.profileStage = 0;
+            root.slashMenuDismissed = true;
+            Qt.callLater(() => {
+                if (root.voiceStageActive)
+                    root.forceActiveFocus();
+            });
+        } else if (root.editing) {
+            Qt.callLater(() => {
+                if (root.editing && !root.voiceStageActive)
+                    message.forceActiveFocus();
+            });
+        }
+    }
     property real editorExpandProgress: root.editorMode ? 1.0 : 0.0
     Behavior on editorExpandProgress {
         enabled: root.visible
@@ -64,128 +198,263 @@ Item {
             easing.type: Easing.OutCubic
         }
     }
+    property real swarmExpandProgress: root.swarmOpen ? 1.0 : 0.0
+    Behavior on swarmExpandProgress {
+        enabled: root.visible
+        NumberAnimation {
+            duration: 240
+            easing.type: Easing.OutCubic
+        }
+    }
     readonly property real editorScaleFactor: 1.0 + (0.5 * root.editorExpandProgress)
-    readonly property bool panelMode: embeddedMode || editing || AquaMind.contextOpen || pocketOpen
-    readonly property real bodyTop: panelMode ? ((editing && !editorMode) ? 46 : 84) : 12
-    readonly property bool controlsVisible: visible && (pocketOpen || editing || AquaMind.contextOpen || AquaMind.checkInStage.length>0)
-    property real customSidebarWidth: AquaMind.customSidebarWidth > 0 ? AquaMind.customSidebarWidth : 186
-    onCustomSidebarWidthChanged: if (AquaMind.customSidebarWidth !== customSidebarWidth) AquaMind.customSidebarWidth = customSidebarWidth
+    readonly property bool panelMode: embeddedMode || editing || swarmOpen || AquaMind.contextOpen || pocketOpen
+    readonly property real bodyTop: panelMode ? (editorMode ? 84 : 46) : 12
+    readonly property bool controlsVisible: visible && (pocketOpen || swarmOpen || editing || AquaMind.contextOpen || AquaMind.checkInStage.length > 0)
+    property real customSidebarWidth: AquaMind.customSidebarWidth > 0 ? AquaMind.customSidebarWidth : 144
+    onCustomSidebarWidthChanged: if (AquaMind.customSidebarWidth !== customSidebarWidth)
+        AquaMind.customSidebarWidth = customSidebarWidth
+    onSidebarOpenChanged: {
+        if (sidebarOpen) {
+            customSidebarWidth = minSidebarWidth;
+            AquaMind.customSidebarWidth = minSidebarWidth;
+        }
+    }
     readonly property real minSidebarWidth: 144
-    readonly property real maxSidebarWidth: embeddedMode
-        ? Math.max(180, Math.min(360, Math.round((width > 0 ? width : outputWidth) * 0.56)))
-        : Math.max(196, Math.min(340, Math.round((outputWidth - 32) * 0.54)))
-    readonly property real sidebarWidth: (sidebarOpen && editing)
-        ? Math.max(minSidebarWidth, Math.min(maxSidebarWidth, customSidebarWidth))
-        : 0
+    readonly property real maxSidebarWidth: embeddedMode ? Math.max(180, Math.min(360, Math.round((width > 0 ? width : outputWidth) * 0.56))) : Math.max(196, Math.min(340, Math.round((outputWidth - 32) * 0.54)))
+    readonly property real sidebarWidth: (sidebarOpen && editing) ? Math.max(minSidebarWidth, Math.min(maxSidebarWidth, customSidebarWidth)) : 0
     readonly property real sidebarOffset: sidebarWidth > 0 ? (sidebarWidth + 10) : 0
     function resizeSidebarTo(targetWidth): real {
-        const clamped = Math.max(minSidebarWidth, Math.min(maxSidebarWidth, Math.round(Number(targetWidth) || 186)))
-        customSidebarWidth = clamped
-        AquaMind.customSidebarWidth = clamped
-        return sidebarWidth
+        const clamped = Math.max(minSidebarWidth, Math.min(maxSidebarWidth, Math.round(Number(targetWidth) || minSidebarWidth)));
+        customSidebarWidth = clamped;
+        AquaMind.customSidebarWidth = clamped;
+        return sidebarWidth;
+    }
+    property real customSwarmSidebarWidth: 320
+    readonly property real minSwarmSidebarWidth: 264
+    readonly property real maxSwarmSidebarWidth: embeddedMode
+        ? Math.max(280, Math.min(440, Math.round((width > 0 ? width : outputWidth) * 0.52)))
+        : Math.max(300, Math.min(460, Math.round((outputWidth - 32) * 0.52)))
+    readonly property bool swarmOverlayInNarrowEmbedded: root.embeddedMode && root.width < 540
+    readonly property real swarmSidebarTargetWidth: Math.max(minSwarmSidebarWidth, Math.min(maxSwarmSidebarWidth, customSwarmSidebarWidth))
+    readonly property real swarmSidebarWidth: (root.swarmOpen || root.swarmExpandProgress > 0.001) && root.editing
+        ? (swarmOverlayInNarrowEmbedded ? Math.max(220, root.width - 24) : Math.round(swarmSidebarTargetWidth * Math.max(0.01, root.swarmExpandProgress)))
+        : 0
+    readonly property real swarmRightOffset: (!swarmOverlayInNarrowEmbedded && root.editing && (root.swarmOpen || root.swarmExpandProgress > 0.001))
+        ? (Math.round(swarmSidebarTargetWidth * root.swarmExpandProgress) + 10)
+        : 0
+    function resizeSwarmSidebarTo(targetWidth): real {
+        const clamped = Math.max(minSwarmSidebarWidth, Math.min(maxSwarmSidebarWidth, Math.round(Number(targetWidth) || 320)));
+        customSwarmSidebarWidth = clamped;
+        return customSwarmSidebarWidth;
     }
     readonly property real edgeOpacity: AbyssStyle.contentOpacity
     readonly property real edgeHighlight: AbyssStyle.highlightStrength
     readonly property real edgeLift: AbyssStyle.blurRadius > 0 ? 0.024 : 0
     readonly property real edgeRadius: Math.max(12, Math.min(26, AbyssStyle.perimeterRadius))
-    readonly property color cloudColor: Qt.rgba(
-        Math.min(1, AbyssStyle.surfaceDeep.r + edgeLift),
-        Math.min(1, AbyssStyle.surfaceDeep.g + edgeLift),
-        Math.min(1, AbyssStyle.surfaceDeep.b + edgeLift),
-        edgeOpacity)
-    readonly property color cloudBorderColor: edgeHighlight > 0.01
-        ? Qt.alpha(AbyssStyle.specular, Math.max(0.08, 0.55 * edgeHighlight))
-        : Qt.alpha(AbyssStyle.textColor, 0.06)
+    readonly property color cloudColor: Qt.rgba(Math.min(1, AbyssStyle.surfaceDeep.r + edgeLift), Math.min(1, AbyssStyle.surfaceDeep.g + edgeLift), Math.min(1, AbyssStyle.surfaceDeep.b + edgeLift), edgeOpacity)
+    readonly property color cloudBorderColor: edgeHighlight > 0.01 ? Qt.alpha(AbyssStyle.specular, Math.max(0.08, 0.55 * edgeHighlight)) : Qt.alpha(AbyssStyle.textColor, 0.06)
     function edgeSurfaceColor(depthWeight): color {
-        const k = Math.max(0, Math.min(1, depthWeight * 0.38 * edgeHighlight))
-        return Qt.rgba(
-            cloudColor.r + (AbyssStyle.surfaceRaised.r - cloudColor.r) * k,
-            cloudColor.g + (AbyssStyle.surfaceRaised.g - cloudColor.g) * k,
-            cloudColor.b + (AbyssStyle.surfaceRaised.b - cloudColor.b) * k,
-            edgeOpacity)
+        const k = Math.max(0, Math.min(1, depthWeight * 0.38 * edgeHighlight));
+        return Qt.rgba(cloudColor.r + (AbyssStyle.surfaceRaised.r - cloudColor.r) * k, cloudColor.g + (AbyssStyle.surfaceRaised.g - cloudColor.g) * k, cloudColor.b + (AbyssStyle.surfaceRaised.b - cloudColor.b) * k, edgeOpacity);
     }
-    function formatPomodoroClock(sec): string {
-        const s = Math.max(0, Math.floor(Number(sec) || 0))
-        const m = Math.floor(s / 60)
-        const r = s % 60
-        return (m < 10 ? "0" + m : String(m)) + ":" + (r < 10 ? "0" + r : String(r))
-    }
-    property string chatCheckInField: ""
-    property bool forceTodayBarHover: false
-    readonly property string activeChatCheckInField: {
-        if (!editing || profileStage !== 0 || slashMenuOpen) return ""
-        if (chatCheckInField === "none") return ""
-        if (chatCheckInField === "mood" || chatCheckInField === "energy") return chatCheckInField
-        if (!AquaMind.checkInComplete) return AquaMind.userMood ? "energy" : "mood"
-        return ""
-    }
-    readonly property bool pomodoroActivelyRunning: Boolean(TimerService.pomodoroRunning && !TimerService.pomodoroPaused)
-    readonly property bool pomodoroIsPaused: Boolean(TimerService.pomodoroRunning && TimerService.pomodoroPaused)
-    function formatCheckInDisplayValue(val): string {
-        const v = String(val ?? "").trim()
-        if (!v) return "—"
-        return v.toLowerCase() === "medium" ? "mid" : v
-    }
-    readonly property bool todayBarHovered: forceTodayBarHover
-        || chatTodayHover.hovered
-        || chatMoodBtn.buttonHovered
-        || chatEnergyBtn.buttonHovered
-    readonly property bool todayBarExpanded: root.profileStage === 0
-        && !root.slashMenuOpen
-        && (!AquaMind.checkInComplete
-            || root.activeChatCheckInField !== ""
-            || root.todayBarHovered)
-    readonly property var moodOptions: [
-        {value: "terrible", label: Translation.tr("Awful")},
-        {value: "bad", label: Translation.tr("Low")},
-        {value: "okay", label: Translation.tr("Okay")},
-        {value: "good", label: Translation.tr("Good")},
-        {value: "great", label: Translation.tr("Great")}
-    ]
-    readonly property var energyOptions: [
-        {value: "drained", label: Translation.tr("Drained")},
-        {value: "low", label: Translation.tr("Low")},
-        {value: "medium", label: Translation.tr("Mid")},
-        {value: "high", label: Translation.tr("High")},
-        {value: "peak", label: Translation.tr("Peak")}
-    ]
-    function choiceLabel(field, value): string {
-        const list = field === "energy" ? root.energyOptions : root.moodOptions
-        const match = list.find(item => item.value === String(value ?? "").toLowerCase())
-        return match ? String(match.label) : String(value ?? "")
+    property var userPromptHistory: []
+    property int promptHistoryIndex: -1
+    property string promptHistoryDraft: ""
+    property int pendingJumpTurnIndex: -1
+    property string pendingJumpThreadId: ""
+    property bool stickToBottom: true
+
+    function scrollByPage(direction: int): bool {
+        const dir = Number(direction) || 0;
+        if (dir === 0 || transcript.contentHeight <= transcript.height)
+            return false;
+        const step = Math.max(60, Math.round(transcript.height * 0.55));
+        const minContentY = transcript.originY;
+        const maxContentY = transcript.originY + Math.max(0, transcript.contentHeight - transcript.height);
+        transcript.contentY = Math.max(minContentY, Math.min(maxContentY, transcript.contentY + (dir > 0 ? step : -step)));
+        root.stickToBottom = transcript.atYEnd;
+        return true;
     }
 
-    // Slash Command Menu (/) state & catalog (Antigravity / Claude / ChatGPT / Hermes style)
+    // Slash Command Menu (/) & @Mention Context Autocomplete state & catalog
     property bool slashMenuDismissed: false
     property int slashSelectedIndex: 0
+    readonly property var mentionCatalog: [
+        {
+            name: "selection",
+            cmd: "@selection",
+            usage: "@selection",
+            category: "Context",
+            icon: "select_all",
+            desc: "Attach Wayland primary selection",
+            needsArgs: true,
+            isMention: true
+        },
+        {
+            name: "clipboard",
+            cmd: "@clipboard",
+            usage: "@clipboard",
+            category: "Context",
+            icon: "content_paste",
+            desc: "Attach clipboard text",
+            needsArgs: true,
+            isMention: true
+        },
+        {
+            name: "screen",
+            cmd: "@screen",
+            usage: "@screen",
+            category: "Context",
+            icon: "screenshot_monitor",
+            desc: "Attach active window context",
+            needsArgs: true,
+            isMention: true
+        },
+        {
+            name: "pocket",
+            cmd: "@pocket",
+            usage: "@pocket",
+            category: "Context",
+            icon: "inventory_2",
+            desc: "Attach Pocket items",
+            needsArgs: true,
+            isMention: true
+        },
+        {
+            name: "git-diff",
+            cmd: "@git-diff",
+            usage: "@git-diff",
+            category: "Code",
+            icon: "difference",
+            desc: "Attach git status & diff",
+            needsArgs: true,
+            isMention: true
+        }
+    ]
     readonly property var baseSlashCommands: [
-        { name: "learn", cmd: "/learn", usage: "/learn <path-or-workflow>", category: "Hermes", icon: "school", desc: "Learn & synthesize a reusable skill from a project, session, or workflow", needsArgs: true },
-        { name: "workflow", cmd: "/workflow", usage: "/workflow", category: "Hermes", icon: "account_tree", desc: "Inspect or adapt learned workflows & self-reflections", needsArgs: false },
-        { name: "skills", cmd: "/skills", usage: "/skills", category: "Hermes", icon: "extension", desc: "List, inspect, patch, or manage agent SKILL.md packages", needsArgs: false },
-        { name: "plan", cmd: "/plan", usage: "/plan <goal>", category: "Agent", icon: "architecture", desc: "Create a structured plan for a task, project, or schedule", needsArgs: true },
-        { name: "clarify", cmd: "/clarify", usage: "/clarify <topic>", category: "Agent", icon: "psychology_alt", desc: "Ask clarifying questions with 1-3 idea choices & custom input", needsArgs: false },
-        { name: "grill-me", cmd: "/grill-me", usage: "/grill-me <goal>", category: "Agent", icon: "quiz", desc: "Interactive interview with 1-3 idea choices to align on a plan", needsArgs: false },
-        { name: "rag", cmd: "/rag", usage: "/rag <query|list|add>", category: "Knowledge", icon: "library_books", desc: "Search or manage RAG knowledge base & citations", needsArgs: false },
-        { name: "mcp", cmd: "/mcp", usage: "/mcp <tools|resources|call>", category: "Tools", icon: "hub", desc: "Inspect or invoke Model Context Protocol servers & tools", needsArgs: false },
-        { name: "git", cmd: "/git", usage: "/git status", category: "Code", icon: "commit", desc: "Inspect git status, branch, diff, or recent commits", needsArgs: false },
-        { name: "system", cmd: "/system", usage: "/system", category: "System", icon: "monitor_heart", desc: "Check CPU, RAM, disk, battery, and temperatures", needsArgs: false },
-        { name: "processes", cmd: "/processes", usage: "/processes", category: "System", icon: "memory", desc: "List top running processes by CPU and memory", needsArgs: false },
-        { name: "memory", cmd: "/memory", usage: "/memory", category: "Memory", icon: "psychology", desc: "View or save persistent Companion memories", needsArgs: false },
-        { name: "rules", cmd: "/rules", usage: "/rules", category: "Automation", icon: "rule", desc: "List or create proactive event/time automation rules", needsArgs: false },
-        { name: "permissions", cmd: "/permissions", usage: "/permissions", category: "Security", icon: "verified_user", desc: "Inspect or revoke desktop agent permissions", needsArgs: false },
-        { name: "clear", cmd: "/clear", usage: "/clear", category: "Chat", icon: "ink_eraser", desc: "Clear messages in the current chat thread", needsArgs: false }
+        {
+            name: "swarm",
+            cmd: "/swarm",
+            usage: "/swarm <goal>",
+            category: "Swarm",
+            icon: "hub",
+            desc: "Delegate goal across Swarm workers",
+            needsArgs: true
+        },
+        {
+            name: "plan",
+            cmd: "/plan",
+            usage: "/plan <goal>",
+            category: "Agent",
+            icon: "architecture",
+            desc: "Draft a structured task plan",
+            needsArgs: true
+        },
+        {
+            name: "clarify",
+            cmd: "/clarify",
+            usage: "/clarify <topic>",
+            category: "Agent",
+            icon: "psychology_alt",
+            desc: "Ask 1–3 clarifying choices",
+            needsArgs: false
+        },
+        {
+            name: "learn",
+            cmd: "/learn",
+            usage: "/learn <path-or-workflow>",
+            category: "Hermes",
+            icon: "school",
+            desc: "Synthesize a reusable skill",
+            needsArgs: true
+        },
+        {
+            name: "skills",
+            cmd: "/skills",
+            usage: "/skills",
+            category: "Hermes",
+            icon: "extension",
+            desc: "Manage agent SKILL.md packages",
+            needsArgs: false
+        },
+        {
+            name: "rag",
+            cmd: "/rag",
+            usage: "/rag <query|list|add>",
+            category: "Knowledge",
+            icon: "library_books",
+            desc: "Search or manage RAG sources",
+            needsArgs: false
+        },
+        {
+            name: "mcp",
+            cmd: "/mcp",
+            usage: "/mcp <tools|resources|call>",
+            category: "Tools",
+            icon: "hub",
+            desc: "Inspect or invoke MCP tools",
+            needsArgs: false
+        },
+        {
+            name: "git",
+            cmd: "/git",
+            usage: "/git status",
+            category: "Code",
+            icon: "commit",
+            desc: "Inspect git status and diff",
+            needsArgs: false
+        },
+        {
+            name: "system",
+            cmd: "/system",
+            usage: "/system",
+            category: "System",
+            icon: "monitor_heart",
+            desc: "Check CPU, RAM, disk, battery",
+            needsArgs: false
+        },
+        {
+            name: "memory",
+            cmd: "/memory",
+            usage: "/memory",
+            category: "Memory",
+            icon: "psychology",
+            desc: "View or save memories",
+            needsArgs: false
+        },
+        {
+            name: "permissions",
+            cmd: "/permissions",
+            usage: "/permissions",
+            category: "Security",
+            icon: "verified_user",
+            desc: "Inspect agent permissions",
+            needsArgs: false
+        },
+        {
+            name: "clear",
+            cmd: "/clear",
+            usage: "/clear",
+            category: "Chat",
+            icon: "ink_eraser",
+            desc: "Clear current chat thread",
+            needsArgs: false
+        }
     ]
     readonly property var slashCommandCatalog: {
-        const list = root.baseSlashCommands.slice()
-        const existing = {}
-        for (let i = 0; i < list.length; ++i) existing[list[i].name] = true
-        const skills = Array.isArray(AquaMind.availableSkills) ? AquaMind.availableSkills : []
+        const list = root.baseSlashCommands.slice();
+        const existing = {};
+        for (let i = 0; i < list.length; ++i)
+            existing[list[i].name] = true;
+        const skills = Array.isArray(AquaMind.availableSkills) ? AquaMind.availableSkills : [];
         for (let j = 0; j < skills.length; ++j) {
-            const sk = skills[j]
-            if (!sk || sk.enabled === false) continue
-            const sname = String(sk.name ?? "").trim().toLowerCase()
-            if (!sname || existing[sname]) continue
-            existing[sname] = true
+            const sk = skills[j];
+            if (!sk || sk.enabled === false)
+                continue;
+            const sname = String(sk.name ?? "").trim().toLowerCase();
+            if (!sname || existing[sname])
+                continue;
+            existing[sname] = true;
             list.push({
                 name: sname,
                 cmd: "/" + sname,
@@ -194,48 +463,70 @@ Item {
                 icon: sk.builtIn ? "auto_awesome" : "psychology_alt",
                 desc: String(sk.description ?? "Reusable agent skill"),
                 needsArgs: false
-            })
+            });
         }
-        return list
+        return list;
     }
     readonly property string slashRawInput: String(message.text ?? "")
     readonly property bool isSlashPrefix: root.editing && /^\/[^\s]*$/.test(root.slashRawInput)
-    readonly property string slashQuery: root.isSlashPrefix ? root.slashRawInput.slice(1).toLowerCase() : ""
+    readonly property var mentionMatch: root.editing && !root.isSlashPrefix ? /(?:^|\s)@([a-zA-Z0-9_-]*)$/.exec(root.slashRawInput) : null
+    readonly property bool isMentionPrefix: root.mentionMatch !== null
+    readonly property string mentionQuery: root.isMentionPrefix ? String(root.mentionMatch[1] ?? "").toLowerCase() : ""
+    readonly property string slashQuery: root.isSlashPrefix ? root.slashRawInput.slice(1).toLowerCase() : (root.isMentionPrefix ? root.mentionQuery : "")
     readonly property var filteredSlashCommands: {
-        if (!root.isSlashPrefix) return []
-        const q = root.slashQuery
-        if (!q) return root.slashCommandCatalog
-        const matched = root.slashCommandCatalog.filter(item =>
-            item.name.indexOf(q) >= 0
-            || item.category.toLowerCase().indexOf(q) >= 0
-            || item.desc.toLowerCase().indexOf(q) >= 0
-        )
+        if (root.isMentionPrefix) {
+            const mq = root.mentionQuery;
+            if (!mq)
+                return root.mentionCatalog;
+            return root.mentionCatalog.filter(item => item.name.indexOf(mq) >= 0 || item.desc.toLowerCase().indexOf(mq) >= 0);
+        }
+        if (!root.isSlashPrefix)
+            return [];
+        const q = root.slashQuery;
+        if (!q)
+            return root.slashCommandCatalog;
+        const matched = root.slashCommandCatalog.filter(item => item.name.indexOf(q) >= 0 || item.category.toLowerCase().indexOf(q) >= 0 || item.desc.toLowerCase().indexOf(q) >= 0);
         matched.sort((a, b) => {
-            const aStarts = a.name.indexOf(q) === 0 ? 0 : (a.name.indexOf(q) > 0 ? 1 : 2)
-            const bStarts = b.name.indexOf(q) === 0 ? 0 : (b.name.indexOf(q) > 0 ? 1 : 2)
-            return aStarts - bStarts
-        })
-        return matched
+            const aStarts = a.name.indexOf(q) === 0 ? 0 : (a.name.indexOf(q) > 0 ? 1 : 2);
+            const bStarts = b.name.indexOf(q) === 0 ? 0 : (b.name.indexOf(q) > 0 ? 1 : 2);
+            return aStarts - bStarts;
+        });
+        return matched;
     }
-    readonly property bool slashMenuOpen: root.isSlashPrefix && !root.slashMenuDismissed && root.filteredSlashCommands.length > 0
+    readonly property bool slashMenuOpen: (root.isSlashPrefix || root.isMentionPrefix) && !root.slashMenuDismissed && root.filteredSlashCommands.length > 0
     function selectSlashCommand(item, executeIfReady = true): bool {
-        if (!item) return false
-        root.profileStage = 0
-        if (item.needsArgs || !executeIfReady) {
-            message.text = item.cmd + " "
-            root.slashMenuDismissed = true
+        if (!item)
+            return false;
+        root.profileStage = 0;
+        if (item.isMention) {
+            message.text = String(message.text ?? "").replace(/@[a-zA-Z0-9_-]*$/, item.cmd + " ");
+            root.slashMenuDismissed = true;
+            if (item.name === "selection") {
+                AquaMind.attachPrimarySelection();
+            }
             Qt.callLater(() => {
                 if (root.editing) {
-                    message.forceActiveFocus()
-                    message.cursorPosition = message.text.length
+                    message.forceActiveFocus();
+                    message.cursorPosition = message.text.length;
                 }
-            })
-            return true
+            });
+            return true;
         }
-        message.text = item.cmd
-        root.slashMenuDismissed = true
-        root.submit()
-        return true
+        if (item.needsArgs || !executeIfReady) {
+            message.text = item.cmd + " ";
+            root.slashMenuDismissed = true;
+            Qt.callLater(() => {
+                if (root.editing) {
+                    message.forceActiveFocus();
+                    message.cursorPosition = message.text.length;
+                }
+            });
+            return true;
+        }
+        message.text = item.cmd;
+        root.slashMenuDismissed = true;
+        root.submit();
+        return true;
     }
 
     // Antigravity-Style Chat Turn Dot Navigators state & helpers
@@ -243,26 +534,26 @@ Item {
     property int forcedHoveredTurnIndex: -1
     property int activeTurnIndex: -1
     readonly property var chatTurns: {
-        const hist = Array.isArray(AquaMind.history) ? AquaMind.history : []
-        const turns = []
-        let currentTurn = null
+        const hist = Array.isArray(AquaMind.history) ? AquaMind.history : [];
+        const turns = [];
+        let currentTurn = null;
         for (let i = 0; i < hist.length; ++i) {
-            const msg = hist[i]
-            if (!msg) continue
-            const role = String(msg.role ?? "assistant")
-            const rawContent = role === "user"
-                ? String(msg.content ?? "").replace(/\s+/g, " ").trim()
-                : root.stripMarkdownToPlain(root.compactBubbleSource(String(msg.content ?? "")))
-            const created = Number(msg.created_ms ?? msg.createdMs ?? 0)
+            const msg = hist[i];
+            if (!msg)
+                continue;
+            const role = String(msg.role ?? "assistant");
+            const rawContent = role === "user" ? String(msg.content ?? "").replace(/\s+/g, " ").trim() : root.stripMarkdownToPlain(root.compactBubbleSource(String(msg.content ?? "")));
+            const created = Number(msg.created_ms ?? msg.createdMs ?? 0);
             if (role === "user") {
-                if (currentTurn) turns.push(currentTurn)
+                if (currentTurn)
+                    turns.push(currentTurn);
                 currentTurn = {
                     turnNumber: turns.length + 1,
                     historyIndex: i,
                     promptText: rawContent || "(empty prompt)",
                     replyText: "",
                     createdMs: created
-                }
+                };
             } else {
                 if (!currentTurn) {
                     currentTurn = {
@@ -271,197 +562,273 @@ Item {
                         promptText: "Companion",
                         replyText: rawContent,
                         createdMs: created
-                    }
+                    };
                 } else {
-                    currentTurn.replyText = currentTurn.replyText
-                        ? (currentTurn.replyText + " " + rawContent).trim()
-                        : rawContent
-                    if (!currentTurn.createdMs && created > 0) currentTurn.createdMs = created
+                    currentTurn.replyText = currentTurn.replyText ? (currentTurn.replyText + " " + rawContent).trim() : rawContent;
+                    if (!currentTurn.createdMs && created > 0)
+                        currentTurn.createdMs = created;
                 }
             }
         }
-        if (currentTurn) turns.push(currentTurn)
-        return turns
+        if (currentTurn)
+            turns.push(currentTurn);
+        return turns;
     }
-    readonly property int effectiveHoveredTurnIndex: root.forcedHoveredTurnIndex >= 0
-        ? root.forcedHoveredTurnIndex
-        : root.hoveredTurnIndex
+    readonly property int effectiveHoveredTurnIndex: root.forcedHoveredTurnIndex >= 0 ? root.forcedHoveredTurnIndex : root.hoveredTurnIndex
     onEffectiveHoveredTurnIndexChanged: {
         if (root.effectiveHoveredTurnIndex >= 0)
-            root.scrollDotNavigatorToTurn(root.effectiveHoveredTurnIndex)
+            root.scrollDotNavigatorToTurn(root.effectiveHoveredTurnIndex);
     }
-    readonly property var effectiveHoveredTurn: (root.effectiveHoveredTurnIndex >= 0
-            && root.effectiveHoveredTurnIndex < root.chatTurns.length)
-        ? root.chatTurns[root.effectiveHoveredTurnIndex]
-        : null
+    readonly property var effectiveHoveredTurn: (root.effectiveHoveredTurnIndex >= 0 && root.effectiveHoveredTurnIndex < root.chatTurns.length) ? root.chatTurns[root.effectiveHoveredTurnIndex] : null
     function scrollDotNavigatorToTurn(turnIndex): void {
-        const idx = Number(turnIndex)
-        if (!Number.isInteger(idx) || idx < 0 || idx >= root.chatTurns.length) return
+        const idx = Number(turnIndex);
+        if (!Number.isInteger(idx) || idx < 0 || idx >= root.chatTurns.length)
+            return;
         if (dotNavigatorFlickable.contentHeight <= dotNavigatorFlickable.height) {
-            dotNavigatorFlickable.contentY = 0
-            return
+            dotNavigatorFlickable.contentY = 0;
+            return;
         }
-        const step = dotNavigatorRail.dotItemHeight + dotNavigatorRail.dotSpacing
-        const itemTop = 4 + idx * step
-        const itemBottom = itemTop + dotNavigatorRail.dotItemHeight
-        const maxContentY = Math.max(0, dotNavigatorFlickable.contentHeight - dotNavigatorFlickable.height)
+        const step = dotNavigatorRail.dotItemHeight + dotNavigatorRail.dotSpacing;
+        const itemTop = 4 + idx * step;
+        const itemBottom = itemTop + dotNavigatorRail.dotItemHeight;
+        const maxContentY = Math.max(0, dotNavigatorFlickable.contentHeight - dotNavigatorFlickable.height);
         if (itemTop < dotNavigatorFlickable.contentY + 6) {
-            dotNavigatorFlickable.contentY = Math.max(0, itemTop - 6)
+            dotNavigatorFlickable.contentY = Math.max(0, itemTop - 6);
         } else if (itemBottom > dotNavigatorFlickable.contentY + dotNavigatorFlickable.height - 6) {
-            dotNavigatorFlickable.contentY = Math.min(maxContentY, itemBottom - dotNavigatorFlickable.height + 6)
+            dotNavigatorFlickable.contentY = Math.min(maxContentY, itemBottom - dotNavigatorFlickable.height + 6);
         }
     }
     function jumpToChatTurn(turnIndex): bool {
-        const idx = Number(turnIndex)
-        if (!Number.isInteger(idx) || idx < 0 || idx >= root.chatTurns.length) return false
-        const turn = root.chatTurns[idx]
-        if (!turn) return false
-        root.activeTurnIndex = idx
-        root.scrollDotNavigatorToTurn(idx)
-        const histIdx = Number(turn.historyIndex ?? 0)
-        if (histIdx >= 0 && histIdx < transcript.count) {
-            transcript.positionViewAtIndex(histIdx, ListView.Beginning)
-            return true
+        const idx = Number(turnIndex);
+        if (!Number.isInteger(idx) || idx < 0)
+            return false;
+        if (idx < root.chatTurns.length) {
+            const turn = root.chatTurns[idx];
+            if (!turn)
+                return false;
+            root.activeTurnIndex = idx;
+            root.scrollDotNavigatorToTurn(idx);
+            const histIdx = Number(turn.historyIndex ?? 0);
+            if (histIdx >= 0 && histIdx < transcript.count) {
+                transcript.positionViewAtIndex(histIdx, ListView.Beginning);
+                return true;
+            }
+            return false;
         }
-        return false
+        if (idx < transcript.count) {
+            let matchedTurnIdx = -1;
+            for (let i = 0; i < root.chatTurns.length; ++i) {
+                if (Number(root.chatTurns[i]?.historyIndex ?? 0) <= idx)
+                    matchedTurnIdx = i;
+            }
+            if (matchedTurnIdx >= 0) {
+                root.activeTurnIndex = matchedTurnIdx;
+                root.scrollDotNavigatorToTurn(matchedTurnIdx);
+            }
+            transcript.positionViewAtIndex(idx, ListView.Beginning);
+            return true;
+        }
+        return false;
+    }
+    property int _scrollSettlePass: 0
+    property bool _snappingToBottom: false
+    property real _lastSnapContentY: 0
+    function _snapTranscriptToBottom(): void {
+        if (transcript.count <= 0)
+            return;
+        root._snappingToBottom = true;
+        try {
+            transcript.positionViewAtIndex(transcript.count - 1, ListView.End);
+            transcript.positionViewAtEnd();
+            if (transcript.contentHeight > transcript.height) {
+                const targetY = transcript.originY + transcript.contentHeight - transcript.height;
+                if (Math.abs(transcript.contentY - targetY) > 1)
+                    transcript.contentY = targetY;
+            }
+            root._lastSnapContentY = transcript.contentY;
+            if (root.chatTurns.length > 0) {
+                root.scrollDotNavigatorToTurn(root.chatTurns.length - 1);
+            }
+        } finally {
+            root._snappingToBottom = false;
+        }
+    }
+    Timer {
+        id: scrollToBottomSettleTimer
+        interval: 25
+        repeat: false
+        onTriggered: {
+            if (!root.editing || root.editorMode || transcript.count <= 0)
+                return;
+            if (root.pendingJumpTurnIndex >= 0 || !root.stickToBottom)
+                return;
+            transcript.readyForOlder = false;
+            root._snapTranscriptToBottom();
+            if (root._scrollSettlePass < 1) {
+                root._scrollSettlePass += 1;
+                scrollToBottomSettleTimer.interval = 45;
+                scrollToBottomSettleTimer.restart();
+            } else {
+                transcript.readyForOlder = true;
+            }
+        }
+    }
+    function scrollToLatestMessage(): void {
+        if (transcript.count <= 0 || root.editorMode)
+            return;
+        if (root.pendingJumpTurnIndex >= 0 && (!root.pendingJumpThreadId || root.pendingJumpThreadId === AquaMind.activeThreadId)) {
+            const targetIdx = root.pendingJumpTurnIndex;
+            root.pendingJumpTurnIndex = -1;
+            root.pendingJumpThreadId = "";
+            root.stickToBottom = false;
+            scrollToBottomSettleTimer.stop();
+            if (!root.jumpToChatTurn(targetIdx) && targetIdx < transcript.count) {
+                transcript.positionViewAtIndex(targetIdx, ListView.Beginning);
+            }
+            transcript.readyForOlder = true;
+            return;
+        }
+        root.stickToBottom = true;
+        transcript.readyForOlder = false;
+        root.activeTurnIndex = -1;
+        root._snapTranscriptToBottom();
+        Qt.callLater(() => {
+            if (transcript.count > 0 && root.pendingJumpTurnIndex < 0 && root.stickToBottom) {
+                root._snapTranscriptToBottom();
+            }
+            if (!scrollToBottomSettleTimer.running)
+                transcript.readyForOlder = true;
+        });
+        root._scrollSettlePass = 0;
+        scrollToBottomSettleTimer.interval = 25;
+        scrollToBottomSettleTimer.restart();
     }
     function formatTurnTimestamp(ms): string {
-        const ts = Number(ms || 0)
-        const d = ts > 0 ? new Date(ts) : new Date()
-        let h = d.getHours()
-        const m = d.getMinutes()
-        const ampm = h >= 12 ? "PM" : "AM"
-        h = h % 12
-        if (h === 0) h = 12
-        return String(h) + ":" + (m < 10 ? "0" + String(m) : String(m)) + " " + ampm
+        const ts = Number(ms || 0);
+        const d = ts > 0 ? new Date(ts) : new Date();
+        let h = d.getHours();
+        const m = d.getMinutes();
+        const ampm = h >= 12 ? "PM" : "AM";
+        h = h % 12;
+        if (h === 0)
+            h = 12;
+        return String(h) + ":" + (m < 10 ? "0" + String(m) : String(m)) + " " + ampm;
     }
     function formatBytes(byteCount): string {
-        const b = Math.max(0, Number(byteCount) || 0)
-        if (b < 1024) return String(b) + " B"
-        return (b / 1024).toFixed(1) + " KB"
+        const b = Math.max(0, Number(byteCount) || 0);
+        if (b < 1024)
+            return String(b) + " B";
+        return (b / 1024).toFixed(1) + " KB";
     }
     function stripMarkdownToPlain(raw): string {
-        let s = String(raw ?? "")
-        if (!s) return ""
-        s = s.replace(/```[\s\S]*?```/g, m => m.replace(/```[a-zA-Z0-9_-]*\n?/g, "").replace(/```/g, ""))
-        s = s.replace(/\*\*\*([^*]+)\*\*\*/g, "$1")
-        s = s.replace(/\*\*([^*]+)\*\*/g, "$1")
-        s = s.replace(/\*([^*\n]+)\*/g, "$1")
-        s = s.replace(/`([^`\n]+)`/g, "$1")
-        s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
-        s = s.replace(/(^|\n)\s*#{1,4}\s+/g, "$1")
-        return s.replace(/\s+/g, " ").trim()
+        let s = String(raw ?? "");
+        if (!s)
+            return "";
+        s = s.replace(/```[\s\S]*?```/g, m => m.replace(/```[a-zA-Z0-9_-]*\n?/g, "").replace(/```/g, ""));
+        s = s.replace(/\*\*\*([^*]+)\*\*\*/g, "$1");
+        s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
+        s = s.replace(/\*([^*\n]+)\*/g, "$1");
+        s = s.replace(/`([^`\n]+)`/g, "$1");
+        s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1");
+        s = s.replace(/(^|\n)\s*#{1,4}\s+/g, "$1");
+        return s.replace(/\s+/g, " ").trim();
     }
     function compactBubbleSource(raw): string {
-        let text = String(raw ?? "")
-        if (!text) return ""
+        let text = String(raw ?? "");
+        if (!text)
+            return "";
+        if (/^\*\*🖥\s*[^\n*]*$/.test(text.trim())) {
+            return "*(Previous reply was interrupted.)*";
+        }
         // Normalize legacy verbose screen observation header & noisy OCR lines for compact chatbox
-        text = text.replace(
-            /^Current window observation(\s*\([^)]*\))?\s*\[source:\s*`([^`]+)`,\s*window:\s*`([^`]+)`(?:,\s*at:\s*`[^`]+`)?\]:/m,
-            (_, changed, src, win) => `**🖥 ${win}** · \`${src}\`${changed ? " *" + changed.trim() + "*" : ""}`
-        )
-        text = text.replace(
-            /^Quan sát màn hình hiện tại(\s*\([^)]*\))?\s*\[nguồn:\s*`([^`]+)`,\s*cửa sổ:\s*`([^`]+)`(?:,\s*lúc:\s*`[^`]+`)?\]:/m,
-            (_, changed, src, win) => `**🖥 ${win}** · \`${src}\`${changed ? " *" + changed.trim() + "*" : ""}`
-        )
-        text = text.replace(
-            /\*\*MCP Eyes & Hands are active:\*\*[\s\S]*$/m,
-            "💡 **MCP Eyes & Hands:** `/web` search · `/fetch` read URL · `/browser` automate web · open apps / run commands."
-        )
-        text = text.replace(
-            /\*\*Mắt \(Eyes\) & Tay \(Hands\) MCP đang hoạt động:\*\*[\s\S]*$/m,
-            "💡 **Mắt & Tay MCP:** `/web` tìm kiếm · `/fetch` đọc trang · `/browser` tự động hoá web · mở ứng dụng / chạy lệnh."
-        )
+        text = text.replace(/^Current window observation(\s*\([^)]*\))?\s*\[source:\s*`([^`]+)`,\s*window:\s*`([^`]+)`(?:,\s*at:\s*`[^`]+`)?\]:/m, (_, changed, src, win) => `**🖥 ${win}** · \`${src}\`${changed ? " *" + changed.trim() + "*" : ""}`);
+        text = text.replace(/^Quan sát màn hình hiện tại(\s*\([^)]*\))?\s*\[nguồn:\s*`([^`]+)`,\s*cửa sổ:\s*`([^`]+)`(?:,\s*lúc:\s*`[^`]+`)?\]:/m, (_, changed, src, win) => `**🖥 ${win}** · \`${src}\`${changed ? " *" + changed.trim() + "*" : ""}`);
+        text = text.replace(/\*\*MCP Eyes & Hands are active:\*\*[\s\S]*$/m, "💡 **MCP Eyes & Hands:** `/web` search · `/fetch` read URL · `/browser` automate web · open apps / run commands.");
+        text = text.replace(/\*\*Mắt \(Eyes\) & Tay \(Hands\) MCP đang hoạt động:\*\*[\s\S]*$/m, "💡 **Mắt & Tay MCP:** `/web` tìm kiếm · `/fetch` đọc trang · `/browser` tự động hoá web · mở ứng dụng / chạy lệnh.");
         if (text.startsWith("**🖥 ") && !/`[^`]*(?:\+ai|vision)`/.test(text.split("\n")[0] ?? "")) {
-            const rawLines = text.split("\n")
-            const outLines = []
-            let bulletCount = 0
+            const rawLines = text.split("\n");
+            const outLines = [];
+            let bulletCount = 0;
             for (let i = 0; i < rawLines.length; ++i) {
-                const ln = rawLines[i]
+                const ln = rawLines[i];
                 if (/^\s*-\s+/.test(ln)) {
-                    let body = ln.replace(/^\s*-\s+/, "").trim()
-                    const tokens = body.split(/\s+/).filter(Boolean)
+                    let body = ln.replace(/^\s*-\s+/, "").trim();
+                    const tokens = body.split(/\s+/).filter(Boolean);
                     if (tokens.length >= 4) {
-                        let noisy = 0
+                        let noisy = 0;
                         for (let t = 0; t < tokens.length; ++t) {
-                            if (tokens[t].length <= 2 || !/[a-zA-ZÀ-ỹ]/.test(tokens[t])) noisy++
+                            if (tokens[t].length <= 2 || !/[a-zA-ZÀ-ỹ]/.test(tokens[t]))
+                                noisy++;
                         }
-                        if ((noisy / tokens.length) >= 0.56) continue
+                        if ((noisy / tokens.length) >= 0.56)
+                            continue;
                     }
                     while (tokens.length >= 2 && (tokens[0].length === 1 || !/[a-zA-Z0-9À-ỹ]/.test(tokens[0]))) {
-                        tokens.shift()
+                        tokens.shift();
                     }
-                    body = tokens.join(" ").replace(/^[-•|>_~\s]+/, "").trim()
-                    if (body.length < 3) continue
-                    if (body.length > 140) body = body.slice(0, 137).trim() + "…"
-                    bulletCount++
-                    if (bulletCount <= 6) outLines.push("- " + body)
+                    body = tokens.join(" ").replace(/^[-•|>_~\s]+/, "").trim();
+                    if (body.length < 3)
+                        continue;
+                    if (body.length > 140)
+                        body = body.slice(0, 137).trim() + "…";
+                    bulletCount++;
+                    if (bulletCount <= 6)
+                        outLines.push("- " + body);
                 } else {
-                    outLines.push(ln)
+                    outLines.push(ln);
                 }
             }
-            text = outLines.join("\n")
+            text = outLines.join("\n");
         }
-        return text.replace(/\n{3,}/g, "\n\n").trim()
+        return text.replace(/\n{3,}/g, "\n\n").trim();
     }
     function containsMarkdownSyntax(raw): bool {
-        const s = String(raw ?? "")
-        if (!s) return false
-        return s.indexOf("**") !== -1
-            || s.indexOf("`") !== -1
-            || /(^|\n)\s*[-*•]\s+\S/.test(s)
-            || /(^|\n)\s*\d+\.\s+\S/.test(s)
-            || /(^|\n)\s*#{1,4}\s+\S/.test(s)
-            || /\*[^*\n]+\*/.test(s)
-            || /\[[^\]]+\]\([^)]+\)/.test(s)
+        const s = String(raw ?? "");
+        if (!s)
+            return false;
+        return s.indexOf("**") !== -1 || s.indexOf("`") !== -1 || /(^|\n)\s*[-*•]\s+\S/.test(s) || /(^|\n)\s*\d+\.\s+\S/.test(s) || /(^|\n)\s*#{1,4}\s+\S/.test(s) || /\*[^*\n]+\*/.test(s) || /\[[^\]]+\]\([^)]+\)/.test(s);
     }
     function formatBubbleMarkdown(raw): string {
-        let s = String(raw ?? "")
-        if (!s) return ""
-        const codeBlocks = []
+        let s = String(raw ?? "");
+        if (!s)
+            return "";
+        const codeBlocks = [];
         s = s.replace(/```(?:[a-zA-Z0-9_-]+)?\n?([\s\S]*?)```/g, (_, code) => {
-            const idx = codeBlocks.length
-            const esc = String(code ?? "").trim()
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/\n/g, "<br/>")
-            codeBlocks.push(`<span style="font-family:monospace;">${esc}</span>`)
-            return `\u0000CODEBLOCK_${idx}\u0000`
-        })
-        const inlineCodes = []
+            const idx = codeBlocks.length;
+            const esc = String(code ?? "").trim().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
+            codeBlocks.push(`<span style="font-family:monospace;">${esc}</span>`);
+            return `\u0000CODEBLOCK_${idx}\u0000`;
+        });
+        const inlineCodes = [];
         s = s.replace(/`([^`\n]+)`/g, (_, code) => {
-            const idx = inlineCodes.length
-            const esc = String(code ?? "")
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-            inlineCodes.push(`<span style="font-family:monospace;">${esc}</span>`)
-            return `\u0000INLINECODE_${idx}\u0000`
-        })
-        s = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-        s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "<a href=\"$2\" style=\"color:#7aa2f7;text-decoration:underline;\">$1</a>")
-        s = s.replace(/\*\*\*([^*\n]+)\*\*\*/g, "<b><i>$1</i></b>")
-        s = s.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
-        s = s.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?:;]|$)/g, "$1<i>$2</i>")
+            const idx = inlineCodes.length;
+            const esc = String(code ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            inlineCodes.push(`<span style="font-family:monospace;">${esc}</span>`);
+            return `\u0000INLINECODE_${idx}\u0000`;
+        });
+        s = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "<a href=\"$2\" style=\"color:#7aa2f7;text-decoration:underline;\">$1</a>");
+        s = s.replace(/\*\*\*([^*\n]+)\*\*\*/g, "<b><i>$1</i></b>");
+        s = s.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+        s = s.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?:;]|$)/g, "$1<i>$2</i>");
 
-        const lines = s.split("\n")
-        const renderedLines = []
+        const lines = s.split("\n");
+        const renderedLines = [];
         for (let i = 0; i < lines.length; ++i) {
-            let ln = lines[i]
+            let ln = lines[i];
             if (/^\s*#{1,4}\s+/.test(ln)) {
-                ln = "<b>" + ln.replace(/^\s*#{1,4}\s+/, "") + "</b>"
+                ln = "<b>" + ln.replace(/^\s*#{1,4}\s+/, "") + "</b>";
             } else if (/^\s*[-*•]\s+/.test(ln)) {
-                ln = "• " + ln.replace(/^\s*[-*•]\s+/, "")
+                ln = "• " + ln.replace(/^\s*[-*•]\s+/, "");
             } else if (/^\s*(\d+)\.\s+/.test(ln)) {
-                ln = ln.replace(/^\s*(\d+)\.\s+/, "<b>$1.</b> ")
+                ln = ln.replace(/^\s*(\d+)\.\s+/, "<b>$1.</b> ");
             }
-            renderedLines.push(ln)
+            renderedLines.push(ln);
         }
-        let out = renderedLines.join("<br/>")
-        out = out.replace(/\u0000INLINECODE_(\d+)\u0000/g, (_, i) => inlineCodes[Number(i)] ?? "")
-        out = out.replace(/\u0000CODEBLOCK_(\d+)\u0000/g, (_, i) => codeBlocks[Number(i)] ?? "")
-        return out
+        let out = renderedLines.join("<br/>");
+        out = out.replace(/\u0000INLINECODE_(\d+)\u0000/g, (_, i) => inlineCodes[Number(i)] ?? "");
+        out = out.replace(/\u0000CODEBLOCK_(\d+)\u0000/g, (_, i) => codeBlocks[Number(i)] ?? "");
+        return out;
     }
 
     property string lastCopiedText: ""
@@ -491,207 +858,256 @@ Item {
         onTriggered: root.thinkingAnimTick = (root.thinkingAnimTick + 1) % 3
     }
     function findChildByObjectName(item, targetName) {
-        if (!item) return null
-        if (item.objectName === targetName) return item
-        const kids = item.data ?? item.children ?? []
-        for (let i = 0; i < kids.length; ++i) {
-            const match = findChildByObjectName(kids[i], targetName)
-            if (match) return match
+        if (!item)
+            return null;
+        if (item.objectName === targetName)
+            return item;
+        if (item.contentItem && item.contentItem !== item) {
+            const cMatch = findChildByObjectName(item.contentItem, targetName);
+            if (cMatch)
+                return cMatch;
         }
-        return null
+        const kids = item.children ?? [];
+        for (let i = 0; i < kids.length; ++i) {
+            const match = findChildByObjectName(kids[i], targetName);
+            if (match)
+                return match;
+        }
+        const dataKids = item.data ?? [];
+        for (let i = 0; i < dataKids.length; ++i) {
+            const match = findChildByObjectName(dataKids[i], targetName);
+            if (match)
+                return match;
+        }
+        return null;
     }
     function clearOtherSelections(exceptIndex = -999): void {
-        const keep = Number(exceptIndex)
-        if (keep !== -3 && String(streamingPreviewTextItem.selectedText ?? "").length > 0)
-            streamingPreviewTextItem.deselect()
+        const keep = Number(exceptIndex);
+        if (keep !== -3) {
+            if (String(streamingPreviewTextItem.selectedText ?? "").length > 0)
+                streamingPreviewTextItem.deselect();
+            streamingPreviewTextItem.cachedSelectedText = "";
+        }
         for (let i = 0; i < transcript.count; ++i) {
-            if (i === keep) continue
-            const textItem = root.findChildByObjectName(transcript, "aquaChatBubbleText-" + i)
-            if (textItem && String(textItem.selectedText ?? "").length > 0)
-                textItem.deselect()
+            if (i === keep)
+                continue;
+            const textItem = root.findChildByObjectName(transcript, "aquaChatBubbleText-" + i);
+            if (textItem) {
+                if (String(textItem.selectedText ?? "").length > 0)
+                    textItem.deselect();
+                if ("cachedSelectedText" in textItem)
+                    textItem.cachedSelectedText = "";
+            }
         }
     }
     function resetSelectionState(): void {
-        copyFeedbackTimer.stop()
-        root.clearOtherSelections(-999)
-        root.activeSelectionBubbleIndex = -1
-        root.lastCopiedBubbleIndex = -1
-        root.activePressBubbleCount = 0
+        copyFeedbackTimer.stop();
+        root.clearOtherSelections(-999);
+        root.activeSelectionBubbleIndex = -1;
+        root.lastCopiedBubbleIndex = -1;
+        root.activePressBubbleCount = 0;
     }
     function copyTextToClipboard(textValue, bubbleIdx = -1): bool {
-        const val = String(textValue ?? "")
-        if (!val) return false
-        root.lastCopiedText = val
-        root.lastCopiedBubbleIndex = Number(bubbleIdx)
-        copyFeedbackTimer.restart()
-        clipboardHelper.text = val
-        clipboardHelper.selectAll()
-        clipboardHelper.copy()
+        const val = String(textValue ?? "");
+        if (!val)
+            return false;
+        root.lastCopiedText = val;
+        root.lastCopiedBubbleIndex = Number(bubbleIdx);
+        copyFeedbackTimer.restart();
+        clipboardHelper.text = val;
+        clipboardHelper.selectAll();
+        clipboardHelper.copy();
         try {
-            if (typeof Quickshell !== "undefined" && Quickshell && "clipboardText" in Quickshell)
-                Quickshell.clipboardText = val
+            if (typeof AquaMind !== "undefined" && AquaMind && typeof AquaMind.copyToClipboard === "function")
+                AquaMind.copyToClipboard(val);
+            else if (typeof Quickshell !== "undefined" && Quickshell && "clipboardText" in Quickshell)
+                Quickshell.clipboardText = val;
         } catch (e) {}
-        return true
+        return true;
     }
     function selectBubbleText(index, startPos = 0, endPos = -1): string {
-        const idx = Number(index)
+        const idx = Number(index);
         if (idx >= 0 && idx < transcript.count)
-            transcript.positionViewAtIndex(idx, ListView.Contain)
-        const textItem = root.findChildByObjectName(transcript, "aquaChatBubbleText-" + idx)
-        if (!textItem) return ""
-        root.clearOtherSelections(idx)
-        if (Number(endPos) < 0) textItem.selectAll()
-        else textItem.select(Number(startPos), Number(endPos))
-        const sel = String(textItem.selectedText ?? "")
-        root.activeSelectionBubbleIndex = sel.length > 0 ? idx : -1
-        return sel
+            transcript.positionViewAtIndex(idx, ListView.Contain);
+        const textItem = root.findChildByObjectName(transcript, "aquaChatBubbleText-" + idx);
+        if (!textItem)
+            return "";
+        root.clearOtherSelections(idx);
+        if (Number(endPos) < 0)
+            textItem.selectAll();
+        else
+            textItem.select(Number(startPos), Number(endPos));
+        const sel = String(textItem.selectedText ?? "");
+        if ("cachedSelectedText" in textItem)
+            textItem.cachedSelectedText = sel;
+        root.activeSelectionBubbleIndex = sel.length > 0 ? idx : -1;
+        return sel;
     }
-    function copyBubbleText(index): string {
-        const idx = Number(index)
-        if (idx >= 0 && idx < transcript.count)
-            transcript.positionViewAtIndex(idx, ListView.Contain)
-        const textItem = root.findChildByObjectName(transcript, "aquaChatBubbleText-" + idx)
-        const fallbackContent = (idx >= 0 && idx < AquaMind.history.length)
-            ? String(AquaMind.history[idx]?.content ?? "")
-            : ""
-        const chosen = (textItem && String(textItem.selectedText ?? "").length > 0)
-            ? String(textItem.selectedText)
-            : (textItem && textItem.rawContent !== undefined
-                ? String(textItem.rawContent)
-                : (textItem ? String(textItem.text ?? "") : fallbackContent))
-        if (!root.copyTextToClipboard(chosen, idx)) return ""
-        return chosen
+    function copyBubbleText(index, directTextItem = null): string {
+        const idx = Number(index);
+        if (!directTextItem && idx >= 0 && idx < transcript.count)
+            transcript.positionViewAtIndex(idx, ListView.Contain);
+        const textItem = directTextItem || root.findChildByObjectName(transcript, "aquaChatBubbleText-" + idx);
+        const fallbackContent = (idx >= 0 && idx < AquaMind.history.length) ? String(AquaMind.history[idx]?.content ?? "") : "";
+        const liveSel = textItem ? String(textItem.selectedText ?? "") : "";
+        const cachedSel = (textItem && textItem.cachedSelectedText !== undefined) ? String(textItem.cachedSelectedText ?? "") : "";
+        const activeSel = liveSel.length > 0 ? liveSel : cachedSel;
+        const chosen = activeSel.length > 0 ? activeSel : (textItem && textItem.rawContent !== undefined ? String(textItem.rawContent) : (textItem ? String(textItem.text ?? "") : fallbackContent));
+        if (!root.copyTextToClipboard(chosen, idx))
+            return "";
+        if (textItem && "cachedSelectedText" in textItem && liveSel.length === 0) {
+            textItem.cachedSelectedText = "";
+            if (root.activeSelectionBubbleIndex === idx)
+                root.activeSelectionBubbleIndex = -1;
+        }
+        return chosen;
     }
     function copyActiveSelection(): bool {
-        if (root.activeSelectionBubbleIndex === -3 && streamingPreviewTextItem.visible && String(streamingPreviewTextItem.selectedText ?? "").length > 0)
-            return root.copyTextToClipboard(streamingPreviewTextItem.selectedText, -3)
+        const streamSel = String(streamingPreviewTextItem.selectedText || streamingPreviewTextItem.cachedSelectedText || "");
+        if (root.activeSelectionBubbleIndex === -3 && streamingPreviewTextItem.visible && streamSel.length > 0)
+            return root.copyTextToClipboard(streamSel, -3);
         if (root.activeSelectionBubbleIndex >= 0 && root.activeSelectionBubbleIndex < transcript.count) {
-            const activeItem = root.findChildByObjectName(transcript, "aquaChatBubbleText-" + root.activeSelectionBubbleIndex)
-            if (activeItem && String(activeItem.selectedText ?? "").length > 0)
-                return root.copyTextToClipboard(activeItem.selectedText, root.activeSelectionBubbleIndex)
+            const activeItem = root.findChildByObjectName(transcript, "aquaChatBubbleText-" + root.activeSelectionBubbleIndex);
+            const activeSel = activeItem ? String(activeItem.selectedText || activeItem.cachedSelectedText || "") : "";
+            if (activeSel.length > 0)
+                return root.copyTextToClipboard(activeSel, root.activeSelectionBubbleIndex);
         }
-        if (streamingPreviewTextItem.visible && String(streamingPreviewTextItem.selectedText ?? "").length > 0)
-            return root.copyTextToClipboard(streamingPreviewTextItem.selectedText, -3)
+        if (streamingPreviewTextItem.visible && streamSel.length > 0)
+            return root.copyTextToClipboard(streamSel, -3);
         for (let i = 0; i < transcript.count; ++i) {
-            const textItem = root.findChildByObjectName(transcript, "aquaChatBubbleText-" + i)
-            if (textItem && String(textItem.selectedText ?? "").length > 0)
-                return root.copyTextToClipboard(textItem.selectedText, i)
+            const textItem = root.findChildByObjectName(transcript, "aquaChatBubbleText-" + i);
+            const itemSel = textItem ? String(textItem.selectedText || textItem.cachedSelectedText || "") : "";
+            if (itemSel.length > 0)
+                return root.copyTextToClipboard(itemSel, i);
         }
-        return false
+        return false;
     }
 
-    readonly property bool backgroundThinkingBubble: !embeddedMode
-        && !panelMode
-        && AquaMind.isWorking
-        && AquaMind.text.length === 0
-        && AquaMind.checkInStage.length === 0
+    readonly property bool backgroundThinkingBubble: !embeddedMode && !panelMode && AquaMind.isWorking && AquaMind.text.length === 0 && AquaMind.checkInStage.length === 0
     onBackgroundThinkingBubbleChanged: {
         if (actor) {
             if (backgroundThinkingBubble) {
-                actor.expression = "thinking"
-                actor.activity = "thinking"
+                actor.expression = "thinking";
+                actor.activity = "thinking";
             } else if (actor.activity === "thinking" && !AquaMind.isWorking) {
-                actor.expression = "idle"
-                actor.activity = "idle"
+                actor.expression = "idle";
+                actor.activity = "idle";
             }
         }
     }
 
-    readonly property real baseCloudWidth: embeddedMode
-        ? (parent ? parent.width : outputWidth)
-        : backgroundThinkingBubble
-            ? 58
-            : (sidebarOpen && editing)
-                ? Math.min(Math.max(574, outputWidth - 24), Math.max(420, 380 + sidebarOffset))
-                : panelMode
-                    ? Math.min(380, Math.max(240, outputWidth - 32))
-                    : Math.min(380, Math.max(220, outputWidth - 32))
-    width: embeddedMode
-        ? baseCloudWidth
-        : Math.round(baseCloudWidth * editorScaleFactor)
+    readonly property real compactPanelWidth: (sidebarOpen && editing) ? Math.min(Math.max(574, outputWidth - 24), Math.max(420, 380 + sidebarOffset)) : Math.min(380, Math.max(240, outputWidth - 32))
+    readonly property real expandedSwarmWidth: Math.min(Math.max(420, outputWidth - 24), Math.round(compactPanelWidth + swarmSidebarTargetWidth + 10))
+    readonly property real baseCloudWidth: embeddedMode ? (parent ? parent.width : outputWidth) : backgroundThinkingBubble ? 58 : panelMode ? Math.round(compactPanelWidth + (expandedSwarmWidth - compactPanelWidth) * swarmExpandProgress) : Math.min(380, Math.max(220, outputWidth - 32))
+    width: embeddedMode ? baseCloudWidth : Math.round(baseCloudWidth * editorScaleFactor)
     focus: visible && !backgroundThinkingBubble && (!editing || (!message.activeFocus && !editorTextArea.activeFocus && !root.anySelectableTextFocused))
     function closePopup(): void {
-        root.profileStage = 0
-        root.chatCheckInField = ""
-        root.slashMenuDismissed = false
+        root.profileStage = 0;
+        root.slashMenuDismissed = false;
+        root.swarmOpen = false;
         if (root.embeddedMode) {
-            if (root.pocketOpen) AquaPocket.close()
-            return
+            if (root.pocketOpen)
+                root.embeddedPocketOpen = false;
+            return;
         }
-        message.focus = false
-        if (root.pocketOpen) AquaPocket.close()
-        AquaMind.dismiss()
+        message.focus = false;
+        if (root.pocketOpen)
+            AquaPocket.close();
+        AquaMind.dismiss();
+    }
+    function handleEscape(): bool {
+        if (!root.visible || root.embeddedMode)
+            return false;
+        if (root.voiceStageActive) {
+            AquaMind.cancelVoiceMode();
+            return true;
+        }
+        if (root.slashMenuOpen) {
+            root.slashMenuDismissed = true;
+            return true;
+        }
+        if (clarificationCard.visible) {
+            AquaMind.dismissClarification();
+            return true;
+        }
+        if (root.editorMode) {
+            AquaMind.closeEditorPopup();
+            return true;
+        }
+        root.closePopup();
+        return true;
     }
     Shortcut {
-        sequence: "Escape"
-        enabled: !root.embeddedMode && root.visible && !root.hasSidebarInputFocus && (root.panelMode || AquaMind.text.length > 0)
+        sequences: ["Escape"]
+        enabled: root.popupOpen && !Boolean(root.Window.window?.hasPerimeterEscapeRouter)
         context: Qt.WindowShortcut
-        onActivated: {
-            if (root.slashMenuOpen) {
-                root.slashMenuDismissed = true
-                return
-            }
-            if (root.editorMode) {
-                AquaMind.closeEditorPopup()
-                return
-            }
-            root.closePopup()
-        }
+        autoRepeat: false
+        onActivated: root.handleEscape()
+        onActivatedAmbiguously: root.handleEscape()
     }
     Keys.onPressed: event => {
         if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_C && root.copyActiveSelection()) {
-            event.accepted = true
+            event.accepted = true;
+            return;
+        }
+        if (root.voiceStageActive && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+            event.accepted = true;
+            if (AquaMind.voiceRecording)
+                AquaMind.finishVoiceMode(AquaMind.voiceAutoSend);
+            return;
         }
     }
     Keys.onEscapePressed: event => {
-        event.accepted = true
-        if (root.slashMenuOpen) {
-            root.slashMenuDismissed = true
-            return
-        }
-        if (root.editorMode) {
-            AquaMind.closeEditorPopup()
-            return
-        }
-        root.closePopup()
+        if (root.handleEscape())
+            event.accepted = true;
     }
     Connections {
         target: AquaMind
         function onContextOpenChanged(): void {
             if (AquaMind.contextOpen && !root.editing)
-                Qt.callLater(() => root.forceActiveFocus())
+                Qt.callLater(() => root.forceActiveFocus());
+        }
+        function onHistoryChanged(): void {
+            if (root.pendingJumpTurnIndex >= 0 && (!root.pendingJumpThreadId || root.pendingJumpThreadId === AquaMind.activeThreadId)) {
+                Qt.callLater(() => {
+                    if (root.pendingJumpTurnIndex >= 0 && (!root.pendingJumpThreadId || root.pendingJumpThreadId === AquaMind.activeThreadId)) {
+                        const targetIdx = root.pendingJumpTurnIndex;
+                        root.stickToBottom = false;
+                        if (root.jumpToChatTurn(targetIdx)) {
+                            root.pendingJumpTurnIndex = -1;
+                            root.pendingJumpThreadId = "";
+                        }
+                    }
+                });
+                return;
+            }
+            if (root.editing && !AquaMind.historyLoadingOlder) {
+                Qt.callLater(() => {
+                    if (root.editing && !AquaMind.historyLoadingOlder)
+                        root.scrollToLatestMessage();
+                });
+            }
         }
     }
-    readonly property real nonEditingContentHeight: AquaMind.contextOpen
-        ? content.implicitHeight
-        : speechText.implicitHeight + (AquaMind.checkInStage.length > 0 ? content.spacing + 28 : 0)
-    readonly property real baseCloudHeight: embeddedMode
-        ? (parent ? parent.height : outputHeight)
-        : backgroundThinkingBubble
-            ? 32
-            : pocketOpen ? Math.min(370, Math.max(210, bodyTop + 66 + Math.max(1, AquaPocket.items.length) * 46))
-            : editing ? Math.min(440, Math.max(280, outputHeight - 48)) : nonEditingContentHeight + bodyTop + 12
-    height: embeddedMode
-        ? baseCloudHeight
-        : Math.round(baseCloudHeight * editorScaleFactor)
-    visible: embeddedMode || (allowed && actor && actor.visible && actor.inputReady && (pocketOpen || AquaMind.text.length > 0 || AquaMind.conversationOpen || AquaMind.contextOpen || AquaMind.isWorking))
+    readonly property real nonEditingContentHeight: AquaMind.contextOpen ? content.implicitHeight : speechText.implicitHeight + (AquaMind.checkInStage.length > 0 ? content.spacing + 28 : 0)
+    readonly property real compactPanelHeight: Math.min(440, Math.max(280, outputHeight - 48))
+    readonly property real expandedSwarmHeight: Math.min(540, Math.max(340, outputHeight - 48))
+    readonly property real baseCloudHeight: embeddedMode ? (parent ? parent.height : outputHeight) : backgroundThinkingBubble ? 32 : (editing || pocketOpen || swarmOpen || swarmExpandProgress > 0.001) ? Math.round(compactPanelHeight + (expandedSwarmHeight - compactPanelHeight) * swarmExpandProgress) : nonEditingContentHeight + bodyTop + 12
+    height: embeddedMode ? baseCloudHeight : Math.round(baseCloudHeight * editorScaleFactor)
+    visible: embeddedMode || (allowed && actor && actor.visible && actor.inputReady && (pocketOpen || swarmOpen || AquaMind.text.length > 0 || AquaMind.conversationOpen || AquaMind.contextOpen || AquaMind.isWorking))
     readonly property real actorVisualScale: (visible && actor) ? Math.max(.1, Number(actor.scale) || 1) : 1
     readonly property real actorVisualWidth: (visible && actor) ? actor.width * actorVisualScale : 0
     readonly property real actorVisualHeight: (visible && actor) ? actor.height * actorVisualScale : 0
     readonly property real actorVisualLeft: (visible && actor) ? actor.x + (actor.width - actorVisualWidth) / 2 : 0
     readonly property real actorVisualTop: (visible && actor) ? actor.y + (actor.height - actorVisualHeight) / 2 : 0
-    readonly property real actorVisualRight: actorVisualLeft + actorVisualWidth
     readonly property real actorVisualBottom: actorVisualTop + actorVisualHeight
     readonly property real anchorGap: Math.max(6, Math.min(10, actorVisualHeight * .08))
-    x: embeddedMode ? 0 : (visible ? Math.max(12, Math.min(outputWidth - width - 12,
-        actorVisualLeft + actorVisualWidth / 2 - width / 2)) : 0)
-    y: embeddedMode ? 0 : (visible ? (actorVisualTop - height - anchorGap >= 12
-        ? actorVisualTop - height - anchorGap
-        : Math.min(outputHeight - height - 12, actorVisualBottom + anchorGap)) : 0)
+    x: embeddedMode ? 0 : (visible ? Math.max(12, Math.min(outputWidth - width - 12, actorVisualLeft + actorVisualWidth / 2 - width / 2)) : 0)
+    y: embeddedMode ? 0 : (visible ? (actorVisualTop - height - anchorGap >= 12 ? actorVisualTop - height - anchorGap : Math.min(outputHeight - height - 12, actorVisualBottom + anchorGap)) : 0)
     z: 240
     function containsScenePoint(point): bool {
-        const local = root.mapFromItem(null, point.x, point.y)
-        return visible && local.x >= 0 && local.x <= width && local.y >= 0 && local.y <= height
+        const local = root.mapFromItem(null, point.x, point.y);
+        return visible && local.x >= 0 && local.x <= width && local.y >= 0 && local.y <= height;
     }
 
     // Outer Abyss shadow + glow matching AbyssField.frag outside pass
@@ -715,8 +1131,14 @@ Item {
         color: root.cloudColor
         gradient: Gradient {
             orientation: Gradient.Vertical
-            GradientStop { position: 0.0; color: root.edgeSurfaceColor(1.0) }
-            GradientStop { position: 1.0; color: root.edgeSurfaceColor(0.25) }
+            GradientStop {
+                position: 0.0
+                color: root.edgeSurfaceColor(1.0)
+            }
+            GradientStop {
+                position: 1.0
+                color: root.edgeSurfaceColor(0.25)
+            }
         }
         Rectangle {
             visible: root.panelMode
@@ -750,8 +1172,16 @@ Item {
                     color: AbyssStyle.accent
                     opacity: root.thinkingAnimTick === index ? 1.0 : 0.34
                     scale: root.thinkingAnimTick === index ? 1.18 : 0.92
-                    Behavior on opacity { NumberAnimation { duration: 180 } }
-                    Behavior on scale { NumberAnimation { duration: 180 } }
+                    Behavior on opacity {
+                        NumberAnimation {
+                            duration: 180
+                        }
+                    }
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: 180
+                        }
+                    }
                 }
             }
         }
@@ -768,14 +1198,19 @@ Item {
         id: unifiedHeader
         objectName: "aquaUnifiedHeader"
         visible: root.panelMode
-        x: 12; y: 10; width: parent.width - 24; height: 32
+        x: 12
+        y: 10
+        width: parent.width - 24
+        height: 32
         spacing: 6
 
         RippleButton {
             id: sidebarToggleBtn
             objectName: "aquaChatSidebarToggle"
-            Layout.preferredWidth: 30; Layout.preferredHeight: 30
-            implicitWidth: 30; implicitHeight: 30
+            Layout.preferredWidth: 30
+            Layout.preferredHeight: 30
+            implicitWidth: 30
+            implicitHeight: 30
             buttonRadius: 15
             toggled: root.sidebarOpen
             colBackground: Qt.alpha(AbyssStyle.textColor, 0.05)
@@ -783,10 +1218,15 @@ Item {
             colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.24)
             colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.32)
             onClicked: {
-                if (root.pocketOpen) AquaMind.openChat()
-                root.sidebarOpen = !root.sidebarOpen
+                if (root.pocketOpen) {
+                    if (root.embeddedMode)
+                        root.embeddedPocketOpen = false;
+                    else
+                        AquaMind.openChat();
+                }
+                root.sidebarOpen = !root.sidebarOpen;
                 if (root.sidebarOpen && AquaMind.threads.length === 0)
-                    AquaMind.refreshThreads()
+                    AquaMind.refreshThreads();
             }
             StyledToolTip {
                 extraVisibleCondition: sidebarToggleBtn.buttonHovered
@@ -826,10 +1266,17 @@ Item {
                     colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
                     colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
                     onClicked: {
-                        if (root.embeddedMode) AquaPocket.close()
-                        else AquaMind.openChat()
+                        if (root.embeddedMode)
+                            root.embeddedPocketOpen = false;
+                        else
+                            AquaMind.openChat();
+                    }
+                    StyledToolTip {
+                        extraVisibleCondition: chatTabBtn.buttonHovered
+                        text: AquaMind.activeProject ? (String(AquaMind.activeProject.name) + " · " + AquaMind.activeThreadTitle) : (AquaMind.activeThreadTitle !== "New Chat" ? AquaMind.activeThreadTitle : Translation.tr("Chat"))
                     }
                     contentItem: Item {
+                        clip: true
                         Row {
                             anchors.centerIn: parent
                             spacing: 5
@@ -841,11 +1288,9 @@ Item {
                             }
                             StyledText {
                                 anchors.verticalCenter: parent.verticalCenter
-                                width: Math.min(implicitWidth, Math.max(48, chatTabBtn.width - 34))
+                                text: Translation.tr("Chat")
+                                wrapMode: Text.NoWrap
                                 elide: Text.ElideRight
-                                text: AquaMind.activeProject
-                                    ? (String(AquaMind.activeProject.name) + " · " + AquaMind.activeThreadTitle)
-                                    : (AquaMind.activeThreadTitle !== "New Chat" ? AquaMind.activeThreadTitle : Translation.tr("Chat"))
                                 font.pixelSize: Appearance.font.pixelSize.smallest
                                 font.weight: chatTabBtn.toggled ? Font.DemiBold : Font.Normal
                                 color: chatTabBtn.toggled ? AbyssStyle.textColor : AbyssStyle.textColorMuted
@@ -866,7 +1311,10 @@ Item {
                     colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.12)
                     colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
                     colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
-                    onClicked: root.openPocket()
+                    onClicked: {
+                        root.swarmOpen = false;
+                        root.openPocket();
+                    }
                     contentItem: Item {
                         Row {
                             anchors.centerIn: parent
@@ -879,9 +1327,7 @@ Item {
                             }
                             StyledText {
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: AquaPocket.items.length > 0
-                                    ? Translation.tr("Pocket") + " (" + AquaPocket.items.length + ")"
-                                    : Translation.tr("Pocket")
+                                text: AquaPocket.items.length > 0 ? Translation.tr("Pocket") + " (" + AquaPocket.items.length + ")" : Translation.tr("Pocket")
                                 font.pixelSize: Appearance.font.pixelSize.smallest
                                 font.weight: pocketTabBtn.toggled ? Font.DemiBold : Font.Normal
                                 color: pocketTabBtn.toggled ? AbyssStyle.textColor : AbyssStyle.textColorMuted
@@ -893,122 +1339,97 @@ Item {
         }
 
         RippleButton {
-            id: newChatQuickBtn
-            objectName: "aquaNewChatButton"
-            Layout.preferredWidth: 30; Layout.preferredHeight: 30
-            implicitWidth: 30; implicitHeight: 30
+            id: stopTtsQuickBtn
+            objectName: "aquaStopTtsButton"
+            visible: AquaMind.ttsSpeaking
+            Layout.preferredWidth: 30
+            Layout.preferredHeight: 30
+            implicitWidth: 30
+            implicitHeight: 30
             buttonRadius: 15
-            colBackground: Qt.alpha(AbyssStyle.accent, 0.14)
-            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.28)
-            onClicked: {
-                if (root.pocketOpen) AquaPocket.close()
-                if (!root.embeddedMode && !AquaMind.conversationOpen) AquaMind.openChat()
-                AquaMind.createThread("", String(AquaMind.activeThread?.projectId ?? ""))
-            }
+            colBackground: Qt.alpha(Appearance.colors.colError, 0.16)
+            colBackgroundHover: Qt.alpha(Appearance.colors.colError, 0.28)
+            onClicked: AquaMind.stopVoiceTts()
             StyledToolTip {
-                extraVisibleCondition: newChatQuickBtn.buttonHovered
-                text: Translation.tr("New Chat")
+                extraVisibleCondition: stopTtsQuickBtn.buttonHovered
+                text: Translation.tr("Stop TTS")
             }
             contentItem: MaterialSymbol {
                 anchors.centerIn: parent
-                text: "add_comment"
+                text: "stop_circle"
                 iconSize: 15
-                color: AbyssStyle.accent
+                color: Appearance.colors.colError
             }
         }
-    }
 
-    // Standalone Pomodoro Bar when in Pocket or non-editing panel mode (in Chat mode it merges into chatTodayBar Col 1)
-    Rectangle {
-        id: pocketPomodoroBar
-        visible: root.panelMode && (!root.editing || root.editorMode)
-        x: 12; y: 46; width: parent.width - 24; height: 30
-        radius: 11
-        color: TimerService.pomodoroRunning
-            ? Qt.alpha(AbyssStyle.accent, 0.12)
-            : Qt.alpha(AbyssStyle.textColor, 0.04)
-        border.width: 1
-        border.color: TimerService.pomodoroRunning
-            ? Qt.alpha(AbyssStyle.accent, 0.28)
-            : Qt.alpha(AbyssStyle.textColor, 0.08)
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 9
-            anchors.rightMargin: 6
-            spacing: 6
-            MaterialSymbol {
-                text: root.pomodoroActivelyRunning ? "timelapse" : (root.pomodoroIsPaused ? "pause_circle" : "timer")
-                iconSize: 15
-                color: TimerService.pomodoroRunning ? AbyssStyle.accent : AbyssStyle.textColorMuted
+        RippleButton {
+            id: pinChatQuickBtn
+            objectName: "aquaPinChatButton"
+            visible: !root.embeddedMode
+            Layout.preferredWidth: 28
+            Layout.preferredHeight: 30
+            implicitWidth: 28
+            implicitHeight: 30
+            buttonRadius: 14
+            toggled: AquaMind.conversationPinned
+            colBackground: Qt.alpha(AbyssStyle.textColor, 0.05)
+            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.16)
+            colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.24)
+            colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.32)
+            onClicked: AquaMind.toggleConversationPinned()
+            StyledToolTip {
+                extraVisibleCondition: pinChatQuickBtn.buttonHovered
+                text: AquaMind.conversationPinned ? Translation.tr("Unpin chat window") : Translation.tr("Pin chat window")
             }
-            StyledText {
-                text: TimerService.pomodoroBreak ? Translation.tr("Break") : Translation.tr("Focus")
-                font.pixelSize: Appearance.font.pixelSize.smallest
-                font.weight: Font.DemiBold
-                color: TimerService.pomodoroRunning ? AbyssStyle.accent : AbyssStyle.textColor
+            contentItem: MaterialSymbol {
+                anchors.centerIn: parent
+                text: "keep"
+                iconSize: 14
+                color: pinChatQuickBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
             }
-            StyledText {
-                text: root.formatPomodoroClock(TimerService.pomodoroSecondsLeft)
-                font.pixelSize: Appearance.font.pixelSize.small
-                font.weight: Font.DemiBold
-                color: AbyssStyle.textColor
+        }
+
+        RippleButton {
+            id: swarmSidebarToggleBtn
+            objectName: "aquaSwarmSidebarToggle"
+            Layout.preferredWidth: 30
+            Layout.preferredHeight: 30
+            implicitWidth: 30
+            implicitHeight: 30
+            buttonRadius: 15
+            toggled: root.swarmOpen
+            colBackground: Qt.alpha(AbyssStyle.textColor, 0.05)
+            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.16)
+            colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.24)
+            colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.32)
+            onClicked: {
+                if (root.swarmOpen) {
+                    root.swarmOpen = false;
+                } else {
+                    root.openSwarm();
+                }
             }
-            Item { Layout.fillWidth: true }
-            RippleButton {
-                Layout.preferredHeight: 22
-                Layout.preferredWidth: pocketPomoLabel.implicitWidth + 16
-                implicitHeight: 22
-                implicitWidth: Layout.preferredWidth
-                buttonRadius: 11
-                colBackground: root.pomodoroActivelyRunning
-                    ? Qt.alpha(AbyssStyle.accent, 0.24)
-                    : Qt.alpha(AbyssStyle.accent, 0.14)
-                colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.34)
-                onClicked: TimerService.togglePomodoro()
-                contentItem: StyledText {
-                    id: pocketPomoLabel
+            StyledToolTip {
+                extraVisibleCondition: swarmSidebarToggleBtn.buttonHovered
+                text: Translation.tr("Swarm Right Sidebar (Board · Members · Graph)")
+            }
+            contentItem: Item {
+                MaterialSymbol {
                     anchors.centerIn: parent
-                    text: root.pomodoroActivelyRunning
-                        ? Translation.tr("Pause")
-                        : (root.pomodoroIsPaused ? Translation.tr("Resume") : Translation.tr("Start"))
-                    font.pixelSize: Appearance.font.pixelSize.smallest
-                    font.weight: Font.DemiBold
-                    color: AbyssStyle.accent
+                    text: root.swarmOpen ? "right_panel_close" : "right_panel_open"
+                    iconSize: 16
+                    color: swarmSidebarToggleBtn.toggled || AquaMind.swarmBusy ? AbyssStyle.accent : AbyssStyle.textColor
                 }
-            }
-            Item {
-                id: pocketPomoResetSlide
-                readonly property bool showReset: root.pomodoroIsPaused
-                property real revealProgress: showReset ? 1.0 : 0.0
-                Behavior on revealProgress {
-                    NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
-                }
-                visible: revealProgress > 0.01
-                Layout.preferredWidth: Math.round(20 * revealProgress)
-                Layout.preferredHeight: 20
-                Layout.alignment: Qt.AlignVCenter
-                implicitWidth: Layout.preferredWidth
-                implicitHeight: 20
-                clip: true
-                RippleButton {
-                    x: Math.round((1.0 - pocketPomoResetSlide.revealProgress) * 20)
-                    y: 0
-                    width: 20
-                    height: 20
-                    implicitWidth: 20
-                    implicitHeight: 20
-                    buttonRadius: 10
-                    opacity: pocketPomoResetSlide.revealProgress
-                    enabled: pocketPomoResetSlide.showReset
-                    colBackground: Qt.alpha(AbyssStyle.textColor, 0.08)
-                    colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.18)
-                    onClicked: TimerService.resetPomodoro()
-                    contentItem: MaterialSymbol {
-                        anchors.centerIn: parent
-                        text: "replay"
-                        iconSize: 12
-                        color: AbyssStyle.textColor
-                    }
+                Rectangle {
+                    visible: AquaMind.swarmBusy || AquaMind.swarmMembers.length > 1
+                    width: 6
+                    height: 6
+                    radius: 3
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.topMargin: 5
+                    anchors.rightMargin: 4
+                    color: AquaMind.swarmBusy ? AbyssStyle.accent : Qt.rgba(0.32, 0.84, 0.58, 1.0)
                 }
             }
         }
@@ -1053,6 +1474,22 @@ Item {
         width: root.sidebarWidth
         height: Math.max(0, root.height - root.bodyTop - 12)
         mind: AquaMind
+        onThreadTurnSelected: (threadId, matchedTurnIndex) => {
+            const targetThread = String(threadId ?? "").trim();
+            root.pendingJumpThreadId = targetThread;
+            root.pendingJumpTurnIndex = Number(matchedTurnIndex);
+            if (!targetThread || targetThread === AquaMind.activeThreadId) {
+                Qt.callLater(() => {
+                    if (root.pendingJumpTurnIndex >= 0 && (!root.pendingJumpThreadId || root.pendingJumpThreadId === AquaMind.activeThreadId)) {
+                        const targetIdx = root.pendingJumpTurnIndex;
+                        if (root.jumpToChatTurn(targetIdx)) {
+                            root.pendingJumpTurnIndex = -1;
+                            root.pendingJumpThreadId = "";
+                        }
+                    }
+                });
+            }
+        }
     }
 
     // Draggable edge resize handle for Sidebar (Codex Desktop style)
@@ -1071,15 +1508,9 @@ Item {
         Rectangle {
             anchors.centerIn: parent
             width: parent.dragging || parent.hovered ? 3 : 2
-            height: parent.dragging
-                ? Math.max(36, parent.height * 0.55)
-                : (parent.hovered ? Math.max(28, parent.height * 0.35) : 24)
+            height: parent.dragging ? Math.max(36, parent.height * 0.55) : (parent.hovered ? Math.max(28, parent.height * 0.35) : 24)
             radius: 1.5
-            color: parent.dragging
-                ? AbyssStyle.accent
-                : (parent.hovered
-                    ? Qt.alpha(AbyssStyle.accent, 0.72)
-                    : Qt.alpha(AbyssStyle.textColor, 0.16))
+            color: parent.dragging ? AbyssStyle.accent : (parent.hovered ? Qt.alpha(AbyssStyle.accent, 0.72) : Qt.alpha(AbyssStyle.textColor, 0.16))
         }
 
         MouseArea {
@@ -1092,15 +1523,16 @@ Item {
             property real pressStartSceneX: 0
             property real pressStartWidth: 186
             onPressed: mouse => {
-                const gp = sidebarResizeMouse.mapToItem(null, mouse.x, mouse.y)
-                pressStartSceneX = gp.x
-                pressStartWidth = root.sidebarWidth
+                const gp = sidebarResizeMouse.mapToItem(null, mouse.x, mouse.y);
+                pressStartSceneX = gp.x;
+                pressStartWidth = root.sidebarWidth;
             }
             onPositionChanged: mouse => {
-                if (!pressed) return
-                const gp = sidebarResizeMouse.mapToItem(null, mouse.x, mouse.y)
-                const delta = gp.x - pressStartSceneX
-                root.resizeSidebarTo(pressStartWidth + delta)
+                if (!pressed)
+                    return;
+                const gp = sidebarResizeMouse.mapToItem(null, mouse.x, mouse.y);
+                const delta = gp.x - pressStartSceneX;
+                root.resizeSidebarTo(pressStartWidth + delta);
             }
             onDoubleClicked: root.resizeSidebarTo(186)
         }
@@ -1108,394 +1540,14 @@ Item {
 
     Item {
         id: content
-        visible:!root.pocketOpen
-        x: 12 + root.sidebarOffset; y: root.bodyTop; width: parent.width - 24 - root.sidebarOffset
+        visible: !root.pocketOpen && !(root.swarmOverlayInNarrowEmbedded && root.swarmOpen)
+        x: 12 + root.sidebarOffset
+        y: root.bodyTop
+        width: Math.max(180, parent.width - 24 - root.sidebarOffset - root.swarmRightOffset)
         height: root.editing ? root.height - root.bodyTop - 12 : root.nonEditingContentHeight
         property real spacing: 7
-        readonly property real contextRowsImplicitHeight: (todayContextHeader.visible ? todayContextHeader.height + spacing : 0)
-            + (speechText.visible ? speechText.implicitHeight : 0)
-            + (todayContextRows.visible ? spacing + todayContextRows.implicitHeight : 0)
-            + (controlsColumn.visible ? spacing + controlsColumn.targetHeight : 0)
+        readonly property real contextRowsImplicitHeight: (todayContextHeader.visible ? todayContextHeader.height + spacing : 0) + (speechText.visible ? speechText.implicitHeight : 0) + (todayContextRows.visible ? spacing + todayContextRows.implicitHeight : 0) + (controlsColumn.visible ? spacing + controlsColumn.targetHeight : 0)
         implicitHeight: contextRowsImplicitHeight
-        // Merged 1-Row, 2-Column Top Bar: Column 1 = Focus (Pomodoro), Column 2 = Today Mood/Energy (expands downward on hover/check-in)
-        Rectangle {
-            id: chatTodayBar
-            objectName: "aquaChatTodayBar"
-            visible: root.editing && !root.editorMode
-            clip: true
-            x: 0
-            y: 0
-            width: content.width
-            height: implicitHeight
-            implicitWidth: content.width
-            Layout.fillWidth: true
-            Layout.preferredHeight: implicitHeight
-            readonly property real colGap: 6
-            readonly property real colWidth: Math.max(80, Math.floor((width - colGap) / 2))
-            readonly property real collapsedHeight: 30
-            readonly property real expandedTargetHeight: 34
-                + (root.profileStage === 0 ? (5 + chatTodayPhrase.implicitHeight) : 0)
-                + (chatCheckInChoicesRow.visible ? 29 : 0)
-            readonly property real targetHeight: root.todayBarExpanded ? expandedTargetHeight : collapsedHeight
-            readonly property real expandProgress: Math.max(0, Math.min(1,
-                (implicitHeight - collapsedHeight) / Math.max(1, expandedTargetHeight - collapsedHeight)))
-            implicitHeight: targetHeight
-            onVisibleChanged: {
-                if (!visible) {
-                    chatTodayHeightAnim.stop()
-                    implicitHeight = Qt.binding(() => chatTodayBar.targetHeight)
-                }
-            }
-            Behavior on implicitHeight {
-                enabled: root.visible && root.editing && AquaMind.checkInComplete
-                NumberAnimation {
-                    id: chatTodayHeightAnim
-                    duration: 190
-                    easing.type: Easing.OutCubic
-                }
-            }
-            radius: 11
-            color: root.todayBarExpanded ? Qt.alpha(AbyssStyle.textColor, 0.04) : "transparent"
-            border.width: root.todayBarExpanded ? 1 : 0
-            border.color: root.activeChatCheckInField !== ""
-                ? Qt.alpha(AbyssStyle.accent, 0.26)
-                : (root.todayBarHovered ? Qt.alpha(AbyssStyle.accent, 0.18) : Qt.alpha(AbyssStyle.textColor, 0.08))
-
-            // Column 1 (Left): Focus / Pomodoro Bar
-            Rectangle {
-                id: unifiedPomodoroBar
-                objectName: "aquaUnifiedPomodoroBar"
-                visible: root.panelMode
-                x: 0
-                y: 0
-                width: chatTodayBar.colWidth
-                height: 30
-                radius: 11
-                clip: true
-                color: TimerService.pomodoroRunning
-                    ? Qt.alpha(AbyssStyle.accent, 0.12)
-                    : Qt.alpha(AbyssStyle.textColor, 0.04)
-                border.width: 1
-                border.color: TimerService.pomodoroRunning
-                    ? Qt.alpha(AbyssStyle.accent, 0.28)
-                    : Qt.alpha(AbyssStyle.textColor, 0.08)
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 7
-                    anchors.rightMargin: 6
-                    spacing: 3
-                    MaterialSymbol {
-                        Layout.alignment: Qt.AlignVCenter
-                        text: root.pomodoroActivelyRunning ? "timelapse" : (root.pomodoroIsPaused ? "pause_circle" : "timer")
-                        iconSize: 13
-                        color: TimerService.pomodoroRunning ? AbyssStyle.accent : AbyssStyle.textColorMuted
-                    }
-                    StyledText {
-                        visible: unifiedPomodoroBar.width >= (pomoResetSlideWrapper.visible ? 196 : 146)
-                        Layout.alignment: Qt.AlignVCenter
-                        text: TimerService.pomodoroBreak ? Translation.tr("Break") : Translation.tr("Focus")
-                        verticalAlignment: Text.AlignVCenter
-                        font.pixelSize: Appearance.font.pixelSize.smallest
-                        font.weight: Font.DemiBold
-                        color: TimerService.pomodoroRunning ? AbyssStyle.accent : AbyssStyle.textColor
-                    }
-                    StyledText {
-                        Layout.alignment: Qt.AlignVCenter
-                        text: root.formatPomodoroClock(TimerService.pomodoroSecondsLeft)
-                        verticalAlignment: Text.AlignVCenter
-                        font.pixelSize: Appearance.font.pixelSize.smallest
-                        font.weight: Font.DemiBold
-                        color: AbyssStyle.textColor
-                    }
-                    Item { Layout.fillWidth: true }
-                    RippleButton {
-                        id: pomoToggleBtn
-                        objectName: "aquaUnifiedPomodoroToggle"
-                        Layout.preferredHeight: 22
-                        Layout.preferredWidth: pomoToggleRow.implicitWidth + (root.pomodoroIsPaused ? 10 : 12)
-                        Layout.alignment: Qt.AlignVCenter
-                        implicitHeight: 22
-                        implicitWidth: Layout.preferredWidth
-                        buttonRadius: 11
-                        colBackground: root.pomodoroActivelyRunning
-                            ? Qt.alpha(AbyssStyle.accent, 0.24)
-                            : Qt.alpha(AbyssStyle.accent, 0.14)
-                        colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.34)
-                        onClicked: TimerService.togglePomodoro()
-                        contentItem: Item {
-                            Row {
-                                id: pomoToggleRow
-                                anchors.centerIn: parent
-                                spacing: 2
-                                MaterialSymbol {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: root.pomodoroActivelyRunning ? "pause" : "play_arrow"
-                                    iconSize: 13
-                                    color: AbyssStyle.accent
-                                }
-                                StyledText {
-                                    objectName: "aquaUnifiedPomodoroToggleLabel"
-                                    visible: unifiedPomodoroBar.width >= 122
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: root.pomodoroActivelyRunning
-                                        ? Translation.tr("Pause")
-                                        : (root.pomodoroIsPaused ? Translation.tr("Resume") : Translation.tr("Start"))
-                                    font.pixelSize: Appearance.font.pixelSize.smallest - 1
-                                    font.weight: Font.DemiBold
-                                    color: AbyssStyle.accent
-                                }
-                            }
-                        }
-                    }
-                    Item {
-                        id: pomoResetSlideWrapper
-                        readonly property bool showReset: root.pomodoroIsPaused
-                        property real revealProgress: showReset ? 1.0 : 0.0
-                        Behavior on revealProgress {
-                            NumberAnimation {
-                                duration: 180
-                                easing.type: Easing.OutCubic
-                            }
-                        }
-                        visible: revealProgress > 0.01
-                        Layout.preferredWidth: Math.round(20 * revealProgress)
-                        Layout.preferredHeight: 22
-                        Layout.alignment: Qt.AlignVCenter
-                        implicitWidth: Layout.preferredWidth
-                        implicitHeight: 22
-                        clip: true
-
-                        RippleButton {
-                            id: pomoResetBtn
-                            objectName: "aquaUnifiedPomodoroReset"
-                            x: Math.round((1.0 - pomoResetSlideWrapper.revealProgress) * 20)
-                            y: 1
-                            width: 20
-                            height: 20
-                            implicitWidth: 20
-                            implicitHeight: 20
-                            buttonRadius: 10
-                            opacity: pomoResetSlideWrapper.revealProgress
-                            enabled: pomoResetSlideWrapper.showReset
-                            colBackground: Qt.alpha(AbyssStyle.textColor, 0.08)
-                            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.18)
-                            onClicked: TimerService.resetPomodoro()
-                            StyledToolTip {
-                                extraVisibleCondition: pomoResetBtn.buttonHovered
-                                text: Translation.tr("Reset timer")
-                            }
-                            contentItem: MaterialSymbol {
-                                anchors.centerIn: parent
-                                text: "replay"
-                                iconSize: 12
-                                color: AbyssStyle.textColor
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Column 2 (Right): Today Mood & Energy Bar
-            Rectangle {
-                id: chatTodayRightCol
-                objectName: "aquaChatTodayRightCol"
-                x: unifiedPomodoroBar.width + chatTodayBar.colGap
-                y: 0
-                width: Math.max(80, chatTodayBar.width - x)
-                height: 30
-                radius: 11
-                color: Qt.alpha(AbyssStyle.textColor, 0.04)
-                border.width: 1
-                border.color: root.activeChatCheckInField !== ""
-                    ? Qt.alpha(AbyssStyle.accent, 0.26)
-                    : (root.todayBarHovered ? Qt.alpha(AbyssStyle.accent, 0.18) : Qt.alpha(AbyssStyle.textColor, 0.08))
-                HoverHandler { id: chatTodayHover; blocking: false }
-
-                RowLayout {
-                    id: chatTodayHeaderRow
-                    anchors.fill: parent
-                    anchors.leftMargin: 6
-                    anchors.rightMargin: 4
-                    spacing: 3
-                    MaterialSymbol {
-                        visible: !root.todayBarExpanded || (chatMoodBtn.implicitWidth + chatEnergyBtn.implicitWidth <= chatTodayRightCol.width - 28)
-                        Layout.alignment: Qt.AlignVCenter
-                        text: "menu_book"
-                        iconSize: 14
-                        color: AbyssStyle.accent
-                    }
-                    StyledText {
-                        visible: chatTodayRightCol.width >= (root.todayBarExpanded || !AquaMind.checkInComplete ? 215 : 158)
-                        Layout.alignment: Qt.AlignVCenter
-                        text: Translation.tr("Today")
-                        verticalAlignment: Text.AlignVCenter
-                        font.pixelSize: Appearance.font.pixelSize.smallest
-                        font.weight: Font.DemiBold
-                        color: AbyssStyle.textColor
-                    }
-                    Item { Layout.fillWidth: true }
-                    RippleButton {
-                        id: chatMoodBtn
-                        objectName: "aquaChatMoodButton"
-                        Layout.preferredHeight: 22
-                        Layout.preferredWidth: chatMoodRow.implicitWidth + 8
-                        Layout.alignment: Qt.AlignVCenter
-                        implicitHeight: 22
-                        implicitWidth: Layout.preferredWidth
-                        buttonRadius: 11
-                        toggled: root.activeChatCheckInField === "mood"
-                        colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
-                        colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.14)
-                        colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
-                        colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
-                        onClicked: {
-                            root.profileStage = 0
-                            root.chatCheckInField = (root.activeChatCheckInField === "mood" ? "none" : "mood")
-                        }
-                        contentItem: Item {
-                            Row {
-                                id: chatMoodRow
-                                anchors.centerIn: parent
-                                spacing: 3
-                                MaterialSymbol {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: "mood"
-                                    iconSize: 12
-                                    color: chatMoodBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
-                                }
-                                StyledText {
-                                    objectName: "aquaChatMoodLabel"
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: (root.todayBarExpanded || !AquaMind.checkInComplete)
-                                        ? (Translation.tr("Mood") + ": " + root.formatCheckInDisplayValue(AquaMind.userMood))
-                                        : (AquaMind.userMood ? root.formatCheckInDisplayValue(AquaMind.userMood) : "")
-                                    font.pixelSize: Appearance.font.pixelSize.smallest - 1
-                                    font.weight: chatMoodBtn.toggled ? Font.DemiBold : Font.Normal
-                                    color: chatMoodBtn.toggled ? AbyssStyle.textColor : Appearance.colors.colSubtext
-                                }
-                            }
-                        }
-                    }
-                    RippleButton {
-                        id: chatEnergyBtn
-                        objectName: "aquaChatEnergyButton"
-                        Layout.preferredHeight: 22
-                        Layout.preferredWidth: chatEnergyRow.implicitWidth + 8
-                        Layout.alignment: Qt.AlignVCenter
-                        implicitHeight: 22
-                        implicitWidth: Layout.preferredWidth
-                        buttonRadius: 11
-                        toggled: root.activeChatCheckInField === "energy"
-                        colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
-                        colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.14)
-                        colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
-                        colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
-                        onClicked: {
-                            root.profileStage = 0
-                            root.chatCheckInField = (root.activeChatCheckInField === "energy" ? "none" : "energy")
-                        }
-                        contentItem: Item {
-                            Row {
-                                id: chatEnergyRow
-                                anchors.centerIn: parent
-                                spacing: 3
-                                MaterialSymbol {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: "bolt"
-                                    iconSize: 12
-                                    color: chatEnergyBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
-                                }
-                                StyledText {
-                                    objectName: "aquaChatEnergyLabel"
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: (root.todayBarExpanded || !AquaMind.checkInComplete)
-                                        ? (Translation.tr("Energy") + ": " + root.formatCheckInDisplayValue(AquaMind.userEnergy))
-                                        : (AquaMind.userEnergy ? root.formatCheckInDisplayValue(AquaMind.userEnergy) : "")
-                                    font.pixelSize: Appearance.font.pixelSize.smallest - 1
-                                    font.weight: chatEnergyBtn.toggled ? Font.DemiBold : Font.Normal
-                                    color: chatEnergyBtn.toggled ? AbyssStyle.textColor : Appearance.colors.colSubtext
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            StyledText {
-                id: chatTodayPhrase
-                objectName: "aquaChatTodayPhrase"
-                x: 9
-                y: 34 - (1.0 - chatTodayBar.expandProgress) * 4
-                width: Math.max(0, parent.width - 17)
-                visible: root.profileStage === 0 && (root.todayBarExpanded || chatTodayBar.expandProgress > 0.02)
-                opacity: chatTodayBar.expandProgress
-                text: !root.visible ? ""
-                    : root.activeChatCheckInField === "mood"
-                    ? "Tiny check-in! How are you feeling today?"
-                    : root.activeChatCheckInField === "energy"
-                    ? "And how's your energy? Tiny spark or full splash?"
-                    : AquaMind.contextualPhrase()
-                textFormat: Text.PlainText
-                wrapMode: Text.WordWrap
-                font.pixelSize: Appearance.font.pixelSize.smallest
-                color: Appearance.colors.colSubtext
-            }
-            RowLayout {
-                id: chatCheckInChoicesRow
-                objectName: "aquaChatCheckInChoices"
-                x: 9
-                y: root.profileStage === 0
-                    ? (34 + chatTodayPhrase.implicitHeight + 5)
-                    : 34
-                width: Math.max(0, parent.width - 17)
-                height: 24
-                visible: root.activeChatCheckInField === "mood" || root.activeChatCheckInField === "energy"
-                spacing: 4
-                Repeater {
-                    id: chatChoiceRepeater
-                    model: root.activeChatCheckInField === "energy" ? root.energyOptions : root.moodOptions
-                    RippleButton {
-                        id: chatChoiceChip
-                        required property var modelData
-                        required property int index
-                        objectName: "aquaChatChoice-" + root.activeChatCheckInField + "-" + String(modelData.value)
-                        readonly property real chipCount: Math.max(1, chatChoiceRepeater.count)
-                        readonly property real chipWidth: Math.max(24, (chatCheckInChoicesRow.width - (chipCount - 1) * chatCheckInChoicesRow.spacing) / chipCount)
-                        x: index * (chipWidth + chatCheckInChoicesRow.spacing)
-                        y: 0
-                        width: chipWidth
-                        height: 24
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 24
-                        implicitWidth: chipWidth
-                        implicitHeight: 24
-                        buttonRadius: 10
-                        enabled: !AquaMind.busy
-                        toggled: (root.activeChatCheckInField === "energy" ? AquaMind.userEnergy : AquaMind.userMood) === modelData.value
-                        colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
-                        colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.14)
-                        colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.24)
-                        colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.32)
-                        onClicked: {
-                            const targetField = root.activeChatCheckInField
-                            if (AquaMind.setChatCheckInChoice(targetField, modelData.value)) {
-                                if (targetField === "mood" && !AquaMind.userEnergy)
-                                    root.chatCheckInField = "energy"
-                                else
-                                    root.chatCheckInField = "none"
-                            }
-                        }
-                        contentItem: StyledText {
-                            anchors.centerIn: parent
-                            text: chatChoiceChip.modelData.label
-                            horizontalAlignment: Text.AlignHCenter
-                            font.pixelSize: Appearance.font.pixelSize.smallest
-                            font.weight: chatChoiceChip.toggled ? Font.DemiBold : Font.Normal
-                            color: chatChoiceChip.toggled ? AbyssStyle.textColor : Appearance.colors.colSubtext
-                        }
-                    }
-                }
-            }
-        }
         RowLayout {
             id: todayContextHeader
             visible: AquaMind.contextOpen && !root.editing
@@ -1532,28 +1584,33 @@ Item {
             wrapMode: Text.WordWrap
             font.pixelSize: Appearance.font.pixelSize.small
             Accessible.description: AquaMind.source === "ai" ? "AI reply" : "Companion message"
+            onLinkActivated: link => {
+                if (link && AquaMind.liveModelAutoDetectAllowed)
+                    AquaMind.openExternalUrl(link);
+            }
         }
         ColumnLayout {
             id: todayContextRows
-            visible:AquaMind.contextOpen && !root.editing && AquaMind.checkInComplete
+            visible: AquaMind.contextOpen && !root.editing && AquaMind.checkInComplete
             x: 0
-            y: (todayContextHeader.visible ? todayContextHeader.height + content.spacing : 0)
-                + (speechText.visible ? speechText.implicitHeight + content.spacing : 0)
+            y: (todayContextHeader.visible ? todayContextHeader.height + content.spacing : 0) + (speechText.visible ? speechText.implicitHeight + content.spacing : 0)
             width: content.width
-            Layout.fillWidth:true
+            Layout.fillWidth: true
             StyledText {
-                Layout.fillWidth:true
-                text:Translation.tr("Mood")+": "+AquaMind.userMood+"  ·  "+Translation.tr("Energy")+": "+AquaMind.userEnergy
-                wrapMode:Text.WordWrap; color:Appearance.colors.colSubtext
+                Layout.fillWidth: true
+                text: Translation.tr("Mood") + ": " + AquaMind.userMood + "  ·  " + Translation.tr("Energy") + ": " + AquaMind.userEnergy
+                wrapMode: Text.WordWrap
+                color: Appearance.colors.colSubtext
             }
             Repeater {
-                model: AquaMind.contextOpen ? AquaMind.reminderRows(DateTime.clock.date).slice(0,6) : []
+                model: AquaMind.contextOpen ? AquaMind.reminderRows(DateTime.clock.date).slice(0, 6) : []
                 StyledText {
                     required property var modelData
-                    Layout.fillWidth:true
-                    text:String(Math.floor(modelData.start/60)).padStart(2,"0")+":"+String(modelData.start%60).padStart(2,"0")+" · "+modelData.title
-                    textFormat:Text.PlainText
-                    elide:Text.ElideRight; font.pixelSize:Appearance.font.pixelSize.small
+                    Layout.fillWidth: true
+                    text: String(Math.floor(modelData.start / 60)).padStart(2, "0") + ":" + String(modelData.start % 60).padStart(2, "0") + " · " + modelData.title
+                    textFormat: Text.PlainText
+                    elide: Text.ElideRight
+                    font.pixelSize: Appearance.font.pixelSize.small
                 }
             }
         }
@@ -1562,11 +1619,9 @@ Item {
             id: emptyStateSpacer
             visible: root.editing && !root.editorMode && AquaMind.history.length === 0
             x: 0
-            y: chatTodayBar.visible ? (chatTodayBar.height + content.spacing) : 0
+            y: 0
             width: content.width
-            height: Math.max(0, content.height - y
-                - (thinkingCard.visible ? thinkingCard.height + content.spacing : 0)
-                - (controlsColumn.visible ? controlsColumn.height + content.spacing : 0))
+            height: Math.max(0, content.height - y - (thinkingCard.visible ? thinkingCard.height + content.spacing : 0) - (controlsColumn.visible ? controlsColumn.height + content.spacing : 0))
             Layout.fillWidth: true
             Layout.fillHeight: true
             StyledText {
@@ -1574,7 +1629,7 @@ Item {
                 anchors.centerIn: parent
                 width: Math.min(parent.width, 260)
                 horizontalAlignment: Text.AlignHCenter
-                text: "Splish! What's on your mind?\nType / for agent commands & skills."
+                text: "Splish! Ask anything, or / for commands."
                 textFormat: Text.PlainText
                 wrapMode: Text.WordWrap
                 color: Appearance.colors.colSubtext
@@ -1584,12 +1639,14 @@ Item {
         Item {
             id: transcriptArea
             visible: root.editing && !root.editorMode && AquaMind.history.length > 0
+            onVisibleChanged: {
+                if (visible)
+                    root.scrollToLatestMessage();
+            }
             x: 0
-            y: chatTodayBar.visible ? (chatTodayBar.height + content.spacing) : 0
+            y: 0
             width: content.width
-            height: Math.max(80, content.height - y
-                - (thinkingCard.visible ? thinkingCard.height + content.spacing : 0)
-                - (controlsColumn.visible ? controlsColumn.height + content.spacing : 0))
+            height: Math.max(80, content.height - y - (thinkingCard.visible ? thinkingCard.height + content.spacing : 0) - (controlsColumn.visible ? controlsColumn.height + content.spacing : 0))
             Layout.fillWidth: true
             Layout.fillHeight: true
 
@@ -1607,21 +1664,39 @@ Item {
                 property bool readyForOlder: false
                 onCountChanged: {
                     if (transcript.count === 0)
-                        root.resetSelectionState()
-                    if (AquaMind.historyLoadingOlder) return
-                    root.activeTurnIndex = -1
-                    readyForOlder=false
+                        root.resetSelectionState();
+                    if (AquaMind.historyLoadingOlder)
+                        return;
+                    root.activeTurnIndex = -1;
+                    root.stickToBottom = true;
+                    readyForOlder = false;
                     Qt.callLater(() => {
-                        if (!root.editing) return
-                        transcript.positionViewAtEnd()
-                        if (root.chatTurns.length > 0)
-                            root.scrollDotNavigatorToTurn(root.chatTurns.length - 1)
-                        transcript.readyForOlder=true
-                    })
+                        if (!root.editing)
+                            return;
+                        root.scrollToLatestMessage();
+                    });
+                }
+                onHeightChanged: {
+                    if (root.editing && root.stickToBottom && !AquaMind.historyLoadingOlder && root.pendingJumpTurnIndex < 0 && !transcript.moving && !transcript.dragging) {
+                        root._snapTranscriptToBottom();
+                    }
+                }
+                onWidthChanged: {
+                    if (root.editing && root.stickToBottom && !AquaMind.historyLoadingOlder && root.pendingJumpTurnIndex < 0 && !transcript.moving && !transcript.dragging) {
+                        root._snapTranscriptToBottom();
+                    }
+                }
+                onMovementEnded: {
+                    root.stickToBottom = transcript.atYEnd;
                 }
                 onContentYChanged: {
-                    if (readyForOlder && contentY<=12 && AquaMind.historyHasMore && !AquaMind.busy)
-                        AquaMind.loadHistory(true)
+                    if (!root._snappingToBottom && (transcript.moving || transcript.dragging || contentY < root._lastSnapContentY - 4)) {
+                        root.stickToBottom = transcript.atYEnd;
+                        if (!root.stickToBottom)
+                            scrollToBottomSettleTimer.stop();
+                    }
+                    if (readyForOlder && !scrollToBottomSettleTimer.running && contentY <= transcript.originY + 12 && AquaMind.historyHasMore && !AquaMind.busy)
+                        AquaMind.loadHistory(true);
                 }
                 delegate: Item {
                     id: bubbleRow
@@ -1629,32 +1704,57 @@ Item {
                     required property int index
                     property bool activityExpanded: false
                     readonly property var bubbleActivitySteps: {
-                        const raw = modelData?.activitySteps
-                        const out = []
+                        const raw = modelData?.activitySteps;
+                        const out = [];
                         if (raw && typeof raw.length === "number") {
                             for (let i = 0; i < raw.length; ++i) {
-                                const ln = String(raw[i] ?? "").trim()
-                                if (ln) out.push(ln)
+                                const ln = String(raw[i] ?? "").trim();
+                                if (ln)
+                                    out.push(ln);
                             }
                         }
-                        return out
+                        return out;
                     }
                     readonly property bool hasActivitySteps: !fromUser && bubbleActivitySteps.length > 0
                     readonly property int workedSec: Math.max(1, Number(modelData?.workedSeconds ?? 1))
-                    readonly property string workedLabel: workedSec >= 60
-                        ? ("Worked for " + Math.floor(workedSec / 60) + "m " + (workedSec % 60 > 0 ? ((workedSec % 60) + "s ") : "") + (activityExpanded ? "▾" : "›"))
-                        : ("Worked for " + workedSec + "s " + (activityExpanded ? "▾" : "›"))
+                    readonly property bool fromVoiceReply: !fromUser && modelData?.fromVoiceReply === true
+                    readonly property bool voiceTranscriptPending: !fromUser && modelData?.voiceTranscriptPending === true
+                    readonly property bool voiceTranscribed: !fromUser && modelData?.voiceTranscribed === true
+                    readonly property string workedLabel: {
+                        if (voiceTranscriptPending)
+                            return "🔊 Speaking response · Transcribing text... " + (activityExpanded ? "▾" : "›");
+                        const baseWorked = workedSec >= 60 ? ("Worked for " + Math.floor(workedSec / 60) + "m " + (workedSec % 60 > 0 ? ((workedSec % 60) + "s ") : "")) : ("Worked for " + workedSec + "s ");
+                        return baseWorked + (fromVoiceReply ? "· 🔊 Voice → Text " : "") + (activityExpanded ? "▾" : "›");
+                    }
                     readonly property real activityOffset: activityLogBox.visible ? (activityLogBox.height + 3) : 0
-                    width: transcript.width
-                    height: activityOffset + bubble.height + 2
                     readonly property bool fromUser: modelData?.role === "user"
+                    readonly property string firstCodeLang: {
+                        if (fromUser)
+                            return "";
+                        const m = /```([a-zA-Z0-9_-]+)?\n([\s\S]*?)```/.exec(String(modelData?.content ?? ""));
+                        return m ? String(m[1] ?? "txt").trim().toLowerCase() : "txt";
+                    }
+                    readonly property string firstCodeBlock: {
+                        if (fromUser)
+                            return "";
+                        const m = /```(?:[a-zA-Z0-9_-]+)?\n([\s\S]*?)```/.exec(String(modelData?.content ?? ""));
+                        return m ? String(m[1] ?? "").trim() : "";
+                    }
+                    readonly property bool hasCodeBlock: !fromUser && firstCodeBlock.length > 0
+                    readonly property string receiptId: !fromUser ? String(modelData?.receiptId ?? "") : ""
+                    readonly property int addedLines: !fromUser ? Math.max(0, Number(modelData?.addedLines ?? 0)) : 0
+                    readonly property int removedLines: !fromUser ? Math.max(0, Number(modelData?.removedLines ?? 0)) : 0
+                    readonly property bool rolledBack: modelData?.rolledBack === true
+                    readonly property bool hasFileDiff: !fromUser && (receiptId.length > 0 || addedLines > 0 || removedLines > 0)
+                    readonly property bool hasFailedNotice: fromUser && modelData?.failed === true
+                    readonly property string failedNoticeText: hasFailedNotice ? String(modelData?.errorText || AquaMind.errorMessage || "Request timed out or failed.") : ""
+                    readonly property real metaChipsOffset: (hasCodeBlock || hasFileDiff || hasFailedNotice) ? 23 : 0
+                    width: transcript.width
+                    height: activityOffset + bubble.height + metaChipsOffset + 2
                     readonly property real navReserve: dotNavigatorRail.visible ? (dotNavigatorRail.width + 4) : 0
                     readonly property real copyReserve: 26
                     readonly property real availableWidth: Math.max(140, width - navReserve)
-                    readonly property real maxBubbleWidth: Math.max(120, Math.min(
-                        availableWidth - copyReserve,
-                        Math.floor(availableWidth * (fromUser ? 0.85 : 0.92))
-                    ))
+                    readonly property real maxBubbleWidth: Math.max(120, Math.min(availableWidth - copyReserve, Math.floor(availableWidth * (fromUser ? 0.85 : 0.92))))
                     readonly property real hPad: 11
                     readonly property real vPad: 7
                     readonly property real maxTextWidth: Math.max(60, maxBubbleWidth - hPad * 2)
@@ -1712,43 +1812,41 @@ Item {
                         id: bubble
                         objectName: "aquaChatBubble-" + bubbleRow.index
                         y: bubbleRow.activityOffset
+                        readonly property bool isVoiceSpeakingFirst: bubbleRow.voiceTranscriptPending
+                        readonly property bool isVoiceTranscribedAfter: bubbleRow.voiceTranscribed
                         readonly property var bubbleImages: {
-                            const raw = bubbleRow.modelData?.images
-                            const out = []
+                            const raw = bubbleRow.modelData?.images;
+                            const out = [];
                             if (raw && typeof raw.length === "number") {
                                 for (let i = 0; i < raw.length; ++i) {
-                                    if (raw[i]) out.push(String(raw[i]))
+                                    if (raw[i])
+                                        out.push(String(raw[i]));
                                 }
                             }
                             if (out.length === 0 && !bubbleRow.fromUser) {
-                                return AquaMind.extractReplyImages(String(bubbleRow.modelData?.content ?? ""))
+                                return AquaMind.extractReplyImages(String(bubbleRow.modelData?.content ?? ""));
                             }
-                            return out
+                            return out;
                         }
                         readonly property bool hasBubbleImages: bubbleImages.length > 0
-                        readonly property real thumbW: bubbleRow.fromUser
-                            ? 46
-                            : Math.min(216, Math.max(120, bubbleRow.maxTextWidth))
+                        readonly property real thumbW: bubbleRow.fromUser ? 46 : Math.min(216, Math.max(120, bubbleRow.maxTextWidth))
                         readonly property real thumbH: bubbleRow.fromUser ? 46 : 122
                         readonly property real imagesRowHeight: hasBubbleImages ? (thumbH + 6) : 0
-                        readonly property real imagesRowWidth: hasBubbleImages
-                            ? Math.min(bubbleRow.maxTextWidth, bubbleImages.length * (thumbW + 6) - 6)
-                            : 0
-                        readonly property real measuredTextWidth: messageText.contentWidth > 0
-                            ? Math.ceil(messageText.contentWidth) + 2
-                            : Math.min(Math.ceil(messageText.implicitWidth) + 2, bubbleRow.maxTextWidth)
-                        readonly property real measuredTextHeight: messageText.contentHeight > 0
-                            ? Math.ceil(messageText.contentHeight)
-                            : Math.ceil(messageText.implicitHeight)
-                        width: Math.max(32, Math.min(bubbleRow.maxBubbleWidth, Math.max(measuredTextWidth, imagesRowWidth) + bubbleRow.hPad * 2))
-                        height: Math.max(28, measuredTextHeight + imagesRowHeight + bubbleRow.vPad * 2)
+                        readonly property real imagesRowWidth: hasBubbleImages ? Math.min(bubbleRow.maxTextWidth, bubbleImages.length * (thumbW + 6) - 6) : 0
+                        readonly property real measuredTextWidth: messageText.contentWidth > 0 ? Math.ceil(messageText.contentWidth) + 2 : Math.min(Math.ceil(messageText.implicitWidth) + 2, bubbleRow.maxTextWidth)
+                        readonly property real measuredTextHeight: messageText.contentHeight > 0 ? Math.ceil(messageText.contentHeight) : Math.ceil(messageText.implicitHeight)
+                        readonly property real unclampedWidth: Math.max(32, Math.min(bubbleRow.maxBubbleWidth, Math.max(measuredTextWidth, imagesRowWidth) + bubbleRow.hPad * 2))
+                        readonly property real actionClusterOuterReserve: bubbleRow.fromUser ? 86 : 138
+                        readonly property bool fitsActionClusterOutside: (unclampedWidth + actionClusterOuterReserve) <= bubbleRow.availableWidth
+                        readonly property real minInnerClusterWidth: bubbleRow.fromUser ? 92 : 142
+                        readonly property real actionFooterHeight: fitsActionClusterOutside ? 0 : 22
+                        width: fitsActionClusterOutside ? unclampedWidth : Math.min(bubbleRow.maxBubbleWidth, Math.max(unclampedWidth, minInnerClusterWidth))
+                        height: Math.max(28, measuredTextHeight + imagesRowHeight + bubbleRow.vPad * 2 + actionFooterHeight)
                         x: bubbleRow.fromUser ? Math.max(0, bubbleRow.availableWidth - width) : 0
                         radius: Math.max(10, Math.min(14, root.edgeRadius - 6))
                         color: bubbleRow.fromUser ? Qt.alpha(AbyssStyle.accent, .14) : Qt.alpha(AbyssStyle.textColor, .06)
                         border.width: 1
-                        border.color: String(messageText.selectedText ?? "").length > 0
-                            ? Qt.alpha(AbyssStyle.accent, .48)
-                            : (bubbleRow.fromUser ? Qt.alpha(AbyssStyle.accent, .22) : Qt.alpha(AbyssStyle.textColor, .08))
+                        border.color: String(messageText.selectedText ?? "").length > 0 ? Qt.alpha(AbyssStyle.accent, .48) : (bubbleRow.fromUser ? Qt.alpha(AbyssStyle.accent, .22) : Qt.alpha(AbyssStyle.textColor, .08))
                         opacity: bubbleRow.modelData?.failed === true ? .58 : 1
                         HoverHandler {
                             id: bubbleHover
@@ -1759,10 +1857,11 @@ Item {
                             id: bubblePressHandler
                             acceptedButtons: Qt.LeftButton
                             onActiveChanged: {
-                                root.activePressBubbleCount = Math.max(0, root.activePressBubbleCount + (active ? 1 : -1))
+                                root.activePressBubbleCount = Math.max(0, root.activePressBubbleCount + (active ? 1 : -1));
                             }
                             Component.onDestruction: {
-                                if (active) root.activePressBubbleCount = Math.max(0, root.activePressBubbleCount - 1)
+                                if (active)
+                                    root.activePressBubbleCount = Math.max(0, root.activePressBubbleCount - 1);
                             }
                         }
                         Row {
@@ -1780,9 +1879,7 @@ Item {
                                     required property var modelData
                                     required property int index
                                     objectName: "aquaBubbleImageThumb-" + bubbleRow.index + "-" + index
-                                    readonly property string imageUrl: String(modelData ?? "").startsWith("/")
-                                        ? ("file://" + String(modelData))
-                                        : String(modelData ?? "")
+                                    readonly property string imageUrl: String(modelData ?? "").startsWith("/") ? ("file://" + String(modelData)) : String(modelData ?? "")
                                     width: bubble.thumbW
                                     height: bubble.thumbH
                                     radius: bubbleRow.fromUser ? 8 : 10
@@ -1795,6 +1892,7 @@ Item {
                                         anchors.margins: 1
                                         fillMode: Image.PreserveAspectCrop
                                         asynchronous: false
+                                        sourceSize: Qt.size(Math.max(1, Math.round(bubble.thumbW * 2)), Math.max(1, Math.round(bubble.thumbH * 2)))
                                         source: bubbleThumbCard.imageUrl
                                     }
                                     MouseArea {
@@ -1802,19 +1900,31 @@ Item {
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: {
                                             if (bubbleThumbCard.imageUrl && AquaMind.liveModelAutoDetectAllowed)
-                                                Qt.openUrlExternally(bubbleThumbCard.imageUrl)
+                                                Qt.openUrlExternally(bubbleThumbCard.imageUrl);
                                         }
                                     }
                                 }
                             }
                         }
+                        Rectangle {
+                            id: voiceSpeakingBanner
+                            objectName: "aquaVoiceSpeakingBanner-" + bubbleRow.index
+                            visible: bubble.isVoiceSpeakingFirst
+                            x: Math.max(4, bubbleRow.hPad - 4)
+                            y: Math.max(2, bubbleRow.vPad + bubble.imagesRowHeight - 2)
+                            width: Math.min(bubble.width - 8, Math.max(16, messageText.width + 8))
+                            height: Math.max(18, messageText.height + 4)
+                            radius: 8
+                            color: Qt.alpha(AbyssStyle.accent, 0.14)
+                            border.width: 1
+                            border.color: Qt.alpha(AbyssStyle.accent, 0.36)
+                        }
                         TextEdit {
                             id: messageText
                             objectName: "aquaChatBubbleText-" + bubbleRow.index
+                            property string cachedSelectedText: ""
                             readonly property string rawContent: String(bubbleRow.modelData?.content ?? "")
-                            readonly property string displaySource: bubbleRow.fromUser
-                                ? rawContent
-                                : root.compactBubbleSource(rawContent)
+                            readonly property string displaySource: bubbleRow.fromUser ? rawContent : root.compactBubbleSource(rawContent)
                             readonly property bool useRichMarkdown: root.containsMarkdownSyntax(displaySource)
                             x: bubbleRow.hPad
                             y: bubbleRow.vPad + bubble.imagesRowHeight
@@ -1840,30 +1950,37 @@ Item {
                             font.variableAxes: Appearance.font.variableAxes.main
                             onLinkActivated: link => {
                                 if (link && AquaMind.liveModelAutoDetectAllowed)
-                                    Qt.openUrlExternally(link)
+                                    AquaMind.openExternalUrl(link);
                             }
                             onSelectedTextChanged: {
-                                if (String(selectedText ?? "").length > 0) {
-                                    root.activeSelectionBubbleIndex = bubbleRow.index
-                                    root.clearOtherSelections(bubbleRow.index)
-                                } else if (root.activeSelectionBubbleIndex === bubbleRow.index) {
-                                    root.activeSelectionBubbleIndex = -1
+                                const curSel = String(selectedText ?? "");
+                                if (curSel.length > 0) {
+                                    cachedSelectedText = curSel;
+                                    root.activeSelectionBubbleIndex = bubbleRow.index;
+                                    root.clearOtherSelections(bubbleRow.index);
+                                } else {
+                                    if (bubblePressHandler.active && !bubbleCopyBtn.buttonHovered && !bubbleCopyBtn.down)
+                                        cachedSelectedText = "";
+                                    if (root.activeSelectionBubbleIndex === bubbleRow.index && cachedSelectedText.length === 0)
+                                        root.activeSelectionBubbleIndex = -1;
                                 }
                             }
                             onActiveFocusChanged: {
-                                root.focusedSelectableCount = Math.max(0, root.focusedSelectableCount + (activeFocus ? 1 : -1))
+                                root.focusedSelectableCount = Math.max(0, root.focusedSelectableCount + (activeFocus ? 1 : -1));
                             }
                             Component.onDestruction: {
-                                if (activeFocus) root.focusedSelectableCount = Math.max(0, root.focusedSelectableCount - 1)
-                                if (root.activeSelectionBubbleIndex === bubbleRow.index) root.activeSelectionBubbleIndex = -1
+                                if (activeFocus)
+                                    root.focusedSelectableCount = Math.max(0, root.focusedSelectableCount - 1);
+                                if (root.activeSelectionBubbleIndex === bubbleRow.index)
+                                    root.activeSelectionBubbleIndex = -1;
                             }
                             Keys.onPressed: event => {
                                 if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_C) {
-                                    root.copyBubbleText(bubbleRow.index)
-                                    event.accepted = true
+                                    root.copyBubbleText(bubbleRow.index, messageText);
+                                    event.accepted = true;
                                 } else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_A) {
-                                    messageText.selectAll()
-                                    event.accepted = true
+                                    messageText.selectAll();
+                                    event.accepted = true;
                                 }
                             }
                         }
@@ -1871,34 +1988,25 @@ Item {
                     RippleButton {
                         id: bubbleCopyBtn
                         objectName: "aquaChatBubbleCopy-" + bubbleRow.index
-                        readonly property bool hasSelection: String(messageText.selectedText ?? "").length > 0
+                        focusPolicy: Qt.NoFocus
+                        readonly property bool hasSelection: String(messageText.selectedText ?? "").length > 0 || String(messageText.cachedSelectedText ?? "").length > 0
                         readonly property bool justCopied: root.lastCopiedBubbleIndex === bubbleRow.index
-                        readonly property bool fitsOutside: bubbleRow.fromUser
-                            ? (bubble.x >= width + 6)
-                            : (bubble.x + bubble.width + width + 4 <= bubbleRow.availableWidth)
-                        visible: bubbleHover.hovered || rowHover.hovered || buttonHovered || hasSelection || justCopied
+                        readonly property bool fitsOutside: bubble.fitsActionClusterOutside
+                        visible: bubbleHover.hovered || rowHover.hovered || buttonHovered || bubbleHoverActionsRow.visible || hasSelection || justCopied
                         width: (hasSelection || justCopied) ? 54 : 22
                         height: 20
                         implicitWidth: width
                         implicitHeight: 20
-                        x: bubbleRow.fromUser
-                            ? (fitsOutside ? (bubble.x - width - 4) : (bubble.x + 6))
-                            : (fitsOutside ? (bubble.x + bubble.width + 4) : (bubble.x + bubble.width - width - 6))
-                        y: fitsOutside
-                            ? Math.max(2, bubble.y + bubble.height - height - 2)
-                            : Math.max(2, bubble.y + bubble.height - height - 5)
+                        x: bubbleRow.fromUser ? (fitsOutside ? (bubble.x - width - 4) : (bubble.x + 6)) : (fitsOutside ? (bubble.x + bubble.width + 4) : Math.max(bubble.x + 6, bubbleHoverActionsRow.x - width - 4))
+                        y: fitsOutside ? Math.max(2, bubble.y + bubble.height - height - 2) : Math.max(2, bubble.y + bubble.height - height - 5)
                         z: 15
                         buttonRadius: 10
-                        colBackground: justCopied
-                            ? Qt.alpha(AbyssStyle.accent, 0.24)
-                            : Qt.rgba(Appearance.colors.colLayer1.r, Appearance.colors.colLayer1.g, Appearance.colors.colLayer1.b, 0.92)
+                        colBackground: justCopied ? Qt.alpha(AbyssStyle.accent, 0.24) : Qt.rgba(Appearance.colors.colLayer1.r, Appearance.colors.colLayer1.g, Appearance.colors.colLayer1.b, 0.92)
                         colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.22)
-                        onClicked: root.copyBubbleText(bubbleRow.index)
+                        onClicked: root.copyBubbleText(bubbleRow.index, messageText)
                         StyledToolTip {
                             extraVisibleCondition: bubbleCopyBtn.buttonHovered
-                            text: bubbleCopyBtn.justCopied
-                                ? "Copied!"
-                                : (bubbleCopyBtn.hasSelection ? "Copy selected text" : "Copy message")
+                            text: bubbleCopyBtn.justCopied ? "Copied!" : (bubbleCopyBtn.hasSelection ? "Copy selected text" : "Copy message")
                         }
                         contentItem: Item {
                             Row {
@@ -1908,9 +2016,7 @@ Item {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: bubbleCopyBtn.justCopied ? "check" : "content_copy"
                                     iconSize: 12
-                                    color: (bubbleCopyBtn.justCopied || bubbleCopyBtn.hasSelection)
-                                        ? AbyssStyle.accent
-                                        : AbyssStyle.textColor
+                                    color: (bubbleCopyBtn.justCopied || bubbleCopyBtn.hasSelection) ? AbyssStyle.accent : AbyssStyle.textColor
                                 }
                                 StyledText {
                                     visible: bubbleCopyBtn.hasSelection || bubbleCopyBtn.justCopied
@@ -1923,13 +2029,342 @@ Item {
                             }
                         }
                     }
+
+                    // Per-Message Hover Action Bar (Edit on user turns; Regenerate, TTS & Pocket on assistant turns)
+                    Row {
+                        id: bubbleHoverActionsRow
+                        objectName: "aquaChatBubbleActions-" + bubbleRow.index
+                        readonly property int clusterWidth: bubbleRow.fromUser ? 22 : 72
+                        visible: bubbleHover.hovered || rowHover.hovered || bubbleCopyBtn.buttonHovered || bubbleEditBtn.buttonHovered || bubbleRegenBtn.buttonHovered || bubbleTtsBtn.buttonHovered || bubblePocketBtn.buttonHovered
+                        spacing: 3
+                        height: 20
+                        x: bubbleRow.fromUser ? (bubbleCopyBtn.fitsOutside ? Math.max(2, bubbleCopyBtn.x - clusterWidth - 4) : (bubbleCopyBtn.x + bubbleCopyBtn.width + 4)) : (bubbleCopyBtn.fitsOutside ? Math.min(bubbleRow.availableWidth - clusterWidth - 2, bubbleCopyBtn.x + bubbleCopyBtn.width + 4) : (bubble.x + bubble.width - clusterWidth - 6))
+                        y: bubbleCopyBtn.y
+                        z: 15
+
+                        RippleButton {
+                            id: bubbleEditBtn
+                            objectName: "aquaChatBubbleEdit-" + bubbleRow.index
+                            visible: bubbleRow.fromUser
+                            width: 22
+                            height: 20
+                            implicitWidth: 22
+                            implicitHeight: 20
+                            buttonRadius: 10
+                            colBackground: Qt.rgba(Appearance.colors.colLayer1.r, Appearance.colors.colLayer1.g, Appearance.colors.colLayer1.b, 0.92)
+                            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.22)
+                            onClicked: {
+                                message.text = messageText.rawContent;
+                                Qt.callLater(() => {
+                                    if (root.editing) {
+                                        message.forceActiveFocus();
+                                        message.cursorPosition = message.text.length;
+                                    }
+                                });
+                            }
+                            StyledToolTip {
+                                extraVisibleCondition: bubbleEditBtn.buttonHovered
+                                text: "Edit prompt in composer"
+                            }
+                            contentItem: MaterialSymbol {
+                                anchors.centerIn: parent
+                                text: "edit"
+                                iconSize: 12
+                                color: AbyssStyle.textColor
+                            }
+                        }
+
+                        RippleButton {
+                            id: bubbleRegenBtn
+                            objectName: "aquaChatBubbleRegen-" + bubbleRow.index
+                            visible: !bubbleRow.fromUser
+                            width: 22
+                            height: 20
+                            implicitWidth: 22
+                            implicitHeight: 20
+                            enabled: !AquaMind.busy
+                            buttonRadius: 10
+                            colBackground: Qt.rgba(Appearance.colors.colLayer1.r, Appearance.colors.colLayer1.g, Appearance.colors.colLayer1.b, 0.92)
+                            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.22)
+                            onClicked: {
+                                const hist = Array.isArray(AquaMind.history) ? AquaMind.history : [];
+                                for (let i = bubbleRow.index - 1; i >= 0; --i) {
+                                    if (hist[i]?.role === "user" && String(hist[i]?.content ?? "").trim().length > 0) {
+                                        AquaMind.sendMessage(String(hist[i].content));
+                                        break;
+                                    }
+                                }
+                            }
+                            StyledToolTip {
+                                extraVisibleCondition: bubbleRegenBtn.buttonHovered
+                                text: "Regenerate reply"
+                            }
+                            contentItem: MaterialSymbol {
+                                anchors.centerIn: parent
+                                text: "refresh"
+                                iconSize: 12
+                                color: AbyssStyle.textColor
+                            }
+                        }
+
+                        RippleButton {
+                            id: bubbleTtsBtn
+                            objectName: "aquaChatBubbleTts-" + bubbleRow.index
+                            visible: !bubbleRow.fromUser
+                            width: 22
+                            height: 20
+                            implicitWidth: 22
+                            implicitHeight: 20
+                            buttonRadius: 10
+                            colBackground: Qt.rgba(Appearance.colors.colLayer1.r, Appearance.colors.colLayer1.g, Appearance.colors.colLayer1.b, 0.92)
+                            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.22)
+                            onClicked: {
+                                if (AquaMind.ttsSpeaking)
+                                    AquaMind.stopVoiceTts();
+                                else
+                                    AquaMind.speakText(root.stripMarkdownToPlain(messageText.rawContent));
+                            }
+                            StyledToolTip {
+                                extraVisibleCondition: bubbleTtsBtn.buttonHovered
+                                text: AquaMind.ttsSpeaking ? "Stop reading aloud" : "Read aloud (TTS)"
+                            }
+                            contentItem: MaterialSymbol {
+                                anchors.centerIn: parent
+                                text: AquaMind.ttsSpeaking ? "stop_circle" : "volume_up"
+                                iconSize: 12
+                                color: AquaMind.ttsSpeaking ? Appearance.colors.colError : AbyssStyle.textColor
+                            }
+                        }
+
+                        RippleButton {
+                            id: bubblePocketBtn
+                            objectName: "aquaChatBubblePocket-" + bubbleRow.index
+                            visible: !bubbleRow.fromUser
+                            width: 22
+                            height: 20
+                            implicitWidth: 22
+                            implicitHeight: 20
+                            buttonRadius: 10
+                            colBackground: Qt.rgba(Appearance.colors.colLayer1.r, Appearance.colors.colLayer1.g, Appearance.colors.colLayer1.b, 0.92)
+                            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.22)
+                            onClicked: {
+                                const targetOrBody = String(bubbleRow.modelData?.targetPath || messageText.rawContent || "").trim();
+                                if (targetOrBody.length > 0) {
+                                    AquaMind.savePocketItem(targetOrBody, "turn_" + String(bubbleRow.index + 1));
+                                }
+                            }
+                            StyledToolTip {
+                                extraVisibleCondition: bubblePocketBtn.buttonHovered
+                                text: "Save to Pocket"
+                            }
+                            contentItem: MaterialSymbol {
+                                anchors.centerIn: parent
+                                text: "bookmark_add"
+                                iconSize: 12
+                                color: AbyssStyle.textColor
+                            }
+                        }
+                    }
+
+                    // Code Block Action Chips & File Diff / Undo Pill
+                    Row {
+                        id: bubbleMetaChipsRow
+                        objectName: "aquaBubbleMetaChips-" + bubbleRow.index
+                        visible: bubbleRow.hasCodeBlock || bubbleRow.hasFileDiff
+                        x: bubble.x + 2
+                        y: bubble.y + bubble.height + 3
+                        height: 20
+                        spacing: 5
+
+                        RippleButton {
+                            id: copyCodeChip
+                            objectName: "aquaBubbleCopyCode-" + bubbleRow.index
+                            visible: bubbleRow.hasCodeBlock
+                            width: copyCodeRow.implicitWidth + 12
+                            height: 20
+                            implicitWidth: width
+                            implicitHeight: 20
+                            buttonRadius: 10
+                            colBackground: Qt.alpha(AbyssStyle.textColor, 0.08)
+                            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.20)
+                            onClicked: root.copyTextToClipboard(bubbleRow.firstCodeBlock, bubbleRow.index)
+                            contentItem: Item {
+                                Row {
+                                    id: copyCodeRow
+                                    anchors.centerIn: parent
+                                    spacing: 3
+                                    MaterialSymbol {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "content_copy"
+                                        iconSize: 11
+                                        color: AbyssStyle.accent
+                                    }
+                                    StyledText {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "Copy Code"
+                                        font.pixelSize: Appearance.font.pixelSize.smallest - 2
+                                        color: AbyssStyle.textColor
+                                    }
+                                }
+                            }
+                        }
+
+                        RippleButton {
+                            id: openCodeEditorChip
+                            objectName: "aquaBubbleOpenCodeEditor-" + bubbleRow.index
+                            visible: bubbleRow.hasCodeBlock
+                            width: openCodeEditorRow.implicitWidth + 12
+                            height: 20
+                            implicitWidth: width
+                            implicitHeight: 20
+                            buttonRadius: 10
+                            colBackground: Qt.alpha(AbyssStyle.textColor, 0.08)
+                            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.20)
+                            onClicked: AquaMind.openEditorPopup({
+                                title: "Code Snippet",
+                                content: bubbleRow.firstCodeBlock,
+                                ext: bubbleRow.firstCodeLang || "txt",
+                                filePath: String(bubbleRow.modelData?.targetPath ?? "").trim()
+                            })
+                            contentItem: Item {
+                                Row {
+                                    id: openCodeEditorRow
+                                    anchors.centerIn: parent
+                                    spacing: 3
+                                    MaterialSymbol {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "open_in_new"
+                                        iconSize: 11
+                                        color: AbyssStyle.accent
+                                    }
+                                    StyledText {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "Open in Editor"
+                                        font.pixelSize: Appearance.font.pixelSize.smallest - 2
+                                        color: AbyssStyle.textColor
+                                    }
+                                }
+                            }
+                        }
+
+                        RippleButton {
+                            id: diffUndoPill
+                            objectName: "aquaBubbleDiffUndoPill-" + bubbleRow.index
+                            visible: bubbleRow.hasFileDiff
+                            enabled: !bubbleRow.rolledBack && bubbleRow.receiptId.length > 0 && !AquaMind.busy && !AquaMind.fileRollbackBusy
+                            width: diffUndoRow.implicitWidth + 12
+                            height: 20
+                            implicitWidth: width
+                            implicitHeight: 20
+                            buttonRadius: 10
+                            colBackground: bubbleRow.rolledBack ? Qt.alpha(AbyssStyle.textColor, 0.06) : Qt.alpha(AbyssStyle.accent, 0.14)
+                            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.26)
+                            onClicked: {
+                                if (bubbleRow.receiptId.length > 0 && !bubbleRow.rolledBack) {
+                                    AquaMind.rollbackFileReceipt(bubbleRow.receiptId);
+                                }
+                            }
+                            contentItem: Item {
+                                Row {
+                                    id: diffUndoRow
+                                    anchors.centerIn: parent
+                                    spacing: 4
+                                    MaterialSymbol {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: bubbleRow.rolledBack ? "check" : "undo"
+                                        iconSize: 11
+                                        color: bubbleRow.rolledBack ? Appearance.colors.colSubtext : AbyssStyle.accent
+                                    }
+                                    StyledText {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: bubbleRow.rolledBack ? "Rolled back" : ("+" + String(bubbleRow.addedLines) + " / -" + String(bubbleRow.removedLines) + " · Undo")
+                                        font.pixelSize: Appearance.font.pixelSize.smallest - 2
+                                        font.weight: Font.DemiBold
+                                        color: bubbleRow.rolledBack ? Appearance.colors.colSubtext : AbyssStyle.accent
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    RippleButton {
+                        id: failedRetryPill
+                        objectName: "aquaBubbleFailedRetry-" + bubbleRow.index
+                        visible: bubbleRow.hasFailedNotice
+                        enabled: !AquaMind.busy && !AquaMind.isWorking
+                        width: Math.min(bubbleRow.maxBubbleWidth, failedRetryRow.implicitWidth + 14)
+                        height: 20
+                        implicitWidth: width
+                        implicitHeight: 20
+                        x: Math.max(0, bubble.x + bubble.width - width)
+                        y: bubble.y + bubble.height + 3
+                        buttonRadius: 10
+                        colBackground: Qt.alpha(Appearance.colors.colError, 0.14)
+                        colBackgroundHover: Qt.alpha(Appearance.colors.colError, 0.26)
+                        onClicked: {
+                            const retryText = String(bubbleRow.modelData?.content ?? "").trim();
+                            if (retryText.length > 0) {
+                                AquaMind.sendMessage(retryText);
+                            }
+                        }
+                        contentItem: Item {
+                            Row {
+                                id: failedRetryRow
+                                anchors.centerIn: parent
+                                spacing: 4
+                                MaterialSymbol {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "refresh"
+                                    iconSize: 11
+                                    color: Appearance.colors.colError
+                                }
+                                StyledText {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: Math.min(implicitWidth, bubbleRow.maxBubbleWidth - 32)
+                                    elide: Text.ElideRight
+                                    text: bubbleRow.failedNoticeText + " · Retry"
+                                    font.pixelSize: Appearance.font.pixelSize.smallest - 2
+                                    font.weight: Font.DemiBold
+                                    color: Appearance.colors.colError
+                                }
+                            }
+                        }
+                    }
                 }
                 Connections {
                     target: AquaMind
                     function onHistoryPrepended(count): void {
-                        transcript.positionViewAtIndex(count,ListView.Beginning)
-                        transcript.readyForOlder=true
+                        transcript.positionViewAtIndex(count, ListView.Beginning);
+                        transcript.readyForOlder = true;
                     }
+                }
+            }
+
+            // Floating Scroll-to-Bottom Button
+            RippleButton {
+                id: scrollToBottomBtn
+                objectName: "aquaScrollToBottomButton"
+                visible: !transcript.atYEnd && transcript.contentHeight > transcript.height + 24
+                width: 26
+                height: 26
+                implicitWidth: 26
+                implicitHeight: 26
+                x: Math.max(4, transcript.width - width - 8)
+                y: Math.max(4, transcriptArea.height - height - 6)
+                z: 45
+                buttonRadius: 13
+                colBackground: Qt.rgba(Appearance.colors.colLayer1.r, Appearance.colors.colLayer1.g, Appearance.colors.colLayer1.b, 0.94)
+                colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.24)
+                onClicked: root.scrollToLatestMessage()
+                StyledToolTip {
+                    extraVisibleCondition: scrollToBottomBtn.buttonHovered
+                    text: "Scroll to bottom"
+                }
+                contentItem: MaterialSymbol {
+                    anchors.centerIn: parent
+                    text: "south"
+                    iconSize: 15
+                    color: AbyssStyle.accent
                 }
             }
 
@@ -1960,9 +2395,7 @@ Item {
                     Column {
                         id: dotNavigatorColumn
                         x: 0
-                        y: dotNavigatorFlickable.contentHeight <= dotNavigatorFlickable.height
-                            ? Math.round((dotNavigatorFlickable.height - implicitHeight) / 2)
-                            : 4
+                        y: dotNavigatorFlickable.contentHeight <= dotNavigatorFlickable.height ? Math.round((dotNavigatorFlickable.height - implicitHeight) / 2) : 4
                         width: parent.width
                         spacing: dotNavigatorRail.dotSpacing
                         Repeater {
@@ -1975,22 +2408,14 @@ Item {
                                 width: 14
                                 height: dotNavigatorRail.dotItemHeight
                                 readonly property bool dotHovered: dotMouse.containsMouse || root.forcedHoveredTurnIndex === index
-                                readonly property bool dotActive: root.activeTurnIndex === index
-                                    || (root.activeTurnIndex < 0 && index === root.chatTurns.length - 1)
-                                readonly property bool compactTick: dotNavigatorRail.totalTurns > 16
-                                    && !dotHovered
-                                    && !dotActive
-                                    && index < (root.chatTurns.length - 6)
+                                readonly property bool dotActive: root.activeTurnIndex === index || (root.activeTurnIndex < 0 && index === root.chatTurns.length - 1)
+                                readonly property bool compactTick: dotNavigatorRail.totalTurns > 16 && !dotHovered && !dotActive && index < (root.chatTurns.length - 6)
                                 Rectangle {
                                     anchors.centerIn: parent
                                     width: dotItem.dotHovered ? 8 : (dotItem.dotActive ? 7 : (dotItem.compactTick ? 6 : 5))
                                     height: dotItem.compactTick ? 2 : width
                                     radius: height / 2
-                                    color: dotItem.dotHovered
-                                        ? AbyssStyle.textColor
-                                        : (dotItem.dotActive
-                                            ? AbyssStyle.accent
-                                            : Qt.alpha(AbyssStyle.textColor, dotItem.compactTick ? 0.24 : 0.34))
+                                    color: dotItem.dotHovered ? AbyssStyle.textColor : (dotItem.dotActive ? AbyssStyle.accent : Qt.alpha(AbyssStyle.textColor, dotItem.compactTick ? 0.24 : 0.34))
                                     border.width: dotItem.dotHovered ? 1 : 0
                                     border.color: Qt.alpha(AbyssStyle.accent, 0.65)
                                 }
@@ -2002,7 +2427,7 @@ Item {
                                     onEntered: root.hoveredTurnIndex = dotItem.index
                                     onExited: {
                                         if (root.hoveredTurnIndex === dotItem.index)
-                                            root.hoveredTurnIndex = -1
+                                            root.hoveredTurnIndex = -1;
                                     }
                                     onClicked: root.jumpToChatTurn(dotItem.index)
                                 }
@@ -2021,20 +2446,15 @@ Item {
                 height: dotPreviewCol.implicitHeight + 18
                 x: Math.max(4, dotNavigatorRail.x - width - 6)
                 y: {
-                    const idx = Math.max(0, root.effectiveHoveredTurnIndex)
-                    const total = Math.max(1, root.chatTurns.length)
-                    const ratio = total > 1 ? (idx / (total - 1)) : 0.5
-                    const targetY = dotNavigatorRail.y + ratio * Math.max(0, dotNavigatorRail.height - height)
-                    return Math.max(2, Math.min(Math.max(2, transcriptArea.height - height - 2), targetY))
+                    const idx = Math.max(0, root.effectiveHoveredTurnIndex);
+                    const total = Math.max(1, root.chatTurns.length);
+                    const ratio = total > 1 ? (idx / (total - 1)) : 0.5;
+                    const targetY = dotNavigatorRail.y + ratio * Math.max(0, dotNavigatorRail.height - height);
+                    return Math.max(2, Math.min(Math.max(2, transcriptArea.height - height - 2), targetY));
                 }
                 z: 95
                 radius: 10
-                color: Qt.rgba(
-                    Math.max(0.06, AbyssStyle.surfaceDeep.r * 0.92),
-                    Math.max(0.06, AbyssStyle.surfaceDeep.g * 0.92),
-                    Math.max(0.08, AbyssStyle.surfaceDeep.b * 0.92),
-                    0.97
-                )
+                color: Qt.rgba(Math.max(0.06, AbyssStyle.surfaceDeep.r * 0.92), Math.max(0.06, AbyssStyle.surfaceDeep.g * 0.92), Math.max(0.08, AbyssStyle.surfaceDeep.b * 0.92), 0.97)
                 border.width: 1
                 border.color: Qt.alpha(AbyssStyle.textColor, 0.16)
 
@@ -2077,7 +2497,9 @@ Item {
                             font.pixelSize: Appearance.font.pixelSize.smallest - 1
                             color: Qt.alpha(AbyssStyle.textColor, 0.55)
                         }
-                        Item { Layout.fillWidth: true }
+                        Item {
+                            Layout.fillWidth: true
+                        }
                         StyledText {
                             objectName: "aquaChatDotPreviewTime"
                             text: root.formatTurnTimestamp(root.effectiveHoveredTurn?.createdMs ?? 0)
@@ -2108,7 +2530,10 @@ Item {
             clip: true
             onVisibleChanged: {
                 if (visible && transcript.count > 0)
-                    Qt.callLater(() => { if (root.editing) transcript.positionViewAtEnd() })
+                    Qt.callLater(() => {
+                        if (root.editing)
+                            transcript.positionViewAtEnd();
+                    });
             }
 
             ColumnLayout {
@@ -2138,9 +2563,7 @@ Item {
                             spacing: 3
                             MaterialSymbol {
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: AquaMind.workPhase === "tool"
-                                    ? "terminal"
-                                    : (AquaMind.workPhase === "drafting" ? "edit_note" : "psychology")
+                                text: AquaMind.workPhase === "tool" ? "terminal" : (AquaMind.workPhase === "drafting" ? "edit_note" : "psychology")
                                 iconSize: 14
                                 color: AbyssStyle.accent
                             }
@@ -2155,8 +2578,16 @@ Item {
                                     color: AbyssStyle.accent
                                     opacity: root.thinkingAnimTick === index ? 1.0 : 0.32
                                     scale: root.thinkingAnimTick === index ? 1.2 : 0.88
-                                    Behavior on opacity { NumberAnimation { duration: 160 } }
-                                    Behavior on scale { NumberAnimation { duration: 160 } }
+                                    Behavior on opacity {
+                                        NumberAnimation {
+                                            duration: 160
+                                        }
+                                    }
+                                    Behavior on scale {
+                                        NumberAnimation {
+                                            duration: 160
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -2180,27 +2611,21 @@ Item {
                         objectName: "aquaThinkingRouteBadge"
                         visible: AquaMind.activeRoutedRoleLabel.length > 0
                         Layout.preferredWidth: implicitWidth
-                        Layout.maximumWidth: 88
+                        Layout.maximumWidth: 108
                         Layout.preferredHeight: 18
-                        implicitWidth: Math.min(88, thinkingRouteBadgeRow.implicitWidth + 10)
+                        implicitWidth: Math.min(108, thinkingRouteBadgeRow.implicitWidth + 10)
                         implicitHeight: 18
                         radius: 9
                         clip: true
-                        color: AquaMind.activeRoutedRole === "thinking"
-                            ? Qt.alpha(AbyssStyle.accent, 0.20)
-                            : Qt.alpha(AbyssStyle.textColor, 0.10)
+                        color: AquaMind.activeRoutedRole === "thinking" ? Qt.alpha(AbyssStyle.accent, 0.20) : Qt.alpha(AbyssStyle.textColor, 0.10)
                         border.width: 1
-                        border.color: AquaMind.activeRoutedRole === "thinking"
-                            ? Qt.alpha(AbyssStyle.accent, 0.42)
-                            : Qt.alpha(AbyssStyle.textColor, 0.18)
+                        border.color: AquaMind.activeRoutedRole === "thinking" ? Qt.alpha(AbyssStyle.accent, 0.42) : Qt.alpha(AbyssStyle.textColor, 0.18)
                         HoverHandler {
                             id: thinkingRouteHover
                         }
                         StyledToolTip {
                             extraVisibleCondition: thinkingRouteHover.hovered && (AquaMind.activeRoutedReason.length > 0 || AquaMind.activeRoutedModelLabel.length > 0)
-                            text: AquaMind.activeRoutedReason
-                                + (AquaMind.activeRoutedModelLabel.length > 0 ? (" · " + AquaMind.activeRoutedModelLabel) : "")
-                                + (AquaMind.activeRoutedDirective.length > 0 ? (" · " + AquaMind.activeRoutedDirective) : "")
+                            text: AquaMind.activeRoutedReason + (AquaMind.activeRoutedModelLabel.length > 0 ? (" · " + AquaMind.activeRoutedModelLabel) : "") + (AquaMind.activeRoutedDirective.length > 0 ? (" · " + AquaMind.activeRoutedDirective) : "")
                         }
                         Row {
                             id: thinkingRouteBadgeRow
@@ -2208,24 +2633,20 @@ Item {
                             spacing: 3
                             MaterialSymbol {
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: AquaMind.activeRoutedRole === "thinking" ? "psychology" : "bolt"
+                                text: AquaMind.activeRoutedRoleLabel === "Domain RAG" ? "menu_book" : (AquaMind.activeRoutedRole === "thinking" ? "psychology" : (AquaMind.activeRoutedRoleLabel === "Fast Chat" ? "chat_bubble" : "bolt"))
                                 iconSize: 11
-                                color: AquaMind.activeRoutedRole === "thinking"
-                                    ? AbyssStyle.accent
-                                    : AbyssStyle.textColor
+                                color: AquaMind.activeRoutedRole === "thinking" ? AbyssStyle.accent : AbyssStyle.textColor
                             }
                             StyledText {
                                 id: thinkingRouteBadgeText
                                 objectName: "aquaThinkingRouteText"
                                 anchors.verticalCenter: parent.verticalCenter
-                                width: Math.min(implicitWidth, 66)
+                                width: Math.min(implicitWidth, 84)
                                 elide: Text.ElideRight
                                 text: AquaMind.activeRoutedRoleLabel
                                 font.pixelSize: Appearance.font.pixelSize.smallest - 2
                                 font.weight: Font.DemiBold
-                                color: AquaMind.activeRoutedRole === "thinking"
-                                    ? AbyssStyle.accent
-                                    : AbyssStyle.textColor
+                                color: AquaMind.activeRoutedRole === "thinking" ? AbyssStyle.accent : AbyssStyle.textColor
                             }
                         }
                     }
@@ -2309,11 +2730,7 @@ Item {
                     width: parent.width
                     height: implicitHeight
                     Layout.fillWidth: true
-                    Layout.preferredHeight: AquaMind.workPhase === "drafting"
-                        ? Math.min(72, streamingPreviewTextItem.implicitHeight + 10)
-                        : (AquaMind.workActivityExpanded
-                            ? Math.min(108, streamingPreviewTextItem.implicitHeight + 10)
-                            : Math.min(24, streamingPreviewTextItem.implicitHeight + 10))
+                    Layout.preferredHeight: AquaMind.workPhase === "drafting" ? Math.min(72, streamingPreviewTextItem.implicitHeight + 10) : (AquaMind.workActivityExpanded ? Math.min(108, streamingPreviewTextItem.implicitHeight + 10) : Math.min(24, streamingPreviewTextItem.implicitHeight + 10))
                     implicitHeight: Layout.preferredHeight
                     radius: 8
                     color: Qt.alpha(AbyssStyle.surfaceDeep, 0.45)
@@ -2330,7 +2747,7 @@ Item {
                         acceptedButtons: Qt.LeftButton
                         onTapped: {
                             if (AquaMind.workPhase !== "drafting" && String(streamingPreviewTextItem.selectedText ?? "").length === 0) {
-                                AquaMind.toggleWorkActivityExpanded()
+                                AquaMind.toggleWorkActivityExpanded();
                             }
                         }
                     }
@@ -2338,16 +2755,13 @@ Item {
                     TextEdit {
                         id: streamingPreviewTextItem
                         objectName: "aquaStreamingPreviewText"
+                        property string cachedSelectedText: ""
                         x: 7
-                        y: (AquaMind.workActivityExpanded || String(streamingPreviewTextItem.selectedText ?? "").length > 0 || streamingPreviewPressHandler.active)
-                            ? 5
-                            : Math.min(5, streamingPreviewBox.height - streamingPreviewTextItem.implicitHeight - 5)
+                        y: (AquaMind.workActivityExpanded || String(streamingPreviewTextItem.selectedText ?? "").length > 0 || streamingPreviewPressHandler.active) ? 5 : Math.min(5, streamingPreviewBox.height - streamingPreviewTextItem.implicitHeight - 5)
                         width: Math.max(40, parent.width - 14)
                         text: AquaMind.workStatusDetail
                         textFormat: TextEdit.PlainText
-                        wrapMode: (AquaMind.workPhase === "drafting" || AquaMind.workActivityExpanded)
-                            ? TextEdit.Wrap
-                            : TextEdit.NoWrap
+                        wrapMode: (AquaMind.workPhase === "drafting" || AquaMind.workActivityExpanded) ? TextEdit.Wrap : TextEdit.NoWrap
                         readOnly: true
                         selectByMouse: true
                         selectByKeyboard: true
@@ -2357,9 +2771,7 @@ Item {
                         topPadding: 0
                         bottomPadding: 0
                         renderType: TextEdit.QtRendering
-                        color: AquaMind.workPhase === "drafting"
-                            ? AbyssStyle.textColor
-                            : Appearance.colors.colSubtext
+                        color: AquaMind.workPhase === "drafting" ? AbyssStyle.textColor : Appearance.colors.colSubtext
                         selectionColor: Qt.alpha(AbyssStyle.accent, 0.38)
                         selectedTextColor: AbyssStyle.textColor
                         font.hintingPreference: Font.PreferDefaultHinting
@@ -2371,23 +2783,25 @@ Item {
                             acceptedButtons: Qt.LeftButton
                         }
                         onSelectedTextChanged: {
-                            if (String(selectedText ?? "").length > 0) {
-                                root.activeSelectionBubbleIndex = -3
-                                root.clearOtherSelections(-3)
-                            } else if (root.activeSelectionBubbleIndex === -3) {
-                                root.activeSelectionBubbleIndex = -1
+                            const curSel = String(selectedText ?? "");
+                            if (curSel.length > 0) {
+                                cachedSelectedText = curSel;
+                                root.activeSelectionBubbleIndex = -3;
+                                root.clearOtherSelections(-3);
+                            } else if (root.activeSelectionBubbleIndex === -3 && cachedSelectedText.length === 0) {
+                                root.activeSelectionBubbleIndex = -1;
                             }
                         }
                         onActiveFocusChanged: {
-                            root.focusedSelectableCount = Math.max(0, root.focusedSelectableCount + (activeFocus ? 1 : -1))
+                            root.focusedSelectableCount = Math.max(0, root.focusedSelectableCount + (activeFocus ? 1 : -1));
                         }
                         Keys.onPressed: event => {
-                            if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_C && streamingPreviewTextItem.selectedText.length > 0) {
-                                root.copyTextToClipboard(streamingPreviewTextItem.selectedText, -3)
-                                event.accepted = true
+                            if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_C && (streamingPreviewTextItem.selectedText.length > 0 || streamingPreviewTextItem.cachedSelectedText.length > 0)) {
+                                root.copyTextToClipboard(streamingPreviewTextItem.selectedText || streamingPreviewTextItem.cachedSelectedText, -3);
+                                event.accepted = true;
                             } else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_A) {
-                                streamingPreviewTextItem.selectAll()
-                                event.accepted = true
+                                streamingPreviewTextItem.selectAll();
+                                event.accepted = true;
                             }
                         }
                     }
@@ -2409,9 +2823,7 @@ Item {
             radius: Math.max(10, Math.min(14, root.edgeRadius - 6))
             color: Qt.alpha(AbyssStyle.surfaceDeep, 0.72)
             border.width: 1
-            border.color: AquaMind.editorDirty
-                ? Qt.alpha(AbyssStyle.accent, 0.42)
-                : Qt.alpha(AbyssStyle.textColor, 0.12)
+            border.color: AquaMind.editorDirty ? Qt.alpha(AbyssStyle.accent, 0.42) : Qt.alpha(AbyssStyle.textColor, 0.12)
             clip: true
 
             ColumnLayout {
@@ -2441,12 +2853,9 @@ Item {
                     }
                     StyledText {
                         objectName: "aquaEditorMetaLabel"
-                        text: String(AquaMind.editorLineCount) + "L · " + root.formatBytes(AquaMind.editorByteSize)
-                            + (AquaMind.editorStatusMessage ? (" · " + AquaMind.editorStatusMessage) : "")
+                        text: String(AquaMind.editorLineCount) + "L · " + root.formatBytes(AquaMind.editorByteSize) + (AquaMind.editorStatusMessage ? (" · " + AquaMind.editorStatusMessage) : "")
                         font.pixelSize: Appearance.font.pixelSize.smallest - 1
-                        color: AquaMind.editorStatusMessage === "Saved"
-                            ? AbyssStyle.accent
-                            : Appearance.colors.colSubtext
+                        color: AquaMind.editorStatusMessage === "Saved" ? AbyssStyle.accent : Appearance.colors.colSubtext
                     }
                     RippleButton {
                         id: editorOpenExtBtn
@@ -2495,9 +2904,7 @@ Item {
                         implicitWidth: 56
                         buttonRadius: 10
                         enabled: !AquaMind.editorSaving
-                        colBackground: AquaMind.editorDirty
-                            ? Qt.alpha(AbyssStyle.accent, 0.24)
-                            : Qt.alpha(AbyssStyle.textColor, 0.08)
+                        colBackground: AquaMind.editorDirty ? Qt.alpha(AbyssStyle.accent, 0.24) : Qt.alpha(AbyssStyle.textColor, 0.08)
                         colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.34)
                         onClicked: AquaMind.saveEditorPopup()
                         contentItem: StyledText {
@@ -2538,9 +2945,7 @@ Item {
                     radius: 8
                     color: Qt.alpha(AbyssStyle.textColor, 0.04)
                     border.width: 1
-                    border.color: editorTextArea.activeFocus
-                        ? Qt.alpha(AbyssStyle.accent, 0.32)
-                        : Qt.alpha(AbyssStyle.textColor, 0.08)
+                    border.color: editorTextArea.activeFocus ? Qt.alpha(AbyssStyle.accent, 0.32) : Qt.alpha(AbyssStyle.textColor, 0.08)
                     clip: true
 
                     RowLayout {
@@ -2564,10 +2969,11 @@ Item {
                                 font.pixelSize: Appearance.font.pixelSize.smallest
                                 color: Qt.alpha(AbyssStyle.textColor, 0.38)
                                 text: {
-                                    const n = Math.max(1, Math.min(300, AquaMind.editorLineCount))
-                                    const lines = []
-                                    for (let i = 1; i <= n; ++i) lines.push(String(i))
-                                    return lines.join("\n")
+                                    const n = Math.max(1, Math.min(300, AquaMind.editorLineCount));
+                                    const lines = [];
+                                    for (let i = 1; i <= n; ++i)
+                                        lines.push(String(i));
+                                    return lines.join("\n");
                                 }
                             }
                         }
@@ -2599,14 +3005,16 @@ Item {
                                 topPadding: 6
                                 bottomPadding: 6
                                 background: null
+                                onActiveFocusChanged: if (activeFocus)
+                                    root.wantsKeyboardFocus = true
                                 onTextChanged: {
                                     if (text !== AquaMind.editorContent)
-                                        AquaMind.updateEditorContent(text)
+                                        AquaMind.updateEditorContent(text);
                                 }
                                 Keys.onPressed: event => {
                                     if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_S) {
-                                        event.accepted = true
-                                        AquaMind.saveEditorPopup()
+                                        event.accepted = true;
+                                        AquaMind.saveEditorPopup();
                                     }
                                 }
                             }
@@ -2619,15 +3027,9 @@ Item {
             id: controlsColumn
             visible: root.controlsVisible
             x: 0
-            y: root.editing
-                ? Math.max(0, content.height - height)
-                : ((todayContextHeader.visible ? todayContextHeader.height + content.spacing : 0)
-                    + (speechText.visible ? speechText.implicitHeight + content.spacing : 0)
-                    + (todayContextRows.visible ? todayContextRows.implicitHeight + content.spacing : 0))
+            y: root.editing ? Math.max(0, content.height - height) : ((todayContextHeader.visible ? todayContextHeader.height + content.spacing : 0) + (speechText.visible ? speechText.implicitHeight + content.spacing : 0) + (todayContextRows.visible ? todayContextRows.implicitHeight + content.spacing : 0))
             width: content.width
-            readonly property real topPanelsHeight: (profileBox.visible ? profileBox.implicitHeight + spacing : 0)
-                + (clarificationCard.visible ? clarificationCard.implicitHeight + spacing : 0)
-                + (slashCommandPopup.visible ? slashCommandPopup.implicitHeight + spacing : 0)
+            readonly property real topPanelsHeight: (profileBox.visible ? profileBox.implicitHeight + spacing : 0) + (clarificationCard.visible ? clarificationCard.implicitHeight + spacing : 0) + (slashCommandPopup.visible ? slashCommandPopup.implicitHeight + spacing : 0)
             readonly property real targetHeight: root.editing ? composer.implicitHeight + topPanelsHeight : 28
             height: targetHeight
             implicitHeight: targetHeight
@@ -2639,11 +3041,26 @@ Item {
                 field: "mood"
                 selectedValue: AquaMind.userMood
                 options: [
-                    {value: "terrible", label: Translation.tr("Awful")},
-                    {value: "bad", label: Translation.tr("Low")},
-                    {value: "okay", label: Translation.tr("Okay")},
-                    {value: "good", label: Translation.tr("Good")},
-                    {value: "great", label: Translation.tr("Great")}
+                    {
+                        value: "terrible",
+                        label: Translation.tr("Awful")
+                    },
+                    {
+                        value: "bad",
+                        label: Translation.tr("Low")
+                    },
+                    {
+                        value: "okay",
+                        label: Translation.tr("Okay")
+                    },
+                    {
+                        value: "good",
+                        label: Translation.tr("Good")
+                    },
+                    {
+                        value: "great",
+                        label: Translation.tr("Great")
+                    }
                 ]
             }
             CheckInRow {
@@ -2651,22 +3068,32 @@ Item {
                 field: "energy"
                 selectedValue: AquaMind.userEnergy
                 options: [
-                    {value: "drained", label: Translation.tr("Drained")},
-                    {value: "low", label: Translation.tr("Low")},
-                    {value: "medium", label: Translation.tr("Mid")},
-                    {value: "high", label: Translation.tr("High")},
-                    {value: "peak", label: Translation.tr("Peak")}
+                    {
+                        value: "drained",
+                        label: Translation.tr("Drained")
+                    },
+                    {
+                        value: "low",
+                        label: Translation.tr("Low")
+                    },
+                    {
+                        value: "medium",
+                        label: Translation.tr("Mid")
+                    },
+                    {
+                        value: "high",
+                        label: Translation.tr("High")
+                    },
+                    {
+                        value: "peak",
+                        label: Translation.tr("Peak")
+                    }
                 ]
             }
             Rectangle {
                 id: profileBox
                 objectName: "aquaProfilePanel"
-                readonly property bool logicallyOpen: root.editing && (
-                    (root.profileStage === 1 && AquaMind.thinkingSupported)
-                    || root.profileStage === 2
-                    || AquaMind.pendingDeleteStage > 0
-                    || root.effortClosingHold
-                )
+                readonly property bool logicallyOpen: root.editing && ((root.profileStage === 1 && AquaMind.thinkingSupported) || root.profileStage === 2 || AquaMind.pendingDeleteStage > 0 || root.effortClosingHold)
                 property real profileSlideProgress: logicallyOpen ? 1.0 : 0.0
                 Behavior on profileSlideProgress {
                     enabled: root.visible && AquaMind.liveModelAutoDetectAllowed
@@ -2688,18 +3115,14 @@ Item {
                 radius: Math.max(10, Math.min(14, root.edgeRadius - 6))
                 color: Qt.alpha(AbyssStyle.textColor, .05)
                 border.width: 1
-                border.color: AquaMind.pendingDeleteStage > 0
-                    ? Qt.alpha(Appearance.colors.colError, 0.45)
-                    : Qt.alpha(AbyssStyle.textColor, .08)
+                border.color: AquaMind.pendingDeleteStage > 0 ? Qt.alpha(Appearance.colors.colError, 0.45) : Qt.alpha(AbyssStyle.textColor, .08)
                 Item {
                     id: profilePanel
                     x: 8
                     y: Math.round(8 - (1.0 - profileBox.profileSlideProgress) * 14)
                     width: parent.width - 16
                     readonly property real subPanelOffset: deleteConfirmBar.visible ? deleteConfirmBar.height + 5 : 0
-                    readonly property real syncImplicitHeight: subPanelOffset
-                        + (effortPanel.visible ? effortPanel.implicitHeight : 0)
-                        + (modelPickerPanel.visible ? modelPickerPanel.implicitHeight : 0)
+                    readonly property real syncImplicitHeight: subPanelOffset + (effortPanel.visible ? effortPanel.implicitHeight : 0) + (modelPickerPanel.visible ? modelPickerPanel.implicitHeight : 0)
                     height: syncImplicitHeight
                     RowLayout {
                         id: deleteConfirmBar
@@ -2716,8 +3139,7 @@ Item {
                         StyledText {
                             Layout.fillWidth: true
                             Layout.minimumWidth: 0
-                            text: (AquaMind.pendingDeleteStage === 2 ? "Confirm 2/2 (Final): " : "Confirm 1/2: ")
-                                + AquaMind.pendingDeletePath.split("/").pop()
+                            text: (AquaMind.pendingDeleteStage === 2 ? "Confirm 2/2 (Final): " : "Confirm 1/2: ") + AquaMind.pendingDeletePath.split("/").pop()
                             elide: Text.ElideMiddle
                             font.pixelSize: Appearance.font.pixelSize.smallest
                             font.weight: Font.DemiBold
@@ -2769,9 +3191,7 @@ Item {
                     Item {
                         id: effortPanel
                         objectName: "aquaEffortPanel"
-                        visible: (root.profileStage === 1
-                            || (root.profileStage === 0 && root.lastProfileStage === 1 && (root.effortClosingHold || profileBox.profileSlideProgress > 0.01)))
-                            && AquaMind.thinkingSupported
+                        visible: (root.profileStage === 1 || (root.profileStage === 0 && root.lastProfileStage === 1 && (root.effortClosingHold || profileBox.profileSlideProgress > 0.01))) && AquaMind.thinkingSupported
                         y: profilePanel.subPanelOffset
                         width: parent.width
                         height: implicitHeight
@@ -2806,13 +3226,14 @@ Item {
                             readonly property int stepCount: Math.max(1, effortRepeater.count)
                             readonly property real stepSlotWidth: width / stepCount
                             readonly property int activeStepIndex: {
-                                const levels = AquaMind.thinkingLevels ?? []
-                                const cur = AquaMind.effectiveThinkingEffort
+                                const levels = AquaMind.thinkingLevels ?? [];
+                                const cur = AquaMind.effectiveThinkingEffort;
                                 for (let i = 0; i < levels.length; ++i) {
-                                    const val = String(levels[i]?.value ?? "")
-                                    if (val === cur || (cur === "off" && val === "instant")) return i
+                                    const val = String(levels[i]?.value ?? "");
+                                    if (val === cur || (cur === "off" && val === "instant"))
+                                        return i;
                                 }
-                                return 0
+                                return 0;
                             }
                             property real animatedStepIndex: activeStepIndex
                             Behavior on animatedStepIndex {
@@ -2823,25 +3244,27 @@ Item {
                                 }
                             }
                             function stepIndexAtX(localX): int {
-                                const count = Math.max(1, (AquaMind.thinkingLevels ?? []).length)
-                                if (count <= 1 || width <= 0) return 0
-                                const pad = stepSlotWidth * 0.5
-                                const trackW = Math.max(1, width - stepSlotWidth)
-                                const ratio = Math.max(0, Math.min(1, (localX - pad) / trackW))
-                                return Math.max(0, Math.min(count - 1, Math.round(ratio * (count - 1))))
+                                const count = Math.max(1, (AquaMind.thinkingLevels ?? []).length);
+                                if (count <= 1 || width <= 0)
+                                    return 0;
+                                const pad = stepSlotWidth * 0.5;
+                                const trackW = Math.max(1, width - stepSlotWidth);
+                                const ratio = Math.max(0, Math.min(1, (localX - pad) / trackW));
+                                return Math.max(0, Math.min(count - 1, Math.round(ratio * (count - 1))));
                             }
                             function applyEffortAtX(localX, closeAfter = false): bool {
-                                const levels = AquaMind.thinkingLevels ?? []
-                                if (levels.length === 0 || AquaMind.busy) return false
-                                const idx = stepIndexAtX(localX)
-                                const item = levels[idx]
+                                const levels = AquaMind.thinkingLevels ?? [];
+                                if (levels.length === 0 || AquaMind.busy)
+                                    return false;
+                                const idx = stepIndexAtX(localX);
+                                const item = levels[idx];
                                 if (item && item.value !== undefined) {
-                                    AquaMind.setThinkingEffort(item.value)
+                                    AquaMind.setThinkingEffort(item.value);
                                 }
                                 if (closeAfter) {
-                                    root.triggerEffortSlideClose()
+                                    root.triggerEffortSlideClose();
                                 }
-                                return true
+                                return true;
                             }
                             Rectangle {
                                 id: effortSliderTrackBg
@@ -2857,9 +3280,7 @@ Item {
                                 id: effortSliderTrackFill
                                 x: effortSliderTrackBg.x
                                 y: effortSliderTrackBg.y
-                                width: effortMenu.stepCount > 1
-                                    ? Math.round(effortSliderTrackBg.width * (effortMenu.animatedStepIndex / (effortMenu.stepCount - 1)))
-                                    : 0
+                                width: effortMenu.stepCount > 1 ? Math.round(effortSliderTrackBg.width * (effortMenu.animatedStepIndex / (effortMenu.stepCount - 1))) : 0
                                 height: 4
                                 radius: 2
                                 color: AbyssStyle.accent
@@ -2885,17 +3306,7 @@ Item {
                                     required property var modelData
                                     required property int index
                                     objectName: "aquaEffortOption-" + String(modelData.value)
-                                    readonly property string shortStepLabel: modelData.value === "instant" || modelData.value === "off"
-                                        ? "Instant"
-                                        : modelData.value === "low"
-                                        ? "Low"
-                                        : modelData.value === "medium"
-                                        ? "Med"
-                                        : modelData.value === "high"
-                                        ? "High"
-                                        : modelData.value === "xhigh"
-                                        ? "XHigh"
-                                        : "Max"
+                                    readonly property string shortStepLabel: modelData.value === "instant" || modelData.value === "off" ? "Instant" : modelData.value === "low" ? "Low" : modelData.value === "medium" ? "Med" : modelData.value === "high" ? "High" : modelData.value === "xhigh" ? "XHigh" : "Max"
                                     x: Math.round(index * effortMenu.stepSlotWidth)
                                     y: 0
                                     width: Math.max(28, Math.round(effortMenu.stepSlotWidth))
@@ -2903,8 +3314,7 @@ Item {
                                     implicitWidth: 32
                                     implicitHeight: 36
                                     buttonText: modelData.label
-                                    toggled: AquaMind.effectiveThinkingEffort === modelData.value
-                                        || (AquaMind.effectiveThinkingEffort === "off" && modelData.value === "instant")
+                                    toggled: AquaMind.effectiveThinkingEffort === modelData.value || (AquaMind.effectiveThinkingEffort === "off" && modelData.value === "instant")
                                     enabled: !AquaMind.busy
                                     buttonRadius: 8
                                     colBackground: "transparent"
@@ -2912,24 +3322,24 @@ Item {
                                     colBackgroundToggled: "transparent"
                                     colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, .14)
                                     downAction: event => {
-                                        effortMenu.draggingSlider = false
+                                        effortMenu.draggingSlider = false;
                                     }
                                     moveAction: event => {
                                         if (effortOption.down) {
-                                            effortMenu.draggingSlider = true
-                                            effortOption.suppressClickOnRelease = true
-                                            effortMenu.applyEffortAtX(effortOption.x + event.x, false)
+                                            effortMenu.draggingSlider = true;
+                                            effortOption.suppressClickOnRelease = true;
+                                            effortMenu.applyEffortAtX(effortOption.x + event.x, false);
                                         }
                                     }
                                     releaseAction: () => {
                                         if (effortMenu.draggingSlider) {
-                                            effortMenu.draggingSlider = false
-                                            root.triggerEffortSlideClose()
+                                            effortMenu.draggingSlider = false;
+                                            root.triggerEffortSlideClose();
                                         }
                                     }
                                     onClicked: {
-                                        AquaMind.setThinkingEffort(modelData.value)
-                                        root.triggerEffortSlideClose()
+                                        AquaMind.setThinkingEffort(modelData.value);
+                                        root.triggerEffortSlideClose();
                                     }
                                     contentItem: Item {
                                         Rectangle {
@@ -2939,9 +3349,7 @@ Item {
                                             height: 10
                                             radius: 5
                                             visible: !effortOption.toggled
-                                            color: effortOption.index <= effortMenu.activeStepIndex
-                                                ? Qt.alpha(AbyssStyle.accent, 0.72)
-                                                : Appearance.colors.colLayer2
+                                            color: effortOption.index <= effortMenu.activeStepIndex ? Qt.alpha(AbyssStyle.accent, 0.72) : Appearance.colors.colLayer2
                                             border.width: 1
                                             border.color: Qt.alpha(AbyssStyle.textColor, 0.28)
                                         }
@@ -2955,9 +3363,7 @@ Item {
                                             verticalAlignment: Text.AlignVCenter
                                             font.pixelSize: Appearance.font.pixelSize.smallest - 2
                                             font.weight: effortOption.toggled ? Font.DemiBold : Font.Normal
-                                            color: effortOption.toggled
-                                                ? AbyssStyle.accent
-                                                : Appearance.colors.colSubtext
+                                            color: effortOption.toggled ? AbyssStyle.accent : Appearance.colors.colSubtext
                                         }
                                     }
                                 }
@@ -2967,8 +3373,7 @@ Item {
                     Item {
                         id: modelPickerPanel
                         objectName: "aquaModelPicker"
-                        visible: root.profileStage === 2
-                            || (root.profileStage === 0 && root.lastProfileStage === 2 && !root.effortClosingHold && profileBox.profileSlideProgress > 0.01)
+                        visible: root.profileStage === 2 || (root.profileStage === 0 && root.lastProfileStage === 2 && !root.effortClosingHold && profileBox.profileSlideProgress > 0.01)
                         y: profilePanel.subPanelOffset
                         width: parent.width
                         height: implicitHeight
@@ -3033,9 +3438,7 @@ Item {
                                         elide: Text.ElideRight
                                         font.pixelSize: Appearance.font.pixelSize.smallest - 2
                                         font.weight: pickerModeAutoBtn.toggled ? Font.DemiBold : Font.Normal
-                                        color: pickerModeAutoBtn.toggled
-                                            ? Appearance.colors.colOnPrimaryContainer
-                                            : Appearance.colors.colSubtext
+                                        color: pickerModeAutoBtn.toggled ? Appearance.colors.colOnPrimaryContainer : Appearance.colors.colSubtext
                                     }
                                 }
                             }
@@ -3057,7 +3460,7 @@ Item {
                                 colBackgroundToggledHover: Appearance.colors.colPrimaryContainerHover
                                 onClicked: {
                                     if (!modelPickerPanel.isCustomRoleMode)
-                                        root.modelPickerRole = "action"
+                                        root.modelPickerRole = "action";
                                 }
                                 contentItem: Item {
                                     StyledText {
@@ -3070,9 +3473,7 @@ Item {
                                         elide: Text.ElideRight
                                         font.pixelSize: Appearance.font.pixelSize.smallest - 2
                                         font.weight: pickerModeCustomBtn.toggled ? Font.DemiBold : Font.Normal
-                                        color: pickerModeCustomBtn.toggled
-                                            ? Appearance.colors.colOnPrimaryContainer
-                                            : Appearance.colors.colSubtext
+                                        color: pickerModeCustomBtn.toggled ? Appearance.colors.colOnPrimaryContainer : Appearance.colors.colSubtext
                                     }
                                 }
                             }
@@ -3143,9 +3544,7 @@ Item {
                                         elide: Text.ElideRight
                                         font.pixelSize: Appearance.font.pixelSize.smallest - 2
                                         font.weight: pickerRoleActionBtn.toggled ? Font.DemiBold : Font.Normal
-                                        color: pickerRoleActionBtn.toggled
-                                            ? Appearance.colors.colOnPrimaryContainer
-                                            : Appearance.colors.colSubtext
+                                        color: pickerRoleActionBtn.toggled ? Appearance.colors.colOnPrimaryContainer : Appearance.colors.colSubtext
                                     }
                                 }
                             }
@@ -3177,9 +3576,7 @@ Item {
                                         elide: Text.ElideRight
                                         font.pixelSize: Appearance.font.pixelSize.smallest - 2
                                         font.weight: pickerRoleThinkingBtn.toggled ? Font.DemiBold : Font.Normal
-                                        color: pickerRoleThinkingBtn.toggled
-                                            ? Appearance.colors.colOnPrimaryContainer
-                                            : Appearance.colors.colSubtext
+                                        color: pickerRoleThinkingBtn.toggled ? Appearance.colors.colOnPrimaryContainer : Appearance.colors.colSubtext
                                     }
                                 }
                             }
@@ -3187,11 +3584,7 @@ Item {
 
                         Repeater {
                             id: modelRepeater
-                            model: root.modelPickerRole === "action"
-                                ? AquaMind.actionSelectableModels
-                                : (root.modelPickerRole === "thinking"
-                                    ? AquaMind.thinkingSelectableModels
-                                    : AquaMind.selectableModels)
+                            model: root.modelPickerRole === "action" ? AquaMind.actionSelectableModels : (root.modelPickerRole === "thinking" ? AquaMind.thinkingSelectableModels : AquaMind.selectableModels)
                             RippleButton {
                                 id: modelOption
                                 required property var modelData
@@ -3203,11 +3596,7 @@ Item {
                                 height: 34
                                 implicitHeight: 34
                                 buttonText: modelData.label ?? modelData.name
-                                toggled: root.modelPickerRole === "action"
-                                    ? (AquaMind.configuredActionModel === modelData.name)
-                                    : (root.modelPickerRole === "thinking"
-                                        ? (AquaMind.configuredThinkingModel === modelData.name)
-                                        : (AquaMind.model === modelData.name))
+                                toggled: root.modelPickerRole === "action" ? (AquaMind.configuredActionModel === modelData.name) : (root.modelPickerRole === "thinking" ? (AquaMind.configuredThinkingModel === modelData.name) : (AquaMind.model === modelData.name))
                                 enabled: !AquaMind.busy
                                 buttonRadius: 12
                                 colBackground: "transparent"
@@ -3216,13 +3605,16 @@ Item {
                                 colBackgroundToggledHover: Appearance.colors.colPrimaryContainerHover
                                 onClicked: {
                                     if (root.modelPickerRole === "action") {
-                                        AquaMind.selectActionModel(modelData)
+                                        AquaMind.selectActionModel(modelData);
                                     } else if (root.modelPickerRole === "thinking") {
-                                        AquaMind.selectThinkingModel(modelData)
+                                        AquaMind.selectThinkingModel(modelData);
                                     } else {
-                                        AquaMind.selectModel(modelData)
-                                        root.profileStage = 0
-                                        Qt.callLater(() => { if (root.editing) message.forceActiveFocus() })
+                                        AquaMind.selectModel(modelData);
+                                        root.profileStage = 0;
+                                        Qt.callLater(() => {
+                                            if (root.editing)
+                                                message.forceActiveFocus();
+                                        });
                                     }
                                 }
                                 contentItem: Item {
@@ -3240,9 +3632,7 @@ Item {
                                             verticalAlignment: Text.AlignVCenter
                                             elide: Text.ElideRight
                                             font.pixelSize: Appearance.font.pixelSize.small
-                                            color: modelOption.toggled
-                                                ? Appearance.colors.colOnPrimaryContainer
-                                                : Appearance.colors.colOnLayer1
+                                            color: modelOption.toggled ? Appearance.colors.colOnPrimaryContainer : Appearance.colors.colOnLayer1
                                         }
                                         MaterialSymbol {
                                             visible: modelOption.toggled
@@ -3263,10 +3653,7 @@ Item {
             Rectangle {
                 id: clarificationCard
                 objectName: "aquaClarificationCard"
-                visible: root.editing && !root.editorMode
-                    && AquaMind.activeClarification !== null
-                    && Array.isArray(AquaMind.activeClarification?.options)
-                    && AquaMind.activeClarification.options.length > 0
+                visible: root.editing && !root.editorMode && AquaMind.activeClarification !== null && Array.isArray(AquaMind.activeClarification?.options) && AquaMind.activeClarification.options.length > 0
                 x: 0
                 y: profileBox.visible ? profileBox.height + controlsColumn.spacing : 0
                 width: content.width
@@ -3358,9 +3745,7 @@ Item {
 
                         Repeater {
                             id: clarificationOptionsRepeater
-                            model: Array.isArray(AquaMind.activeClarification?.options)
-                                ? AquaMind.activeClarification.options.slice(0, 3)
-                                : []
+                            model: Array.isArray(AquaMind.activeClarification?.options) ? AquaMind.activeClarification.options.slice(0, 3) : []
 
                             RippleButton {
                                 id: clarOptBtn
@@ -3375,9 +3760,7 @@ Item {
                                 height: implicitHeight
                                 enabled: !AquaMind.busy
                                 buttonRadius: 8
-                                colBackground: isRecommended
-                                    ? Qt.alpha(AbyssStyle.accent, 0.12)
-                                    : Qt.alpha(AbyssStyle.textColor, 0.05)
+                                colBackground: isRecommended ? Qt.alpha(AbyssStyle.accent, 0.12) : Qt.alpha(AbyssStyle.textColor, 0.05)
                                 colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.22)
                                 onClicked: AquaMind.selectClarificationOption(index)
 
@@ -3386,9 +3769,7 @@ Item {
                                     radius: 8
                                     color: "transparent"
                                     border.width: 1
-                                    border.color: clarOptBtn.buttonHovered || clarOptBtn.isRecommended
-                                        ? Qt.alpha(AbyssStyle.accent, clarOptBtn.buttonHovered ? 0.5 : 0.3)
-                                        : Qt.alpha(AbyssStyle.textColor, 0.09)
+                                    border.color: clarOptBtn.buttonHovered || clarOptBtn.isRecommended ? Qt.alpha(AbyssStyle.accent, clarOptBtn.buttonHovered ? 0.5 : 0.3) : Qt.alpha(AbyssStyle.textColor, 0.09)
                                 }
 
                                 contentItem: RowLayout {
@@ -3403,17 +3784,13 @@ Item {
                                         implicitWidth: 18
                                         implicitHeight: 18
                                         radius: 5
-                                        color: clarOptBtn.isRecommended
-                                            ? AbyssStyle.accent
-                                            : Qt.alpha(AbyssStyle.textColor, 0.12)
+                                        color: clarOptBtn.isRecommended ? AbyssStyle.accent : Qt.alpha(AbyssStyle.textColor, 0.12)
                                         StyledText {
                                             anchors.centerIn: parent
                                             text: String(clarOptBtn.index + 1)
                                             font.pixelSize: Appearance.font.pixelSize.smallest - 2
                                             font.weight: Font.Bold
-                                            color: clarOptBtn.isRecommended
-                                                ? Appearance.colors.colOnPrimary
-                                                : AbyssStyle.textColor
+                                            color: clarOptBtn.isRecommended ? Appearance.colors.colOnPrimary : AbyssStyle.textColor
                                         }
                                     }
 
@@ -3497,9 +3874,7 @@ Item {
                             radius: 8
                             color: Qt.alpha(AbyssStyle.textColor, 0.05)
                             border.width: 1
-                            border.color: clarificationCustomField.activeFocus
-                                ? Qt.alpha(AbyssStyle.accent, 0.48)
-                                : Qt.alpha(AbyssStyle.textColor, 0.10)
+                            border.color: clarificationCustomField.activeFocus ? Qt.alpha(AbyssStyle.accent, 0.48) : Qt.alpha(AbyssStyle.textColor, 0.10)
 
                             RowLayout {
                                 anchors.fill: parent
@@ -3510,9 +3885,7 @@ Item {
                                 MaterialSymbol {
                                     text: "edit_note"
                                     iconSize: 15
-                                    color: clarificationCustomField.activeFocus
-                                        ? AbyssStyle.accent
-                                        : Appearance.colors.colSubtext
+                                    color: clarificationCustomField.activeFocus ? AbyssStyle.accent : Appearance.colors.colSubtext
                                 }
 
                                 MaterialTextField {
@@ -3526,12 +3899,17 @@ Item {
                                     enableSettingsSearch: false
                                     placeholderText: String(AquaMind.activeClarification?.customPlaceholder ?? "Type your own idea or custom instructions...")
                                     font.pixelSize: Appearance.font.pixelSize.smallest
-                                    background: Rectangle { color: "transparent"; border.width: 0 }
+                                    background: Rectangle {
+                                        color: "transparent"
+                                        border.width: 0
+                                    }
+                                    onActiveFocusChanged: if (activeFocus)
+                                        root.wantsKeyboardFocus = true
                                     onAccepted: {
-                                        const val = text.trim()
+                                        const val = text.trim();
                                         if (val.length > 0 && !AquaMind.busy) {
-                                            text = ""
-                                            AquaMind.submitClarificationCustom(val)
+                                            text = "";
+                                            AquaMind.submitClarificationCustom(val);
                                         }
                                     }
                                 }
@@ -3547,15 +3925,13 @@ Item {
                             implicitHeight: 26
                             buttonRadius: 13
                             enabled: clarificationCustomField.text.trim().length > 0 && !AquaMind.busy
-                            colBackground: enabled
-                                ? AbyssStyle.accent
-                                : Qt.alpha(AbyssStyle.textColor, 0.08)
+                            colBackground: enabled ? AbyssStyle.accent : Qt.alpha(AbyssStyle.textColor, 0.08)
                             colBackgroundHover: Qt.lighter(AbyssStyle.accent, 1.08)
                             onClicked: {
-                                const val = clarificationCustomField.text.trim()
+                                const val = clarificationCustomField.text.trim();
                                 if (val.length > 0) {
-                                    clarificationCustomField.text = ""
-                                    AquaMind.submitClarificationCustom(val)
+                                    clarificationCustomField.text = "";
+                                    AquaMind.submitClarificationCustom(val);
                                 }
                             }
                             StyledToolTip {
@@ -3566,9 +3942,7 @@ Item {
                                 anchors.centerIn: parent
                                 text: "arrow_upward"
                                 iconSize: 15
-                                color: clarificationCustomSubmitBtn.enabled
-                                    ? Appearance.colors.colOnPrimary
-                                    : Appearance.colors.colSubtext
+                                color: clarificationCustomSubmitBtn.enabled ? Appearance.colors.colOnPrimary : Appearance.colors.colSubtext
                             }
                         }
                     }
@@ -3581,18 +3955,10 @@ Item {
                 objectName: "aquaSlashCommandMenu"
                 visible: root.slashMenuOpen
                 x: 0
-                y: (profileBox.visible ? profileBox.height + controlsColumn.spacing : 0)
-                    + (clarificationCard.visible ? clarificationCard.height + controlsColumn.spacing : 0)
+                y: (profileBox.visible ? profileBox.height + controlsColumn.spacing : 0) + (clarificationCard.visible ? clarificationCard.height + controlsColumn.spacing : 0)
                 width: content.width
                 height: implicitHeight
-                readonly property real maxSlashPopupHeight: Math.max(96,
-                    content.height
-                    - (chatTodayBar.visible ? chatTodayBar.implicitHeight + content.spacing : 0)
-                    - (thinkingCard.visible ? thinkingCard.implicitHeight + content.spacing : 0)
-                    - (profileBox.visible ? profileBox.implicitHeight + controlsColumn.spacing : 0)
-                    - (clarificationCard.visible ? clarificationCard.implicitHeight + controlsColumn.spacing : 0)
-                    - composer.implicitHeight
-                    - controlsColumn.spacing - 8)
+                readonly property real maxSlashPopupHeight: Math.max(96, content.height - (thinkingCard.visible ? thinkingCard.implicitHeight + content.spacing : 0) - (profileBox.visible ? profileBox.implicitHeight + controlsColumn.spacing : 0) - (clarificationCard.visible ? clarificationCard.implicitHeight + controlsColumn.spacing : 0) - composer.implicitHeight - controlsColumn.spacing - 8)
                 implicitHeight: Math.min(182, maxSlashPopupHeight, 26 + Math.min(5, Math.max(1, root.filteredSlashCommands.length)) * 30 + 8)
                 radius: Math.max(10, Math.min(14, root.edgeRadius - 6))
                 color: Qt.rgba(Appearance.colors.colLayer1.r, Appearance.colors.colLayer1.g, Appearance.colors.colLayer1.b, 0.96)
@@ -3618,9 +3984,7 @@ Item {
                         StyledText {
                             Layout.fillWidth: true
                             Layout.minimumWidth: 0
-                            text: root.slashQuery.length > 0
-                                ? ("Matching /" + root.slashQuery + " (" + root.filteredSlashCommands.length + ")")
-                                : ("Slash Commands & Learned Skills (" + root.filteredSlashCommands.length + ")")
+                            text: root.slashQuery.length > 0 ? ("Matching /" + root.slashQuery + " (" + root.filteredSlashCommands.length + ")") : ("Slash Commands & Learned Skills (" + root.filteredSlashCommands.length + ")")
                             font.pixelSize: Appearance.font.pixelSize.smallest - 1
                             font.weight: Font.DemiBold
                             color: Appearance.colors.colSubtext
@@ -3652,9 +4016,7 @@ Item {
                             height: 28
                             radius: 7
                             readonly property bool isCurrent: index === root.slashSelectedIndex
-                            color: isCurrent
-                                ? Qt.alpha(AbyssStyle.accent, 0.22)
-                                : (slashItemMouse.containsMouse ? Qt.alpha(AbyssStyle.accent, 0.12) : "transparent")
+                            color: isCurrent ? Qt.alpha(AbyssStyle.accent, 0.22) : (slashItemMouse.containsMouse ? Qt.alpha(AbyssStyle.accent, 0.12) : "transparent")
                             border.width: isCurrent ? 1 : 0
                             border.color: isCurrent ? Qt.alpha(AbyssStyle.accent, 0.42) : "transparent"
 
@@ -3721,40 +4083,50 @@ Item {
                 objectName: "aquaChatComposer"
                 visible: root.editing
                 x: 0
-                y: (profileBox.visible ? profileBox.height + controlsColumn.spacing : 0)
-                    + (clarificationCard.visible ? clarificationCard.height + controlsColumn.spacing : 0)
-                    + (slashCommandPopup.visible ? slashCommandPopup.height + controlsColumn.spacing : 0)
+                y: (profileBox.visible ? profileBox.height + controlsColumn.spacing : 0) + (clarificationCard.visible ? clarificationCard.height + controlsColumn.spacing : 0) + (slashCommandPopup.visible ? slashCommandPopup.height + controlsColumn.spacing : 0)
                 width: content.width
                 height: implicitHeight
                 Layout.fillWidth: true
                 Layout.preferredHeight: implicitHeight
                 implicitHeight: composerContent.height + 10
                 radius: Math.max(12, Math.min(18, root.edgeRadius - 4))
-                color: Qt.alpha(AbyssStyle.textColor, .05)
+                color: root.voiceStageActive ? ColorUtils.transparentize(ColorUtils.mix(root.voiceLayer1Color, root.voiceContainerColor, 0.78), 0.08) : Qt.alpha(AbyssStyle.textColor, .05)
                 border.width: 1
-                border.color: chatImageDropArea.containsDrag
-                    ? AbyssStyle.accent
-                    : (root.slashMenuOpen
-                        ? Qt.alpha(AbyssStyle.accent, 0.35)
-                        : Qt.alpha(AbyssStyle.textColor, .09))
+                border.color: chatImageDropArea.containsDrag ? AbyssStyle.accent : (root.voiceStageActive ? ColorUtils.transparentize(root.voiceAccentColor, 0.45) : (root.slashMenuOpen ? Qt.alpha(AbyssStyle.accent, 0.35) : Qt.alpha(AbyssStyle.textColor, .09)))
+                Behavior on color {
+                    ColorAnimation {
+                        duration: 160
+                        easing.type: Easing.OutCubic
+                    }
+                }
+                Behavior on border.color {
+                    ColorAnimation {
+                        duration: 160
+                        easing.type: Easing.OutCubic
+                    }
+                }
                 DropArea {
                     id: chatImageDropArea
                     objectName: "aquaChatDropArea"
                     anchors.fill: parent
                     onDropped: drop => {
-                        let handled = false
+                        let handled = false;
                         if (drop.hasUrls && Array.isArray(drop.urls)) {
                             for (let i = 0; i < drop.urls.length; ++i) {
-                                if (AquaMind.attachImage(String(drop.urls[i]))) handled = true
+                                const u = String(drop.urls[i]);
+                                if (AquaMind.attachImage(u) || AquaMind.attachFile(u))
+                                    handled = true;
                             }
                         }
                         if (!handled && drop.hasText && drop.text) {
-                            const lines = String(drop.text).split(/\r?\n/)
+                            const lines = String(drop.text).split(/\r?\n/);
                             for (let j = 0; j < lines.length; ++j) {
-                                if (AquaMind.attachImage(lines[j])) handled = true
+                                if (AquaMind.attachImage(lines[j]) || AquaMind.attachFile(lines[j]))
+                                    handled = true;
                             }
                         }
-                        if (handled) drop.accept(Qt.CopyAction)
+                        if (handled)
+                            drop.accept(Qt.CopyAction);
                     }
                 }
                 Item {
@@ -3762,13 +4134,16 @@ Item {
                     x: 6
                     y: 4
                     width: Math.max(0, parent.width - 12)
-                    readonly property real previewOffset: attachedImagesStrip.visible ? (attachedImagesStrip.height + 4) : 0
-                    height: previewOffset + message.implicitHeight + 2 + composerRow.height
+                    readonly property real imgPreviewOffset: (!root.voiceStageActive && attachedImagesStrip.visible) ? (attachedImagesStrip.height + 4) : 0
+                    readonly property real filePreviewOffset: (!root.voiceStageActive && attachedFilesStrip.visible) ? (attachedFilesStrip.height + 4) : 0
+                    readonly property real previewOffset: imgPreviewOffset + filePreviewOffset
+                    readonly property real standardTextInputStageHeight: 40 + 2 + composerRow.height
+                    height: root.voiceStageActive ? voiceStage.height : (previewOffset + message.implicitHeight + 2 + composerRow.height)
                     implicitHeight: height
                     Item {
                         id: attachedImagesStrip
                         objectName: "aquaChatImagePreviewRow"
-                        visible: Array.isArray(AquaMind.attachedImages) && AquaMind.attachedImages.length > 0
+                        visible: !root.voiceStageActive && Array.isArray(AquaMind.attachedImages) && AquaMind.attachedImages.length > 0
                         x: 0
                         y: 0
                         width: parent.width
@@ -3801,6 +4176,7 @@ Item {
                                             anchors.fill: parent
                                             fillMode: Image.PreserveAspectCrop
                                             asynchronous: false
+                                            sourceSize: Qt.size(48, 48)
                                             source: String(imgChip.modelData?.url ?? "")
                                         }
                                     }
@@ -3843,78 +4219,239 @@ Item {
                             }
                         }
                     }
+                    Item {
+                        id: attachedFilesStrip
+                        objectName: "aquaChatFilePreviewRow"
+                        visible: !root.voiceStageActive && Array.isArray(AquaMind.attachedFiles) && AquaMind.attachedFiles.length > 0
+                        x: 0
+                        y: composerContent.imgPreviewOffset
+                        width: parent.width
+                        height: visible ? 28 : 0
+                        Row {
+                            anchors.fill: parent
+                            spacing: 6
+                            Repeater {
+                                model: AquaMind.attachedFiles
+                                delegate: Rectangle {
+                                    id: fileChip
+                                    required property var modelData
+                                    required property int index
+                                    objectName: "aquaAttachedFileCard-" + index
+                                    width: Math.min(136, Math.max(76, fileNameText.implicitWidth + 46))
+                                    height: 26
+                                    radius: 7
+                                    color: Qt.alpha(AbyssStyle.accent, 0.12)
+                                    border.width: 1
+                                    border.color: Qt.alpha(AbyssStyle.accent, 0.28)
+                                    MaterialSymbol {
+                                        x: 6
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "description"
+                                        iconSize: 14
+                                        color: AbyssStyle.accent
+                                    }
+                                    StyledText {
+                                        id: fileNameText
+                                        objectName: "aquaAttachedFileName-" + fileChip.index
+                                        x: 24
+                                        y: 0
+                                        width: Math.max(20, fileChip.width - 44)
+                                        height: parent.height
+                                        text: String(fileChip.modelData?.name ?? "file.txt")
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideMiddle
+                                        font.pixelSize: Appearance.font.pixelSize.smallest - 1
+                                        color: AbyssStyle.textColor
+                                    }
+                                    RippleButton {
+                                        id: removeFileBtn
+                                        objectName: "aquaAttachedFileRemove-" + fileChip.index
+                                        x: fileChip.width - 20
+                                        y: 4
+                                        width: 18
+                                        height: 18
+                                        implicitWidth: 18
+                                        implicitHeight: 18
+                                        buttonRadius: 9
+                                        colBackground: Qt.alpha(AbyssStyle.textColor, 0.10)
+                                        colBackgroundHover: Qt.alpha(Appearance.colors.colError, 0.24)
+                                        onClicked: AquaMind.removeAttachedFile(fileChip.index)
+                                        contentItem: Item {
+                                            MaterialSymbol {
+                                                anchors.centerIn: parent
+                                                text: "close"
+                                                iconSize: 12
+                                                color: AbyssStyle.textColor
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     MaterialTextField {
                         id: message
                         objectName: "aquaChatInput"
+                        visible: !root.voiceStageActive
                         x: 0
                         y: composerContent.previewOffset
                         width: parent.width
                         height: implicitHeight
                         maximumLength: 1200
+                        wrapMode: TextInput.Wrap
                         enableSettingsSearch: false
                         echoMode: AquaMind.pendingSudoPassword ? TextInput.Password : TextInput.Normal
-                        placeholderText: AquaMind.pendingSudoPassword ? "Enter sudo password (or type 'cancel')..." : ""
+                        placeholderText: AquaMind.pendingSudoPassword ? "Enter sudo password (or type 'cancel')..." : AquaMind.voiceErrorNotice
                         Accessible.name: "Message"
-                        background: Rectangle { color: "transparent"; border.width: 0 }
+                        background: Rectangle {
+                            color: "transparent"
+                            border.width: 0
+                        }
+                        onActiveFocusChanged: if (activeFocus)
+                            root.wantsKeyboardFocus = true
+                        TapHandler {
+                            onPressedChanged: if (pressed) {
+                                root.wantsKeyboardFocus = true;
+                                if (!message.activeFocus)
+                                    Qt.callLater(() => {
+                                        if (root.editing && !root.voiceStageActive && message.visible && message.enabled)
+                                            message.forceActiveFocus();
+                                    });
+                            }
+                        }
                         onTextChanged: {
+                            if (text.trim().length === 0 && AquaMind.pendingVoiceInputTurn) {
+                                AquaMind.pendingVoiceInputTurn = false;
+                            }
+                            if (text.length > 0 && AquaMind.voiceErrorNotice.length > 0) {
+                                AquaMind.voiceErrorNotice = "";
+                            }
                             if (text.startsWith("/")) {
                                 if (!/^\/[^\s]*\s/.test(text)) {
-                                    root.slashMenuDismissed = false
+                                    root.slashMenuDismissed = false;
                                 }
-                                root.slashSelectedIndex = 0
+                                root.slashSelectedIndex = 0;
                             } else {
-                                root.slashMenuDismissed = false
-                                root.slashSelectedIndex = 0
+                                root.slashMenuDismissed = false;
+                                root.slashSelectedIndex = 0;
                             }
                         }
                         onAccepted: {
                             if (root.slashMenuOpen && root.filteredSlashCommands.length > 0) {
-                                const idx = Math.max(0, Math.min(root.filteredSlashCommands.length - 1, root.slashSelectedIndex))
-                                const chosen = root.filteredSlashCommands[idx]
+                                const idx = Math.max(0, Math.min(root.filteredSlashCommands.length - 1, root.slashSelectedIndex));
+                                const chosen = root.filteredSlashCommands[idx];
                                 if (chosen && (chosen.needsArgs || root.slashRawInput.trim().toLowerCase() !== chosen.cmd)) {
-                                    root.selectSlashCommand(chosen, !chosen.needsArgs)
-                                    return
+                                    root.selectSlashCommand(chosen, !chosen.needsArgs);
+                                    return;
                                 }
                             }
-                            root.submit()
+                            root.submit();
                         }
                         Keys.onDownPressed: event => {
                             if (root.slashMenuOpen && root.filteredSlashCommands.length > 0) {
-                                event.accepted = true
-                                root.slashSelectedIndex = (root.slashSelectedIndex + 1) % root.filteredSlashCommands.length
-                                slashMenuList.positionViewAtIndex(root.slashSelectedIndex, ListView.Contain)
+                                event.accepted = true;
+                                root.slashSelectedIndex = (root.slashSelectedIndex + 1) % root.filteredSlashCommands.length;
+                                slashMenuList.positionViewAtIndex(root.slashSelectedIndex, ListView.Contain);
+                                return;
+                            }
+                            if (root.promptHistoryIndex >= 0 && root.userPromptHistory.length > 0 && (!message.text.includes("\n") || message.cursorPosition >= message.text.length)) {
+                                event.accepted = true;
+                                if (root.promptHistoryIndex < root.userPromptHistory.length - 1) {
+                                    root.promptHistoryIndex += 1;
+                                    message.text = String(root.userPromptHistory[root.promptHistoryIndex] ?? "");
+                                } else {
+                                    root.promptHistoryIndex = -1;
+                                    message.text = root.promptHistoryDraft;
+                                }
+                                message.cursorPosition = message.text.length;
                             }
                         }
                         Keys.onUpPressed: event => {
                             if (root.slashMenuOpen && root.filteredSlashCommands.length > 0) {
-                                event.accepted = true
-                                root.slashSelectedIndex = (root.slashSelectedIndex - 1 + root.filteredSlashCommands.length) % root.filteredSlashCommands.length
-                                slashMenuList.positionViewAtIndex(root.slashSelectedIndex, ListView.Contain)
+                                event.accepted = true;
+                                root.slashSelectedIndex = (root.slashSelectedIndex - 1 + root.filteredSlashCommands.length) % root.filteredSlashCommands.length;
+                                slashMenuList.positionViewAtIndex(root.slashSelectedIndex, ListView.Contain);
+                                return;
+                            }
+                            if (root.userPromptHistory.length > 0 && (!message.text.includes("\n") || message.cursorPosition === 0 || root.promptHistoryIndex >= 0)) {
+                                event.accepted = true;
+                                if (root.promptHistoryIndex < 0) {
+                                    root.promptHistoryDraft = message.text;
+                                    root.promptHistoryIndex = root.userPromptHistory.length - 1;
+                                } else if (root.promptHistoryIndex > 0) {
+                                    root.promptHistoryIndex -= 1;
+                                }
+                                message.text = String(root.userPromptHistory[root.promptHistoryIndex] ?? "");
+                                message.cursorPosition = message.text.length;
                             }
                         }
                         Keys.onTabPressed: event => {
                             if (root.slashMenuOpen && root.filteredSlashCommands.length > 0) {
-                                event.accepted = true
-                                const idx = Math.max(0, Math.min(root.filteredSlashCommands.length - 1, root.slashSelectedIndex))
-                                root.selectSlashCommand(root.filteredSlashCommands[idx], false)
+                                event.accepted = true;
+                                const idx = Math.max(0, Math.min(root.filteredSlashCommands.length - 1, root.slashSelectedIndex));
+                                root.selectSlashCommand(root.filteredSlashCommands[idx], false);
                             }
                         }
                         Keys.onPressed: event => {
                             if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_C && String(message.selectedText ?? "").length === 0 && root.copyActiveSelection()) {
-                                event.accepted = true
+                                event.accepted = true;
+                                return;
+                            }
+                            if (event.key === Qt.Key_PageUp) {
+                                if (root.scrollByPage(-1))
+                                    event.accepted = true;
+                                return;
+                            }
+                            if (event.key === Qt.Key_PageDown) {
+                                if (root.scrollByPage(1))
+                                    event.accepted = true;
+                                return;
+                            }
+                            if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && (event.modifiers & Qt.ShiftModifier)) {
+                                const pos = Math.max(0, message.cursorPosition);
+                                message.text = message.text.slice(0, pos) + "\n" + message.text.slice(pos);
+                                message.cursorPosition = pos + 1;
+                                event.accepted = true;
+                                return;
+                            }
+                            if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_V) {
+                                let clipVal = "";
+                                try {
+                                    if (typeof Quickshell !== "undefined" && Quickshell && "clipboardText" in Quickshell)
+                                        clipVal = String(Quickshell.clipboardText ?? "").trim();
+                                } catch (e) {}
+                                const lines = clipVal.split(/\r?\n/).map(l => l.trim().replace(/^['"`]+|['"`]+$/g, "").trim()).filter(l => l.length > 0 && !l.startsWith("#"));
+                                if (lines.length > 0 && lines.length <= 4 && lines.every(l => /^(?:\/|~\/|file:\/\/).+\.(?:png|jpe?g|webp|gif|bmp|svg|pdf|docx|xlsx|csv|md|txt|json|py|js|ts|qml|rs)$/i.test(l))) {
+                                    let attachedAny = false;
+                                    for (const ln of lines) {
+                                        if (AquaMind.attachFile(ln))
+                                            attachedAny = true;
+                                    }
+                                    if (attachedAny) {
+                                        event.accepted = true;
+                                        return;
+                                    }
+                                }
+                            }
+                            if (clarificationCard.visible && message.text.length === 0 && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier))) {
+                                const opts = Array.isArray(AquaMind.activeClarification?.options) ? AquaMind.activeClarification.options : [];
+                                const numIdx = event.key - Qt.Key_1;
+                                if (numIdx >= 0 && numIdx < Math.min(9, opts.length)) {
+                                    AquaMind.selectClarificationOption(numIdx);
+                                    event.accepted = true;
+                                    return;
+                                }
                             }
                         }
                         Keys.onEscapePressed: event => {
-                            event.accepted = true
-                            if (root.slashMenuOpen) {
-                                root.slashMenuDismissed = true
-                                return
-                            }
-                            root.closePopup()
+                            if (root.handleEscape())
+                                event.accepted = true;
                         }
                     }
                     Item {
                         id: composerRow
+                        objectName: "aquaChatComposerRow"
+                        visible: !root.voiceStageActive
                         x: 0
                         y: message.y + message.height + 2
                         width: parent.width
@@ -3931,23 +4468,19 @@ Item {
                             implicitHeight: 30
                             enabled: !AquaMind.busy
                             buttonRadius: 15
-                            colBackground: AquaMind.attachedImages.length > 0
-                                ? Qt.alpha(AbyssStyle.accent, 0.20)
-                                : Qt.alpha(AbyssStyle.textColor, 0.08)
+                            colBackground: (AquaMind.attachedImages.length > 0 || AquaMind.attachedFiles.length > 0) ? Qt.alpha(AbyssStyle.accent, 0.20) : Qt.alpha(AbyssStyle.textColor, 0.08)
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.24)
-                            onClicked: AquaMind.pickAndAttachImage()
+                            onClicked: AquaMind.pickAndAttachFile()
                             StyledToolTip {
                                 extraVisibleCondition: attachImageBtn.buttonHovered
-                                text: "Attach image (PNG, JPG, WebP, GIF)"
+                                text: "Attach image or file (PNG, JPG, PDF, DOCX, XLSX, CSV, Code, Text)"
                             }
                             contentItem: Item {
                                 MaterialSymbol {
                                     anchors.centerIn: parent
-                                    text: "add_photo_alternate"
+                                    text: "attach_file"
                                     iconSize: 16
-                                    color: AquaMind.attachedImages.length > 0
-                                        ? AbyssStyle.accent
-                                        : Appearance.colors.colPrimary
+                                    color: (AquaMind.attachedImages.length > 0 || AquaMind.attachedFiles.length > 0) ? AbyssStyle.accent : Appearance.colors.colPrimary
                                 }
                             }
                         }
@@ -3963,38 +4496,38 @@ Item {
                             enabled: !AquaMind.busy && AquaMind.selectableModels.length > 0
                             toggled: root.profileStage === 2
                             buttonRadius: 15
-                            colBackground: root.profileStage === 2
-                                ? Qt.alpha(AbyssStyle.accent, 0.22)
-                                : Qt.alpha(AbyssStyle.textColor, 0.08)
+                            colBackground: root.profileStage === 2 ? Qt.alpha(AbyssStyle.accent, 0.22) : Qt.alpha(AbyssStyle.textColor, 0.08)
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.24)
                             colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
                             colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
                             onClicked: {
                                 if (root.profileStage === 2) {
-                                    root.profileStage = 0
-                                    Qt.callLater(() => { if (root.editing) message.forceActiveFocus() })
+                                    root.profileStage = 0;
+                                    Qt.callLater(() => {
+                                        if (root.editing)
+                                            message.forceActiveFocus();
+                                    });
                                 } else {
                                     if (AquaMind.liveModelAutoDetectAllowed)
-                                        AquaMind.refreshAvailableModels(false)
-                                    root.profileStage = 2
+                                        AquaMind.refreshAvailableModels(false);
+                                    root.profileStage = 2;
                                 }
                             }
                             Keys.onEscapePressed: event => {
-                                event.accepted = true
-                                root.closePopup()
+                                event.accepted = true;
+                                root.closePopup();
                             }
                             StyledToolTip {
+                                objectName: "aquaModelSelectorToolTip"
                                 extraVisibleCondition: modelSelectorBtn.buttonHovered && root.profileStage !== 2
-                                text: AquaMind.currentModelLabel + " · " + AquaMind.routingSummaryLabel + " · " + AquaMind.mtpStatusLabel
+                                text: AquaMind.compactModelTooltipLabel
                             }
                             contentItem: Item {
                                 MaterialSymbol {
                                     anchors.centerIn: parent
                                     text: "smart_toy"
                                     iconSize: 16
-                                    color: root.profileStage === 2
-                                        ? AbyssStyle.accent
-                                        : Appearance.colors.colPrimary
+                                    color: root.profileStage === 2 ? AbyssStyle.accent : Appearance.colors.colPrimary
                                 }
                             }
                         }
@@ -4007,7 +4540,7 @@ Item {
                                 font: effortLabel.font
                                 text: AquaMind.thinkingEffortShortLabel
                             }
-                            readonly property real targetWidth: Math.max(68, Math.min(118, Math.ceil(effortTextMetrics.advanceWidth) + 46))
+                            readonly property real targetWidth: Math.max(54, Math.min(82, Math.ceil(effortTextMetrics.advanceWidth) + 32))
                             x: modelSelectorBtn.x + modelSelectorBtn.width + composerRow.spacing
                             y: Math.round((composerRow.height - height) / 2)
                             width: targetWidth
@@ -4017,40 +4550,36 @@ Item {
                             enabled: !AquaMind.busy && AquaMind.thinkingSupported
                             toggled: root.profileStage === 1
                             buttonRadius: 15
-                            colBackground: root.profileStage === 1
-                                ? Qt.alpha(AbyssStyle.accent, 0.22)
-                                : Qt.alpha(AbyssStyle.textColor, 0.08)
+                            colBackground: root.profileStage === 1 ? Qt.alpha(AbyssStyle.accent, 0.22) : Qt.alpha(AbyssStyle.textColor, 0.08)
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.24)
                             colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
                             colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
                             onClicked: {
                                 if (root.profileStage === 1) {
-                                    root.profileStage = 0
-                                    Qt.callLater(() => { if (root.editing) message.forceActiveFocus() })
+                                    root.profileStage = 0;
+                                    Qt.callLater(() => {
+                                        if (root.editing)
+                                            message.forceActiveFocus();
+                                    });
                                 } else {
-                                    root.profileStage = 1
+                                    root.profileStage = 1;
                                 }
                             }
                             Keys.onEscapePressed: event => {
-                                event.accepted = true
-                                root.closePopup()
+                                event.accepted = true;
+                                root.closePopup();
                             }
                             contentItem: Item {
                                 Row {
                                     id: effortBtnRow
+                                    objectName: "aquaModelEffortRow"
                                     anchors.centerIn: parent
                                     spacing: 4
                                     MaterialSymbol {
                                         anchors.verticalCenter: parent.verticalCenter
-                                        text: AquaMind.effectiveThinkingEffort === "instant" || AquaMind.effectiveThinkingEffort === "off"
-                                            ? "bolt"
-                                            : AquaMind.effectiveThinkingEffort === "xhigh" || AquaMind.effectiveThinkingEffort === "max"
-                                            ? "auto_awesome"
-                                            : "psychology"
+                                        text: AquaMind.effectiveThinkingEffort === "instant" || AquaMind.effectiveThinkingEffort === "off" ? "bolt" : AquaMind.effectiveThinkingEffort === "xhigh" || AquaMind.effectiveThinkingEffort === "max" ? "auto_awesome" : "psychology"
                                         iconSize: 15
-                                        color: root.profileStage === 1
-                                            ? AbyssStyle.accent
-                                            : Appearance.colors.colPrimary
+                                        color: root.profileStage === 1 ? AbyssStyle.accent : Appearance.colors.colPrimary
                                     }
                                     StyledText {
                                         id: effortLabel
@@ -4060,16 +4589,46 @@ Item {
                                         verticalAlignment: Text.AlignVCenter
                                         font.pixelSize: Appearance.font.pixelSize.smallest
                                         font.weight: Font.Medium
-                                        color: root.profileStage === 1
-                                            ? AbyssStyle.accent
-                                            : Appearance.colors.colOnLayer1
+                                        color: root.profileStage === 1 ? AbyssStyle.accent : Appearance.colors.colOnLayer1
                                     }
-                                    MaterialSymbol {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: root.profileStage === 1 ? "expand_more" : "expand_less"
-                                        iconSize: 15
-                                        color: Appearance.colors.colSubtext
-                                    }
+                                }
+                            }
+                        }
+                        RippleButton {
+                            id: voiceBtn
+                            objectName: "aquaChatVoiceButton"
+                            x: Math.max(0, sendBtn.x - width - 4)
+                            y: Math.round((composerRow.height - height) / 2)
+                            width: 28
+                            height: 30
+                            implicitWidth: 28
+                            implicitHeight: 30
+                            enabled: !AquaMind.busy
+                            toggled: root.voiceStageActive
+                            buttonRadius: 14
+                            colBackground: root.voiceStageActive ? ColorUtils.transparentize(root.voiceContainerColor, 0.15) : Qt.alpha(AbyssStyle.textColor, 0.08)
+                            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.24)
+                            colBackgroundToggled: ColorUtils.transparentize(root.voiceContainerColor, 0.15)
+                            colBackgroundToggledHover: Appearance.colors.colPrimaryContainerHover
+                            onClicked: AquaMind.openVoiceMode(null, !root.embeddedMode)
+                            Item {
+                                objectName: "aquaVoiceMicButton"
+                                anchors.fill: parent
+                                visible: voiceBtn.visible
+                                function clicked(): void {
+                                    voiceBtn.clicked();
+                                }
+                            }
+                            StyledToolTip {
+                                extraVisibleCondition: voiceBtn.buttonHovered
+                                text: "Voice"
+                            }
+                            contentItem: Item {
+                                MaterialSymbol {
+                                    anchors.centerIn: parent
+                                    text: root.voiceStageActive ? "graphic_eq" : "mic"
+                                    iconSize: 16
+                                    color: root.voiceStageActive ? root.voiceAccentColor : Appearance.colors.colPrimary
                                 }
                             }
                         }
@@ -4082,8 +4641,7 @@ Item {
                             height: 30
                             implicitWidth: 30
                             implicitHeight: 30
-                            enabled: (!AquaMind.busy || AquaMind.canInterruptWithPrompt(message.text))
-                                && (message.text.trim().length > 0 || AquaMind.attachedImages.length > 0)
+                            enabled: (!AquaMind.busy || AquaMind.canInterruptWithPrompt(message.text)) && (message.text.trim().length > 0 || AquaMind.attachedImages.length > 0 || AquaMind.attachedFiles.length > 0)
                             buttonRadius: 15
                             onClicked: root.submit()
                             contentItem: Item {
@@ -4096,47 +4654,692 @@ Item {
                             }
                         }
                     }
+
+                    // -----------------------------------------------------------------
+                    // VOICE INPUT STAGE (replaces text input & toolbar row)
+                    // -----------------------------------------------------------------
+                    Item {
+                        id: voiceStage
+                        objectName: "aquaVoiceStage"
+                        visible: root.voiceStageActive
+                        x: 0
+                        y: 0
+                        width: parent.width
+                        height: visible ? composerContent.standardTextInputStageHeight : 0
+                        implicitHeight: height
+                        clip: true
+                        readonly property color voiceAccentColor: root.voiceAccentColor
+                        readonly property color voiceContainerColor: root.voiceContainerColor
+                        readonly property color voiceOnAccentColor: root.voiceOnAccentColor
+                        readonly property color voiceOnContainerColor: root.voiceOnContainerColor
+
+                        // Ambient radial/linear glow backdrop inside the voice stage
+                        Rectangle {
+                            id: voiceStageBackdrop
+                            objectName: "aquaVoiceStageBackdrop"
+                            anchors.fill: parent
+                            radius: Math.max(10, composer.radius - 4)
+                            gradient: Gradient {
+                                orientation: Gradient.Horizontal
+                                GradientStop {
+                                    position: 0.0
+                                    color: ColorUtils.transparentize(root.voiceContainerColor, 0.55)
+                                }
+                                GradientStop {
+                                    position: 0.52
+                                    color: ColorUtils.transparentize(root.voiceLayer1Color, 0.25)
+                                }
+                                GradientStop {
+                                    position: 1.0
+                                    color: ColorUtils.transparentize(Appearance.colors.colSecondaryContainer, 0.65)
+                                }
+                            }
+                        }
+
+                        // Top Header Row: Status Badge + Live Elapsed Timer
+                        Item {
+                            id: voiceStageHeader
+                            x: 4
+                            y: 1
+                            width: Math.max(0, parent.width - 8)
+                            height: 17
+
+                            Rectangle {
+                                id: statusBadgePill
+                                objectName: "aquaVoiceStatusPill"
+                                x: 0
+                                y: 0
+                                height: 17
+                                width: Math.max(44, Math.min(parent.width - timerBadgePill.width - 6, statusBadgeRow.implicitWidth + 12))
+                                radius: 8.5
+                                clip: true
+                                color: ColorUtils.transparentize(root.voiceContainerColor, 0.35)
+                                border.width: 1
+                                border.color: ColorUtils.transparentize(root.voiceAccentColor, 0.55)
+
+                                Row {
+                                    id: statusBadgeRow
+                                    x: 6
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 5
+
+                                    Rectangle {
+                                        id: statusPulseDot
+                                        objectName: "aquaVoiceStatusDot"
+                                        width: 6
+                                        height: 6
+                                        radius: 3
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        color: root.voiceAccentColor
+                                        opacity: (root.hasVoiceAudioInput || AquaMind.voiceTranscribing) ? (0.55 + 0.45 * Math.abs(Math.sin(root.voiceWavePhase * 1.4))) : 0.78
+                                    }
+
+                                    StyledText {
+                                        id: voiceStatusLabel
+                                        objectName: "aquaVoiceStatusLabel"
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: Math.max(24, Math.min(180, voiceStageHeader.width - timerBadgePill.width - 30, implicitWidth))
+                                        text: AquaMind.voiceTranscribing ? "Transcribing..." : "Listening"
+                                        elide: Text.ElideRight
+                                        font.pixelSize: Appearance.font.pixelSize.smallest - 1
+                                        font.weight: Font.DemiBold
+                                        color: root.voiceOnContainerColor
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                id: timerBadgePill
+                                objectName: "aquaVoiceTimerPill"
+                                x: Math.max(0, parent.width - width)
+                                y: 0
+                                height: 17
+                                width: timerBadgeRow.implicitWidth + 12
+                                radius: 8.5
+                                color: ColorUtils.transparentize(root.voiceLayer2Color, 0.15)
+                                border.width: 1
+                                border.color: ColorUtils.transparentize(Appearance.colors.colOutlineVariant, 0.45)
+
+                                Row {
+                                    id: timerBadgeRow
+                                    anchors.centerIn: parent
+                                    spacing: 3
+
+                                    MaterialSymbol {
+                                        id: timerBadgeIcon
+                                        objectName: "aquaVoiceTimerIcon"
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: AquaMind.voiceTranscribing ? "auto_awesome" : "graphic_eq"
+                                        iconSize: 11
+                                        color: root.voiceAccentColor
+                                    }
+
+                                    StyledText {
+                                        id: voiceTimerLabel
+                                        objectName: "aquaVoiceTimerLabel"
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: root.formatVoiceTimer(AquaMind.voiceElapsedSeconds)
+                                        font.pixelSize: Appearance.font.pixelSize.smallest - 2
+                                        font.family: Appearance.font.family.monospace
+                                        font.weight: Font.DemiBold
+                                        color: Appearance.colors.colOnLayer2
+                                    }
+                                }
+                            }
+                        }
+
+                        // Center Visualizer Stage: Pulsing Voice Core Orb + 32-Bar Frequency Equalizer
+                        Item {
+                            id: voiceVisualizerStage
+                            x: 4
+                            y: 20
+                            width: Math.max(0, parent.width - 8)
+                            height: 26
+
+                            Item {
+                                id: voiceCoreOrb
+                                objectName: "aquaVoiceCoreOrb"
+                                x: 2
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 26
+                                height: 26
+
+                                // Outer sonar ring
+                                Rectangle {
+                                    id: orbOuterSonar
+                                    objectName: "aquaVoiceOrbOuterSonar"
+                                    anchors.centerIn: parent
+                                    readonly property real pulseScale: (root.hasVoiceAudioInput || AquaMind.voiceTranscribing) ? (0.82 + 0.18 * (0.5 + 0.5 * Math.sin(root.voiceWavePhase * 1.35))) : 0.88
+                                    width: Math.round(26 * pulseScale)
+                                    height: width
+                                    radius: width / 2
+                                    color: ColorUtils.transparentize(root.voiceContainerColor, 0.55)
+                                    border.width: 1
+                                    border.color: ColorUtils.transparentize(root.voiceAccentColor, 0.58)
+                                }
+
+                                // Mid harmonic ring
+                                Rectangle {
+                                    id: orbMidRing
+                                    objectName: "aquaVoiceOrbMidRing"
+                                    anchors.centerIn: parent
+                                    readonly property real midScale: (root.hasVoiceAudioInput || AquaMind.voiceTranscribing) ? (0.72 + 0.14 * (0.5 + 0.5 * Math.cos(root.voiceWavePhase * 2.1))) : 0.76
+                                    width: Math.round(22 * midScale)
+                                    height: width
+                                    radius: width / 2
+                                    color: ColorUtils.transparentize(root.voiceContainerColor, 0.30)
+                                    border.width: 1
+                                    border.color: ColorUtils.transparentize(root.voiceAccentColor, 0.35)
+                                }
+
+                                // Inner core orb
+                                Rectangle {
+                                    id: orbCoreCircle
+                                    objectName: "aquaVoiceOrbCoreCircle"
+                                    anchors.centerIn: parent
+                                    width: 16
+                                    height: 16
+                                    radius: 8
+                                    readonly property color coreTopColor: root.voiceAccentColor
+                                    readonly property color coreBottomColor: ColorUtils.mix(root.voiceAccentColor, root.voiceContainerColor, 0.65)
+                                    gradient: Gradient {
+                                        GradientStop {
+                                            position: 0.0
+                                            color: orbCoreCircle.coreTopColor
+                                        }
+                                        GradientStop {
+                                            position: 1.0
+                                            color: orbCoreCircle.coreBottomColor
+                                        }
+                                    }
+
+                                    MaterialSymbol {
+                                        id: orbCoreIcon
+                                        objectName: "aquaVoiceOrbCoreIcon"
+                                        anchors.centerIn: parent
+                                        text: AquaMind.voiceTranscribing ? "auto_awesome" : "mic"
+                                        iconSize: 11
+                                        color: root.voiceOnAccentColor
+                                    }
+                                }
+                            }
+
+                            Item {
+                                id: voiceWaveform
+                                objectName: "aquaVoiceWaveform"
+                                x: voiceCoreOrb.x + voiceCoreOrb.width + 8
+                                y: 1
+                                width: Math.max(80, parent.width - x - 2)
+                                height: 24
+                                clip: true
+                                property int barCount: 32
+
+                                // Subtle center axis hairline
+                                Rectangle {
+                                    x: 0
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: parent.width
+                                    height: 1
+                                    color: ColorUtils.transparentize(Appearance.colors.colOutlineVariant, 0.55)
+                                }
+
+                                Row {
+                                    id: waveBarRow
+                                    anchors.centerIn: parent
+                                    spacing: Math.max(1.5, Math.min(4, (voiceWaveform.width - voiceWaveform.barCount * 2.5) / Math.max(1, voiceWaveform.barCount - 1)))
+
+                                    Repeater {
+                                        model: voiceWaveform.barCount
+                                        delegate: Rectangle {
+                                            id: waveBar
+                                            required property int index
+                                            objectName: "aquaVoiceWaveBar-" + index
+                                            readonly property real barFraction: index / Math.max(1, voiceWaveform.barCount - 1)
+                                            readonly property real targetBarHeight: root.voiceBarHeight(index, voiceWaveform.barCount, root.voiceWavePhase, AquaMind.voiceRecording, AquaMind.voiceTranscribing, root.activeVoiceLevel)
+                                            readonly property color topStopColor: ColorUtils.mix(root.voiceAccentColor, root.voiceOnContainerColor, 0.72 - 0.35 * waveBar.barFraction)
+                                            readonly property color bottomStopColor: ColorUtils.transparentize(ColorUtils.mix(root.voiceAccentColor, root.voiceContainerColor, 0.55), 0.18)
+                                            width: Math.max(2.0, Math.min(5.0, (voiceWaveform.width - (voiceWaveform.barCount - 1) * waveBarRow.spacing) / voiceWaveform.barCount))
+                                            height: targetBarHeight
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            radius: width / 2
+                                            gradient: Gradient {
+                                                GradientStop {
+                                                    position: 0.0
+                                                    color: waveBar.topStopColor
+                                                }
+                                                GradientStop {
+                                                    position: 1.0
+                                                    color: waveBar.bottomStopColor
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Bottom Action Deck: Cancel · Auto-Send Toggle · Retry · Finish/Send CTA
+                        Item {
+                            id: voiceActionDeck
+                            objectName: "aquaVoiceActionDeck"
+                            x: 4
+                            y: 48
+                            width: Math.max(0, parent.width - 8)
+                            height: 24
+                            readonly property bool compactDeck: width < 316
+                            readonly property bool ultraCompactDeck: width < 260
+                            readonly property real btnSpacing: compactDeck ? 4 : 6
+
+                            RippleButton {
+                                id: voiceCancelBtn
+                                objectName: "aquaVoiceCancelButton"
+                                x: 0
+                                y: 0
+                                height: 24
+                                width: voiceActionDeck.ultraCompactDeck ? 24 : (cancelBtnRow.implicitWidth + (voiceActionDeck.compactDeck ? 10 : 14))
+                                implicitWidth: width
+                                implicitHeight: 24
+                                focusPolicy: Qt.NoFocus
+                                Keys.forwardTo: [root]
+                                buttonRadius: 12
+                                colBackground: ColorUtils.transparentize(Appearance.colors.colErrorContainer ?? root.voiceLayer2Color, 0.45)
+                                colBackgroundHover: ColorUtils.transparentize(Appearance.colors.colErrorContainer ?? root.voiceLayer2Color, 0.25)
+                                onClicked: AquaMind.cancelVoiceMode()
+                                StyledToolTip {
+                                    extraVisibleCondition: voiceCancelBtn.buttonHovered
+                                    text: "Discard voice capture and return to text input (Esc)"
+                                }
+                                contentItem: Item {
+                                    Row {
+                                        id: cancelBtnRow
+                                        anchors.centerIn: parent
+                                        spacing: 3
+                                        MaterialSymbol {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: "close"
+                                            iconSize: 13
+                                            color: Appearance.colors.colError
+                                        }
+                                        StyledText {
+                                            visible: !voiceActionDeck.ultraCompactDeck
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: "Cancel"
+                                            font.pixelSize: Appearance.font.pixelSize.smallest - 1
+                                            font.weight: Font.Medium
+                                            color: Appearance.colors.colOnErrorContainer ?? Appearance.colors.colError
+                                        }
+                                    }
+                                }
+                            }
+
+                            RippleButton {
+                                id: voiceAutoSendBtn
+                                objectName: "aquaVoiceAutoSendToggle"
+                                x: voiceCancelBtn.x + voiceCancelBtn.width + voiceActionDeck.btnSpacing
+                                y: 0
+                                height: 24
+                                width: autoSendBtnRow.implicitWidth + (voiceActionDeck.compactDeck ? 10 : 14)
+                                implicitWidth: width
+                                implicitHeight: 24
+                                focusPolicy: Qt.NoFocus
+                                Keys.forwardTo: [root]
+                                toggled: AquaMind.voiceAutoSend
+                                buttonRadius: 12
+                                colBackground: AquaMind.voiceAutoSend ? ColorUtils.transparentize(Appearance.colors.colPrimaryContainer, 0.15) : root.voiceLayer2Color
+                                colBackgroundHover: AquaMind.voiceAutoSend ? Appearance.colors.colPrimaryContainerHover : Appearance.colors.colLayer2Hover
+                                colBackgroundToggled: ColorUtils.transparentize(Appearance.colors.colPrimaryContainer, 0.15)
+                                colBackgroundToggledHover: Appearance.colors.colPrimaryContainerHover
+                                onClicked: {
+                                    AquaMind.setVoiceAutoSend(!AquaMind.voiceAutoSend);
+                                    if (root.voiceStageActive)
+                                        root.forceActiveFocus();
+                                }
+                                StyledToolTip {
+                                    extraVisibleCondition: voiceAutoSendBtn.buttonHovered
+                                    text: AquaMind.voiceAutoSend ? "Mode: Auto-send prompt after transcription (click to insert into composer instead)" : "Mode: Insert transcript into text input for review before sending"
+                                }
+                                contentItem: Item {
+                                    Row {
+                                        id: autoSendBtnRow
+                                        anchors.centerIn: parent
+                                        spacing: 3
+                                        MaterialSymbol {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: AquaMind.voiceAutoSend ? "bolt" : "edit_note"
+                                            iconSize: 13
+                                            color: AquaMind.voiceAutoSend ? Appearance.colors.colPrimary : Appearance.colors.colSubtext
+                                        }
+                                        StyledText {
+                                            id: voiceAutoSendLabel
+                                            objectName: "aquaVoiceAutoSendLabel"
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: voiceActionDeck.ultraCompactDeck ? (AquaMind.voiceAutoSend ? "Auto" : "Input") : (AquaMind.voiceAutoSend ? "Auto-send" : "To input")
+                                            font.pixelSize: Appearance.font.pixelSize.smallest - 1
+                                            font.weight: Font.Medium
+                                            color: AquaMind.voiceAutoSend ? Appearance.colors.colOnPrimaryContainer : Appearance.colors.colSubtext
+                                        }
+                                    }
+                                }
+                            }
+
+                            RippleButton {
+                                id: voiceRetryBtn
+                                objectName: "aquaVoiceRetryButton"
+                                x: voiceAutoSendBtn.x + voiceAutoSendBtn.width + voiceActionDeck.btnSpacing
+                                y: 0
+                                width: 24
+                                height: 24
+                                implicitWidth: 24
+                                implicitHeight: 24
+                                focusPolicy: Qt.NoFocus
+                                Keys.forwardTo: [root]
+                                enabled: !AquaMind.voiceTranscribing
+                                opacity: enabled ? 1.0 : 0.55
+                                buttonRadius: 12
+                                colBackground: root.voiceLayer2Color
+                                colBackgroundHover: Appearance.colors.colLayer2Hover
+                                buttonColor: enabled ? (buttonHovered ? colBackgroundHover : colBackground) : ColorUtils.transparentize(colBackground, 0.25)
+                                onClicked: {
+                                    AquaMind.restartVoiceMode(!root.embeddedMode);
+                                    if (root.voiceStageActive)
+                                        root.forceActiveFocus();
+                                }
+                                StyledToolTip {
+                                    extraVisibleCondition: voiceRetryBtn.buttonHovered
+                                    text: "Restart voice capture"
+                                }
+                                contentItem: Item {
+                                    MaterialSymbol {
+                                        anchors.centerIn: parent
+                                        text: "refresh"
+                                        iconSize: 14
+                                        color: Appearance.colors.colOnLayer2
+                                    }
+                                }
+                            }
+
+                            RippleButton {
+                                id: voiceDoneBtn
+                                objectName: "aquaVoiceDoneButton"
+                                readonly property real minLeftX: voiceRetryBtn.x + voiceRetryBtn.width + voiceActionDeck.btnSpacing
+                                readonly property real availableRightWidth: Math.max(44, parent.width - minLeftX)
+                                x: Math.max(minLeftX, parent.width - width)
+                                y: 0
+                                height: 24
+                                width: Math.min(availableRightWidth, doneBtnRow.implicitWidth + (voiceActionDeck.compactDeck ? 10 : 16))
+                                implicitWidth: width
+                                implicitHeight: 24
+                                focusPolicy: Qt.NoFocus
+                                Keys.forwardTo: [root]
+                                enabled: !AquaMind.voiceTranscribing
+                                opacity: enabled ? 1.0 : 0.85
+                                buttonRadius: 12
+                                colBackground: AquaMind.voiceTranscribing ? ColorUtils.transparentize(root.voiceContainerColor, 0.25) : root.voiceAccentColor
+                                colBackgroundHover: AquaMind.voiceTranscribing ? root.voiceContainerColor : Appearance.colors.colPrimaryHover
+                                buttonColor: enabled ? (buttonHovered ? colBackgroundHover : colBackground) : colBackground
+                                onClicked: {
+                                    AquaMind.finishVoiceMode(AquaMind.voiceAutoSend);
+                                    if (root.voiceStageActive)
+                                        root.forceActiveFocus();
+                                }
+                                StyledToolTip {
+                                    extraVisibleCondition: voiceDoneBtn.buttonHovered
+                                    text: AquaMind.voiceAutoSend ? "Finish recording, transcribe, and send immediately (Enter)" : "Finish recording and insert transcript into composer (Enter)"
+                                }
+                                contentItem: Item {
+                                    clip: true
+                                    Row {
+                                        id: doneBtnRow
+                                        anchors.centerIn: parent
+                                        spacing: voiceActionDeck.compactDeck ? 3 : 4
+                                        MaterialSymbol {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: AquaMind.voiceTranscribing ? "hourglass_top" : (AquaMind.voiceAutoSend ? "arrow_upward" : "check")
+                                            iconSize: 13
+                                            color: AquaMind.voiceTranscribing ? root.voiceOnContainerColor : root.voiceOnAccentColor
+                                        }
+                                        StyledText {
+                                            id: voiceDoneLabel
+                                            objectName: "aquaVoiceDoneLabel"
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: AquaMind.voiceTranscribing ? (voiceActionDeck.ultraCompactDeck ? "..." : "Working...") : (voiceActionDeck.ultraCompactDeck ? (AquaMind.voiceAutoSend ? "Send" : "Done") : (AquaMind.voiceAutoSend ? "Finish & Send" : "Transcribe"))
+                                            font.pixelSize: Appearance.font.pixelSize.smallest - 1
+                                            font.weight: Font.Bold
+                                            color: AquaMind.voiceTranscribing ? root.voiceOnContainerColor : root.voiceOnAccentColor
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Draggable edge resize handle for Chatbox Right Swarm Sidebar
+    Item {
+        id: swarmRightResizeHandle
+        objectName: "aquaSwarmSidebarResizeHandle"
+        visible: swarmPaneLoader.visible && !root.swarmOverlayInNarrowEmbedded
+        x: swarmPaneLoader.x - 10
+        y: swarmPaneLoader.y
+        width: 10
+        height: swarmPaneLoader.height
+        z: 15
+        readonly property bool dragging: swarmResizeMouse.pressed
+        readonly property bool hovered: swarmResizeMouse.containsMouse
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: parent.dragging || parent.hovered ? 3 : 2
+            height: parent.dragging ? Math.max(36, parent.height * 0.55) : (parent.hovered ? Math.max(28, parent.height * 0.35) : 24)
+            radius: 1.5
+            color: parent.dragging ? AbyssStyle.accent : (parent.hovered ? Qt.alpha(AbyssStyle.accent, 0.72) : Qt.alpha(AbyssStyle.textColor, 0.16))
+        }
+
+        MouseArea {
+            id: swarmResizeMouse
+            objectName: "aquaSwarmSidebarResizeMouse"
+            anchors.fill: parent
+            hoverEnabled: true
+            preventStealing: true
+            cursorShape: Qt.SplitHCursor
+            property real pressStartSceneX: 0
+            property real pressStartWidth: 320
+            onPressed: mouse => {
+                const gp = swarmResizeMouse.mapToItem(null, mouse.x, mouse.y);
+                pressStartSceneX = gp.x;
+                pressStartWidth = root.swarmSidebarTargetWidth;
+            }
+            onPositionChanged: mouse => {
+                if (!pressed)
+                    return;
+                const gp = swarmResizeMouse.mapToItem(null, mouse.x, mouse.y);
+                const delta = pressStartSceneX - gp.x;
+                root.resizeSwarmSidebarTo(pressStartWidth + delta);
+            }
+            onDoubleClicked: root.resizeSwarmSidebarTo(320)
+        }
+    }
+    Loader {
+        id: swarmPaneLoader
+        objectName: "aquaSwarmRightSidebar"
+        x: root.swarmOverlayInNarrowEmbedded ? 12 : (parent.width - 12 - root.swarmSidebarTargetWidth)
+        y: root.bodyTop
+        width: root.swarmOverlayInNarrowEmbedded ? (parent.width - 24) : root.swarmSidebarTargetWidth
+        height: Math.max(0, parent.height - root.bodyTop - 12)
+        clip: true
+        active: root.editing && (root.swarmOpen || root.swarmExpandProgress > 0.001)
+        visible: active
+        sourceComponent: Component {
+            AquaSwarmPane {
+                actor: root.actor
+                embeddedMode: root.embeddedMode
+                onCloseRequested: root.swarmOpen = false
+                onPrefillChatRequested: text => {
+                    message.text = text;
+                    Qt.callLater(() => {
+                        message.forceActiveFocus();
+                        message.cursorPosition = message.text.length;
+                    });
                 }
             }
         }
     }
     Loader {
-        x: 12; y: root.bodyTop
+        id: pocketPaneLoader
+        x: 12
+        y: root.bodyTop
         width: parent.width - 24
         height: Math.max(0, parent.height - root.bodyTop - 12)
         active: root.pocketOpen
-        sourceComponent: Component { AquaPocketPane { actor: root.actor } }
+        sourceComponent: Component {
+            AquaPocketPane {
+                actor: root.actor
+                embeddedMode: root.embeddedMode
+                onCloseRequested: root.embeddedPocketOpen = false
+            }
+        }
+    }
+    function openSwarm(): void {
+        if (root.pocketOpen) {
+            if (root.embeddedMode)
+                root.embeddedPocketOpen = false;
+            else
+                AquaPocket.close();
+        }
+        if (!root.embeddedMode && !AquaMind.conversationOpen)
+            AquaMind.openChat();
+        if (AquaMind.editorPopupOpen)
+            AquaMind.closeEditorPopup();
+        root.swarmOpen = true;
+        root.wantsKeyboardFocus = true;
+        Qt.callLater(() => {
+            if (root.editing && !root.voiceStageActive && message.visible && message.enabled)
+                message.forceActiveFocus();
+        });
     }
     function openPocket(): void {
-        if (!AquaMind.busy && AquaPocket.show()) AquaMind.dismiss()
+        if (AquaMind.busy || !AquaPocket.permitted)
+            return;
+        root.swarmOpen = false;
+        if (root.embeddedMode) {
+            root.embeddedPocketOpen = true;
+            AquaPocket.refresh();
+            root.sidebarOpen = false;
+            if (AquaMind.editorPopupOpen)
+                AquaMind.closeEditorPopup();
+            return;
+        }
+        if (AquaPocket.show()) {
+            root.sidebarOpen = false;
+            if (AquaMind.editorPopupOpen)
+                AquaMind.closeEditorPopup();
+            AquaMind.dismiss();
+        }
     }
     Connections {
-        target:AquaMind
-        function onConversationOpenChanged():void {if(AquaMind.conversationOpen)AquaPocket.close()}
-        function onContextOpenChanged():void {if(AquaMind.contextOpen)AquaPocket.close()}
-        function onActiveThreadIdChanged():void {root.resetSelectionState()}
+        target: AquaMind
+        function onSwarmOpenRequested(): void {
+            root.openSwarm();
+        }
+        function onConversationOpenChanged(): void {
+            if (AquaMind.conversationOpen) {
+                AquaPocket.close();
+                Qt.callLater(() => root.scrollToLatestMessage());
+            } else if (!root.embeddedMode) {
+                root.swarmOpen = false;
+            }
+        }
+        function onSidebarChatOpenChanged(): void {
+            if (AquaMind.sidebarChatOpen && root.editing) {
+                Qt.callLater(() => root.scrollToLatestMessage());
+            }
+        }
+        function onContextOpenChanged(): void {
+            if (AquaMind.contextOpen)
+                AquaPocket.close();
+        }
+        function onActiveThreadIdChanged(): void {
+            root.resetSelectionState();
+            Qt.callLater(() => root.scrollToLatestMessage());
+        }
+        function onHistoryLoadedChanged(): void {
+            if (AquaMind.historyLoaded && root.editing) {
+                Qt.callLater(() => root.scrollToLatestMessage());
+            }
+        }
+        function onCustomSidebarWidthChanged(): void {
+            if (AquaMind.customSidebarWidth > 0 && root.customSidebarWidth !== AquaMind.customSidebarWidth) {
+                root.customSidebarWidth = AquaMind.customSidebarWidth;
+            }
+        }
+        function onVoiceTranscriptReady(transcript: string, autoSent: bool): void {
+            if (!root.editing)
+                return;
+            if (!autoSent && String(transcript ?? "").trim().length > 0) {
+                const existing = String(message.text ?? "").trim();
+                message.text = existing.length > 0 ? (existing + " " + String(transcript).trim()) : String(transcript).trim();
+                Qt.callLater(() => {
+                    if (root.editing && !root.voiceStageActive) {
+                        message.forceActiveFocus();
+                        message.cursorPosition = message.text.length;
+                    }
+                });
+            }
+        }
     }
     function submit(): void {
-        const raw = String(message.text ?? "").trim()
-        root.slashMenuDismissed = true
-        if (/^\/(?:clear|clean|cls)(?:\s+.*)?$/i.test(raw)) {
-            AquaMind.clearConversation()
-            message.text = ""
-            return
+        const raw = String(message.text ?? "").trim();
+        root.slashMenuDismissed = true;
+        root.promptHistoryIndex = -1;
+        root.promptHistoryDraft = "";
+        if (raw.length > 0 && !AquaMind.pendingSudoPassword) {
+            const hist = Array.isArray(root.userPromptHistory) ? root.userPromptHistory.slice() : [];
+            if (hist.length === 0 || hist[hist.length - 1] !== raw) {
+                hist.push(raw);
+                if (hist.length > 40)
+                    hist.shift();
+                root.userPromptHistory = hist;
+            }
         }
-        if (AquaMind.sendMessage(message.text)) message.text=""
+        if (/^\/(?:clear|clean|cls)(?:\s+.*)?$/i.test(raw)) {
+            AquaMind.clearConversation();
+            message.text = "";
+            return;
+        }
+        if (AquaMind.sendMessage(message.text))
+            message.text = "";
+    }
+    onVisibleChanged: {
+        if (visible && editing) {
+            root.scrollToLatestMessage();
+        }
     }
     onEditingChanged: {
-        if (editing) Qt.callLater(() => { if (root.editing) message.forceActiveFocus() })
-        else {
-            root.profileStage = 0
-            root.slashMenuDismissed = false
-            root.resetSelectionState()
+        if (editing) {
+            root.wantsKeyboardFocus = true;
+            root.scrollToLatestMessage();
+            Qt.callLater(() => {
+                if (root.editing && root.wantsKeyboardFocus) {
+                    root.scrollToLatestMessage();
+                    if (!root.voiceStageActive)
+                        message.forceActiveFocus();
+                }
+            });
+        } else {
+            root.wantsKeyboardFocus = false;
+            root.profileStage = 0;
+            root.slashMenuDismissed = false;
+            root.resetSelectionState();
+            if (!AquaMind.conversationOpen && !AquaMind.sidebarChatOpen && (AquaMind.voiceModeOpen || AquaMind.voiceRecording || AquaMind.voiceTranscribing))
+                AquaMind.cancelVoiceMode();
         }
     }
     onControlsVisibleChanged: if (!controlsVisible) {
-        root.profileStage = 0
-        root.slashMenuDismissed = false
-        message.focus = false
+        root.wantsKeyboardFocus = false;
+        root.profileStage = 0;
+        root.slashMenuDismissed = false;
+        message.focus = false;
     }
 }

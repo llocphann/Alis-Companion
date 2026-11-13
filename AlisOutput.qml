@@ -31,31 +31,37 @@ Item {
     // owners still preempt it; moving bodies remain scene obstacles.
     readonly property bool companionOccluded: host.editorOpen
         || liquid.activeDialog || GlobalStates.settingsNativeDialogOpen
-        || PolkitService.active || GlobalStates.regionSelectorOpen || host.overviewDragging
-    readonly property var companionScene: AquaScene.fromParticipants({
-        width:host.width,height:host.height,
-        hostWidth:112*session.companionScale,hostHeight:98*session.companionScale,
-        scale:session.companionScale,insets:host.nativeInsets,rimRadius:AbyssStyle.neckRadius,
-        excludeKeys:(host?.desktopHasApps ?? false)
-            && (Config.options?.dock?.enable ?? true)
-            && (Config.options?.enabledPanels ?? []).includes("abyssDock")
-            && (!Array.isArray(Config.options?.dock?.screenList)
-                || Config.options.dock.screenList.length===0
-                || Config.options.dock.screenList.includes(host.outputName)) ? ["dock"] : []},
-        liquid.participants,bar.visible ? bar.layoutRecords.map(record=>({
-            edge:record.edge,along:record.along,span:record.span})) : [])
+        || PolkitService.active || GlobalStates.regionSelectorOpen
+        || GlobalStates.annotationEditorOpen || GlobalStates.widgetEditMode
+        || GlobalStates.shellLayoutEditMode || host.overviewDragging
     readonly property bool companionPermission: AquaHostPolicy.hostActive(
         session.companionSessionVisible,companionBridge.ready,
         session.companionTargetOutput,host.outputName,host.presented,field.ready)
         && !root.companionOccluded
         && liquid.records.length<=field.capacity
+    readonly property var companionScene: !root.companionPermission ? null
+        : AquaScene.fromParticipants({
+            width:host.width,height:host.height,
+            hostWidth:112*session.companionScale,hostHeight:98*session.companionScale,
+            scale:session.companionScale,insets:host.nativeInsets,rimRadius:AbyssStyle.neckRadius,
+            excludeKeys:(host?.desktopHasApps ?? false)
+                && (Config.options?.dock?.enable ?? true)
+                && (Config.options?.enabledPanels ?? []).includes("abyssDock")
+                && (!Array.isArray(Config.options?.dock?.screenList)
+                    || Config.options.dock.screenList.length===0
+                    || Config.options.dock.screenList.includes(host.outputName)) ? ["dock"] : []},
+            liquid.participants,bar.visible ? bar.layoutRecords.map(record=>({
+                edge:record.edge,along:record.along,span:record.span})) : [])
     readonly property bool companionHostActive: root.companionPermission && companionPresence.qualified
     readonly property bool ambientBlocked: !root.companionHostActive || root.companionOccluded
         || companionPresence.dragging || companionPresence.traveling || companionPresence.portalActive
         || companionCuriosity.busy || talkCloud.controlsVisible
     readonly property bool companionPerformanceHeld: session.companionTargetOutput===host.outputName
         && (session.cowork?.active===true || (session.companionAmbientProp ?? "").length>0 || AquaPocket.opened)
-    onCompanionPerformanceHeldChanged: if (companionPerformanceHeld) Qt.callLater(() => { if (root.companionPerformanceHeld) root.ensureCompanionPresent() })
+    onCompanionPerformanceHeldChanged: if (companionPerformanceHeld) Qt.callLater(() => {
+        if (root.companionPerformanceHeld && (AquaPocket.opened || (companionPresence.hiddenUntil<=Date.now() && companionPresence.requestedReveal>0)))
+            root.ensureCompanionPresent()
+    })
     readonly property var directorContext: ({enabled:root.companionHostActive,
         dragging:companionPresence.dragging,manualTravel:companionPresence.traveling,
         portalTravel:companionPresence.portalActive,
@@ -71,7 +77,10 @@ Item {
         companionTurns.cancel()
         companionCuriosity.interrupt()
         companionPresence.hiddenUntil=0
-        if(!companionPresence.visitActive || companionPresence.retreating)companionPresence.appear()
+        if(!companionPresence.visitActive || companionPresence.retreating) {
+            if(!companionPresence.resumeFromOcclusion())
+                companionPresence.appear()
+        }
         else if(snapHome)companionPresence.returnToHome(true)
         else if(companionPresence.traveling || companionPresence.portalActive)companionPresence.pause(false)
         companionPresence.peekOnly=false;companionPresence.peekIntro=false;companionPresence.renderedReveal=1
@@ -114,6 +123,7 @@ Item {
     }
     function resetCompanionCast(): void {
         companionTurns.cancel()
+        companionPresence.clearOcclusionState()
         companionPresence.hideImmediately()
         Qt.callLater(companionPresence.synchronize)
     }
@@ -157,6 +167,7 @@ Item {
         scene: root.companionScene
         actor: companion
         permitted: root.companionPermission
+        occluded: root.companionOccluded
         homeEdge: session.companionHomeEdge
         homeAlong: session.companionHomeAlong
         requestedReveal: companionBridge.visibility==="present" ? 1
@@ -345,6 +356,7 @@ Item {
                     companionCuriosity.yieldToUser()
                 else companionCuriosity.interrupt()
                 if (!talkCloud.containsScenePoint(point.scenePosition)) {
+                    talkCloud.releaseKeyboardFocus()
                     if (AquaPocket.opened && !GlobalStates.settingsNativeDialogOpen)
                         AquaPocket.close()
                     if (AquaMind.contextOpen)
@@ -473,16 +485,70 @@ Item {
         }
         onSettingsRequested: GlobalStates.openSettingsSection(37,"Overview")
     }
+    Timer {
+        id: initialChatFocusPulse
+        interval: 120
+        repeat: false
+    }
+    Timer {
+        id: postOpenFocusGuard
+        interval: 420
+        repeat: false
+    }
+    Connections {
+        target: root.Window.window
+        ignoreUnknownSignals: true
+        function onActiveChanged(): void {
+            if (root.Window.window && !root.Window.window.active && !initialChatFocusPulse.running && !postOpenFocusGuard.running)
+                talkCloud.releaseKeyboardFocus()
+        }
+    }
+    Connections {
+        target: typeof ToplevelManager !== "undefined" ? ToplevelManager : null
+        ignoreUnknownSignals: true
+        function onActiveToplevelChanged(): void {
+            if (ToplevelManager.activeToplevel?.activated && !initialChatFocusPulse.running && !postOpenFocusGuard.running)
+                talkCloud.releaseKeyboardFocus()
+        }
+    }
+    Connections {
+        target: typeof NiriService !== "undefined" ? NiriService : null
+        ignoreUnknownSignals: true
+        function onActiveWindowChanged(): void {
+            if (NiriService.activeWindow && !initialChatFocusPulse.running && !postOpenFocusGuard.running)
+                talkCloud.releaseKeyboardFocus()
+        }
+    }
     Connections {
         target: AquaMind
         function onConversationOpenChanged(): void {
-            if (AquaMind.conversationOpen && root.companionPermission)
+            if (AquaMind.conversationOpen && root.companionPermission) {
                 root.ensureCompanionPresent(false)
+                talkCloud.wantsKeyboardFocus=true
+                initialChatFocusPulse.restart()
+                postOpenFocusGuard.restart()
+            } else {
+                initialChatFocusPulse.stop()
+                postOpenFocusGuard.stop()
+                talkCloud.releaseKeyboardFocus()
+            }
         }
         function onContextOpenChanged(): void {
             if (AquaMind.contextOpen && root.companionPermission)
                 root.ensureCompanionPresent(false)
         }
+    }
+    readonly property bool companionSurfacePreempted: host.editorOpen
+        || liquid.activeDialog || PolkitService.active || GlobalStates.regionSelectorOpen
+        || GlobalStates.annotationEditorOpen || GlobalStates.widgetEditMode
+        || GlobalStates.shellLayoutEditMode || host.overviewDragging
+    onCompanionSurfacePreemptedChanged: if (companionSurfacePreempted) {
+        root.pendingChatOpen=false
+        talkCloud.releaseKeyboardFocus()
+        if (AquaPocket.opened && !GlobalStates.settingsNativeDialogOpen)
+            AquaPocket.close()
+        if (AquaMind.conversationOpen || AquaMind.contextOpen || AquaMind.checkInStage.length>0 || AquaMind.text.length>0)
+            AquaMind.dismiss()
     }
     AquaTalkCloud {
         parent:adapter.overlayParent
@@ -498,17 +564,159 @@ Item {
         outputWidth:host.width;outputHeight:host.height
         allowed:root.companionHostActive && session.companionInteractive && !AquaMind.busy
     }
+    Item {
+        id: agentCursorOverlay
+        objectName: "aquaAgentCursor"
+        parent: adapter.overlayParent
+        z: 999
+        enabled: false
+        width: 1
+        height: 1
+        x: AquaMind.agentCursorX
+        y: AquaMind.agentCursorY
+        visible: opacity > 0.01
+        opacity: (AquaMind.agentCursorVisible && !root.companionOccluded) ? 1.0 : 0.0
+        readonly property color cursorAccent: (session?.companionCharacter ?? companion?.character) === "octo" ? "#fb7185" : "#38bdf8"
+        readonly property int pulseSeq: AquaMind.agentCursorPulseSeq
+        onPulseSeqChanged: {
+            cursorRippleAnim.restart();
+        }
+        onVisibleChanged: if (visible)
+            cursorPointerCanvas.requestPaint()
+        onCursorAccentChanged: cursorPointerCanvas.requestPaint()
+        Behavior on opacity {
+            NumberAnimation {
+                duration: 180
+            }
+        }
+        Behavior on x {
+            NumberAnimation {
+                duration: 260
+                easing.type: Easing.OutCubic
+            }
+        }
+        Behavior on y {
+            NumberAnimation {
+                duration: 260
+                easing.type: Easing.OutCubic
+            }
+        }
+        Rectangle {
+            id: cursorRippleRing
+            objectName: "aquaAgentCursorRipple"
+            width: 36
+            height: 36
+            x: -width / 2
+            y: -height / 2
+            radius: width / 2
+            color: "transparent"
+            border.width: 2.2
+            border.color: agentCursorOverlay.cursorAccent
+            scale: 0.35
+            opacity: 0.0
+            ParallelAnimation {
+                id: cursorRippleAnim
+                NumberAnimation {
+                    target: cursorRippleRing
+                    property: "scale"
+                    from: 0.3
+                    to: 1.55
+                    duration: 460
+                    easing.type: Easing.OutCubic
+                }
+                NumberAnimation {
+                    target: cursorRippleRing
+                    property: "opacity"
+                    from: 0.92
+                    to: 0.0
+                    duration: 460
+                    easing.type: Easing.OutQuad
+                }
+            }
+        }
+        Canvas {
+            id: cursorPointerCanvas
+            objectName: "aquaAgentCursorPointer"
+            x: -2
+            y: -2
+            width: 28
+            height: 28
+            onPaint: {
+                var ctx = getContext("2d");
+                ctx.reset();
+                ctx.beginPath();
+                ctx.moveTo(2, 2);
+                ctx.lineTo(2, 21);
+                ctx.lineTo(7.5, 16.2);
+                ctx.lineTo(11.8, 24.5);
+                ctx.lineTo(15.2, 22.8);
+                ctx.lineTo(10.8, 14.5);
+                ctx.lineTo(18.5, 14.5);
+                ctx.closePath();
+                ctx.fillStyle = String(agentCursorOverlay.cursorAccent);
+                ctx.fill();
+                ctx.lineWidth = 1.8;
+                ctx.strokeStyle = "#ffffff";
+                ctx.stroke();
+            }
+        }
+        Rectangle {
+            id: cursorBadgePill
+            objectName: "aquaAgentCursorBadge"
+            x: 18
+            y: 14
+            height: 22
+            width: Math.min(210, cursorBadgeText.implicitWidth + 16)
+            radius: 11
+            color: "#dd0f172a"
+            border.width: 1
+            border.color: agentCursorOverlay.cursorAccent
+            Text {
+                id: cursorBadgeText
+                objectName: "aquaAgentCursorBadgeText"
+                anchors.centerIn: parent
+                color: "#f8fafc"
+                font.pixelSize: 11
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+                text: {
+                    const refTag = String(AquaMind.agentCursorRef || "").trim();
+                    const lbl = String(AquaMind.agentCursorLabel || "").trim();
+                    const act = String(AquaMind.agentCursorAction || "click").trim();
+                    const verb = (act === "fill" || act === "set_text" || act === "type")
+                        ? "Typing"
+                        : (act === "focus_element" ? "Focusing" : (act === "move" ? "Moving" : "Clicking"));
+                    if (refTag && lbl)
+                        return "✦ " + refTag + " · " + lbl;
+                    if (refTag)
+                        return "✦ " + refTag + " · " + verb;
+                    if (lbl && lbl !== act)
+                        return "✦ " + lbl;
+                    return "✦ " + verb + "…";
+                }
+            }
+        }
+    }
     Loader {
         id: editorMannequinBody
         parent: host.edgeEditor?.companionMannequinItem ?? null
+        readonly property bool topEdge: host.edgeEditor?.companionDraftEdge === "top"
+        readonly property real availableHeight: Math.max(24, (parent?.height ?? 98) - 24)
+        readonly property real availableWidth: Math.max(24, (parent?.width ?? 112) - 12)
+        readonly property real dropletScale: Math.min(
+            session.companionScale * 0.88,
+            availableHeight / 72,
+            availableWidth / 68)
         anchors.centerIn: parent
+        anchors.verticalCenterOffset: (topEdge ? -9 : 9) + 3.3 * dropletScale
         z: 1
         active: host.editorOpen && !!host.edgeEditor?.companionMannequinItem && host.edgeEditor.companionMannequinItem.visible
         sourceComponent: Component {
             WaterDropletBody {
                 character: session.companionCharacter
                 width: 76; height: 92
-                scale: session.companionScale * 0.88
+                transformOrigin: Item.Center
+                scale: editorMannequinBody.dropletScale
                 motionEnabled: false
                 quietSettled: true
                 effectsEnabled: false
@@ -525,9 +733,76 @@ Item {
         value: editorMannequinBody.active && !!editorMannequinBody.item
         when: !!host.edgeEditor?.companionMannequinItem
     }
-    readonly property Region companionInputMask: Region { item: AquaHostPolicy.acceptsInput(root.companionHostActive, companion.interactive, companion.visible && companion.inputReady) ? companion : emptyInput }
+    property bool _rhiPipelinesWarm: false
+    Loader {
+        id: rhiPipelineWarmer
+        x: 2; y: 2; width: 4; height: 4
+        z: -100
+        enabled: false
+        active: host.presented && field.ready && session.companionSessionVisible
+            && session.companionTargetOutput === host.outputName && !root._rhiPipelinesWarm
+        sourceComponent: Component {
+            Item {
+                id: prewarmContainer
+                width: 4; height: 4
+                clip: true
+                opacity: 0.004
+                property int _warmFrames: 0
+                WaterDropletBody {
+                    character: session.companionCharacter
+                    width: 76; height: 92
+                    scale: 0.05
+                    transformOrigin: Item.TopLeft
+                    motionEnabled: false
+                    quietSettled: true
+                    effectsEnabled: Appearance.effectsEnabled && session.companionPreferences.renderQuality !== "performance"
+                    renderQuality: session.companionPreferences.renderQuality
+                    translucency: session.companionPreferences.translucency
+                    grounded: true
+                }
+                FrameAnimation {
+                    running: true
+                    onTriggered: {
+                        prewarmContainer._warmFrames += 1
+                        if (prewarmContainer._warmFrames >= 2)
+                            root._rhiPipelinesWarm = true
+                    }
+                }
+            }
+        }
+    }
+    readonly property bool companionAcceptsInput: AquaHostPolicy.acceptsInput(
+        root.companionHostActive,
+        companion.interactive,
+        companion.visible && companion.inputReady && !companionPresence.portalActive)
+    readonly property bool companionPresentingTransition:
+        (companion.presentation > 0.001 && companion.presentation < 0.999)
+        || companion.relocating || companion.leaving
+    readonly property bool companionMotionQuantize: companion.moving
+        || companionPresence.traveling || companionPresence.portalActive
+        || root.companionPresentingTransition
+    readonly property int companionMaskStep: companionMotionQuantize ? 16 : 1
+    readonly property int companionMaskPad: companionMotionQuantize ? 16 : 0
+    readonly property real companionCenterX: companion.x + companion.width * 0.5
+    readonly property real companionCenterY: companion.y + companion.height * 0.5
+    readonly property real companionHalfW: companion.width * companion.scale * 0.5
+    readonly property real companionHalfH: companion.height * companion.scale * 0.5
+    readonly property int companionMaskX: companionAcceptsInput
+        ? Math.max(0, Math.floor((companionCenterX - companionHalfW - companionMaskPad) / companionMaskStep) * companionMaskStep) : 0
+    readonly property int companionMaskY: companionAcceptsInput
+        ? Math.max(0, Math.floor((companionCenterY - companionHalfH - companionMaskPad) / companionMaskStep) * companionMaskStep) : 0
+    readonly property int companionMaskRight: companionAcceptsInput
+        ? Math.min(host.width, Math.ceil((companionCenterX + companionHalfW + companionMaskPad) / companionMaskStep) * companionMaskStep) : 0
+    readonly property int companionMaskBottom: companionAcceptsInput
+        ? Math.min(host.height, Math.ceil((companionCenterY + companionHalfH + companionMaskPad) / companionMaskStep) * companionMaskStep) : 0
+    readonly property Region companionInputMask: Region {
+        x: root.companionMaskX
+        y: root.companionMaskY
+        width: Math.max(0, root.companionMaskRight - root.companionMaskX)
+        height: Math.max(0, root.companionMaskBottom - root.companionMaskY)
+    }
     readonly property bool companionRimInputActive: host.presented && field.ready
-        && AquaHostPolicy.acceptsInput(root.companionHostActive,companion.interactive,companion.visible && companion.inputReady)
+        && root.companionAcceptsInput
     readonly property real companionRimThickness: Math.min(AbyssStyle.perimeterThickness,host.width/2,host.height/2)
     readonly property bool pocketSensorActive: root.companionRimInputActive && pocketDrop.enabled && pocketDrop.expandedZone
     readonly property bool pocketZoneNeeded: root.pocketSensorActive || pocketDrop.containsDrag
@@ -556,10 +831,17 @@ Item {
         Region { x:root.pocketMidX; y:root.pocketMidY+root.pocketMidH-2; width:root.pocketSensorActive ? root.pocketMidW : 0; height:2 }
         Region { x:root.pocketMidX; y:root.pocketMidY; width:2; height:root.pocketSensorActive ? root.pocketMidH : 0 }
         Region { x:root.pocketMidX+root.pocketMidW-2; y:root.pocketMidY; width:2; height:root.pocketSensorActive ? root.pocketMidH : 0 }
-        Region { x:0; y:0; width:(root.companionRimInputActive && (AquaMind.contextOpen || (AquaPocket.opened && !GlobalStates.settingsNativeDialogOpen))) ? host.width : 0; height:(root.companionRimInputActive && (AquaMind.contextOpen || (AquaPocket.opened && !GlobalStates.settingsNativeDialogOpen))) ? host.height : 0 }
+        Region { x:0; y:0; width:(root.companionRimInputActive && (AquaMind.contextOpen || (AquaPocket.opened && !GlobalStates.settingsNativeDialogOpen))) ? host.width : 0; height:(root.companionRimInputActive && (AquaPocket.opened && !GlobalStates.settingsNativeDialogOpen || AquaMind.contextOpen)) ? host.height : 0 }
     }
 
-    readonly property bool editing: talkCloud.editing || (talkCloud.visible && (AquaMind.contextOpen || talkCloud.pocketOpen))
+    readonly property bool popupOpen: talkCloud.popupOpen
+    function handleEscape(): bool {
+        return talkCloud.handleEscape()
+    }
+    readonly property bool editing: ((talkCloud.editing || talkCloud.swarmOpen) && talkCloud.keyboardFocusActive) || (talkCloud.visible && (AquaMind.contextOpen || talkCloud.pocketOpen))
+    readonly property bool motionBusy: companionPresence.portalActive || companionPresence.traveling || companion.moving || companionTurns.active || root.companionPresentingTransition || companion.gesturing
+    readonly property bool keyboardFocusOnDemand: !initialChatFocusPulse.running
+        && (root.popupOpen || (((talkCloud.editing || talkCloud.swarmOpen) && talkCloud.keyboardFocusActive) || (talkCloud.visible && (AquaMind.contextOpen || talkCloud.pocketOpen))))
     readonly property bool curiosityOwned: companionCuriosity.owned
     readonly property bool utilitiesVisitActive: companionCuriosity.owned
         && companionCuriosity.feature?.kind === "utilities"
@@ -571,8 +853,28 @@ Item {
             || (companionPresence.traveling && companionPresence.destination.key === "dock"))
     readonly property var waterLink: companionWater
     readonly property var actor: companion
+    readonly property var talkCloudItem: talkCloud
+    readonly property Item pocketPaneItem: talkCloud.visible ? talkCloud.pocketPaneItem : null
+    readonly property bool talkCloudHovered: Boolean(talkCloud.visible && talkCloud.cloudHovered)
+    readonly property bool pocketPaneHovered: Boolean(pocketPaneItem && pocketPaneItem.visible && talkCloud.pocketPaneHovered)
+    readonly property int talkMaskStep: companionMotionQuantize ? 16 : 1
+    readonly property int talkMaskPad: companionMotionQuantize ? 12 : 0
+    readonly property int talkMaskX: talkCloud.visible
+        ? Math.max(0, Math.floor((talkCloud.x - talkMaskPad) / talkMaskStep) * talkMaskStep) : 0
+    readonly property int talkMaskY: talkCloud.visible
+        ? Math.max(0, Math.floor((talkCloud.y - talkMaskPad) / talkMaskStep) * talkMaskStep) : 0
+    readonly property int talkMaskRight: talkCloud.visible
+        ? Math.min(host.width, Math.ceil((talkCloud.x + talkCloud.width + talkMaskPad) / talkMaskStep) * talkMaskStep) : 0
+    readonly property int talkMaskBottom: talkCloud.visible
+        ? Math.min(host.height, Math.ceil((talkCloud.y + talkCloud.height + talkMaskPad) / talkMaskStep) * talkMaskStep) : 0
     readonly property var inputRegions: [companionInputMask,companionRimInputMask,talkRegion,aiRegion]
-    Region { id:talkRegion;item:talkCloud.visible ? talkCloud : emptyInput }
+    Region {
+        id: talkRegion
+        x: root.talkMaskX
+        y: root.talkMaskY
+        width: Math.max(0, root.talkMaskRight - root.talkMaskX)
+        height: Math.max(0, root.talkMaskBottom - root.talkMaskY)
+    }
     Region { id:aiRegion;item:emptyInput }
     function yieldToUser(): void {companionCuriosity.yieldToUser()}
     Component.onCompleted: if (session && session.companionTargetOutput===host.outputName) Qt.callLater(session.evaluateContext)

@@ -78,11 +78,29 @@ def _ensure_schema_and_migrate(db: sqlite3.Connection) -> None:
             thread_id TEXT NOT NULL
         )"""
     )
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS message_meta(
+            message_id INTEGER PRIMARY KEY,
+            interrupted INTEGER NOT NULL DEFAULT 0,
+            stop_reason TEXT NOT NULL DEFAULT '',
+            reasoning TEXT NOT NULL DEFAULT ''
+        )"""
+    )
     cols = [row[1] for row in db.execute("PRAGMA table_info(messages)").fetchall()]
-    if "thread_id" in cols:
-        db.execute(
-            "INSERT OR IGNORE INTO thread_messages(message_id, thread_id) SELECT id, COALESCE(NULLIF(thread_id,''),'chat_default') FROM messages"
-        )
+    if any(c in cols for c in ("thread_id", "interrupted", "stop_reason", "reasoning")):
+        if "thread_id" in cols:
+            db.execute(
+                "INSERT OR IGNORE INTO thread_messages(message_id, thread_id) SELECT id, COALESCE(NULLIF(thread_id,''),'chat_default') FROM messages"
+            )
+        if any(c in cols for c in ("interrupted", "stop_reason", "reasoning")):
+            sel_int = "COALESCE(interrupted, 0)" if "interrupted" in cols else "0"
+            sel_stop = "COALESCE(stop_reason, '')" if "stop_reason" in cols else "''"
+            sel_reason = "COALESCE(reasoning, '')" if "reasoning" in cols else "''"
+            db.execute(
+                f"INSERT OR REPLACE INTO message_meta(message_id, interrupted, stop_reason, reasoning) "
+                f"SELECT id, {sel_int}, {sel_stop}, {sel_reason} FROM messages "
+                f"WHERE ({sel_int}) != 0 OR ({sel_stop}) != '' OR ({sel_reason}) != ''"
+            )
         db.execute(
             """CREATE TABLE messages_v1_clean(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -202,6 +220,80 @@ def _ensure_schema_and_migrate(db: sqlite3.Connection) -> None:
         db.execute(
             "INSERT OR REPLACE INTO state_kv(key,value) VALUES('active_thread_id',?)",
             (chosen,),
+        )
+
+    broken_stubs = db.execute(
+        "SELECT id, content FROM messages WHERE role='assistant' AND content LIKE '**🖥%' AND instr(content, char(10)) = 0"
+    ).fetchall()
+    for stub_id, stub_content in broken_stubs:
+        raw_stub = str(stub_content or "").strip()
+        if raw_stub.startswith("**🖥") and not raw_stub[3:].endswith("**") and "**" not in raw_stub[3:]:
+            prev_user = db.execute(
+                """SELECT m.content FROM messages m
+                   LEFT JOIN thread_messages tm ON tm.message_id = m.id
+                   WHERE m.id < ? AND m.role='user'
+                     AND COALESCE(tm.thread_id, ?) = COALESCE(
+                         (SELECT thread_id FROM thread_messages WHERE message_id = ?),
+                         ?
+                     )
+                   ORDER BY m.id DESC LIMIT 1""",
+                (stub_id, DEFAULT_THREAD_ID, stub_id, DEFAULT_THREAD_ID),
+            ).fetchone()
+            prev_text = str(prev_user[0] if prev_user and prev_user[0] else "").strip()
+            repaired_text = ""
+            m_fname = re.search(r"\b([A-Za-z0-9_.\-]+\.[A-Za-z0-9]{1,10})\b", prev_text)
+            if m_fname:
+                target_fname = m_fname.group(1)
+                try:
+                    from tool_store import search_files_in_home
+                    matches = search_files_in_home(target_fname, max_results=10, timeout_sec=1.5)
+                    if matches:
+                        lines_md = "\n".join(f"- `{p}`" for p in matches)
+                        repaired_text = f"Found **{len(matches)}** matching path(s) for `{target_fname}`:\n{lines_md}"
+                except Exception:
+                    repaired_text = ""
+            if not repaired_text:
+                repaired_text = (
+                    f"Could not complete the previous reply for: `{prev_text[:80]}`. Please resend if needed."
+                    if prev_text
+                    else "*(Previous reply was interrupted.)*"
+                )
+            db.execute("UPDATE messages SET content=? WHERE id=?", (repaired_text, stub_id))
+
+    sep_wm_row = db.execute("SELECT value FROM state_kv WHERE key='sep_repair_max_id'").fetchone()
+    try:
+        sep_wm_id = int(sep_wm_row[0]) if (sep_wm_row and sep_wm_row[0] is not None) else 0
+    except (TypeError, ValueError):
+        sep_wm_id = 0
+    max_msg_row = db.execute("SELECT COALESCE(MAX(id), 0) FROM messages").fetchone()
+    max_msg_id = int(max_msg_row[0] or 0) if max_msg_row else 0
+    if max_msg_id > sep_wm_id:
+        sep_missed_rows = db.execute(
+            "SELECT id, content FROM messages WHERE id > ? AND role='assistant' AND (content LIKE 'Could not find any file or folder matching `%` in `%' OR content LIKE 'Không tìm thấy tệp hoặc thư mục nào khớp với `%` trong `%')",
+            (sep_wm_id,),
+        ).fetchall()
+        for miss_id, miss_content in sep_missed_rows:
+            m_miss = re.search(r"`([^`]+)`", str(miss_content or ""))
+            if m_miss:
+                miss_q = m_miss.group(1).strip()
+                if miss_q and re.search(r"[._\-\s]+", miss_q):
+                    try:
+                        from tool_store import search_files_in_home
+                        matches = search_files_in_home(miss_q, max_results=10, timeout_sec=1.5)
+                        if matches:
+                            lines_md = "\n".join(f"- `{p}`" for p in matches)
+                            is_vi = str(miss_content or "").startswith("Không tìm thấy")
+                            repaired_miss = (
+                                f"Tìm thấy **{len(matches)}** đường dẫn khớp với `{miss_q}`:\n{lines_md}"
+                                if is_vi
+                                else f"Found **{len(matches)}** matching path(s) for `{miss_q}`:\n{lines_md}"
+                            )
+                            db.execute("UPDATE messages SET content=? WHERE id=?", (repaired_miss, miss_id))
+                    except Exception:
+                        pass
+        db.execute(
+            "INSERT OR REPLACE INTO state_kv(key,value) VALUES('sep_repair_max_id',?)",
+            (str(max_msg_id),),
         )
 
 
@@ -369,6 +461,22 @@ def _query_projects(db: sqlite3.Connection) -> list[dict]:
     ]
 
 
+def normalize_message_record(record: dict) -> dict:
+    """Ensure legacy persisted message dicts without `interrupted` read cleanly."""
+    if not isinstance(record, dict):
+        return {}
+    out = dict(record)
+    is_int = bool(out.get("interrupted", False))
+    out["interrupted"] = is_int
+    if "stopReason" not in out or out.get("stopReason") is None:
+        out["stopReason"] = "cancelled" if is_int else ""
+    else:
+        out["stopReason"] = str(out["stopReason"])
+    if "reasoning" in out and out["reasoning"] is None:
+        out["reasoning"] = ""
+    return out
+
+
 def _query_messages(
     db: sqlite3.Connection, thread_id: str, limit: int = 60, before_id: int = 0
 ) -> list[dict]:
@@ -376,28 +484,41 @@ def _query_messages(
     before = max(0, int(before_id or 0))
     if before:
         rows = db.execute(
-            "SELECT m.id,m.role,m.content,m.created_ms,m.model FROM messages m "
+            "SELECT m.id,m.role,m.content,m.created_ms,m.model,"
+            "COALESCE(mm.interrupted,0),COALESCE(mm.stop_reason,''),COALESCE(mm.reasoning,'') "
+            "FROM messages m "
             "JOIN thread_messages tm ON tm.message_id = m.id "
+            "LEFT JOIN message_meta mm ON mm.message_id = m.id "
             "WHERE tm.thread_id=? AND m.id<? ORDER BY m.id DESC LIMIT ?",
             (thread_id, before, limit),
         ).fetchall()
     else:
         rows = db.execute(
-            "SELECT m.id,m.role,m.content,m.created_ms,m.model FROM messages m "
+            "SELECT m.id,m.role,m.content,m.created_ms,m.model,"
+            "COALESCE(mm.interrupted,0),COALESCE(mm.stop_reason,''),COALESCE(mm.reasoning,'') "
+            "FROM messages m "
             "JOIN thread_messages tm ON tm.message_id = m.id "
+            "LEFT JOIN message_meta mm ON mm.message_id = m.id "
             "WHERE tm.thread_id=? ORDER BY m.id DESC LIMIT ?",
             (thread_id, limit),
         ).fetchall()
-    return [
-        {
+    result: list[dict] = []
+    for row in reversed(rows):
+        is_int = bool(row[5])
+        stop_r = str(row[6] or ("cancelled" if is_int else ""))
+        item = {
             "id": row[0],
             "role": row[1],
             "content": row[2],
             "createdMs": row[3],
             "model": row[4],
+            "interrupted": is_int,
+            "stopReason": stop_r,
         }
-        for row in reversed(rows)
-    ]
+        if row[7]:
+            item["reasoning"] = str(row[7])
+        result.append(item)
+    return result
 
 
 def _has_more_messages(db: sqlite3.Connection, thread_id: str, msgs: list[dict]) -> bool:
@@ -455,6 +576,12 @@ def _trim(db: sqlite3.Connection, thread_id: str) -> None:
     ).fetchone()
     if cutoff:
         db.execute(
+            """DELETE FROM message_meta WHERE message_id IN (
+                   SELECT message_id FROM thread_messages WHERE thread_id=? AND message_id<?
+               )""",
+            (thread_id, cutoff[0]),
+        )
+        db.execute(
             """DELETE FROM messages WHERE id IN (
                    SELECT message_id FROM thread_messages WHERE thread_id=? AND message_id<?
                )""",
@@ -498,14 +625,28 @@ def _touch_thread_on_message(
     db.execute("UPDATE threads SET updated_ms=? WHERE id=?", (now_ms, thread_id))
 
 
-def append(role: str, content: str, model: str = "", thread_id: str | None = None) -> int:
+def append(
+    role: str,
+    content: str,
+    model: str = "",
+    thread_id: str | None = None,
+    *,
+    interrupted: bool = False,
+    stop_reason: str = "",
+    reasoning: str = "",
+) -> int:
     if role not in ("user", "assistant"):
         raise HistoryError("invalid_role")
-    value = str(content).strip()
-    if not value:
+    raw_content = str(content or "").strip()
+    raw_reasoning = str(reasoning or "").strip()[:MAX_CONTENT]
+    if not raw_content and interrupted and raw_reasoning:
+        raw_content = "[Interrupted during reasoning]"
+    if not raw_content:
         raise HistoryError("empty_content")
-    value = value[:MAX_CONTENT]
+    value = raw_content[:MAX_CONTENT]
     model = str(model)[:160]
+    int_flag = 1 if (interrupted and role == "assistant") else 0
+    eff_stop = str(stop_reason or ("cancelled" if int_flag else ""))[:64]
     db = _connect()
     try:
         tid = _resolve_active_thread_id(db, thread_id)
@@ -516,6 +657,11 @@ def append(role: str, content: str, model: str = "", thread_id: str | None = Non
                 (role, value, now, model),
             )
             msg_id = int(cursor.lastrowid)
+            if role == "assistant" and (int_flag or eff_stop or raw_reasoning):
+                db.execute(
+                    "INSERT OR REPLACE INTO message_meta(message_id,interrupted,stop_reason,reasoning) VALUES(?,?,?,?)",
+                    (msg_id, int_flag, eff_stop, raw_reasoning),
+                )
             db.execute(
                 "INSERT OR REPLACE INTO thread_messages(message_id,thread_id) VALUES(?,?)",
                 (msg_id, tid),
@@ -530,13 +676,25 @@ def append(role: str, content: str, model: str = "", thread_id: str | None = Non
 
 
 def append_exchange(
-    user_text: str, assistant_text: str, model: str = "", thread_id: str | None = None
+    user_text: str,
+    assistant_text: str,
+    model: str = "",
+    thread_id: str | None = None,
+    *,
+    interrupted: bool = False,
+    stop_reason: str = "",
+    reasoning: str = "",
 ) -> tuple[int, int]:
-    user = str(user_text).strip()[:MAX_CONTENT]
-    assistant = str(assistant_text).strip()[:MAX_CONTENT]
+    user = str(user_text or "").strip()[:MAX_CONTENT]
+    raw_reasoning = str(reasoning or "").strip()[:MAX_CONTENT]
+    assistant = str(assistant_text or "").strip()[:MAX_CONTENT]
+    if not assistant and interrupted and raw_reasoning:
+        assistant = "[Interrupted during reasoning]"
     if not user or not assistant:
         raise HistoryError("empty_content")
     model = str(model)[:160]
+    int_flag = 1 if interrupted else 0
+    eff_stop = str(stop_reason or ("cancelled" if int_flag else ""))[:64]
     db = _connect()
     try:
         tid = _resolve_active_thread_id(db, thread_id)
@@ -556,6 +714,11 @@ def append_exchange(
                 (assistant, now + 1, model),
             )
             a_id = int(assistant_cursor.lastrowid)
+            if int_flag or eff_stop or raw_reasoning:
+                db.execute(
+                    "INSERT OR REPLACE INTO message_meta(message_id,interrupted,stop_reason,reasoning) VALUES(?,?,?,?)",
+                    (a_id, int_flag, eff_stop, raw_reasoning),
+                )
             db.execute(
                 "INSERT OR REPLACE INTO thread_messages(message_id,thread_id) VALUES(?,?)",
                 (a_id, tid),
@@ -569,12 +732,82 @@ def append_exchange(
         db.close()
 
 
+def append_cancelled_prefix(
+    user_text: str | None,
+    partial_content: str = "",
+    partial_reasoning: str = "",
+    model: str = "",
+    thread_id: str | None = None,
+) -> dict:
+    """Finalize an interrupted stream prefix into history only when non-empty output was delivered."""
+    clean_content = str(partial_content or "").strip()
+    clean_reasoning = str(partial_reasoning or "").strip()
+    if not clean_content and not clean_reasoning:
+        return {
+            "saved": False,
+            "interrupted": False,
+            "stopReason": "cancelled",
+            "reason": "empty_prefix",
+            "userMessageId": 0,
+            "assistantMessageId": 0,
+        }
+    eff_content = clean_content or "[Interrupted during reasoning]"
+    clean_user = str(user_text or "").strip()
+    if clean_user:
+        u_id, a_id = append_exchange(
+            clean_user,
+            eff_content,
+            model=model,
+            thread_id=thread_id,
+            interrupted=True,
+            stop_reason="cancelled",
+            reasoning=clean_reasoning,
+        )
+    else:
+        u_id = 0
+        a_id = append(
+            "assistant",
+            eff_content,
+            model=model,
+            thread_id=thread_id,
+            interrupted=True,
+            stop_reason="cancelled",
+            reasoning=clean_reasoning,
+        )
+    return {
+        "saved": True,
+        "interrupted": True,
+        "stopReason": "cancelled",
+        "content": eff_content[:MAX_CONTENT],
+        "reasoning": clean_reasoning[:MAX_CONTENT],
+        "userMessageId": u_id,
+        "assistantMessageId": a_id,
+    }
+
+
+def _cleanup_session_ephemera(thread_id: str) -> None:
+    try:
+        import spill_store
+        spill_store.cleanup_session_spills(thread_id)
+    except Exception:
+        pass
+    try:
+        import context_policy
+        context_policy.clear_context_updates(thread_id)
+    except Exception:
+        pass
+
+
 def clear(thread_id: str | None = None) -> None:
     db = _connect()
     try:
         tid = _resolve_active_thread_id(db, thread_id)
         now = int(time.time() * 1000)
         with db:
+            db.execute(
+                "DELETE FROM message_meta WHERE message_id IN (SELECT message_id FROM thread_messages WHERE thread_id=?)",
+                (tid,),
+            )
             db.execute(
                 "DELETE FROM messages WHERE id IN (SELECT message_id FROM thread_messages WHERE thread_id=?)",
                 (tid,),
@@ -585,6 +818,7 @@ def clear(thread_id: str | None = None) -> None:
                 (DEFAULT_THREAD_TITLE, now, tid),
             )
             _sync_project_workspace_to_session(db, tid, force_reset_ephemeral=True)
+        _cleanup_session_ephemera(tid)
     except sqlite3.Error as exc:
         raise HistoryError("history_clear_failed") from exc
     finally:
@@ -806,11 +1040,16 @@ def execute_thread_action(payload: dict) -> dict:
                     raise HistoryError("thread_not_found", "Chat thread not found.")
                 prev_active = _resolve_active_thread_id(db)
                 db.execute(
+                    "DELETE FROM message_meta WHERE message_id IN (SELECT message_id FROM thread_messages WHERE thread_id=?)",
+                    (target_id,),
+                )
+                db.execute(
                     "DELETE FROM messages WHERE id IN (SELECT message_id FROM thread_messages WHERE thread_id=?)",
                     (target_id,),
                 )
                 db.execute("DELETE FROM thread_messages WHERE thread_id=?", (target_id,))
                 db.execute("DELETE FROM threads WHERE id=?", (target_id,))
+                _cleanup_session_ephemera(target_id)
                 remaining = db.execute(
                     "SELECT id FROM threads ORDER BY pinned DESC, sort_order ASC, updated_ms DESC LIMIT 1"
                 ).fetchone()
@@ -854,11 +1093,16 @@ def execute_thread_action(payload: dict) -> dict:
                 if not target_id or not db.execute("SELECT 1 FROM threads WHERE id=?", (target_id,)).fetchone():
                     raise HistoryError("thread_not_found", "Chat thread not found.")
                 db.execute(
+                    "DELETE FROM message_meta WHERE message_id IN (SELECT message_id FROM thread_messages WHERE thread_id=?)",
+                    (target_id,),
+                )
+                db.execute(
                     "DELETE FROM messages WHERE id IN (SELECT message_id FROM thread_messages WHERE thread_id=?)",
                     (target_id,),
                 )
                 db.execute("DELETE FROM thread_messages WHERE thread_id=?", (target_id,))
                 db.execute("UPDATE threads SET updated_ms=? WHERE id=?", (now, target_id))
+                _cleanup_session_ephemera(target_id)
                 active_id = _resolve_active_thread_id(db)
                 if target_id == active_id:
                     _sync_project_workspace_to_session(db, active_id, force_reset_ephemeral=True)
@@ -898,22 +1142,36 @@ def execute_thread_action(payload: dict) -> dict:
                     (new_id, dup_title, proj_id, 0, sort_order, now, now),
                 )
                 src_msgs = db.execute(
-                    """SELECT m.role, m.content, m.created_ms, m.model
-                       FROM messages m JOIN thread_messages tm ON tm.message_id = m.id
+                    """SELECT m.role, m.content, m.created_ms, m.model,
+                              COALESCE(mm.interrupted, 0), COALESCE(mm.stop_reason, ''), COALESCE(mm.reasoning, '')
+                       FROM messages m
+                       JOIN thread_messages tm ON tm.message_id = m.id
+                       LEFT JOIN message_meta mm ON mm.message_id = m.id
                        WHERE tm.thread_id=?
                        ORDER BY m.id DESC
                        LIMIT ?""",
                     (target_id, MAX_ROWS),
                 ).fetchall()
                 src_msgs.reverse()
-                for m_role, m_content, m_created, m_model in src_msgs:
+                for m_role, m_content, m_created, m_model, m_int, m_stop, m_reason in src_msgs:
                     cur = db.execute(
                         "INSERT INTO messages(role,content,created_ms,model) VALUES(?,?,?,?)",
-                        (str(m_role), str(m_content), int(m_created or now), str(m_model or "")),
+                        (
+                            str(m_role),
+                            str(m_content),
+                            int(m_created or now),
+                            str(m_model or ""),
+                        ),
                     )
+                    dup_msg_id = int(cur.lastrowid)
+                    if m_int or m_stop or m_reason:
+                        db.execute(
+                            "INSERT OR REPLACE INTO message_meta(message_id,interrupted,stop_reason,reasoning) VALUES(?,?,?,?)",
+                            (dup_msg_id, 1 if m_int else 0, str(m_stop or ""), str(m_reason or "")),
+                        )
                     db.execute(
                         "INSERT OR REPLACE INTO thread_messages(message_id,thread_id) VALUES(?,?)",
-                        (int(cur.lastrowid), new_id),
+                        (dup_msg_id, new_id),
                     )
                 if payload.get("select", True) is not False:
                     db.execute(
@@ -939,10 +1197,20 @@ def execute_thread_action(payload: dict) -> dict:
                 active_id = _resolve_active_thread_id(db)
                 all_threads = _query_threads(db)
                 if not query:
+                    enriched_all = [
+                        {
+                            **t,
+                            "matchedTurnIndex": -1,
+                            "matchedSnippet": str(t.get("preview") or t.get("title") or "")[:120],
+                            "matchedRole": "",
+                        }
+                        for t in all_threads
+                    ]
                     return {
                         "op": "search_threads",
                         "query": "",
                         "matchedThreadIds": [t["id"] for t in all_threads],
+                        "matchedThreads": enriched_all,
                         "activeThreadId": active_id,
                         "threads": all_threads,
                         "projects": _query_projects(db),
@@ -963,10 +1231,50 @@ def execute_thread_action(payload: dict) -> dict:
                     (like_pat, like_pat),
                 ).fetchall()
                 matched_ids = [str(r[0]) for r in matched_rows if r and r[0]]
+                matched_set = set(matched_ids)
+                q_lower = query.lower()
+                matched_threads: list[dict] = []
+                for t in all_threads:
+                    tid = str(t.get("id") or "")
+                    if tid not in matched_set:
+                        continue
+                    msg_rows = db.execute(
+                        """SELECT m.role, m.content
+                           FROM thread_messages tm
+                           JOIN messages m ON m.id = tm.message_id
+                           WHERE tm.thread_id = ?
+                           ORDER BY m.id ASC""",
+                        (tid,),
+                    ).fetchall()
+                    turn_idx = -1
+                    snippet = ""
+                    matched_role = ""
+                    for idx, (m_role, m_content) in enumerate(msg_rows):
+                        c_str = str(m_content or "")
+                        pos = c_str.lower().find(q_lower)
+                        if pos != -1:
+                            turn_idx = idx
+                            matched_role = str(m_role or "user")
+                            start = max(0, pos - 40)
+                            end = min(len(c_str), start + 114)
+                            raw_snip = (
+                                ("..." if start > 0 else "")
+                                + c_str[start:end].replace("\n", " ").strip()
+                                + ("..." if end < len(c_str) else "")
+                            )
+                            snippet = raw_snip[:120]
+                            break
+                    if turn_idx == -1:
+                        snippet = str(t.get("title") or "")[:120]
+                    t["matchedTurnIndex"] = turn_idx
+                    t["matchedSnippet"] = snippet
+                    t["matchedRole"] = matched_role
+                    matched_threads.append(dict(t))
                 return {
                     "op": "search_threads",
                     "query": query,
                     "matchedThreadIds": matched_ids,
+                    "matchedThreads": matched_threads,
                     "activeThreadId": active_id,
                     "threads": all_threads,
                     "projects": _query_projects(db),
@@ -1128,6 +1436,10 @@ def execute_thread_action(payload: dict) -> dict:
                     ]
                     for tid_item in t_ids:
                         db.execute(
+                            "DELETE FROM message_meta WHERE message_id IN (SELECT message_id FROM thread_messages WHERE thread_id=?)",
+                            (tid_item,),
+                        )
+                        db.execute(
                             "DELETE FROM messages WHERE id IN (SELECT message_id FROM thread_messages WHERE thread_id=?)",
                             (tid_item,),
                         )
@@ -1171,3 +1483,11 @@ def execute_thread_action(payload: dict) -> dict:
         raise HistoryError("history_write_failed") from exc
     finally:
         db.close()
+
+
+def search_threads(query: str, limit: int = 50, character: str = "aqua") -> list[dict]:
+    """Search chat threads and return matched thread summaries with matchedTurnIndex, matchedSnippet, and matchedRole."""
+    res = execute_thread_action({"op": "search_threads", "query": query, "character": character})
+    matched = res.get("matchedThreads") or []
+    return list(matched)[: max(1, int(limit or 50))]
+

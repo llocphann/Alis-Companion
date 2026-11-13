@@ -29,6 +29,21 @@ DEFAULT_RULE_BUDGET = {
     "maxDurationSec": 180,
     "maxRunsPerDay": 2,
 }
+DEFAULT_RULES_TEXT = (
+    "- Ground every file, directory, or code claim in real tool output; never fabricate paths, line numbers, or command results.\n"
+    "- If an `@file` mention or target path does not exist on disk, state clearly that it was not found instead of guessing its contents.\n"
+    "- Surgical Scope & Clean Code: Only edit explicitly assigned targets; never touch unrelated code. If another component is affected, pause and ask with 1-3 options (`(Recommended)`) + custom input. Revert any ineffective or no-op edit.\n"
+    "- Keep responses concise, structured in clean Markdown, and match the user's language (Vietnamese or English).\n"
+    "- Never execute destructive or out-of-Home system actions without explicit confirmation."
+)
+LEGACY_DEFAULT_RULES_TEXTS = frozenset((
+    (
+        "- Ground every file, directory, or code claim in real tool output; never fabricate paths, line numbers, or command results.\n"
+        "- If an `@file` mention or target path does not exist on disk, state clearly that it was not found instead of guessing its contents.\n"
+        "- Keep responses concise, structured in clean Markdown, and match the user's language (Vietnamese or English).\n"
+        "- Never execute destructive or out-of-Home system actions without explicit confirmation."
+    ),
+))
 
 
 class RuleStoreError(Exception):
@@ -70,6 +85,8 @@ def _default_state(now_ms=None):
         "globalStop": False,
         "lastStartupMs": ts,
         "rules": [],
+        "rulesText": DEFAULT_RULES_TEXT,
+        "defaultRulesText": DEFAULT_RULES_TEXT,
         "processedKeys": [],
     }
 
@@ -138,6 +155,17 @@ def load_rules_state(now_ms=None):
         if norm and norm["ruleId"] not in seen:
             seen.add(norm["ruleId"])
             rules.append(norm)
+    raw_rules_text = raw.get("rulesText")
+    raw_default_text = raw.get("defaultRulesText")
+    if not isinstance(raw_rules_text, str):
+        rules_text = DEFAULT_RULES_TEXT
+    elif (
+        raw_rules_text.strip() in {t.strip() for t in LEGACY_DEFAULT_RULES_TEXTS}
+        or (isinstance(raw_default_text, str) and raw_rules_text.strip() == raw_default_text.strip() and raw_default_text.strip() != DEFAULT_RULES_TEXT.strip())
+    ):
+        rules_text = DEFAULT_RULES_TEXT
+    else:
+        rules_text = str(raw_rules_text)
     return {
         **raw,
         "schemaVersion": SCHEMA_VERSION,
@@ -145,6 +173,8 @@ def load_rules_state(now_ms=None):
         "globalStop": bool(raw.get("globalStop", False)),
         "lastStartupMs": int(raw.get("lastStartupMs", ts)),
         "rules": rules[:64],
+        "rulesText": rules_text[:4000],
+        "defaultRulesText": DEFAULT_RULES_TEXT,
         "processedKeys": [str(x) for x in raw.get("processedKeys", []) if isinstance(x, str)][-128:],
     }
 
@@ -294,7 +324,67 @@ def delete_rule(rule_id, now_ms=None):
     ]
     state["updatedAtMs"] = ts
     save_rules_state(state)
-    return {"deleted": len(state["rules"]) < before, "rules": state["rules"]}
+    return {
+        "deleted": len(state["rules"]) < before,
+        "rules": state["rules"],
+        "rulesText": state.get("rulesText", DEFAULT_RULES_TEXT),
+        "defaultRulesText": DEFAULT_RULES_TEXT,
+    }
+
+
+def set_rules_text(rules_text="", reset=False, now_ms=None):
+    """Update or reset the user-configurable instruction/behavioral rules text."""
+    ts = _now_ms(now_ms)
+    state = load_rules_state(ts)
+    if reset:
+        state["rulesText"] = DEFAULT_RULES_TEXT
+    else:
+        state["rulesText"] = str(rules_text if rules_text is not None else "")[:4000]
+    state["defaultRulesText"] = DEFAULT_RULES_TEXT
+    state["updatedAtMs"] = ts
+    save_rules_state(state)
+    return state
+
+
+def append_instruction_rule(rule_line, now_ms=None):
+    """Append a single instruction rule bullet to rulesText (used by `/rule <instruction>` in chat)."""
+    ts = _now_ms(now_ms)
+    state = load_rules_state(ts)
+    clean_line = str(rule_line or "").strip()
+    if not clean_line:
+        return state
+    if not clean_line.startswith(("-", "*", "•")):
+        clean_line = f"- {clean_line}"
+    current = str(state.get("rulesText") or "").rstrip()
+    existing_lines = [ln.strip() for ln in current.splitlines() if ln.strip()]
+    if clean_line not in existing_lines:
+        state["rulesText"] = (f"{current}\n{clean_line}" if current else clean_line)[:4000]
+        state["updatedAtMs"] = ts
+        save_rules_state(state)
+    return state
+
+
+def remove_instruction_rule(rule_query, now_ms=None):
+    """Remove matching instruction rule bullet(s) from rulesText (used by `/rule remove <text>` in chat)."""
+    ts = _now_ms(now_ms)
+    state = load_rules_state(ts)
+    query = str(rule_query or "").strip().lstrip("-*•").strip().lower()
+    if not query:
+        return {**state, "removedLines": []}
+    current_lines = str(state.get("rulesText") or "").splitlines()
+    kept = []
+    removed = []
+    for ln in current_lines:
+        clean_ln = ln.strip().lstrip("-*•").strip().lower()
+        if clean_ln and query in clean_ln:
+            removed.append(ln.strip())
+        else:
+            kept.append(ln)
+    if removed:
+        state["rulesText"] = "\n".join(kept).strip()[:4000]
+        state["updatedAtMs"] = ts
+        save_rules_state(state)
+    return {**state, "removedLines": removed}
 
 
 def mark_startup_grace(now_ms=None, current_keys=None):

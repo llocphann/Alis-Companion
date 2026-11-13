@@ -1,9 +1,0 @@
-Alis-Companion source: 7ba1529ccf1f3f5b2940883f7e83777230b89018 committed
-Alis source: ed48ca3b673c73f3804c55d4ea83955ded2ad8b9 WORKING TREE
-Alis-Intergration source: 7c3623da5cf8741a0b82cb4d3d8054017dfa99d0 committed
-PASS test-aqua-companion-settings.py
-AQUA_PREFERENCES_NORMALIZATION_AND_BRIDGE_BEHAVIOR_PASS
-Settings v11 information architecture, routing and ownership: OK
-AQUA_COMPANION_SETTINGS_DEFAULTS_ENGLISH_AND_ROUTING_PASS
-
-Alis-Companion checks: 1 PASS / 0 FAIL / 0 SKIP

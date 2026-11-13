@@ -84,10 +84,10 @@ for (const kind of ['leftPanel','rightPanel']) {
 const expression=perimeter.match(/WlrLayershell\.keyboardFocus: ([\s\S]*?)\n\s*anchors \{/)[1].trim();
 scope.WlrKeyboardFocus={None:0,OnDemand:1,Exclusive:2};
 scope.field={ready:true};scope.PolkitService={active:false};scope.companionCuriosity={owned:false};
-scope.talkCloud={editing:false};
-scope.companionExtension={get editing(){return scope.talkCloud.editing},get curiosityOwned(){return scope.companionCuriosity.owned}};
+scope.talkCloud={editing:false,onDemand:false};
+scope.companionExtension={get editing(){return scope.talkCloud.editing},get keyboardFocusOnDemand(){return scope.talkCloud.onDemand},get curiosityOwned(){return scope.companionCuriosity.owned}};
 window.presented=true;window.overviewDragging=false;window.editorOpen=false;
-for (const id of ['popup','dialogBody','aux','wallpaperBody','clipboardBody','settings','dashboardBody','controls','leftPanel','rightPanel','notification'])
+for (const id of ['popup','dialogBody','aux','wallpaperBody','clipboardBody','settings','dashboardBody','nexusBody','controls','leftPanel','rightPanel','notification'])
     scope[id]={presented:false,ready:true,open:false,contentItem:{item:{keyboardFocus:false}}};
 const focus=()=>vm.runInContext(expression,scope);
 scope.settings.presented=true;assert.equal(focus(),2);
@@ -97,8 +97,10 @@ scope.settings.presented=false;scope.leftPanel.presented=true;assert.equal(focus
 scope.companionCuriosity.owned=true;assert.equal(focus(),0);
 scope.companionCuriosity.owned=false;window.overviewDragging=true;assert.equal(focus(),0);
 window.overviewDragging=false;scope.leftPanel.presented=false;
-scope.talkCloud.editing=true;assert.equal(focus(),2,'the explicit shortcut gives Aqua chat immediate keyboard focus');
-scope.talkCloud.editing=false;assert.equal(focus(),0,'automatic Aqua speech must never take keyboard focus');
+scope.talkCloud.editing=true;scope.talkCloud.onDemand=false;assert.equal(focus(),2,'the explicit shortcut gives Aqua chat immediate keyboard focus');
+scope.talkCloud.editing=true;scope.talkCloud.onDemand=true;assert.equal(focus(),1,'active Aqua chat uses OnDemand focus so external windows can be clicked and focused');
+scope.talkCloud.editing=false;scope.talkCloud.onDemand=true;assert.equal(focus(),1,'hovering open Aqua chat keeps OnDemand focus so clicking chat input re-focuses it');
+scope.talkCloud.editing=false;scope.talkCloud.onDemand=false;assert.equal(focus(),0,'releasing chat keyboard focus drops layer focus to None so external apps receive typing');
 
 /* Autonomous curiosity budget: sparse feature offers and a 1-3 second
  * Aqua-owned UI lease measured from the actual open. Human hand-off cancels

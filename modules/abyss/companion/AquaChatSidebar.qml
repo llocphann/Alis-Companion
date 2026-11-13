@@ -17,6 +17,7 @@ Rectangle {
     readonly property bool isVeryNarrow: sidebar.width < 156
     readonly property bool isWide: sidebar.width >= 230
     signal threadSelected(string threadId)
+    signal threadTurnSelected(string threadId, int matchedTurnIndex)
 
     radius: 12
     color: Qt.rgba(Appearance.colors.colLayer1.r, Appearance.colors.colLayer1.g, Appearance.colors.colLayer1.b, 0.94)
@@ -1031,10 +1032,31 @@ Rectangle {
         readonly property string tid: String(threadData?.id ?? "")
         readonly property bool isActive: tid.length > 0 && tid === String(sidebar.mind?.activeThreadId ?? "")
         readonly property bool isPinned: threadData?.pinned === true
+        readonly property var matchedInfo: {
+            if (!sidebar.searchActive) return null
+            const matches = sidebar.mind?.searchedThreadMatches
+            if (Array.isArray(matches)) {
+                for (let i = 0; i < matches.length; ++i) {
+                    if (String(matches[i]?.id ?? "") === chatRow.tid) {
+                        return matches[i]
+                    }
+                }
+            }
+            return chatRow.threadData
+        }
+        readonly property string matchedSnippet: sidebar.searchActive
+            ? String(matchedInfo?.matchedSnippet ?? threadData?.matchedSnippet ?? "").trim()
+            : ""
+        readonly property int matchedTurnIndex: {
+            if (!sidebar.searchActive) return -1
+            const raw = matchedInfo?.matchedTurnIndex ?? threadData?.matchedTurnIndex
+            const num = Number(raw)
+            return (raw !== undefined && raw !== null && Number.isFinite(num) && num >= 0) ? Math.floor(num) : -1
+        }
         objectName: sectionPrefix === "recent" ? ("aquaThreadRow-" + tid) : ("aquaThreadRow-" + sectionPrefix + "-" + tid)
 
         Layout.fillWidth: true
-        implicitHeight: 28
+        implicitHeight: chatRow.matchedSnippet.length > 0 ? 40 : 28
         radius: 7
         color: rowDropArea.containsDrag
             ? Qt.rgba(Appearance.colors.colPrimary.r, Appearance.colors.colPrimary.g, Appearance.colors.colPrimary.b, 0.30)
@@ -1077,16 +1099,34 @@ Rectangle {
                 color: chatRow.isActive ? Appearance.colors.colPrimary : Appearance.colors.colSubtext
             }
 
-            Text {
-                objectName: "aquaThreadTitle-" + chatRow.tid
+            ColumnLayout {
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
-                text: String(chatRow.threadData?.title ?? "New Chat")
-                color: chatRow.isActive ? Appearance.colors.colPrimary : Appearance.colors.colOnLayer1
-                font.family: Appearance.font.family.main
-                font.pixelSize: 11
-                font.weight: chatRow.isActive ? Font.DemiBold : Font.Normal
-                elide: Text.ElideRight
+                spacing: 1
+
+                Text {
+                    objectName: "aquaThreadTitle-" + chatRow.tid
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    text: String(chatRow.threadData?.title ?? "New Chat")
+                    color: chatRow.isActive ? Appearance.colors.colPrimary : Appearance.colors.colOnLayer1
+                    font.family: Appearance.font.family.main
+                    font.pixelSize: 11
+                    font.weight: chatRow.isActive ? Font.DemiBold : Font.Normal
+                    elide: Text.ElideRight
+                }
+
+                Text {
+                    objectName: "aquaThreadSnippet-" + chatRow.tid
+                    visible: chatRow.matchedSnippet.length > 0
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    text: chatRow.matchedSnippet
+                    color: Appearance.colors.colSubtext
+                    font.family: Appearance.font.family.main
+                    font.pixelSize: 10
+                    elide: Text.ElideRight
+                }
             }
 
             // Action buttons (Pin, Move/Project, Duplicate, Rename, Delete)
@@ -1221,6 +1261,9 @@ Rectangle {
             onClicked: {
                 sidebar.mind.selectThread(chatRow.tid)
                 sidebar.threadSelected(chatRow.tid)
+                if (sidebar.searchActive && chatRow.matchedTurnIndex >= 0) {
+                    sidebar.threadTurnSelected(chatRow.tid, chatRow.matchedTurnIndex)
+                }
             }
         }
 

@@ -70,3 +70,8 @@ bounded error only when a journal action is explicitly requested.
 Validation uses an isolated host checkout and fake inference fixtures; it does not modify the live desktop or call a real LLM. See the [documentation index](docs/README.md) for host API, extraction provenance, renderer runbooks and Mochi × Mak1zu × Alis decisions. **Companion tasks and milestones are managed in [Alis-Companion GitHub Issues](https://github.com/llocphann/Alis-Companion/issues?q=is%3Aissue+is%3Aopen)**; the former visual/AI TODO links are compatibility pointers and historical receipts remain at the source-pinned pre-centralization commit; [imported historical milestones](to-do/archive/README.md) and [retired research](docs/archive/README.md) are frozen archives, not current implementation instructions. Historical Alis evidence remains source-pinned and is not a test result for this repository.
 
 License: GPL-3.0-or-later; imported source attribution is retained.
+
+## Development & Release Cadence (`1.0.0`)
+
+- **LLM-Assisted Engineering:** Designed and developed with the assistance of Large Language Models (LLMs) under maintainer review.
+- **Release Schedule:** Maintained alongside Alis `1.0.0` with updates released on a **quarterly, semi-annual, or annual** cadence.

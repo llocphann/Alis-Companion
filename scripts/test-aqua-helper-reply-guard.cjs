@@ -102,6 +102,9 @@ const sixtyLongMsgs = Array.from({length: 60}, (_, i) => ({
 assert.equal(reply("history", {messages: sixtyLongMsgs, hasMore: true}).ok, true);
 assert.equal(reply("chat_threads", {op: "select_thread", activeThreadId: "default", threads: [], projects: [], messages: sixtyLongMsgs, hasMore: false}).ok, true);
 invalid("chat_threads", {op:"unknown_op", activeThreadId:"default", threads:[], projects:[]});
+assert.equal(reply("voice_action", {ok: true, action: "voice_stt", backend: "whisper-cli", transcript: "Hello companion"}).ok, true);
+assert.equal(reply("voice_action", {ok: true, action: "voice_tts", backend: "piper", spoken: true}).ok, true);
+invalid("voice_action", {ok: "not_bool"});
 
 // Invoke the product completion function so rejection also proves state safety.
 const qml = fs.readFileSync(path.join(root, "services/AquaMind.qml"), "utf8");

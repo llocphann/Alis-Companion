@@ -76,7 +76,7 @@ def until(callback, seconds=6):
     raise RuntimeError('private Wayland proof deadline exceeded')
 
 def main():
-    if not os.environ.get('WAYLAND_DISPLAY'):
+    if not shutil.which('kwin_wayland') and not os.environ.get('WAYLAND_DISPLAY'):
         print('SKIP: private Wayland parent unavailable');return 77
     if not importlib.util.find_spec('PySide6'):
         print('SKIP: installed PySide6 drag source unavailable');return 77
@@ -98,16 +98,17 @@ def main():
         compositor=private/'compositor';compositor.mkdir()
         processes=[]
         try:
-            with private_wayland(compositor) as nested:
-                if not nested:
+            with private_wayland(compositor, need_niri=True) as nested:
+                if not nested or not nested.get('NIRI_SOCKET'):
                     print('SKIP: private Wayland compositor unavailable');return 77
-                assert nested['WAYLAND_DISPLAY']!=os.environ['WAYLAND_DISPLAY']
+                parent_wayland = os.environ.get('WAYLAND_DISPLAY', '')
+                assert not parent_wayland or nested['WAYLAND_DISPLAY'] != parent_wayland
                 env=fixture['private_env'](xdg,private/'unused.json')
                 env.update(WAYLAND_DISPLAY=nested['WAYLAND_DISPLAY'],NIRI_SOCKET=nested['NIRI_SOCKET'],
-                    XDG_RUNTIME_DIR=os.environ['XDG_RUNTIME_DIR'],QT_QPA_PLATFORM='wayland',LC_ALL='C.UTF-8',
+                    XDG_RUNTIME_DIR=nested['XDG_RUNTIME_DIR'],QT_QPA_PLATFORM='wayland',LC_ALL='C.UTF-8',
                     QT_QUICK_BACKEND='software',QT_QUICK_CONTROLS_STYLE='Basic',QT_QPA_PLATFORMTHEME='generic',
                     QT_NO_XDG_DESKTOP_PORTAL='1',ALIS_GGUF_ROOTS='[]',
-                    POCKET_PARENT_WAYLAND=os.environ['WAYLAND_DISPLAY'],POCKET_PRIVATE_WAYLAND=nested['WAYLAND_DISPLAY'],
+                    POCKET_PARENT_WAYLAND=parent_wayland or 'headless-virtual',POCKET_PRIVATE_WAYLAND=nested['WAYLAND_DISPLAY'],
                     POCKET_SOURCE_URLS=json.dumps([original.as_uri()]))
                 targetlog=private/'target.log';sourcelog=private/'source.log'
                 # Portal transfer keys belong to a session bus. Both clients

@@ -15,6 +15,7 @@ AquaAbyssLink 1.0 AquaAbyssLink.qml
 AquaTalkCloud 1.0 AquaTalkCloud.qml
 AquaPocketDrop 1.0 AquaPocketDrop.qml
 AquaPocketPane 1.0 AquaPocketPane.qml
+AquaSwarmPane 1.0 AquaSwarmPane.qml
 AquaCloudActions 1.0 AquaCloudActions.qml
 AquaObsidianIcon 1.0 AquaObsidianIcon.qml
 AquaAmbientProp 1.0 AquaAmbientProp.qml

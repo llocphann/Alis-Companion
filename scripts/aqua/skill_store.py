@@ -111,7 +111,21 @@ def _load_reflections() -> list[dict]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
         items = raw.get("reflections", []) if isinstance(raw, dict) else []
-        return [x for x in items if isinstance(x, dict)]
+        out: list[dict] = []
+        for x in items:
+            if not isinstance(x, dict):
+                continue
+            item = dict(x)
+            ops = [str(op).strip() for op in (item.get("ops") or []) if str(op).strip()]
+            item["ops"] = ops
+            lesson = str(item.get("lesson") or "").strip()
+            if " ->  ->" in lesson or lesson.endswith("workflow:") or lesson.endswith("workflow: "):
+                if ops:
+                    item["lesson"] = f"Completed {len(ops)}-step workflow: " + " -> ".join(ops[:5])
+                else:
+                    item["lesson"] = str(item.get("summary") or "")[:240]
+            out.append(item)
+        return out
     except (OSError, ValueError):
         return []
 
@@ -368,7 +382,11 @@ def match_skills(prompt: str, companion_root: Path | None = None, max_results: i
     raw = str(prompt or "").strip().lower()
     if not raw:
         return []
-    words = {w for w in re.findall(r"[a-zA-Z0-9_\u00C0-\u1EF9\-]{3,}", raw)}
+    stop_desc = {
+        "for", "and", "the", "with", "from", "into", "when", "use", "user", "companion",
+        "linux", "file", "files", "folder", "folders", "code", "tool", "tools", "skill",
+    }
+    words = {w for w in re.findall(r"[a-zA-Z0-9_\u00C0-\u1EF9\-]{3,}", raw) if w not in stop_desc}
     scored = []
     for s in list_skills(companion_root):
         if not s.get("enabled", True):
@@ -377,12 +395,15 @@ def match_skills(prompt: str, companion_root: Path | None = None, max_results: i
         sname_low = s["name"].lower()
         if raw.startswith(f"/{sname_low}") and (len(raw) == len(sname_low) + 1 or raw[len(sname_low) + 1].isspace()):
             score += 25
-        elif sname_low in raw:
+        elif re.search(rf"(?:^|[\s/._\-]){re.escape(sname_low)}(?:$|[\s/._\-,:;!?])", raw):
             score += 8
         for trig in s.get("triggers", []):
             if trig and trig in raw:
                 score += 5
-        desc_words = {w for w in re.findall(r"[a-zA-Z0-9_\u00C0-\u1EF9\-]{3,}", s["description"].lower())}
+        desc_words = {
+            w for w in re.findall(r"[a-zA-Z0-9_\u00C0-\u1EF9\-]{3,}", s["description"].lower())
+            if w not in stop_desc
+        }
         overlap = len(words & desc_words)
         if overlap >= 2:
             score += overlap
@@ -808,9 +829,12 @@ def auto_reflect_run(
     skills_updated: list[str] = []
     step_list = [s for s in (steps or []) if isinstance(s, dict)]
 
+    def _step_op_name(s: dict) -> str:
+        return str(s.get("op") or s.get("toolName") or s.get("name") or s.get("id") or "").strip()
+
     # Detect if the run recovered from an intermediate failed step
-    failed_ops = [str(s.get("op") or "") for s in step_list if str(s.get("status") or "") in ("failed", "error")]
-    succeeded_ops = [str(s.get("op") or "") for s in step_list if str(s.get("status") or "") == "completed"]
+    failed_ops = [_step_op_name(s) for s in step_list if str(s.get("status") or "") in ("failed", "error") and _step_op_name(s)]
+    succeeded_ops = [_step_op_name(s) for s in step_list if str(s.get("status") or "") == "completed" and _step_op_name(s)]
     recovery_note = ""
     if failed_ops and succeeded_ops and success:
         recovery_note = f"Recovered after {', '.join(failed_ops[:2])} by running {', '.join(succeeded_ops[-2:])}."
@@ -838,7 +862,7 @@ def auto_reflect_run(
             "tsMs": int(time.time() * 1000),
             "prompt": str(prompt or "")[:200],
             "status": str(status or "completed"),
-            "ops": [str(s.get("op") or s.get("id") or "") for s in step_list[:10]],
+            "ops": [_step_op_name(s) for s in step_list[:10] if _step_op_name(s)],
             "summary": str(summary or "")[:240],
             "lesson": recovery_note or (f"Completed {len(step_list)}-step workflow: " + " -> ".join(succeeded_ops[:5]) if succeeded_ops else ""),
             "skillsUpdated": skills_updated,
@@ -931,7 +955,18 @@ def run_skill(
 
     # Built-in domain enrichments when running built-in skills without external arguments
     sname = skill["name"].lower()
-    if sname == "rag-researcher" and prompt:
+    ponytail_intensity = "full"
+    if sname in ("niri-wm", "quickshell-qml", "arch-linux"):
+        try:
+            import domain_rag
+            dom_map = {"niri-wm": ["niri"], "quickshell-qml": ["quickshell"], "arch-linux": ["archlinux"]}
+            q_text = prompt or skill["description"]
+            d_rag = domain_rag.query_domain_rag(q_text, domains=dom_map[sname], companion_root=comp_root)
+            if d_rag.get("contextMarkdown"):
+                output_lines.append(d_rag["contextMarkdown"])
+        except Exception:
+            pass
+    elif sname == "rag-researcher" and prompt:
         from code_tools import retrieve_rag
         rag = retrieve_rag(prompt, companion_root=comp_root, page=1, page_size=3)
         if rag["snippets"]:
@@ -1030,22 +1065,125 @@ def run_skill(
             output_lines.append(f"  {clip_txt[:400]}")
         except Exception:
             pass
+    elif sname == "graphify":
+        try:
+            import mcp_client
+            target_ws = workspace or str(comp_root)
+            stats_res = mcp_client._execute_graphify_tool("graph_stats", {"project_path": target_ws}, companion_root=comp_root)
+            god_res = mcp_client._execute_graphify_tool("god_nodes", {"project_path": target_ws, "top_n": 6}, companion_root=comp_root)
+            for item in stats_res.get("content", []):
+                if item.get("text"):
+                    output_lines.append(item["text"])
+            for item in god_res.get("content", []):
+                if item.get("text"):
+                    output_lines.append(item["text"])
+            clean_q = re.sub(r"^/graphify\b", "", str(prompt or ""), flags=re.IGNORECASE).strip()
+            if clean_q and not clean_q.startswith("-"):
+                q_res = mcp_client._execute_graphify_tool(
+                    "query_graph",
+                    {"question": clean_q, "project_path": target_ws},
+                    companion_root=comp_root,
+                )
+                for item in q_res.get("content", []):
+                    if item.get("text"):
+                        output_lines.append(item["text"])
+        except Exception:
+            pass
+    elif sname == "ponytail":
+        clean_p = re.sub(r"^/ponytail\b", "", str(prompt or ""), flags=re.IGNORECASE).strip()
+        tokens = clean_p.split()
+        intensity = "full"
+        task_rem = clean_p
+        if tokens and tokens[0].lower() in ("lite", "full", "ultra"):
+            intensity = tokens[0].lower()
+            task_rem = " ".join(tokens[1:]).strip()
+        elif "ultra" in [t.lower() for t in tokens[:2]]:
+            intensity = "ultra"
+        elif "lite" in [t.lower() for t in tokens[:2]]:
+            intensity = "lite"
+        ponytail_intensity = intensity
+        mode_desc = {
+            "lite": "lite — Build what was asked; name the smaller/lazier option in one line and let the user pick.",
+            "full": "full (default) — Enforce The Ladder strictly; no speculative abstractions, wrappers, or unrequested options; never cut security, trust-boundary validation, or data-loss safeguards.",
+            "ultra": "ultra — YAGNI extremist; question parts of the request that the underlying need does not justify before writing code.",
+        }[intensity]
+        output_lines.append('Motto: "The best code is the code you never wrote."')
+        output_lines.append(f"Active Intensity: `{intensity}` ({mode_desc})")
+        output_lines.append("The Ladder:")
+        output_lines.append("  1. Does this need to exist? (YAGNI)")
+        output_lines.append("  2. Does the repo already have a helper/pattern for it?")
+        output_lines.append("  3. Can the standard library or native platform do it?")
+        output_lines.append("  4. What is the fewest lines that solve it cleanly? (Deletion beats addition)")
+        if task_rem:
+            output_lines.append(f"Target Task: {task_rem}")
+        output_lines.append(f"\n### Ponytail Receipt (`{intensity}`)")
+        output_lines.append("- **Skipped bloat**: Zero speculative wrappers, unrequested flags, or single-use abstractions.")
+        output_lines.append("- **Reused**: Existing repo helpers and Python/POSIX standard library primitives.")
+        output_lines.append("- **Trade-offs**: Security, trust-boundary validation, and data-loss safeguards remain non-negotiable.")
+    elif sname in ("docx", "pdf", "xlsx"):
+        try:
+            import code_tools
+            ext_pat = (
+                r"\.docx\b" if sname == "docx"
+                else (r"\.(?:xlsx|csv|tsv)\b" if sname == "xlsx" else r"\.pdf\b")
+            )
+            m_file = re.search(rf"([~/A-Za-z0-9_.\-/]+{ext_pat})", str(prompt or ""), re.IGNORECASE)
+            if m_file:
+                cand_str = m_file.group(1).strip()
+                cand_p = Path(cand_str).expanduser()
+                if not cand_p.is_absolute() and workspace:
+                    cand_p = (Path(workspace).expanduser() / cand_p).resolve(strict=False)
+                if cand_p.is_file():
+                    info = code_tools.read_file(cand_p, max_chars=2400)
+                    if info.get("ok"):
+                        if sname == "xlsx":
+                            f_cnt = len(info.get("formulas") or [])
+                            err_cnt = len(info.get("formulaErrors") or [])
+                            output_lines.append(
+                                f"Extracted `{cand_p.name}` ({len(info.get('sheets') or [])} sheet(s), {f_cnt} formula(s), {err_cnt} formula error(s)):"
+                            )
+                        else:
+                            output_lines.append(
+                                f"Extracted `{cand_p.name}` ({len(info.get('paragraphs') or [])} paragraphs, {len(info.get('tables') or [])} tables):"
+                            )
+                        output_lines.append(info.get("text", "")[:1600])
+            if not output_lines:
+                if sname == "docx":
+                    output_lines.append(
+                        "DOCX pipeline ready: `code_tools.read_file` (OOXML `word/document.xml` paragraphs + Markdown tables), "
+                        "`code_tools.convert_or_create_document` (Markdown/OOXML `.docx` builder), `pandoc`, and `libreoffice --headless --convert-to pdf`."
+                    )
+                elif sname == "xlsx":
+                    output_lines.append(
+                        "XLSX pipeline ready: `code_tools.read_file` (OOXML `xl/workbook.xml`, `xl/sharedStrings.xml`, `xl/worksheets/sheet*.xml` + `<f>` formulas), "
+                        "`code_tools.convert_or_create_document` (zero-formula-error OOXML `.xlsx` builder), and `libreoffice --headless`."
+                    )
+                else:
+                    output_lines.append(
+                        "PDF pipeline ready: `code_tools.read_file` (`pdftotext -layout` + stream parser), "
+                        "`code_tools.convert_or_create_document` (PDF 1.4 writer), `pdfinfo`, `pdfimages`, and `pdftoppm`."
+                    )
+        except Exception:
+            pass
 
     try:
         record_skill_feedback(skill["name"], success=script_ok, companion_root=comp_root)
     except SkillError:
         pass
 
-    return {
+    res_payload = {
         "skill": skill["name"],
         "description": skill["description"],
         "source": skill["source"],
         "version": skill.get("version", "1.0.0"),
         "references": skill.get("references", []),
         "executedScript": executed_script,
-        "output": "\n".join(output_lines)[:2400],
+        "output": "\n".join(output_lines)[:3200],
         "instructions": skill["instructions"][:2400],
     }
+    if sname == "ponytail":
+        res_payload["ponytailMode"] = ponytail_intensity
+    return res_payload
 
 
 def _compact_skill_summaries(companion_root: Path | None = None) -> list[dict]:
@@ -1161,4 +1299,17 @@ def execute_skill_action(options: dict, companion_root: Path | None = None) -> d
     if op == "delete":
         deleted = delete_skill(str(options.get("name") or ""), companion_root=companion_root)
         return {"op": op, "deleted": deleted, "skills": _compact_skill_summaries(companion_root)}
+    if op == "export_finetune":
+        return export_finetune_dataset(
+            output_path=options.get("outputPath") or options.get("path"),
+            format=str(options.get("format") or "sharegpt"),
+        )
     raise SkillError("invalid_skill_op", f"Unsupported skill operation '{op}'.")
+
+
+def export_finetune_dataset(output_path: str | Path | None = None, format: str = "sharegpt") -> dict:
+    """Export successful user/assistant/tool trajectories and learned preferences into a ShareGPT or ChatML JSONL file."""
+    import learning_store
+
+    return learning_store.export_finetune_dataset(output_path=output_path, format=format)
+

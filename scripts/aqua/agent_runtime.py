@@ -15,22 +15,27 @@ Key guarantees:
     and while-busy stop/steer instructions.
 """
 from __future__ import annotations
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import signal
+import sys
+import threading
 import time
 import unicodedata
-import urllib.error
 import urllib.request
 
+import code_tools
+import context_policy
+import spill_store
 from code_tools import (
     CodeToolError,
     build_repo_map,
-    compact_evidence,
-    estimate_tokens,
+    convert_or_create_document,
+    inspect_file,
     query_lsp,
+    read_file,
     retrieve_rag,
     run_project_tests,
     search_code,
@@ -41,10 +46,13 @@ import history_store
 import mcp_client
 from mcp_client import McpError
 import memory_store
+import domain_rag
 import rag_store
 from rag_store import RagStoreError
 import skill_store
 from skill_store import SkillError
+import swarm_store
+from swarm_store import SwarmStoreError
 from permission_store import (
     AgentPermissionError,
     check_permission,
@@ -58,13 +66,14 @@ from permission_store import (
 )
 import pocket as pocket_store
 from rule_store import (
+    DEFAULT_RULES_TEXT,
     RuleStoreError,
+    append_instruction_rule,
     create_or_update_rule,
-    delete_rule,
-    evaluate_triggers,
     load_rules_state,
-    mark_startup_grace,
+    remove_instruction_rule,
     set_rule_enabled,
+    set_rules_text,
 )
 from run_store import (
     RunStoreError,
@@ -80,14 +89,23 @@ from run_store import (
     save_session_context,
     start_run,
 )
-from screen_context import ScreenContextError, capture_screenshot_file, observe_active_window, perform_gui_action
+from screen_context import (
+    ScreenContextError,
+    capture_screenshot_file,
+    format_semantic_snapshot,
+    observe_active_window,
+    perform_gui_action,
+)
 from tool_store import (
     ToolError,
     agent_file_op,
     confirm_edit,
     execute_system_sudo_op,
     propose_edit,
+    read_spill_tool,
     resolve_candidate_path,
+    rollback_file_receipt,
+    search_files_in_home,
 )
 import web_tools
 
@@ -97,27 +115,267 @@ AGENT_CONTRACT_VERSION = 1
 _ACTIVE_RUN_STEPS: list[dict] = []
 _ACTIVE_RUN_START_MS: int = 0
 _ACTIVE_STEP_META: dict[str, tuple[str, str]] = {}
+_SUBAGENT_LOCK = threading.RLock()
+_ACTIVE_SUBAGENT_RUNS: list[dict] = []
+_SUBAGENT_MAX_SUMMARY_CHARS = 1200
+_LAST_CANCELLED_STREAM_PREFIX: dict | None = None
+
+
+def get_last_cancelled_stream_prefix() -> dict | None:
+    """Return a copy of the most recently finalized cancelled stream prefix, if any."""
+    return dict(_LAST_CANCELLED_STREAM_PREFIX) if isinstance(_LAST_CANCELLED_STREAM_PREFIX, dict) else None
+
+SUBAGENT_ROLES: dict[str, dict] = {
+    "researcher": {
+        "role": "researcher",
+        "title": "Researcher",
+        "subtitle": "Explorer / Researcher",
+        "enable_thinking": False,
+        "temperature": 0.2,
+        "status_summary": "Gathering context...",
+        "allowed_tools": (
+            "code_search",
+            "read_file",
+            "read_spill",
+            "domain_rag",
+            "web_search",
+            "system_status",
+            "inspect_user_configuration",
+            "file_inspect",
+            "code_inspect",
+            "rag_search",
+            "web_fetch",
+            "system_telemetry",
+            "git_inspect",
+        ),
+        "system_prompt": (
+            "You are Companion Subagent [Researcher] (Explorer / Researcher). "
+            "Operate in an isolated context window using read/search/RAG/status tools only. "
+            "Gather relevant facts, file paths, and configuration state, and return a compact summary (<= 1200 chars) without raw file dumps."
+        ),
+    },
+    "planner": {
+        "role": "planner",
+        "title": "Planner",
+        "subtitle": "Architect / Planner",
+        "enable_thinking": True,
+        "temperature": 0.5,
+        "status_summary": "Planning execution steps...",
+        "allowed_tools": (
+            "code_search",
+            "read_file",
+            "read_spill",
+            "domain_rag",
+            "file_inspect",
+            "code_inspect",
+            "rag_search",
+        ),
+        "system_prompt": (
+            "You are Companion Subagent [Planner] (Architect / Planner). "
+            "Analyze the requirements and research findings in an isolated context window and produce a concise, ordered execution checklist (<= 1200 chars)."
+        ),
+    },
+    "executor": {
+        "role": "executor",
+        "title": "Executor",
+        "subtitle": "Action / Document / Code Worker",
+        "enable_thinking": False,
+        "temperature": 0.3,
+        "status_summary": "Executing task actions...",
+        "allowed_tools": (
+            "edit_file",
+            "write_file",
+            "create_document",
+            "convert_document",
+            "run_command",
+            "desktop_control",
+            "file_inspect",
+            "read_spill",
+            "file_mutate",
+            "code_inspect",
+            "shell_run",
+            "skill_run",
+        ),
+        "system_prompt": (
+            "You are Companion Subagent [Executor] (Action / Document / Code Worker). "
+            "Execute concrete file, code, document, command, or desktop actions cleanly and return a compact execution receipt (<= 1200 chars)."
+        ),
+    },
+    "coder": {
+        "role": "coder",
+        "title": "Coder",
+        "subtitle": "Action / Document / Code Worker",
+        "enable_thinking": False,
+        "temperature": 0.3,
+        "status_summary": "Implementing code and document changes...",
+        "allowed_tools": (
+            "edit_file",
+            "write_file",
+            "create_document",
+            "convert_document",
+            "run_command",
+            "desktop_control",
+            "file_inspect",
+            "read_spill",
+            "file_mutate",
+            "code_inspect",
+            "shell_run",
+            "skill_run",
+        ),
+        "system_prompt": (
+            "You are Companion Subagent [Coder] (Action / Document / Code Worker). "
+            "Implement surgical code or document changes in an isolated context window and return a compact summary (<= 1200 chars)."
+        ),
+    },
+    "verifier": {
+        "role": "verifier",
+        "title": "Verifier",
+        "subtitle": "QA / Verifier",
+        "enable_thinking": False,
+        "temperature": 0.2,
+        "status_summary": "Cross-verifying output...",
+        "allowed_tools": (
+            "read_file",
+            "read_spill",
+            "code_search",
+            "system_status",
+            "inspect_user_configuration",
+            "file_inspect",
+            "code_inspect",
+            "system_telemetry",
+            "git_inspect",
+        ),
+        "system_prompt": (
+            "You are Companion Subagent [Verifier] (QA / Verifier). "
+            "Independently cross-verify outputs, file readbacks, syntax, security/permissions, and configuration state in an isolated context window and return a concise verification summary (<= 1200 chars)."
+        ),
+    },
+}
+
+SUBAGENT_EFFICIENCY_CRITERIA: tuple[str, ...] = (
+    "cross_verification",
+    "parallel_discovery",
+    "privilege_isolation",
+    "context_isolation",
+    "cognitive_separation",
+)
+
+_PRIVILEGED_MUTATE_EXEC_TOOLS: frozenset[str] = frozenset({
+    "file_mutate",
+    "edit_file",
+    "write_file",
+    "create_document",
+    "convert_document",
+    "shell_run",
+    "run_command",
+    "exec",
+    "desktop_control",
+    "process_manage",
+    "file_receipt_rollback",
+})
+
+_SUBAGENT_ROLE_ALIASES: dict[str, str] = {
+    "explorer": "researcher",
+    "research": "researcher",
+    "investigator": "researcher",
+    "architect": "planner",
+    "plan": "planner",
+    "action": "executor",
+    "worker": "executor",
+    "document": "executor",
+    "code": "coder",
+    "developer": "coder",
+    "qa": "verifier",
+    "test": "verifier",
+    "validator": "verifier",
+}
+
+
+def _normalize_subagent_role(role: str) -> str:
+    raw = str(role or "researcher").strip().lower()
+    if raw in SUBAGENT_ROLES:
+        return raw
+    return _SUBAGENT_ROLE_ALIASES.get(raw, "researcher")
+
+
+def _sanitize_english_status_text(summary: str, default_english: str = "Processing step...") -> str:
+    """Ensure all Companion & Subagent status labels are strictly in English (never Vietnamese)."""
+    text = re.sub(r"\s+", " ", str(summary or "").strip())
+    if not text:
+        return default_english
+    # If any Vietnamese diacritics or common Vietnamese status phrases appear, map to clean English
+    if re.search(r"[ăâđêôơưĂÂĐÊÔƠƯáàảãạéèẻẽẹíìỉĩịóòỏõọúùủũụýỳỷỹỵ]", text) or re.search(
+        r"\b(?:dang\s+thu\s+thap|dang\s+phan\s+tich|dang\s+thuc\s+thi|dang\s+kiem\s+tra|dang\s+xu\s+ly|thu\s+thap\s+du\s+lieu|lap\s+ke\s+hoach)\b",
+        text.lower(),
+    ):
+        return default_english
+    return text
 
 
 def _reset_activity_steps(now_ms: int | None = None) -> None:
-    global _ACTIVE_RUN_STEPS, _ACTIVE_RUN_START_MS
+    global _ACTIVE_RUN_STEPS, _ACTIVE_RUN_START_MS, _ACTIVE_SUBAGENT_RUNS
     _ACTIVE_RUN_STEPS = []
+    _ACTIVE_SUBAGENT_RUNS = []
     _ACTIVE_RUN_START_MS = int(now_ms or int(time.time() * 1000))
     _ACTIVE_STEP_META.clear()
 
 
+def _emit_subagent_progress(
+    role: str,
+    index: int = 1,
+    total: int = 1,
+    summary: str = "",
+    status: str = "running",
+) -> dict:
+    """Emit strictly-English subagent progress via both __AQUA_PROGRESS__ and __AQUA_STEP__."""
+    role_key = _normalize_subagent_role(role)
+    role_spec = SUBAGENT_ROLES[role_key]
+    role_title = str(role_spec["title"])
+    idx = max(1, int(index or 1))
+    tot = max(idx, int(total or 1))
+    clean_summary = _sanitize_english_status_text(summary, str(role_spec["status_summary"]))
+    step_label = f"🤖 Subagent [{role_title} {idx}/{tot}]: {clean_summary}"
+    _emit_activity_step(step_label, kind=f"subagent_{role_key}_{idx}", status=status)
+    progress_payload = {
+        "phase": "subagent",
+        "kind": "subagent",
+        "subagentRole": role_key,
+        "subagentTitle": role_title,
+        "subagentIndex": idx,
+        "subagentTotal": tot,
+        "summary": clean_summary,
+        "current": f"{step_label.rstrip(' ›')} ›",
+        "status": status,
+        "steps": [s["label"] for s in _ACTIVE_RUN_STEPS[-10:]],
+    }
+    if (
+        os.environ.get("AQUA_TEST_AGENT_ENABLED") != "1"
+        and not os.environ.get("AQUA_TEST_ENDPOINT")
+        and not os.environ.get("AI_FIXTURE_URL")
+    ):
+        try:
+            sys.stderr.write("__AQUA_PROGRESS__:" + json.dumps(progress_payload, ensure_ascii=False) + "\n")
+            sys.stderr.flush()
+        except Exception:
+            pass
+    return progress_payload
+
+
 def _emit_activity_step(label: str, kind: str = "step", status: str = "running") -> None:
-    text = str(label or "").strip()
+    text = _sanitize_english_status_text(str(label or "").strip(), "Processing step...")
     if not text:
         return
     if not text.endswith("›"):
         text = text.rstrip(".") + " ›"
     now = int(time.time() * 1000)
     elapsed_s = max(0.1, round((now - (_ACTIVE_RUN_START_MS or now)) / 1000.0, 1))
-    entry = {"label": text, "kind": kind, "status": status, "elapsedSec": elapsed_s}
+    is_thought = text.startswith("Thought for ") or kind == "llm_think"
+    eff_kind = "llm_think" if is_thought else kind
+    entry = {"label": text, "kind": eff_kind, "status": status, "elapsedSec": elapsed_s}
     updated = False
     for idx in range(len(_ACTIVE_RUN_STEPS) - 1, -1, -1):
-        if _ACTIVE_RUN_STEPS[idx].get("kind") == kind:
+        prev = _ACTIVE_RUN_STEPS[idx]
+        if prev.get("kind") == eff_kind or (is_thought and str(prev.get("label") or "").startswith("Thought for ")):
             _ACTIVE_RUN_STEPS[idx] = entry
             updated = True
             break
@@ -162,6 +420,8 @@ def record_step_start(run_id, seq, tool_name, side_effect=False, target_path="",
         lbl = f"Opening browser: {t_target[:40]} ›"
     elif t_name == "screen_observe":
         lbl = "Capturing active window (Niri+Vision) ›"
+    elif t_name == "file_search":
+        lbl = f"Searching for {Path(t_target).name if t_target else 'files'} ›"
     elif t_name == "file_inspect":
         lbl = f"Inspecting {Path(t_target).name if t_target else 'workspace'} ›"
     elif t_name in ("file_edit", "write_file"):
@@ -170,6 +430,8 @@ def record_step_start(run_id, seq, tool_name, side_effect=False, target_path="",
         lbl = f"Running command: {t_target[:42]} ›"
     elif t_name == "git_inspect":
         lbl = f"Checking Git in {Path(t_target).name if t_target else 'repository'} ›"
+    elif t_name in ("llm_synthesize", "plan_generate"):
+        lbl = f"Synthesizing response ({t_target[:32]}) ›" if t_target else "Synthesizing response & plan ›"
     else:
         lbl = f"Running {t_name}" + (f": {Path(t_target).name}" if t_target else "") + " ›"
     _emit_activity_step(lbl, kind=f"step_{step_id}", status="running")
@@ -195,6 +457,10 @@ def record_step_finish(step_id, status="completed", target_path="", receipt_id="
     elif t_name == "screen_observe":
         src = det.get("source") or "Niri+Vision"
         lbl = f"Captured active window ({src}) ›"
+    elif t_name == "file_search":
+        cnt = det.get("count")
+        cnt_str = f" ({cnt} found)" if cnt is not None else ""
+        lbl = f"Searched for {Path(t_target).name if t_target else 'files'}{cnt_str} ›"
     elif t_name == "file_inspect":
         lbl = f"Inspected {Path(t_target).name if t_target else 'workspace'} ›"
     elif t_name in ("file_edit", "write_file"):
@@ -203,33 +469,470 @@ def record_step_finish(step_id, status="completed", target_path="", receipt_id="
         lbl = f"Ran command: {t_target[:42]} ›"
     elif t_name == "git_inspect":
         lbl = f"Checked Git in {Path(t_target).name if t_target else 'repository'} ›"
+    elif t_name in ("llm_synthesize", "plan_generate"):
+        lbl = f"Synthesized response ({t_target[:32]}) ›" if t_target else "Synthesized response & plan ›"
     else:
         lbl = f"Ran {t_name}" + (f": {Path(t_target).name}" if t_target else "") + " ›"
     _emit_activity_step(lbl, kind=f"step_{step_id}", status=status)
     return res
 
 
+_LAST_LMSTUDIO_ERROR: str = ""
+_LAST_LMSTUDIO_LOADED_MODEL: str = ""
+
+
+def _get_system_and_gpu_memory_mb() -> tuple[int, int]:
+    """Return (mem_available_mb, amdgpu_gtt_free_mb) from /proc/meminfo and /sys/class/drm."""
+    mem_avail_mb = 16384
+    gtt_free_mb = 16384
+    try:
+        meminfo = Path("/proc/meminfo").read_text(encoding="utf-8", errors="replace")
+        for line in meminfo.splitlines():
+            if line.startswith("MemAvailable:"):
+                parts = line.split()
+                if len(parts) >= 2 and parts[1].isdigit():
+                    mem_avail_mb = int(parts[1]) // 1024
+                break
+    except OSError:
+        pass
+    try:
+        drm_root = Path("/sys/class/drm")
+        if drm_root.is_dir():
+            for card_dir in drm_root.iterdir():
+                if not card_dir.name.startswith("card") or "-" in card_dir.name:
+                    continue
+                dev_dir = card_dir / "device"
+                gtt_tot_f = dev_dir / "mem_info_gtt_total"
+                gtt_used_f = dev_dir / "mem_info_gtt_used"
+                if gtt_tot_f.is_file() and gtt_used_f.is_file():
+                    gtt_tot = int(gtt_tot_f.read_text(encoding="utf-8").strip() or "0")
+                    gtt_used = int(gtt_used_f.read_text(encoding="utf-8").strip() or "0")
+                    if gtt_tot > 0:
+                        gtt_free_mb = max(0, (gtt_tot - gtt_used) // (1024 * 1024))
+                        break
+    except (OSError, ValueError):
+        pass
+    return mem_avail_mb, gtt_free_mb
+
+
+def _find_lmstudio_worker_pids() -> tuple[list[int], list[int]]:
+    """Return (llama_server_pids, gdb_pids) owned by current UID."""
+    llama_pids: list[int] = []
+    gdb_pids: list[int] = []
+    uid = os.getuid()
+    proc_root = Path("/proc")
+    if not proc_root.is_dir():
+        return llama_pids, gdb_pids
+    for entry in proc_root.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            if entry.stat().st_uid != uid:
+                continue
+            comm = (entry / "comm").read_text(encoding="utf-8", errors="replace").strip().lower()
+            if "llama" in comm:
+                llama_pids.append(int(entry.name))
+            elif comm == "gdb":
+                cmdline = (entry / "cmdline").read_bytes().decode("utf-8", errors="replace").lower()
+                if "llama" in cmdline or "lmstudio" in cmdline:
+                    gdb_pids.append(int(entry.name))
+        except OSError:
+            continue
+    return llama_pids, gdb_pids
+
+
+def _kill_runaway_lmstudio_workers(only_gdb: bool = False) -> None:
+    """Kill gdb backtrace processes (and optionally runaway llama_server processes) to immediately free GTT/RAM."""
+    import signal
+    llama_pids, gdb_pids = _find_lmstudio_worker_pids()
+    targets = gdb_pids if only_gdb else (gdb_pids + llama_pids)
+    for pid in targets:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+
+def _check_lmstudio_log_recent_fit_or_oom_error(since_ts: float = 0.0) -> str:
+    """Inspect the newest LM Studio server log tail for GPU fit/OOM errors since the last successful load."""
+    try:
+        logs_root = Path.home() / ".lmstudio" / "server-logs"
+        if not logs_root.is_dir():
+            return ""
+        newest_log: Path | None = None
+        newest_mtime = 0.0
+        for sub in logs_root.iterdir():
+            if not sub.is_dir():
+                continue
+            for lf in sub.glob("*.log"):
+                try:
+                    mt = lf.stat().st_mtime
+                    if mt > newest_mtime:
+                        newest_mtime = mt
+                        newest_log = lf
+                except OSError:
+                    continue
+        now_s = time.time()
+        if newest_log is None or newest_mtime < max(since_ts, now_s - 45.0):
+            return ""
+        with newest_log.open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fsize = fh.tell()
+            fh.seek(max(0, fsize - 24576), os.SEEK_SET)
+            tail = fh.read().decode("utf-8", errors="replace")
+        last_loaded_idx = tail.rfind("llama_server: model loaded")
+        active_slice = tail[last_loaded_idx:] if last_loaded_idx >= 0 else tail
+        if since_ts > 0.0:
+            kept_lines: list[str] = []
+            has_any_ts = bool(re.search(r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]", active_slice))
+            keep_current = not has_any_ts
+            for line in active_slice.splitlines():
+                m_ts = re.search(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]", line)
+                if m_ts:
+                    try:
+                        line_ts = time.mktime(time.strptime(m_ts.group(1), "%Y-%m-%d %H:%M:%S"))
+                        keep_current = line_ts >= (since_ts - 2.0)
+                    except ValueError:
+                        keep_current = True
+                if keep_current:
+                    kept_lines.append(line)
+            active_slice = "\n".join(kept_lines)
+        if "common_fit_params: failed to fit params to free device memory" in active_slice:
+            return "gpu_fit_failed"
+        if (
+            "Not enough memory for command submission" in active_slice
+            or "DeviceLostError" in active_slice
+            or "failed to allocate buffer" in active_slice
+        ):
+            return "gpu_oom"
+        if "Model load request cancelled by client disconnect" in active_slice and newest_mtime >= now_s - 15.0:
+            return "load_cancelled"
+    except OSError:
+        pass
+    return ""
+
+
+def _start_lmstudio_gtt_watchdog():
+    """Start a background daemon thread that kills runaway llama_server before amdgpu GTT hits 0 and crashes niri."""
+    import threading
+    stop_event = threading.Event()
+    start_ts = time.time()
+
+    def _watch():
+        global _LAST_LMSTUDIO_ERROR
+        while not stop_event.wait(0.15):
+            _kill_runaway_lmstudio_workers(only_gdb=True)
+            mem_avail_mb, gtt_free_mb = _get_system_and_gpu_memory_mb()
+            log_err = _check_lmstudio_log_recent_fit_or_oom_error(since_ts=start_ts - 1.0)
+            if (
+                gtt_free_mb < 450
+                or mem_avail_mb < 512
+                or log_err == "gpu_oom"
+                or (log_err == "gpu_fit_failed" and gtt_free_mb < 900)
+            ):
+                _LAST_LMSTUDIO_ERROR = "gpu_oom"
+                _kill_runaway_lmstudio_workers(only_gdb=False)
+                break
+
+    t = threading.Thread(target=_watch, daemon=True)
+    t.start()
+    return stop_event
+
+
+def _lmstudio_error_user_message(lang: str = "en") -> str:
+    if lang == "vi":
+        return (
+            "⚠️ **Đã bảo vệ phiên màn hình (Niri):** LM Studio đang nạp lại model hoặc thiết lập GPU Offload / Context Length "
+            "vượt quá giới hạn bộ nhớ GPU tích hợp (AMD GTT 15 GB). Companion đã tự động chặn/dừng yêu cầu nạp trùng lặp để tránh tràn VRAM làm sập phiên đăng nhập. "
+            "Bạn hãy giảm **GPU Offload** (hoặc nạp sẵn model trong LM Studio) rồi gửi lại tin nhắn nhé!"
+        )
+    return (
+        "⚠️ **Desktop Session Protected (Niri):** LM Studio is currently reloading the model or its GPU Offload / Context Length "
+        "settings exceed safe integrated GPU memory (15 GB AMD GTT limit). Companion stopped the load request to prevent an `amdgpu` out-of-memory session crash. "
+        "Please lower **GPU Offload** in LM Studio (or wait for the model to finish loading) and try again."
+    )
+
+
+def _auto_load_lmstudio_model_safe(
+    clean_mdl: str,
+    gtt_free_mb: int,
+    force_cap_ratio: float | None = None,
+) -> bool:
+    """Safely load an unloaded LM Studio model via lms CLI with bounded context_length and automatic GPU offload capping if needed."""
+    global _LAST_LMSTUDIO_ERROR, _LAST_LMSTUDIO_LOADED_MODEL
+    import shutil
+    import subprocess
+    if not clean_mdl:
+        return True
+    if not (Path.home() / ".lmstudio" / "models").is_dir():
+        return True
+    lms_bin = shutil.which("lms") or str(Path.home() / ".lmstudio" / "bin" / "lms")
+    if not Path(lms_bin).is_file():
+        return True
+    safe_gtt_gib = max(2.0, (gtt_free_mb - 3500) / 1024.0)
+    load_cmd = [lms_bin, "load", clean_mdl, "-c", "8192"]
+    if force_cap_ratio is not None:
+        load_cmd.extend(["--gpu", str(round(max(0.15, min(0.85, force_cap_ratio)), 2))])
+    else:
+        m_gpu = None
+        try:
+            est_proc = subprocess.run(
+                [lms_bin, "load", clean_mdl, "-c", "8192", "--estimate-only"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            est_out = f"{est_proc.stdout or ''}\n{est_proc.stderr or ''}"
+            m_gpu = re.search(r"Estimated GPU Memory:\s*([0-9.]+)\s*GiB", est_out, re.IGNORECASE)
+        except Exception:
+            m_gpu = None
+        if m_gpu:
+            est_gpu_gib = float(m_gpu.group(1))
+            if est_gpu_gib > safe_gtt_gib and est_gpu_gib > 0:
+                ratio = max(0.15, min(0.85, round((safe_gtt_gib / est_gpu_gib) - 0.03, 2)))
+                load_cmd.extend(["--gpu", str(ratio)])
+        elif safe_gtt_gib < 14.0 and any(k in clean_mdl.lower() for k in ("35b", "32b", "30b", "27b", "70b")):
+            load_cmd.extend(["--gpu", "0.5"])
+    load_cmd.append("-y")
+    try:
+        _emit_activity_step(
+            f"Loading model in LM Studio ({clean_mdl[:24]}) ›",
+            kind="lms_load",
+            status="running",
+        )
+        wd_stop = _start_lmstudio_gtt_watchdog()
+        try:
+            load_proc = subprocess.run(
+                load_cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=110,
+                check=False,
+            )
+        finally:
+            wd_stop.set()
+        if _LAST_LMSTUDIO_ERROR:
+            return False
+        if load_proc.returncode == 0:
+            _LAST_LMSTUDIO_LOADED_MODEL = clean_mdl
+            _emit_activity_step(
+                f"Loaded model in LM Studio ({clean_mdl[:24]}) ›",
+                kind="lms_load",
+                status="completed",
+            )
+            return True
+    except Exception:
+        if _LAST_LMSTUDIO_ERROR:
+            return False
+    return True
+
+
+def _ensure_lmstudio_server_listening() -> None:
+    if not (Path.home() / ".lmstudio" / "models").is_dir():
+        return
+    import shutil
+    import socket
+    import subprocess
+    try:
+        with socket.create_connection(("127.0.0.1", 1234), timeout=0.45):
+            return
+    except OSError:
+        lms_bin = shutil.which("lms") or str(Path.home() / ".lmstudio" / "bin" / "lms")
+        if Path(lms_bin).is_file():
+            try:
+                subprocess.run(
+                    [lms_bin, "server", "start"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=14,
+                    check=False,
+                )
+            except Exception:
+                pass
+
+
+def _ensure_lmstudio_runtime_ready(
+    endpoint: str = "",
+    model_name: str = "",
+    v0_url: str = "http://127.0.0.1:1234/api/v0/models",
+) -> bool:
+    global _LAST_LMSTUDIO_ERROR, _LAST_LMSTUDIO_LOADED_MODEL
+    _LAST_LMSTUDIO_LOADED_MODEL = ""
+    try:
+        lms_root = Path.home() / ".lmstudio"
+        if lms_root.is_dir():
+            (lms_root / ".internal" / "temp").mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    if (
+        (
+            not endpoint
+            or ":1234" not in endpoint
+            or os.environ.get("ALIS_TEST_ISOLATED")
+            or os.environ.get("AQUA_TEST_ENDPOINT")
+            or os.environ.get("AI_FIXTURE_URL")
+            or not (Path.home() / ".lmstudio" / "models").is_dir()
+        )
+        and v0_url == "http://127.0.0.1:1234/api/v0/models"
+    ):
+        return True
+    if _LAST_LMSTUDIO_ERROR in ("gpu_oom", "gpu_fit_failed"):
+        return False
+    _kill_runaway_lmstudio_workers(only_gdb=True)
+    clean_mdl = re.sub(r"^(?:lmstudio-|ollama-|gguf:)", "", str(model_name or "").strip())
+    if v0_url == "http://127.0.0.1:1234/api/v0/models":
+        _ensure_lmstudio_server_listening()
+    try:
+        t_wait_start = time.time()
+        all_ids: list[str] = []
+        any_embed_loaded = False
+        stopped_runaway_load = False
+        while True:
+            with urllib.request.urlopen(v0_url, timeout=1.5) as r_v0:
+                v0_data = json.loads(r_v0.read().decode("utf-8", errors="replace"))
+            all_v0_items = [
+                it for it in (v0_data.get("data") if isinstance(v0_data, dict) else [])
+                if isinstance(it, dict)
+            ]
+            any_embed_loaded = any(
+                str(it.get("type") or "") in ("embeddings", "embedding")
+                and str(it.get("state") or "").strip().lower() in ("loaded", "loading")
+                for it in all_v0_items
+            )
+            items = [
+                it for it in all_v0_items
+                if str(it.get("type") or "") not in ("embeddings", "embedding")
+            ]
+            all_ids = [str(it.get("id") or "").strip() for it in items if str(it.get("id") or "").strip()]
+            loading_items = [it for it in items if str(it.get("state") or "").strip().lower() == "loading"]
+            loaded_items = [it for it in items if str(it.get("state") or "").strip().lower() == "loaded"]
+            mem_avail_mb, gtt_free_mb = _get_system_and_gpu_memory_mb()
+            if loading_items:
+                log_err = _check_lmstudio_log_recent_fit_or_oom_error(since_ts=t_wait_start - 2.0)
+                if (
+                    gtt_free_mb < 450
+                    or mem_avail_mb < 512
+                    or log_err == "gpu_oom"
+                    or (log_err == "gpu_fit_failed" and gtt_free_mb < 900)
+                ):
+                    _kill_runaway_lmstudio_workers(only_gdb=False)
+                    stopped_runaway_load = True
+                    break
+                if time.time() - t_wait_start > 110.0:
+                    _LAST_LMSTUDIO_ERROR = "load_timeout"
+                    return False
+                time.sleep(0.4)
+                continue
+            # Never unload or override user settings when ANY LLM/VLM model is already loaded!
+            if loaded_items:
+                if gtt_free_mb < 250:
+                    _LAST_LMSTUDIO_ERROR = "gpu_oom"
+                    return False
+                loaded_ids = [str(it.get("id") or "").strip() for it in loaded_items if str(it.get("id") or "").strip()]
+                if loaded_ids:
+                    _LAST_LMSTUDIO_LOADED_MODEL = clean_mdl if clean_mdl in loaded_ids else loaded_ids[0]
+                return True
+            break
+
+        if all_ids and clean_mdl and clean_mdl not in all_ids:
+            _LAST_LMSTUDIO_LOADED_MODEL = all_ids[0]
+            clean_mdl = all_ids[0]
+        elif all_ids and not clean_mdl:
+            _LAST_LMSTUDIO_LOADED_MODEL = all_ids[0]
+            clean_mdl = all_ids[0]
+
+        # All LLM/VLM models are currently 'not-loaded'.
+        # Wait if a previous llama_server is still tearing down in /proc and holding GTT/RAM.
+        if not any_embed_loaded:
+            t_teardown = time.time()
+            while time.time() - t_teardown < 15.0:
+                llama_pids, gdb_pids = _find_lmstudio_worker_pids()
+                if gdb_pids:
+                    _kill_runaway_lmstudio_workers(only_gdb=True)
+                if not llama_pids:
+                    break
+                time.sleep(0.4)
+            else:
+                _kill_runaway_lmstudio_workers(only_gdb=False)
+
+        mem_avail_mb, gtt_free_mb = _get_system_and_gpu_memory_mb()
+        if gtt_free_mb < 1024 or mem_avail_mb < 1500:
+            _LAST_LMSTUDIO_ERROR = "gpu_oom"
+            return False
+
+        if v0_url == "http://127.0.0.1:1234/api/v0/models" and clean_mdl:
+            return _auto_load_lmstudio_model_safe(
+                clean_mdl,
+                gtt_free_mb,
+                force_cap_ratio=0.45 if stopped_runaway_load else None,
+            )
+    except Exception:
+        pass
+    return True
+
+
 def _resolve_live_llm(options: dict) -> tuple[str, str]:
+    _ensure_lmstudio_runtime_ready()
     llm_ep = str(options.get("endpoint") or os.environ.get("AQUA_LLM_ENDPOINT") or "").strip()
     llm_model = str(options.get("model") or os.environ.get("AQUA_LLM_MODEL") or "").strip()
-    need_probe = not llm_ep or "/v1/" not in llm_ep or not llm_model or llm_model.startswith("gguf:")
-    if need_probe and str(options.get("runSource") or "") == "interactive":
+    is_isolated_test = bool(os.environ.get("ALIS_TEST_ISOLATED")) and not bool(options.get("endpoint"))
+    is_fixture = bool(os.environ.get("AQUA_TEST_ENDPOINT") or os.environ.get("AI_FIXTURE_URL"))
+    need_probe = (
+        not llm_ep
+        or "/v1/" not in llm_ep
+        or ":8080" in llm_ep
+        or not llm_model
+        or llm_model.startswith("gguf:")
+        or llm_model.lower().endswith(".gguf")
+    )
+    if not is_isolated_test and not is_fixture and (need_probe or ":1234" in llm_ep) and (
+        str(options.get("runSource") or "interactive") == "interactive"
+        or options.get("synthesizeWithLlm") is True
+        or options.get("allowLiveProbe") is True
+    ):
+        _ensure_lmstudio_server_listening()
         try:
-            with urllib.request.urlopen("http://127.0.0.1:1234/v1/models", timeout=1.0) as m_resp:
-                m_data = json.loads(m_resp.read().decode("utf-8", errors="replace"))
-                m_items = [
-                    str(item.get("id") or "").strip()
-                    for item in (m_data.get("data") if isinstance(m_data, dict) else [])
-                    if isinstance(item, dict)
-                    and str(item.get("id") or "").strip()
-                    and "embed" not in str(item.get("id") or "").lower()
-                ]
-                if m_items:
-                    llm_ep = "http://127.0.0.1:1234/v1/chat/completions"
-                    clean_cand = re.sub(r"^(?:lmstudio-|ollama-|gguf:)", "", llm_model)
-                    llm_model = clean_cand if clean_cand in m_items else m_items[0]
+            with urllib.request.urlopen("http://127.0.0.1:1234/api/v0/models", timeout=1.2) as v0_resp:
+                v0_data = json.loads(v0_resp.read().decode("utf-8", errors="replace"))
+            v0_items = [
+                it for it in (v0_data.get("data") if isinstance(v0_data, dict) else [])
+                if isinstance(it, dict)
+                and str(it.get("id") or "").strip()
+                and str(it.get("type") or "") not in ("embeddings", "embedding")
+                and "embed" not in str(it.get("id") or "").lower()
+            ]
+            if v0_items:
+                llm_ep = "http://127.0.0.1:1234/v1/chat/completions"
+                clean_cand = re.sub(r"^(?:lmstudio-|ollama-|gguf:)", "", llm_model)
+                loaded_ids = [str(it["id"]).strip() for it in v0_items if str(it.get("state") or "") in ("loaded", "loading")]
+                all_ids = [str(it["id"]).strip() for it in v0_items]
+                if loaded_ids and clean_cand not in loaded_ids:
+                    # Prefer the model already loaded in LM Studio to avoid loading a duplicate 20GB model!
+                    llm_model = loaded_ids[0]
+                elif clean_cand in all_ids:
+                    llm_model = clean_cand
+                else:
+                    llm_model = loaded_ids[0] if loaded_ids else all_ids[0]
         except Exception:
-            pass
+            if need_probe:
+                try:
+                    with urllib.request.urlopen("http://127.0.0.1:1234/v1/models", timeout=1.2) as m_resp:
+                        m_data = json.loads(m_resp.read().decode("utf-8", errors="replace"))
+                        m_items = [
+                            str(item.get("id") or "").strip()
+                            for item in (m_data.get("data") if isinstance(m_data, dict) else [])
+                            if isinstance(item, dict)
+                            and str(item.get("id") or "").strip()
+                            and "embed" not in str(item.get("id") or "").lower()
+                        ]
+                        if m_items:
+                            llm_ep = "http://127.0.0.1:1234/v1/chat/completions"
+                            clean_cand = re.sub(r"^(?:lmstudio-|ollama-|gguf:)", "", llm_model)
+                            llm_model = clean_cand if clean_cand in m_items else m_items[0]
+                except Exception:
+                    pass
     if llm_ep and ("/v1/" in llm_ep or ":1234" in llm_ep):
         plan_endpoint = (
             llm_ep
@@ -241,32 +944,409 @@ def _resolve_live_llm(options: dict) -> tuple[str, str]:
     return "", ""
 
 
-def _extract_plan_search_query(goal_text: str, lang: str = "vi") -> str:
-    q = str(goal_text or "").strip()
-    # Strip parenthetical meta instructions such as "(tra cứu thông tin trên internet nếu cần thiết)"
-    q = re.sub(r"\([^)]*(?:internet|web|mạng|mang|tra cứu|tra cuu|tìm kiếm|tim kiem|search|online|google)[^)]*\)", "", q, flags=re.IGNORECASE)
-    # Strip trailing clauses about searching internet
-    q = re.sub(
-        r"[,;.]?\s*(?:hãy\s+|vui lòng\s+)?(?:tra cứu|tra cuu|tìm kiếm|tim kiem|search)\s+(?:thông tin\s+|thong tin\s+)?(?:trên\s+|tren\s+)?(?:internet|mạng|mang|web|google).*$",
-        "",
-        q,
-        flags=re.IGNORECASE,
+def _call_chat_completion_text(
+    endpoint: str,
+    payload: dict,
+    chunk_timeout: float = 125.0,
+    max_wall_sec: float = 195.0,
+    stream_stdout: bool | None = None,
+    cancel_event: threading.Event | None = None,
+    session_id: str = "",
+    prompt_for_cancel: str = "",
+    persist_cancelled: bool = False,
+) -> str:
+    """Call an OpenAI-compatible chat completions endpoint using SSE streaming (with JSON fallback) so multi-paragraph responses never hit socket header timeouts."""
+    global _LAST_LMSTUDIO_ERROR, _LAST_CANCELLED_STREAM_PREFIX
+    _LAST_CANCELLED_STREAM_PREFIX = None
+    if not _ensure_lmstudio_runtime_ready(endpoint, str(payload.get("model") or "")):
+        return ""
+    should_stream_stdout = (
+        (not bool(getattr(sys, "_aqua_json_rpc_stdout", False)))
+        if stream_stdout is None
+        else bool(stream_stdout)
     )
-    # Strip leading filler and time markers that weaken search relevance
+    is_live_lms = (
+        ":1234" in str(endpoint or "")
+        and not os.environ.get("ALIS_TEST_ISOLATED")
+        and not os.environ.get("AQUA_TEST_ENDPOINT")
+        and not os.environ.get("AI_FIXTURE_URL")
+    )
+    req_body = dict(payload)
+    if _LAST_LMSTUDIO_LOADED_MODEL:
+        req_body["model"] = _LAST_LMSTUDIO_LOADED_MODEL
+    if isinstance(req_body.get("messages"), list):
+        req_body["messages"], _ = context_policy.compact_messages_for_route(
+            req_body["messages"],
+            provider=str(req_body.pop("companionProvider", "") or ""),
+            model=str(req_body.get("model") or ""),
+            endpoint=endpoint,
+            reserved_output=int(req_body.get("max_tokens") or 1024),
+            context_window=req_body.pop("companionContextWindow", None),
+        )
+    req_body["stream"] = True
+    req = urllib.request.Request(
+        endpoint,
+        data=json.dumps(req_body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    t0 = time.time()
+    content_parts: list[str] = []
+    reasoning_parts: list[str] = []
+    hit_limit = False
+    was_cancelled = False
+    sig_cancelled = False
+    prev_sigterm = None
+    prev_sigint = None
+    on_main_thread = threading.current_thread() is threading.main_thread()
+
+    if on_main_thread:
+        def _on_cancel_signal(_signum, _frame):
+            nonlocal sig_cancelled
+            sig_cancelled = True
+
+        try:
+            prev_sigterm = signal.getsignal(signal.SIGTERM)
+            prev_sigint = signal.getsignal(signal.SIGINT)
+            signal.signal(signal.SIGTERM, _on_cancel_signal)
+            signal.signal(signal.SIGINT, _on_cancel_signal)
+        except Exception:
+            prev_sigterm = None
+            prev_sigint = None
+
+    def _is_cancelled() -> bool:
+        return sig_cancelled or (cancel_event is not None and cancel_event.is_set())
+
+    watchdog_stop = _start_lmstudio_gtt_watchdog() if is_live_lms else None
+    try:
+        with urllib.request.urlopen(req, timeout=chunk_timeout) as resp:
+            first_raw = resp.readline()
+            if not first_raw:
+                return ""
+            first_str = first_raw.decode("utf-8", errors="replace").strip()
+            # Fallback for non-streaming mock HTTP servers that return a plain JSON object
+            if first_str.startswith("{"):
+                rest_raw = resp.read()
+                full_str = first_raw.decode("utf-8", errors="replace") + rest_raw.decode("utf-8", errors="replace")
+                data = json.loads(full_str)
+                choices = data.get("choices") or []
+                if choices and isinstance(choices[0], dict):
+                    msg_obj = choices[0].get("message") or choices[0].get("delta") or {}
+                    text = str(msg_obj.get("content") or msg_obj.get("reasoning_content") or "").strip()
+                    text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE).strip()
+                    text = re.sub(r"^\{REASON:[^}]+\}\s*", "", text, flags=re.IGNORECASE).strip()
+                    if text:
+                        if stream_stdout is True:
+                            try:
+                                sys.stdout.write(json.dumps({"streamDelta": text}, ensure_ascii=False) + "\n")
+                                sys.stdout.flush()
+                            except Exception:
+                                pass
+                        if (
+                            os.environ.get("AQUA_TEST_AGENT_ENABLED") != "1"
+                            and not os.environ.get("AQUA_TEST_ENDPOINT")
+                            and not os.environ.get("AI_FIXTURE_URL")
+                        ):
+                            try:
+                                sys.stderr.write(
+                                    "__AQUA_STEP__:"
+                                    + json.dumps(
+                                        {"streamDelta": text, "kind": "stream_delta", "status": "running"},
+                                        ensure_ascii=False,
+                                    )
+                                    + "\n"
+                                )
+                                sys.stderr.flush()
+                            except Exception:
+                                pass
+                    return text
+                return ""
+
+            def _process_sse_line(line_s: str) -> bool:
+                nonlocal hit_limit, was_cancelled
+                if _is_cancelled():
+                    was_cancelled = True
+                    return False
+                if not line_s or line_s.startswith(":"):
+                    return True
+                if line_s.startswith("data:"):
+                    line_s = line_s[5:].strip()
+                if line_s == "[DONE]":
+                    return False
+                if not line_s.startswith("{"):
+                    return True
+                try:
+                    chunk = json.loads(line_s)
+                    ch_list = chunk.get("choices") or []
+                    if ch_list and isinstance(ch_list[0], dict):
+                        delta = ch_list[0].get("delta") or ch_list[0].get("message") or {}
+                        c_piece = delta.get("content")
+                        r_piece = delta.get("reasoning_content") or delta.get("reasoning")
+                        # Explicitly ignore partial tool_calls on stream chunks; cancelled streams never persist tool_calls.
+                        if c_piece:
+                            c_str = str(c_piece)
+                            content_parts.append(c_str)
+                            if should_stream_stdout:
+                                try:
+                                    sys.stdout.write(json.dumps({"streamDelta": c_str}, ensure_ascii=False) + "\n")
+                                    sys.stdout.flush()
+                                except Exception:
+                                    pass
+                            if (
+                                os.environ.get("AQUA_TEST_AGENT_ENABLED") != "1"
+                                and not os.environ.get("AQUA_TEST_ENDPOINT")
+                                and not os.environ.get("AI_FIXTURE_URL")
+                            ):
+                                try:
+                                    sys.stderr.write(
+                                        "__AQUA_STEP__:"
+                                        + json.dumps(
+                                            {"streamDelta": c_str, "kind": "stream_delta", "status": "running"},
+                                            ensure_ascii=False,
+                                        )
+                                        + "\n"
+                                    )
+                                    sys.stderr.flush()
+                                except Exception:
+                                    pass
+                        if r_piece:
+                            reasoning_parts.append(str(r_piece))
+                        fr = ch_list[0].get("finish_reason")
+                        if fr in ("cancelled", "interrupted"):
+                            was_cancelled = True
+                            return False
+                        if fr == "length":
+                            hit_limit = True
+                            return False
+                        if fr == "stop":
+                            return False
+                except Exception:
+                    pass
+                return True
+
+            if _process_sse_line(first_str):
+                for raw_line in resp:
+                    if _is_cancelled():
+                        was_cancelled = True
+                        break
+                    if time.time() - t0 > max_wall_sec and len("".join(content_parts)) >= 240:
+                        hit_limit = True
+                        break
+                    s_line = raw_line.decode("utf-8", errors="replace").strip()
+                    if not _process_sse_line(s_line):
+                        break
+    except KeyboardInterrupt:
+        was_cancelled = True
+    except Exception:
+        if _is_cancelled():
+            was_cancelled = True
+        else:
+            if is_live_lms and not _LAST_LMSTUDIO_ERROR:
+                log_err = _check_lmstudio_log_recent_fit_or_oom_error(since_ts=t0 - 1.0)
+                if log_err == "gpu_oom":
+                    _LAST_LMSTUDIO_ERROR = log_err
+            if not content_parts and not reasoning_parts:
+                return ""
+    finally:
+        if watchdog_stop is not None:
+            watchdog_stop.set()
+        if on_main_thread:
+            try:
+                if prev_sigterm is not None:
+                    signal.signal(signal.SIGTERM, prev_sigterm)
+                if prev_sigint is not None:
+                    signal.signal(signal.SIGINT, prev_sigint)
+            except Exception:
+                pass
+
+    if _is_cancelled():
+        was_cancelled = True
+
+    if was_cancelled:
+        partial_raw_content = "".join(content_parts)
+        inline_think_matches = re.findall(r"<think(?:ing)?>([\s\S]*?)(?:</think(?:ing)?>|$)", partial_raw_content, flags=re.IGNORECASE)
+        cleaned_partial = re.sub(r"<think(?:ing)?>[\s\S]*?(?:</think(?:ing)?>|$)", "", partial_raw_content, flags=re.IGNORECASE).strip()
+        cleaned_partial = re.sub(r"^\{REASON:[^}]+\}\s*", "", cleaned_partial, flags=re.IGNORECASE).strip()
+        partial_reasoning = "".join(reasoning_parts).strip()
+        if not partial_reasoning and inline_think_matches:
+            partial_reasoning = "\n".join(m.strip() for m in inline_think_matches if m.strip()).strip()
+        _LAST_CANCELLED_STREAM_PREFIX = {
+            "interrupted": True,
+            "stopReason": "cancelled",
+            "content": cleaned_partial,
+            "reasoning": partial_reasoning,
+        }
+        cancel_evt = {
+            "streamCancelled": True,
+            "interrupted": True,
+            "stopReason": "cancelled",
+            "partialContent": cleaned_partial,
+            "partialReasoning": partial_reasoning,
+        }
+        if should_stream_stdout:
+            try:
+                sys.stdout.write(json.dumps(cancel_evt, ensure_ascii=False) + "\n")
+                sys.stdout.flush()
+            except Exception:
+                pass
+        if (
+            os.environ.get("AQUA_TEST_AGENT_ENABLED") != "1"
+            and not os.environ.get("AQUA_TEST_ENDPOINT")
+            and not os.environ.get("AI_FIXTURE_URL")
+        ):
+            try:
+                sys.stderr.write("__AQUA_STEP__:" + json.dumps({**cancel_evt, "kind": "stream_cancelled", "status": "cancelled"}, ensure_ascii=False) + "\n")
+                sys.stderr.flush()
+            except Exception:
+                pass
+        if persist_cancelled and (cleaned_partial or partial_reasoning):
+            try:
+                eff_sid = session_id or str(globals().get("_CURRENT_TURN_THREAD_ID") or "") or None
+                history_store.append_cancelled_prefix(
+                    prompt_for_cancel,
+                    cleaned_partial,
+                    partial_reasoning,
+                    model=str(req_body.get("model") or ""),
+                    thread_id=eff_sid,
+                )
+            except Exception:
+                pass
+            try:
+                cancel_active_runs(
+                    "cancelled_by_signal",
+                    partial_content=cleaned_partial,
+                    partial_reasoning=partial_reasoning,
+                )
+            except Exception:
+                pass
+        return cleaned_partial
+
+    text = "".join(content_parts).strip() or "".join(reasoning_parts).strip()
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"^\{REASON:[^}]+\}\s*", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"\n+(?:1[.)][ \t]+[^\n]*\n+)?[ \t]*\d+[.)][ \t]*$", "", text).strip()
+    if hit_limit and text and not re.search(r"[.!?)\]\"'`*]$", text):
+        lines = text.splitlines()
+        while len(lines) > 3 and (
+            not re.search(r"[.!?)\]\"'`*]$", lines[-1].strip())
+            or re.match(r"^#{1,6}\s+", lines[-1].strip())
+        ):
+            lines.pop()
+        text = "\n".join(lines).rstrip()
+    return text
+
+
+def _fetch_top_search_pages(
+    run_id: str,
+    results: list[dict],
+    steps: list[dict],
+    max_pages: int = 2,
+    max_chars_per_page: int = 1800,
+    timeout_sec: float = 4.0,
+    now_ms: int | None = None,
+) -> tuple[list[dict], str]:
+    """Fetch and extract readable content from the top distinct search result URLs, recording fetch_url steps."""
+    candidates: list[dict] = []
+    seen_domains: set[str] = set()
+    overflow: list[dict] = []
+    for r in results or []:
+        u = str(r.get("url") or "").strip()
+        if not u.startswith(("http://", "https://")):
+            continue
+        dom = web_tools.short_source_domain(u)
+        if dom not in seen_domains:
+            seen_domains.add(dom)
+            candidates.append(r)
+        else:
+            overflow.append(r)
+    ordered = candidates + overflow
+
+    fetched_pages: list[dict] = []
+    blocks: list[str] = []
+    sparse_pages: list[tuple[dict, str]] = []
+    tried = 0
+    max_tries = max(max_pages, min(len(ordered), max_pages + 3))
+    for r in ordered:
+        if len(fetched_pages) >= max_pages or tried >= max_tries:
+            break
+        url = str(r.get("url") or "").strip()
+        tried += 1
+        seq = len(steps) + 1
+        f_step = record_step_start(
+            run_id,
+            seq,
+            "fetch_url",
+            side_effect=False,
+            target_path=url,
+            detail={"url": url},
+            now_ms=now_ms,
+        )
+        try:
+            page = web_tools.fetch_url_excerpt(url, max_chars=max_chars_per_page, timeout_sec=timeout_sec)
+            p_title = str(page.get("title") or r.get("title") or url).strip()
+            p_headings = [str(h).strip() for h in (page.get("headings") or [])[:8] if str(h).strip()]
+            p_lines = [str(ln).strip() for ln in (page.get("lines") or [])[:12] if str(ln).strip()]
+            record_step_finish(
+                f_step,
+                status="completed",
+                target_path=url,
+                detail={"title": p_title[:120], "headings": len(p_headings), "lines": len(p_lines)},
+            )
+            steps.append({"stepId": f_step, "tool": "fetch_url", "status": "completed", "targetPath": url})
+            if p_lines or p_headings:
+                dom = web_tools.short_source_domain(url)
+                page_entry = {
+                    "url": url,
+                    "domain": dom,
+                    "title": p_title,
+                    "headings": p_headings,
+                    "lines": p_lines,
+                }
+                sec_lines = [f"### Webpage: {p_title} ({dom} — {url})"]
+                if p_headings:
+                    sec_lines.append("Key Headings: " + " | ".join(p_headings[:6]))
+                for ln in p_lines[:10]:
+                    sec_lines.append(f"- {ln[:220]}")
+                sec_block = "\n".join(sec_lines)
+                # Require actual body lines before counting toward max_pages so JS-only shell pages don't block reading the next result
+                if len(p_lines) >= 1 and (len(p_lines) >= 2 or sum(len(x) for x in p_lines) >= 40):
+                    fetched_pages.append(page_entry)
+                    blocks.append(sec_block)
+                else:
+                    sparse_pages.append((page_entry, sec_block))
+        except Exception as exc:
+            record_step_finish(
+                f_step,
+                status="completed",
+                target_path=url,
+                detail={"fallback": "snippet_only", "error": str(exc)[:100]},
+            )
+            steps.append({"stepId": f_step, "tool": "fetch_url", "status": "completed", "targetPath": url})
+    if not fetched_pages and sparse_pages:
+        for pe, sb in sparse_pages[:max_pages]:
+            fetched_pages.append(pe)
+            blocks.append(sb)
+    return fetched_pages, "\n\n".join(blocks)
+
+
+def _extract_plan_search_query(goal_text: str, lang: str = "vi") -> str:
+    q = web_tools.clean_search_query(goal_text, for_plan=True)
+    # Strip leading filler and time markers that weaken search relevance in Vietnamese
     q = re.sub(r"^(?:cho\s+|về\s+|ve\s+|for\s+|about\s+)+", "", q, flags=re.IGNORECASE)
     q = re.sub(
-        r"\b(?:vào\s+ngày\s+mai|ngày\s+mai|vào\s+lúc\s+\d+\s*(?:h|giờ|:)\s*\d*(?:\s*(?:sáng|trưa|chiều|tối))?|lúc\s+\d+\s*(?:h|giờ|:)\s*\d*(?:\s*(?:sáng|trưa|chiều|tối))?|tomorrow(?:\s+at\s+\d+[:\d]*\s*(?:am|pm)?)?)\b",
+        r"\b(?:vào\s+ngày\s+mai|ngày\s+mai|tối\s+mai|sáng\s+mai|chiều\s+mai|trưa\s+mai|tomorrow(?:\s+(?:morning|afternoon|evening|night))?|vào\s+lúc\s+\d+\s*(?:h|giờ|:)\s*\d*(?:\s*(?:sáng|trưa|chiều|tối))?|lúc\s+\d+\s*(?:h|giờ|:)\s*\d*(?:\s*(?:sáng|trưa|chiều|tối))?|at\s+\d+\s*(?:am|pm|:\d+)?)\b",
         " ",
         q,
         flags=re.IGNORECASE,
     )
-    q = re.sub(r"\b(?:buổi\s+|chuyến\s+)\b", " ", q, flags=re.IGNORECASE)
+    q = re.sub(r"\b(?:1\s+|một\s+|mot\s+)?(?:buổi|chuyến)\s+(?=dã\s+ngoại|da\s+ngoai|picnic|du\s+lịch|du\s+lich)", " ", q, flags=re.IGNORECASE)
+    q = re.sub(r"^(?:1|một|mot|a|an)\s+(?=buổi\s+tiệc|buoi\s+tiec|tiệc|tiec|bữa\s+tiệc|bua\s+tiec|party)", "", q, flags=re.IGNORECASE)
     q = re.sub(r"[,;]+", " ", q)
     q = re.sub(r"\s+", " ", q).strip()
     if lang == "vi" and re.search(r"\b(?:dã ngoại|da ngoai|picnic|du lịch|du lich)\b", q, flags=re.IGNORECASE):
         if not re.search(r"\b(?:địa điểm|dia diem|kinh nghiệm|kinh nghiem)\b", q, flags=re.IGNORECASE):
             q = "địa điểm " + q
-    return q[:110] or str(goal_text or "").strip()[:110]
+    return q[:120] or str(goal_text or "").strip()[:120]
 
 AGENT_TOOL_SCHEMAS = [
     {
@@ -342,7 +1422,7 @@ AGENT_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "desktop_control",
-            "description": "Control Niri windows, workspaces, applications, audio volume, brightness, media playback, clipboard, or notifications.",
+            "description": "Control Niri windows, columns, workspaces, applications, audio volume, brightness, media playback, clipboard, notifications, or voice STT/TTS.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -353,19 +1433,80 @@ AGENT_TOOL_SCHEMAS = [
                             "focus_window",
                             "close_window",
                             "switch_workspace",
+                            "move_window_to_workspace",
+                            "consume_or_expel_window",
+                            "consume_window_into_column",
+                            "expel_window_from_column",
+                            "set_column_width",
+                            "set_window_height",
+                            "fullscreen_window",
+                            "toggle_window_floating",
+                            "center_column",
+                            "maximize_column",
+                            "expand_column_to_available_width",
+                            "focus_column_left",
+                            "focus_column_right",
+                            "move_column_left",
+                            "move_column_right",
                             "launch_app",
                             "volume",
                             "brightness",
                             "media",
                             "clipboard_get",
                             "clipboard_set",
+                            "primary_selection_get",
                             "notify",
+                            "voice_stt",
+                            "voice_tts",
+                            "voice_tts_stop",
+                            "voice_status",
+                            "gui_click",
+                            "gui_fill",
+                            "gui_focus",
+                            "atspi_action",
+                            "som_click",
+                            "click",
+                            "fill",
+                            "set_text",
+                            "focus_element",
                         ],
                     },
+                    "action_type": {"type": "string"},
                     "target": {"type": "string"},
+                    "element": {"type": "string"},
                     "value": {"type": "string"},
+                    "text": {"type": "string"},
+                    "ref": {"type": "string", "description": "Semantic AT-SPI element reference (e.g. @e1, @e2)"},
+                    "markId": {"type": "integer"},
+                    "role": {"type": "string"},
+                    "x": {"type": "integer"},
+                    "y": {"type": "integer"},
                 },
                 "required": ["action"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "file_receipt_rollback",
+            "description": "Roll back a file edit/create/delete operation using its receiptId.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "receiptId": {"type": "string"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "voice_tts_stop",
+            "description": "Stop any active Companion TTS audio playback process immediately.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
             },
         },
     },
@@ -430,7 +1571,7 @@ AGENT_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "mcp_call",
-            "description": "Invoke a Model Context Protocol (MCP) tool on an enabled MCP server, including Eyes & Hands servers (`computer-use-linux` for screenshots, AT-SPI2 UI tree, mouse/keyboard & window actions; `playwright-mcp` & `chrome-devtools-mcp` for browser DOM/snapshots/actions; `web-search-mcp` & `fetch-mcp` for live web search and URL reading; `desktop-commander` for terminal/processes; `companion-system` for system/RAG/Pocket).",
+            "description": "Invoke a Model Context Protocol (MCP) tool on an enabled MCP server, including Eyes & Hands servers (`computer-use-linux` for screenshots, AT-SPI2 UI tree, mouse/keyboard & window actions; `playwright-mcp` & `chrome-devtools-mcp` for browser DOM/snapshots/actions; `web-search-mcp` & `fetch-mcp` for live web search and URL reading; `graphify-mcp` for codebase knowledge graphs, god nodes & shortest paths; `pipewire-mpris-mcp` for audio/media/voice; `desktop-commander` for terminal/processes; `companion-system` for system/RAG/Pocket).",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -511,6 +1652,64 @@ AGENT_TOOL_SCHEMAS = [
                     "content": {"type": "string"},
                 },
                 "required": ["action"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delegate_subagent",
+            "description": "Delegate a scoped subtask to an isolated-context specialist Subagent (`researcher`, `planner`, `executor`, `coder`, or `verifier`) running sequentially on the same single loaded local model.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "role": {
+                        "type": "string",
+                        "enum": ["researcher", "planner", "executor", "coder", "verifier"],
+                        "description": "Specialist subagent role to invoke in an isolated context window.",
+                    },
+                    "task": {
+                        "type": "string",
+                        "description": "Concrete subtask instructions for the subagent.",
+                    },
+                    "context_hint": {
+                        "type": "string",
+                        "description": "Optional compact context hint or file/domain pointers.",
+                    },
+                },
+                "required": ["role", "task"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_spill",
+            "description": "Read exact line ranges or search matches from a session-scoped tool output spill file (`spills/<session>/<call>.txt`) without re-running the tool.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "spill_id": {
+                        "type": "string",
+                        "description": "Spill identifier shown in the `[... spilled ...]` preview marker.",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Optional path inside the current session's spill directory.",
+                    },
+                    "offset_line": {
+                        "type": "integer",
+                        "description": "1-based starting line number (default 1).",
+                    },
+                    "limit_lines": {
+                        "type": "integer",
+                        "description": "Maximum number of lines to return (default 120, max 400).",
+                    },
+                    "grep": {
+                        "type": "string",
+                        "description": "Optional substring or regex pattern to filter matching lines.",
+                    },
+                },
             },
         },
     },
@@ -664,10 +1863,42 @@ def _extract_path_from_text(text: str, session_ctx: dict | None = None) -> str:
             except ToolError:
                 pass
 
-    # 4. Filename with extension
+    raw_head = (
+        raw.split(":", 1)[0].strip()
+        if re.match(r"^[^:\n]*\b(?:sửa|sua|ghi|thêm|them|viết|viet|tạo|tao|edit|write|append|create)\b", raw, re.IGNORECASE)
+        else raw
+    )
+
+    # 4a. Quoted filename or folder target in find / locate / named / "ở đâu" queries (preserves spaces inside quotes)
+    m_quoted_target = re.search(
+        r"""(?:\b(?:find|locate|search(?:\s+for)?|look\s+for|where\s+is|tìm(?:\s+kiếm)?|tim(?:\s+kiem)?|kiếm|kiem|file|tệp|tep|folder|thư\s+mục|thu\s+muc|directory|named|called|tên(?:\s+là)?|ten(?:\s+la)?)\b[^'"`\n]{0,48}['"`]([^'"`\n]{1,120})['"`]|['"`]([^'"`\n]{1,120})['"`]\s*(?:nằm\s+ở\s+đâu|nam\s+o\s+dau|ở\s+đâu|o\s+dau)\b)""",
+        raw_head,
+        re.IGNORECASE,
+    )
+    if m_quoted_target:
+        q_cand = (m_quoted_target.group(1) or m_quoted_target.group(2) or "").strip().rstrip(".,;!?")
+        if q_cand and not q_cand.startswith("/agent"):
+            try:
+                return str(resolve_candidate_path(q_cand, last_dir=last_dir_str))
+            except ToolError:
+                return q_cand
+
+    # 4b. Well-known dotfiles (e.g. .bashrc, .zshrc, .gitignore, .env) or filename with extension
+    m_dotfile = re.search(
+        r"""(?:^|(?<=[\s'"`(]))(\.(?:bashrc|bash_profile|zshrc|zshenv|profile|gitignore|gitconfig|npmrc|vimrc|tmux\.conf|env(?:\.[A-Za-z0-9_.\-]+)?))(?=$|[\s'"`).,;!?])""",
+        raw_head,
+        re.IGNORECASE,
+    )
+    if m_dotfile:
+        df_name = m_dotfile.group(1)
+        try:
+            return str(resolve_candidate_path(df_name, last_dir=last_dir_str))
+        except ToolError:
+            return df_name
+
     m_file = re.search(
-        r"""\b([A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)*\.(?:txt|md|py|qml|js|cjs|mjs|ts|tsx|jsx|json|rs|toml|sh|bash|zsh|fish|yaml|yml|html|css|scss|vue|svelte|c|cpp|cc|h|hpp|go|java|kt|rb|php|lua|sql|xml|csv|tsv|env|nix|log|conf|cfg|ini|service|tar|gz|zip|pdf|docx|jpg|png|AppImage))\b""",
-        raw,
+        r"""\b([A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)*\.(?:txt|md|py|qml|js|cjs|mjs|ts|tsx|jsx|json|rs|toml|sh|bash|zsh|fish|yaml|yml|html|css|scss|vue|svelte|c|cpp|cc|h|hpp|go|java|kt|rb|php|lua|sql|xml|csv|tsv|env|nix|log|conf|cfg|ini|service|tar|gz|zip|pdf|docx|xlsx|pptx|odt|epub|jpg|jpeg|png|webp|svg|mp3|mp4|wav|flac|ogg|ttf|otf|woff|woff2|sqlite3|sqlite|db|lock|bak|patch|diff|AppImage))\b""",
+        raw_head,
         re.IGNORECASE,
     )
     if m_file:
@@ -676,6 +1907,32 @@ def _extract_path_from_text(text: str, session_ctx: dict | None = None) -> str:
             return str(resolve_candidate_path(fname, last_dir=last_dir_str))
         except ToolError:
             return fname
+
+    # 4c. Explicit find / locate / named / "ở đâu" file or folder target (unquoted)
+    _stop_targets = {
+        "for", "me", "in", "on", "at", "the", "a", "an", "file", "files", "folder", "folders",
+        "directory", "tep", "tệp", "thư", "thu", "mục", "muc", "cho", "tôi", "toi", "mình",
+        "minh", "giúp", "giup", "có", "co", "tên", "ten", "là", "la", "nằm", "nam", "ở", "o",
+        "đâu", "dau", "trong", "của", "cua", "này", "nay", "đó", "do", "xem", "coi",
+    }
+    m_named = re.search(
+        r"""\b(?:(?:find|locate|search(?:\s+for)?|look\s+for|where\s+is|tìm(?:\s+kiếm)?|tim(?:\s+kiem)?|kiếm|kiem)(?:\s+(?:giúp|giup|cho|hộ|ho))?(?:\s+(?:tôi|toi|mình|minh|em|me))?(?:\s+(?:the|a|an))?(?:\s+(?:file|tệp|tep|folder|thư\s+mục|thu\s+muc|directory))(?:\s+(?:có\s+tên(?:\s+là)?|co\s+ten(?:\s+la)?|mang\s+tên|mang\s+ten|tên\s+là|ten\s+la|tên|ten|named|called))?|(?:file|tệp|tep|folder|thư\s+mục|thu\s+muc|directory)\s+(?:có\s+tên(?:\s+là)?|co\s+ten(?:\s+la)?|mang\s+tên|mang\s+ten|tên\s+là|ten\s+la|named|called)|(?:tìm(?:\s+kiếm)?|tim(?:\s+kiem)?|kiếm|kiem)\s+(?:giúp|giup|cho)\s+(?:tôi|toi|mình|minh)\s+(?:xem\s+)?|(?:where\s+is|locate)\s+(?:the\s+)?)\s*['"`]?([A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)*)['"`]?""",
+        raw_head,
+        re.IGNORECASE,
+    )
+    if not m_named:
+        m_named = re.search(
+            r"""\b(?:(?:file|tệp|tep|folder|thư\s+mục|thu\s+muc|directory)\s+)?['"`]?([A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)*)['"`]?\s+(?:nằm\s+ở\s+đâu|nam\s+o\s+dau|ở\s+đâu|o\s+dau)\b""",
+            raw_head,
+            re.IGNORECASE,
+        )
+    if m_named:
+        cand_name = m_named.group(1).strip().rstrip(".,;!?")
+        if cand_name and cand_name.lower() not in _stop_targets:
+            try:
+                return str(resolve_candidate_path(cand_name, last_dir=last_dir_str))
+            except ToolError:
+                return cand_name
 
     # 5. Match against actual child entries in lastDirectory and $HOME
     search_roots = []
@@ -733,7 +1990,17 @@ def _resolve_conversational_target(prompt: str, session_ctx: dict, expect_dir: b
         return str(p), []
 
     folded = _fold_ascii(prompt)
-    candidates = [str(c) for c in (session_ctx.get("recentCandidates") or []) if c]
+    raw_last_file = str(session_ctx.get("lastFile") or "")
+    if (".obsidian/" in raw_last_file or raw_last_file.endswith("01_Core.css")) and "01_core.css" not in folded and ".obsidian" not in folded:
+        raw_last_file = ""
+    raw_last_dir = str(session_ctx.get("lastDirectory") or "")
+    if ".obsidian" in raw_last_dir and ".obsidian" not in folded and "01_core.css" not in folded:
+        raw_last_dir = ""
+    candidates = [
+        str(c)
+        for c in (session_ctx.get("recentCandidates") or [])
+        if c and not ((".obsidian/" in str(c) or str(c).endswith("01_Core.css")) and "01_core.css" not in folded and ".obsidian" not in folded)
+    ]
 
     if not expect_dir and candidates:
         if any(k in folded for k in ("dau tien", "so 1", "thu nhat", "first", "#1")):
@@ -753,26 +2020,243 @@ def _resolve_conversational_target(prompt: str, session_ctx: dict, expect_dir: b
             "liet ke", "xem tat ca", "xem het",
         )
     ):
-        target_dir = session_ctx.get("lastDirectory") or session_ctx.get("lastProject") or ""
+        target_dir = raw_last_dir or session_ctx.get("lastProject") or ""
         if target_dir:
             return target_dir, []
         return str(Path.home()), []
 
-    if any(k in folded for k in ("tep do", "tep nay", "tep vua nhac", "tep vua doc", "tep vua mo", "file do", "file nay", "that file", "this file", "the file")):
-        last_file = session_ctx.get("lastFile") or ""
-        if last_file:
-            return last_file, []
+    is_search_like = bool(
+        re.search(
+            r"\b(?:find|locate|where\s+is|search\s+for|look\s+for|tim\s+file|tim\s+tep|tim\s+kiem|kiem\s+file|kiem\s+tep|nam\s+o\s+dau|o\s+dau)\b",
+            folded,
+        )
+    )
+    anaphora_keys = (
+        ("tep do", "tep nay", "tep vua nhac", "tep vua doc", "tep vua mo", "file do", "file nay", "that file", "this file")
+        if is_search_like
+        else ("tep do", "tep nay", "tep vua nhac", "tep vua doc", "tep vua mo", "file do", "file nay", "that file", "this file", "the file")
+    )
+    if any(k in folded for k in anaphora_keys):
+        if raw_last_file:
+            return raw_last_file, []
         if len(candidates) > 1:
             return "", candidates
         if len(candidates) == 1:
             return candidates[0], []
 
-    if len(candidates) > 1 and not session_ctx.get("lastFile") and not expect_dir:
+    if len(candidates) > 1 and not raw_last_file and not expect_dir:
         return "", candidates
 
     if expect_dir:
-        return session_ctx.get("lastDirectory") or str(Path.home()), []
-    return session_ctx.get("lastFile") or session_ctx.get("lastDirectory") or str(Path.home()), []
+        return raw_last_dir or str(Path.home()), []
+    return raw_last_file or raw_last_dir or str(Path.home()), []
+
+
+_ATTACHMENT_CACHE: dict[tuple, dict] = {}
+
+
+def resolve_file_attachments_and_mentions(
+    prompt: str,
+    attached_files: list | None = None,
+    session_ctx: dict | None = None,
+    companion_root: Path | None = None,
+    max_chars_per_file: int = 8000,
+) -> dict:
+    """Resolve attached file paths and inline `@file` mentions into extracted Markdown context."""
+    ctx = session_ctx or {}
+    last_dir = str(ctx.get("lastDirectory") or ctx.get("lastProject") or Path.home())
+    comp_root = Path(companion_root).resolve(strict=False) if companion_root else Path(__file__).resolve().parents[2]
+    search_dirs: list[Path] = []
+    for cand_dir in (last_dir, ctx.get("lastProject"), str(comp_root), str(Path.home())):
+        if cand_dir:
+            dp = Path(str(cand_dir)).expanduser().resolve(strict=False)
+            if dp.is_dir() and dp not in search_dirs:
+                search_dirs.append(dp)
+
+    candidate_paths: list[Path] = []
+    seen_str: set[str] = set()
+
+    for raw_f in (attached_files or []):
+        f_str = str(raw_f or "").strip()
+        if f_str.startswith("file://"):
+            f_str = f_str[7:]
+        if not f_str:
+            continue
+        p = Path(f_str).expanduser()
+        if not p.is_absolute():
+            p = (Path(last_dir) / p).resolve(strict=False)
+        else:
+            p = p.resolve(strict=False)
+        if p.is_file() and not p.is_symlink() and not is_forbidden_path(p) and str(p) not in seen_str:
+            seen_str.add(str(p))
+            candidate_paths.append(p)
+
+    # Extract inline @file and @context mentions (e.g. @selection, @clipboard, @screen, @pocket, @git-diff, @README.md)
+    raw_prompt = str(prompt or "")
+    missing_mentions: list[str] = []
+    special_mention_sections: list[str] = []
+    seen_special: set[str] = set()
+    for m in re.finditer(r"(?:^|(?<=\s))@((?:~/|/|\./|\.\./)?[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)*)", raw_prompt):
+        token = m.group(1).rstrip(".,;:!?)]}\"'`")
+        if not token or len(token) < 2:
+            continue
+        tok_low = token.lower()
+        if tok_low in ("selection", "clipboard", "screen", "pocket", "git-diff"):
+            if tok_low in seen_special:
+                continue
+            seen_special.add(tok_low)
+            try:
+                import desktop_control
+                if tok_low == "selection":
+                    sel_info = desktop_control.primary_selection_get()
+                    sel_txt = str(sel_info.get("text") or ctx.get("primarySelection") or "").strip()[:3200]
+                    special_mention_sections.append(
+                        f"### Highlighted Selection (`@selection`)\n```text\n{sel_txt or '(No active primary selection text)'}\n```"
+                    )
+                elif tok_low == "clipboard":
+                    clip_info = desktop_control.clipboard_get()
+                    clip_txt = str(clip_info.get("text") or "").strip()[:3200]
+                    special_mention_sections.append(
+                        f"### Clipboard (`@clipboard`)\n```text\n{clip_txt or '(Clipboard is empty)'}\n```"
+                    )
+                elif tok_low == "screen":
+                    win_info = desktop_control.manage_desktop("list_windows")
+                    win_lines = win_info.get("lines") or [win_info.get("summary") or "(No active window info)"]
+                    special_mention_sections.append(
+                        "### Active Screen / Windows (`@screen`)\n```text\n"
+                        + "\n".join(str(x) for x in win_lines[:12])
+                        + "\n```"
+                    )
+                elif tok_low == "pocket":
+                    p_items = pocket_store.dispatch({"version": 1, "consent": True, "action": "list"}).get("items", [])
+                    p_lines = []
+                    for item in p_items[:6]:
+                        ip = Path(str(item.get("path") or ""))
+                        p_lines.append(f"- `{item.get('name')}` (`{ip}`)")
+                        if ip.is_file() and not ip.is_symlink() and not is_forbidden_path(ip) and str(ip) not in seen_str:
+                            seen_str.add(str(ip))
+                            candidate_paths.append(ip)
+                    special_mention_sections.append(
+                        "### Pocket Items (`@pocket`)\n" + ("\n".join(p_lines) if p_lines else "(Pocket is currently empty)")
+                    )
+                elif tok_low == "git-diff":
+                    import subprocess
+                    git_dir = str(ctx.get("lastDirectory") or ctx.get("lastProject") or comp_root)
+                    st_res = subprocess.run(
+                        ["git", "-C", git_dir, "status", "--short"],
+                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=3.0, check=False, text=True
+                    )
+                    df_res = subprocess.run(
+                        ["git", "-C", git_dir, "diff", "--stat", "HEAD"],
+                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=3.0, check=False, text=True
+                    )
+                    git_out = ((st_res.stdout or "").strip() + "\n" + (df_res.stdout or "").strip()).strip()[:3200]
+                    special_mention_sections.append(
+                        f"### Workspace Git Diff (`@git-diff` in `{git_dir}`)\n```diff\n{git_out or '(Working tree clean)'}\n```"
+                    )
+            except Exception:
+                pass
+            continue
+        resolved_match: Path | None = None
+        if token.startswith(("~/", "/", "./", "../")):
+            cand = Path(token).expanduser()
+            if not cand.is_absolute():
+                cand = (Path(last_dir) / cand).resolve(strict=False)
+            else:
+                cand = cand.resolve(strict=False)
+            if cand.is_file() and not cand.is_symlink() and not is_forbidden_path(cand):
+                resolved_match = cand
+        else:
+            for sdir in search_dirs:
+                cand = (sdir / token).resolve(strict=False)
+                if cand.is_file() and not cand.is_symlink() and not is_forbidden_path(cand):
+                    resolved_match = cand
+                    break
+        if resolved_match:
+            if str(resolved_match) not in seen_str:
+                seen_str.add(str(resolved_match))
+                candidate_paths.append(resolved_match)
+        elif (
+            "/" in token
+            or "." in token
+            or token.lower() in {
+                "makefile",
+                "dockerfile",
+                "pkgbuild",
+                "readme",
+                "license",
+                "copying",
+                "justfile",
+                "cmakelists",
+                "vagrantfile",
+                "procfile",
+                "gemfile",
+                "rakefile",
+                "caddyfile",
+                "jenkinsfile",
+            }
+        ) and token not in missing_mentions:
+            missing_mentions.append(token)
+
+    cache_key = (
+        tuple(
+            (str(p), int(p.stat().st_mtime_ns) if p.exists() else 0)
+            for p in candidate_paths[:8]
+        ),
+        tuple(missing_mentions[:8]),
+        int(max_chars_per_file),
+    )
+    if not seen_special and cache_key in _ATTACHMENT_CACHE:
+        return dict(_ATTACHMENT_CACHE[cache_key])
+
+    binary_doc_exts = {".pdf", ".docx", ".xlsx", ".pptx", ".odt", ".epub"}
+    files_out: list[dict] = []
+    context_sections: list[str] = list(special_mention_sections)
+    for p in candidate_paths[:8]:
+        ext_lower = p.suffix.lower()
+        try:
+            content = rag_store.extract_document_markdown(p, max_chars=max_chars_per_file)
+        except Exception:
+            content = ""
+        if not content and ext_lower not in binary_doc_exts:
+            try:
+                raw_txt = p.read_text(encoding="utf-8", errors="replace")[:max_chars_per_file]
+                if "\x00" not in raw_txt[:512]:
+                    content = raw_txt
+            except OSError:
+                content = ""
+        snippet = content.replace("\x00", "").strip()[:max_chars_per_file]
+        if not snippet and ext_lower in binary_doc_exts:
+            snippet = f"(No extractable text found in `{p.name}`)"
+        files_out.append({
+            "path": str(p),
+            "name": p.name,
+            "ext": ext_lower,
+            "content": snippet,
+            "charCount": len(snippet),
+        })
+        if snippet:
+            context_sections.append(f"### Attached File: `{p.name}` (`{p}`)\n```markdown\n{snippet[:3200]}\n```")
+
+    if missing_mentions:
+        missing_str = ", ".join(f"`@{tok}`" for tok in missing_mentions[:8])
+        context_sections.append(
+            f"### Missing Mentioned File(s)\n"
+            f"WARNING: The following `@file` mention(s) do NOT exist on disk in the active workspace or search directories: {missing_str}. "
+            f"Do NOT fabricate, guess, or invent their contents; state clearly that the file was not found."
+        )
+
+    joined_block = "\n\n".join(context_sections)
+    result = {
+        "files": files_out,
+        "missingMentions": missing_mentions[:8],
+        "contextBlock": joined_block,
+        "contextMarkdown": joined_block,
+    }
+    if len(_ATTACHMENT_CACHE) > 32:
+        _ATTACHMENT_CACHE.clear()
+    _ATTACHMENT_CACHE[cache_key] = result
+    return dict(result)
 
 
 def classify_intent(prompt: str, session_ctx: dict | None = None) -> dict:
@@ -791,18 +2275,31 @@ def classify_intent(prompt: str, session_ctx: dict | None = None) -> dict:
     if is_hypothetical_or_negated(raw):
         return {"kind": "hypothetical_or_negated", "language": lang}
 
-    # Check if awaiting sudo password for a system path operation
-    if ctx.get("pendingSudoOp"):
+    # Check if awaiting sudo password for a system path operation (unless user starts a new slash command)
+    if ctx.get("pendingSudoOp") and not raw.startswith("/"):
         return {"kind": "sudo_password_reply", "language": lang}
 
-    # Check if there is a pending clarification in session_ctx
-    if ctx.get("pendingClarification"):
-        return {"kind": "clarification_reply", "language": lang}
+    # Check if there is a pending clarification in session_ctx (unless user starts a new slash command)
+    if ctx.get("pendingClarification") and not raw.startswith("/"):
+        p_clar = ctx.get("pendingClarification") or {}
+        if str(p_clar.get("kind") or "") == "plan_followup":
+            p_opts = p_clar.get("options") if isinstance(p_clar.get("options"), list) else []
+            if re.match(r"^(?:#|option\s+|lua chon\s+|y\s+|idea\s+|chon\s+|phuong an\s+)?[1-3](?:\s*[.)])?$", folded) or any(
+                isinstance(o, dict)
+                and (
+                    (o.get("label") and raw.lower() == str(o["label"]).strip().lower())
+                    or (o.get("value") and raw.lower() == str(o["value"]).strip().lower())
+                )
+                for o in p_opts
+            ):
+                return {"kind": "clarification_reply", "language": lang}
+        else:
+            return {"kind": "clarification_reply", "language": lang}
 
     perm_state = inspect_permissions()
     if perm_state.get("latestPending") or ctx.get("pendingDeletePath") or ctx.get("pendingMemoryForget"):
         latest = perm_state.get("latestPending")
-        if latest and latest.get("actionKind") == "system_sudo_op":
+        if latest and latest.get("actionKind") == "system_sudo_op" and not raw.startswith("/"):
             return {"kind": "sudo_password_reply", "language": lang}
         decision = classify_confirmation_response(raw)
         if decision:
@@ -837,13 +2334,16 @@ def classify_intent(prompt: str, session_ctx: dict | None = None) -> dict:
     if re.search(r"\b(?:cap quyen|cho phep truy cap|grant permission|allow access to)\b", folded):
         return {"kind": "permission_manage", "subkind": "grant", "language": lang}
 
-    # Rule management via prompt or `/rules`
+    # Rule management via prompt or `/rules` / `/rule`
     if re.match(r"^/rules?\b", folded):
-        if any(w in folded for w in ("disable", "delete", "remove", "stop", "tat", "xoa", "huy")):
+        rest_rule = re.sub(r"^/rules?\b\s*", "", folded).strip()
+        if not rest_rule or rest_rule in ("list", "show", "status", "xem", "danh sach"):
+            return {"kind": "rule_manage", "subkind": "list", "language": lang}
+        if rest_rule.startswith(("reset", "default", "khoi phuc", "mac dinh")):
+            return {"kind": "rule_manage", "subkind": "reset", "language": lang}
+        if any(w in rest_rule.split()[:2] for w in ("disable", "delete", "remove", "stop", "tat", "xoa", "huy")):
             return {"kind": "rule_manage", "subkind": "disable", "language": lang}
-        if any(w in folded for w in ("create", "add", "when", "every", "tao", "them", "khi", "moi")):
-            return {"kind": "rule_manage", "subkind": "create", "language": lang}
-        return {"kind": "rule_manage", "subkind": "list", "language": lang}
+        return {"kind": "rule_manage", "subkind": "create", "language": lang}
     if any(k in folded for k in ("danh sach quy tac", "xem quy tac", "cac quy tac", "list rules", "show rules", "active rules")):
         return {"kind": "rule_manage", "subkind": "list", "language": lang}
     if re.search(r"\b(?:tat quy tac|xoa quy tac|huy quy tac|disable rule|delete rule|remove rule|stop all rules)\b", folded):
@@ -869,14 +2369,36 @@ def classify_intent(prompt: str, session_ctx: dict | None = None) -> dict:
     if re.match(r"^/pocket\b", folded) or re.search(r"\b(?:trong pocket|tep trong pocket|xem pocket|them .* vao pocket|bo .* khoi pocket|pocket files|in pocket|add .* to pocket|remove .* from pocket)\b", folded):
         return {"kind": "pocket_manage", "language": lang}
 
+    # Local Offline Voice I/O (`/tts`, `/speak`, `/listen`, `/stt`)
+    if re.match(r"^/(?:tts|speak|listen|stt)\b", folded) or re.search(
+        r"\b(?:doc to|phat am|noi cau|doc bang giong noi|ghi am giong noi|nhan dien giong noi|chuyen giong noi thanh van ban|read aloud|speak aloud|text to speech|speech to text|voice input|transcribe audio)\b",
+        folded,
+    ):
+        v_sub = "status"
+        if re.match(r"^/(?:tts|speak)\b", folded) or re.search(r"\b(?:tts|speak|doc to|phat am|noi cau|doc bang giong noi|read aloud|speak aloud|text to speech)\b", folded):
+            v_sub = "tts"
+        elif re.match(r"^/(?:stt|listen)\b", folded) or re.search(r"\b(?:stt|listen|ghi am|nhan dien giong noi|chuyen giong noi|speech to text|voice input|transcribe)\b", folded):
+            v_sub = "stt"
+        return {"kind": "voice_task", "subkind": v_sub, "language": lang}
+
     # Hermes Self-Learning, Workflow Adaptation & Agent Skills (`SKILL.md`)
     if (
-        re.match(r"^(?:/skills?|skills?|/learn|/workflow|/reflect)\b", folded)
+        re.match(r"^(?:/skills?|skills?|/learn|/workflow|/reflect|/graphify|/ponytail|/docx|/pdf|/xlsx)\b", folded)
         or re.search(
-            r"\b(?:danh sach skill|danh sach ky nang|xem skill|xem ky nang|cac skill|cac ky nang|chay skill|dung skill|dung ky nang|tao skill|tao ky nang|xoa skill|bat skill|tat skill|cap nhat skill|dieu chinh skill|chinh sua skill|bo sung skill|tu hoc|hoc quy trinh|luu quy trinh|dieu chinh quy trinh|rut kinh nghiem|list skills|show skills|run skill|use skill|create skill|delete skill|enable skill|disable skill|patch skill|update skill|learn skill|learn workflow|adapt workflow|self-learn|workflow reflections|system-diagnostics|code-assistant|rag-researcher|focus-planner|screen-copilot|desktop-organizer|window-workspace-layout|git-daily-brief|system-tuner|clipboard-transformer)\b",
+            r"\b(?:danh sach skill|danh sach ky nang|xem skill|xem ky nang|cac skill|cac ky nang|chay skill|dung skill|dung ky nang|tao skill|tao ky nang|xoa skill|bat skill|tat skill|cap nhat skill|dieu chinh skill|chinh sua skill|bo sung skill|tu hoc|hoc quy trinh|luu quy trinh|dieu chinh quy trinh|rut kinh nghiem|list skills|show skills|run skill|use skill|create skill|delete skill|enable skill|disable skill|patch skill|update skill|learn skill|learn workflow|adapt workflow|self-learn|workflow reflections|system-diagnostics|code-assistant|rag-researcher|focus-planner|screen-copilot|desktop-organizer|window-workspace-layout|git-daily-brief|system-tuner|clipboard-transformer|niri-wm|quickshell-qml|arch-linux|graphify|ponytail)\b",
             folded,
         )
     ):
+        if re.match(r"^/graphify\b", folded):
+            return {"kind": "skill_manage", "directSkill": "graphify", "language": lang}
+        if re.match(r"^/ponytail\b", folded):
+            return {"kind": "skill_manage", "directSkill": "ponytail", "language": lang}
+        if re.match(r"^/docx\b", folded):
+            return {"kind": "skill_manage", "directSkill": "docx", "language": lang}
+        if re.match(r"^/pdf\b", folded):
+            return {"kind": "skill_manage", "directSkill": "pdf", "language": lang}
+        if re.match(r"^/xlsx\b", folded):
+            return {"kind": "skill_manage", "directSkill": "xlsx", "language": lang}
         return {"kind": "skill_manage", "language": lang}
 
     # Direct `/<skill-name>` slash invocation for any installed/learned skill
@@ -890,28 +2412,79 @@ def classify_intent(prompt: str, session_ctx: dict | None = None) -> dict:
             except Exception:
                 pass
 
-    # Screen / window observation & GUI action
+    # GUI action (Set-of-Mark `/som click <id>`, `@eN` semantic AT-SPI ref click/fill/focus & window focus) before `screen_observe`
+    if (
+        re.match(r"^(?:/agent\s+|/)?som\s+(?:click|bam|nhan|fill|type|set_text|focus|focus_element|atspi_action)\b", folded)
+        or re.search(r"\b(?:chuyen sang cua so|focus window|focus cua so|kiem tra cua so|som click|click mark|bam vao mark|click button|bam nut|fill element|focus element|atspi_action)\b", folded)
+        or re.search(r"\b(?:click|bam|nhan|fill|set_text|type|nhap|dien|focus|focus_element|atspi_action)\s+(?:vao\s+|into\s+|on\s+)?(?:\[\d+\]|@e\d+\b)", folded)
+    ):
+        is_fill_sub = bool(
+            re.match(r"^(?:/agent\s+|/)?som\s+(?:fill|type|set_text)\b", folded)
+            or re.search(r"\b(?:fill|set_text|type|nhap|dien)\s+(?:vao\s+|into\s+)?(?:\[\d+\]|@e\d+\b)", folded)
+            or re.search(r"\bfill\s+element\b", folded)
+        )
+        is_focus_sub = bool(
+            re.match(r"^(?:/agent\s+|/)?som\s+focus(?:_element)?\b", folded)
+            or re.search(r"\bfocus(?:_element)?\s+(?:vao\s+|on\s+)?(?:\[\d+\]|@e\d+\b)", folded)
+            or re.search(r"\bfocus\s+element\b", folded)
+        )
+        is_atspi_sub = bool(
+            re.match(r"^(?:/agent\s+|/)?som\s+atspi_action\b", folded)
+            or re.search(r"\batspi_action\b", folded)
+        )
+        is_som_sub = bool(
+            is_atspi_sub
+            or re.match(r"^(?:/agent\s+|/)?som\s+(?:click|bam|nhan)\b", folded)
+            or re.search(r"\b(?:som click|click mark|bam vao mark|click button|bam nut)\b", folded)
+            or re.search(r"\b(?:click|bam|nhan)\s+(?:vao\s+|on\s+)?(?:\[\d+\]|@e\d+\b)", folded)
+        )
+        subkind = (
+            "fill"
+            if is_fill_sub
+            else (
+                "focus_element"
+                if is_focus_sub
+                else ("atspi_action" if is_atspi_sub else ("som_click" if is_som_sub else "window"))
+            )
+        )
+        return {"kind": "gui_action", "subkind": subkind, "language": lang}
+
+    if domain_rag.is_config_check_query(raw):
+        return {"kind": "rag_query", "subkind": "check_config", "language": lang}
+    if domain_rag.is_domain_concept_or_command_query(raw):
+        return {"kind": "rag_query", "subkind": "domain_concepts", "language": lang}
+    if domain_rag.is_domain_capability_query(raw):
+        return {"kind": "rag_query", "subkind": "domain_capability", "language": lang}
+
+    # Screen / window observation (including Set-of-Mark `/som` screenshot)
     if (
         re.search(
-            r"\b(?:xem man hinh|doc man hinh|nhin man hinh|quet man hinh|kiem tra man hinh|chup man hinh|chup anh man hinh|chup lai man hinh|thay man hinh|doc cua so|cua so hien tai|ung dung dang mo|man hinh dang co gi|tren man hinh|mat va tay|scan screen|scan window|what is on my screen|what is on the screen|what do you see|can you see.*screen|can you see now|see my screen|see the screen|read the screen|read current window|inspect active window|look at my screen|take a screenshot|capture screen|screenshot|eyes and hands|use your eyes)\b",
+            r"\b(?:xem man hinh|doc man hinh|nhin man hinh|quet man hinh|kiem tra man hinh|chup man hinh|chup anh man hinh|chup lai man hinh|thay man hinh|thay gi tren man hinh|nhin thay man hinh|doc cua so|cua so hien tai|ung dung dang mo|man hinh dang co gi|tren man hinh|trong anh chup|trong buc anh|mat va tay|scan screen|scan window|what is on my screen|what is on the screen|what do you see|what can you see|what you can see|describe.*screen\s*shot|describe.*screen|can you see.*screen|can you see now|see my screen|see the screen|see things on.*screen|anything on.*screen|on my screen|on the screen|in the screen\s*shot|from the screen\s*shot|about the screen\s*shot|inside the screen\s*shot|read the screen|read current window|inspect active window|look at my screen|take(?:\s+a)?\s+screen\s*shot|capture screen|screen\s*shot|eyes and hands|use your eyes|set of mark|annotate som|danh so phan tu)\b",
             folded,
         )
-        or re.match(r"^(?:/agent\s+|/)?(?:access\s+)?(?:screen|scan|window|app|desktop\s+app|eyes|screenshot)\s*$", folded)
+        or re.match(r"^(?:/agent\s+|/)?(?:access\s+)?(?:screen|scan|window|app|desktop\s+app|eyes|screen\s*shot|som)\b", folded)
     ):
         wants_shot = bool(
-            re.search(r"\b(?:chup man hinh|chup anh man hinh|chup lai man hinh|take a screenshot|capture screen|screenshot)\b", folded)
-            or re.match(r"^(?:/agent\s+|/)?screenshot\s*$", folded)
+            re.search(r"\b(?:chup man hinh|chup anh man hinh|chup lai man hinh|take(?:\s+a)?\s+screen\s*shot|capture screen|screen\s*shot|set of mark|annotate som|som)\b", folded)
+            or re.match(r"^(?:/agent\s+|/)?(?:screen\s*shot|som)\b", folded)
         )
-        return {"kind": "screen_observe", "captureScreenshot": wants_shot, "language": lang}
-    if re.search(r"\b(?:chuyen sang cua so|focus window|focus cua so|kiem tra cua so)\b", folded):
-        return {"kind": "gui_action", "language": lang}
+        wants_som = bool(re.search(r"\b(?:set of mark|annotate som|som|danh so phan tu)\b", folded))
+        return {"kind": "screen_observe", "captureScreenshot": wants_shot, "annotateSom": wants_som, "language": lang}
+
+    # Standalone Companion /swarm subagent orchestration (Board / Members / Graph)
+    if re.match(r"^/swarm\b", folded):
+        return {"kind": "swarm_task", "language": lang}
 
     # Coding / LSP / repo map / test execution / structured planning (`/plan`)
     if re.match(r"^/(?:clarify|grill-me|grill|ask)\b", folded):
         return {"kind": "clarify_task", "language": lang}
     if re.match(r"^/plan\s*$", folded):
         return {"kind": "clarify_task", "subkind": "plan", "language": lang}
-    if re.match(r"^/plan\b", folded) or re.search(r"\b(?:lap ke hoach|len ke hoach|thiet ke ke hoach|implementation plan|create a plan for)\b", folded):
+    if (
+        re.match(r"^/plan\b", folded)
+        or re.search(r"\b(?:lap ke hoach|len ke hoach|thiet ke ke hoach|implementation plan|create a plan|make a plan|build a plan|help me plan)\b", folded)
+        or re.search(r"(?:^|\b(?:please|can you|could you|help me|i want to|i need to|we need to|lets|let's|and)\s+)plan\s+(?:a|an|my|the|our|for)\b", folded)
+    ):
         return {"kind": "code_task", "subkind": "plan", "language": lang}
     if re.match(r"^/tests?\b", folded) or re.search(r"\b(?:chay kiem tra|chay test|run tests|run project tests|test du an)\b", folded):
         return {"kind": "code_task", "subkind": "run_tests", "language": lang}
@@ -940,7 +2513,11 @@ def classify_intent(prompt: str, session_ctx: dict | None = None) -> dict:
     ):
         return {"kind": "mcp_manage", "language": lang}
 
-    # Web Search, URL Reader & Browser Control (`web-search-mcp`, `fetch-mcp`, `playwright-mcp`)
+    # Web Search, URL Reader, DOM Snapshot & Browser Control (`web-search-mcp`, `fetch-mcp`, `playwright-mcp`)
+    if re.match(r"^/dom\b", folded) or re.search(r"\b(?:dom snapshot|browser snapshot|quet dom)\b", folded):
+        return {"kind": "web_task", "subkind": "dom_snapshot", "language": lang}
+    if re.search(r"\b(?:click|bam|fill|type|select|chon|nhap)\s+(?:vao\s+|phan tu\s+|element\s+)?\[?e\d+\]?\b", folded):
+        return {"kind": "web_task", "subkind": "dom_action", "language": lang}
     if re.match(r"^/(?:web|search|browser|fetch)\b", folded):
         if re.match(r"^/fetch\b", folded):
             return {"kind": "web_task", "subkind": "fetch_url", "language": lang}
@@ -955,16 +2532,26 @@ def classify_intent(prompt: str, session_ctx: dict | None = None) -> dict:
         and re.search(r"\b(?:doc|xem|tom tat|kiem tra|read|fetch|summarize|inspect)\b", folded)
     ):
         return {"kind": "web_task", "subkind": "fetch_url", "language": lang}
-    if re.search(
-        r"\b(?:mo trinh duyet|vao trinh duyet|mo browser|mo trang web|mo web|mo link|mo url|mo youtube|vao youtube|len youtube|tren youtube|mo google|vao google|open browser|open url|open website|open in browser|open youtube)\b",
-        folded,
-    ) or re.search(
-        r"\b(?:mo bai hat|mo bai nhac|mo bai|phat bai hat|phat bai nhac|phat bai|bat bai hat|bat bai nhac|bat bai|nghe bai hat|nghe bai|mo ca khuc|phat ca khuc|play song|play music|play video)\s+\S+",
-        folded,
+    if (
+        re.search(
+            r"\b(?:mo trinh duyet|vao trinh duyet|bat trinh duyet|mo browser|mo the browser|mo trang web|mo web|mo internet|vao mang|vao internet|len mang|mo link|mo url|mo youtube|vao youtube|len youtube|tren youtube|on youtube|in youtube|via youtube|search youtube|youtube search|mo google|vao google|open browser|open the browser|open a browser|open default browser|open internet|open the internet|go online|open url|open website|open the website|open in browser|open youtube|go to youtube|visit youtube)\b",
+            folded,
+        )
+        or re.search(
+            r"\b(?:mo bai hat|mo bai nhac|mo bai|phat bai hat|phat bai nhac|phat bai|bat bai hat|bat bai nhac|bat bai|nghe bai hat|nghe bai|mo ca khuc|phat ca khuc|mo video|phat video|xem video|play song|play a song|play the song|play music|play video|play a video|play the video|play track|play a track|listen to the song|listen to a song)\s+\S+",
+            folded,
+        )
+        or re.search(
+            r"\b(?:play|listen to|watch|search|find|look up|look for|mo|phat|bat|nghe|xem|tim|tim kiem)\b.+\b(?:on|in|via|tren)\s+(?:youtube|yt)\b",
+            folded,
+        )
     ):
         return {"kind": "web_task", "subkind": "open_browser", "language": lang}
     if re.search(
-        r"\b(?:tim tren web|tim kiem tren web|tim tren mang|tim kiem tren mang|tim tren internet|tim kiem tren internet|tra cuu tren web|tra cuu tren mang|tra cuu tren internet|tra cuu thong tin tren internet|tim google|search google|search web|web search|search the internet|search online|tim tren github|search github|tim tren wikipedia|search wikipedia|tra cuu wikipedia)\b",
+        r"\b(?:tim tren web|tim kiem tren web|tim tren mang|tim kiem tren mang|tim tren internet|tim kiem tren internet|tra cuu tren web|tra cuu tren mang|tra cuu tren internet|tra cuu thong tin tren internet|su dung internet|dung internet|su dung mang|dung mang|su dung web|dung web|tham khao tren internet|tham khao internet|use the internet|use internet|use the web|tim google|search google|search web|web search|search the internet|search online|tim tren github|search github|tim tren wikipedia|search wikipedia|tra cuu wikipedia)\b",
+        folded,
+    ) or re.search(
+        r"\b(?:tong hop thong tin|tra cuu thong tin|tim thong tin)\b.*\b(?:internet|web|mang|online)\b",
         folded,
     ):
         return {"kind": "web_task", "subkind": "search", "language": lang}
@@ -1000,9 +2587,9 @@ def classify_intent(prompt: str, session_ctx: dict | None = None) -> dict:
     ):
         return {"kind": "system_control", "subkind": "telemetry", "language": lang}
 
-    # Desktop, window, workspace, app launch, audio, brightness, media, clipboard & notification control
+    # Desktop, window, Niri column/layout, workspace, app launch, audio, brightness, media, clipboard & notification control
     if re.search(
-        r"\b(?:danh sach cua so|cac cua so dang mo|liet ke cua so|list windows|open windows|dong cua so|close window|chuyen workspace|switch workspace|go to workspace)\b",
+        r"\b(?:danh sach cua so|cac cua so dang mo|liet ke cua so|list windows|open windows|dong cua so|close window|chuyen workspace|switch workspace|go to workspace|(?:chuyen|dua)\s+cua\s+so(?:\s+#?\d+)?\s+sang\s+workspace|(?:move|send)\s+window(?:\s+#?\d+)?\s+to\s+workspace|consume or expel|gop hoac tach cua so|consume window|expel window|gop cua so vao cot|tach cua so khoi cot|do rong cot|column width|set column width|resize column|chieu cao cua so|window height|set window height|toan man hinh|fullscreen window|toggle fullscreen|cua so noi|float window|unfloat window|floating window|toggle floating|can giua cot|center column|maximize column|phong to cot|expand column|mo rong cot)\b",
         folded,
     ):
         return {"kind": "desktop_control", "subkind": "windows", "language": lang}
@@ -1042,17 +2629,36 @@ def classify_intent(prompt: str, session_ctx: dict | None = None) -> dict:
         return {"kind": "file_task", "subkind": "rollback", "language": lang}
 
     # Multi-step or single-step file / folder operations in natural language or shorthand
+    has_file_or_path_ref = bool(
+        raw.lstrip().startswith("/")
+        or _extract_path_from_text(raw)
+        or re.search(
+            r"\b(?:file|files|tep|folder|folders|thu muc|directory|directories|project|du an|code|line|dong|script|item|items|first|second|dau tien|thu hai)\b|#1|#2",
+            folded,
+        )
+    )
     if (
         re.search(
-            r"\b(?:chay lenh|chay script|chay file|thuc thi lenh|run command|run script|execute command|doc thu muc|liet ke|xem thu muc|mo thu muc|kiem tra thu muc|truy cap|xem tat ca|xem het|danh sach file|danh sach tep|danh sach thu muc|co nhung file nao|co gi trong thu muc|tim tep|doc tep|doc file|xem file|xem tep|kiem tra file|kiem tra tep|tom tat tep|sua tep|sua file|chinh sua tep|chinh sua file|sua code|chinh sua code|mo trinh sua|de sua|ghi vao|viet vao|them vao|them dong|tao tep|tao file|sao chep|di chuyen|cat file|cat tep|doi ten file|doi ten tep|xoa tep|xoa file|read folder|list directory|list files|list all|list folders|list everything|list items|show files|show all|show folders|show directory|what files|what is in|read file|inspect file|check file|summarize|edit file|edit code|edit this|edit that|open in editor|open editor|create file|copy file|move file|cut file|rename file|delete file)\b",
+            r"\b(?:chay lenh|chay script|chay file|thuc thi lenh|run command|run script|execute command|doc thu muc|liet ke|xem thu muc|mo thu muc|kiem tra thu muc|truy cap|xem tat ca|xem het|danh sach file|danh sach tep|danh sach thu muc|co nhung file nao|co gi trong thu muc|tim tep|tim file|tim kiem file|tim kiem tep|tim thu muc|kiem file|kiem tep|kiem thu muc|tim giup.*(?:file|tep|thu muc)|kiem giup.*(?:file|tep|thu muc)|(?:file|tep|thu muc).*(?:nam o dau|o dau)|doc tep|doc file|xem file|xem tep|kiem tra file|kiem tra tep|tom tat tep|tom tat file|phan tich tep|phan tich file|sua tep|sua file|chinh sua tep|chinh sua file|sua code|chinh sua code|mo trinh sua|de sua|ghi vao|viet vao|them vao|them dong|tao tep|tao file|sao chep|di chuyen|chuyen doi|cat file|cat tep|doi ten file|doi ten tep|xoa tep|xoa file|read folder|list directory|list files|list all|list folders|list everything|list items|show files|show all|show folders|show directory|what files|what is in|find file|find the file|find a file|find folder|find the folder|locate file|locate the file|locate folder|where is.*(?:file|folder)|search for.*(?:file|folder)|search file|look for.*(?:file|folder)|read file|inspect file|check file|summarize|summarize file|analyze file|edit file|edit code|edit this|edit that|open in editor|open editor|create file|copy file|move file|convert file|cut file|rename file|delete file)\b",
             folded,
         )
         or re.match(
-            r"^(?:/agent\s+|/)?(?:(?:hay|vui long|lam on|giup toi|giup minh|toi muon|minh muon|please|can you|could you|help me|i want to)\s+)*(?:access|list|ls|dir|tree|open|cd|edit|write|append|create|copy|cp|sao chep|cut|cat|move|mv|di chuyen|chuyen|doi ten|rename|delete|rm|xoa|run|exec|execute|chay|thuc thi)\b",
+            r"^(?:/agent\s+|/)?(?:(?:hay|vui long|lam on|giup toi|giup minh|toi muon|minh muon|please|can you|could you|help me|i want to)\s+)*(?:access|list|ls|dir|tree|cd|edit|write|append|create|copy|cp|sao chep|cut|cat|move|mv|di chuyen|chuyen doi|chuyen|convert|doi ten|rename|delete|rm|xoa|run|exec|execute|chay|thuc thi)\b",
+            folded,
+        )
+        or (
+            has_file_or_path_ref
+            and re.match(
+                r"^(?:/agent\s+|/)?(?:(?:hay|vui long|lam on|giup toi|giup minh|toi muon|minh muon|please|can you|could you|help me|i want to)\s+)*(?:open|find|locate|read|inspect|check|show)\b",
+                folded,
+            )
+        )
+        or re.search(
+            r"\b(?:chinh sua|sua|edit|mo|doc|xem|kiem tra|truy cap|tim|tim kiem|kiem|find|locate|search|look for|where is|read|open|inspect|check|show|tom tat|summarize|phan tich|analyze|tao|ghi|viet|them|sao chep|copy|di chuyen|move|chuyen doi|convert|cat|cut|doi ten|rename|xoa|delete|chay|run)\b.*(?:~/|/|\.\.?/|\.(?:bashrc|bash_profile|zshrc|zshenv|profile|gitignore|gitconfig|npmrc|vimrc|tmux\.conf|env)\b|\b(?:makefile|dockerfile|pkgbuild|readme|license|copying|justfile|cmakelists|vagrantfile|procfile|gemfile|rakefile|caddyfile|jenkinsfile)\b|\b[a-z0-9_.\-]+\.(?:txt|md|py|qml|js|cjs|mjs|ts|tsx|jsx|json|rs|toml|sh|bash|zsh|fish|yaml|yml|html|css|scss|vue|svelte|c|cpp|cc|h|hpp|go|java|kt|rb|php|lua|sql|xml|csv|tsv|env|nix|log|conf|cfg|ini|service|pdf|docx|xlsx|pptx|odt|epub|jpg|jpeg|png|webp|svg|mp3|mp4|wav|flac|ogg|ttf|otf|woff|woff2|sqlite3|sqlite|db|lock|bak|patch|diff|appimage)\b)",
             folded,
         )
         or re.search(
-            r"\b(?:chinh sua|sua|edit|mo|doc|xem|kiem tra|truy cap|tao|ghi|viet|them|sao chep|copy|di chuyen|move|cat|cut|doi ten|rename|xoa|delete|chay|run)\b.*(?:~/|/|\.\.?/|\b[a-z0-9_.\-]+\.(?:txt|md|py|qml|js|cjs|mjs|ts|tsx|jsx|json|rs|toml|sh|bash|zsh|fish|yaml|yml|html|css|scss|vue|svelte|c|cpp|cc|h|hpp|go|java|kt|rb|php|lua|sql|xml|csv|tsv|env|nix|log|conf|cfg|ini|service)\b)",
+            r"(?:~/|/|\.\.?/|\.(?:bashrc|bash_profile|zshrc|zshenv|profile|gitignore|gitconfig|npmrc|vimrc|tmux\.conf|env)\b|\b(?:makefile|dockerfile|pkgbuild|readme|license|copying|justfile|cmakelists|vagrantfile|procfile|gemfile|rakefile|caddyfile|jenkinsfile)\b|\b[a-z0-9_.\-]+\.(?:txt|md|py|qml|js|cjs|mjs|ts|tsx|jsx|json|rs|toml|sh|bash|zsh|fish|yaml|yml|html|css|scss|vue|svelte|c|cpp|cc|h|hpp|go|java|kt|rb|php|lua|sql|xml|csv|tsv|env|nix|log|conf|cfg|ini|service|pdf|docx|xlsx|pptx|odt|epub|jpg|jpeg|png|webp|svg|mp3|mp4|wav|flac|ogg|ttf|otf|woff|woff2|sqlite3|sqlite|db|lock|bak|patch|diff|appimage)\b).*\b(?:nam o dau|o dau)\b",
             folded,
         )
     ):
@@ -1085,7 +2691,7 @@ def _is_plus_iq_model(model_id: str) -> bool:
 def _is_qwen35_hybrid_model(model_id: str) -> bool:
     lowered = str(model_id or "").strip().lower()
     return _is_plus_iq_model(lowered) or any(
-        token in lowered for token in ("qwen3.5", "qwen3_5", "qwen3-vl", "qwen3:")
+        token in lowered for token in ("qwen3.5", "qwen3_5", "qwen35", "qwen3.6", "qwen3_6", "qwen36", "qwen3.7", "qwen3.8", "qwen3-vl", "qwen3:")
     )
 
 
@@ -1101,7 +2707,7 @@ def _is_mtp_model(model_id: str) -> bool:
 
 
 def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict:
-    """Classify a prompt into 'action' (Desktop UI & Fast Action) vs 'thinking' (Deep Thinking).
+    """Classify a prompt into 'action' (Desktop UI & Fast Action) vs 'thinking' (Deep Thinking / Domain RAG).
 
     Supports both Dual-Model routing (switching between actionModel and thinkingModel)
     and Single-Model multi-mode routing (e.g., DavidAU/Qwen3.5 plusIQ {REASON:...}
@@ -1115,24 +2721,33 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
     folded = _fold_ascii(raw)
 
     role = "action"
-    category = "fast_action_or_chat"
+    role_label = "Fast Chat"
+    category = "fast_chat"
     reason = (
-        "Phản hồi nhanh & điều khiển Desktop UI / MCP"
+        "Trò chuyện phản hồi nhanh"
         if lang == "vi"
-        else "Fast response & Desktop UI / MCP action"
+        else "Fast conversational response"
     )
+    deep_thinking_match = None
+    strong_deep_cue = None
+    domain_rag_domains = domain_rag.detect_domains(raw)
+    is_domain_cap = domain_rag.is_domain_capability_query(raw)
+    is_domain_concept = domain_rag.is_domain_concept_or_command_query(raw)
+    is_config_check = domain_rag.is_config_check_query(raw)
 
     # 1. Explicit slash commands
-    if re.match(r"^/(?:plan|diagnostics|learn|workflow|reflect)\b", folded):
+    if re.match(r"^/(?:swarm|plan|diagnostics|learn|workflow|reflect)\b", folded):
         role = "thinking"
+        role_label = "Deep Thinking"
         category = "slash_thinking"
         reason = (
-            "Lệnh chuyên sâu (/plan, /diagnostics, /learn, /workflow, /reflect) cần suy luận sâu"
+            "Lệnh chuyên sâu (/swarm, /plan, /diagnostics, /learn, /workflow, /reflect) cần suy luận sâu"
             if lang == "vi"
-            else "Deep command (/plan, /diagnostics, /learn, /workflow, /reflect) requires deep reasoning"
+            else "Deep command (/swarm, /plan, /diagnostics, /learn, /workflow, /reflect) requires deep reasoning"
         )
     elif re.match(r"^/rag\b", folded) and not re.match(r"^/rag(?:\s*$|\s+(?:list|add|remove|del|rm|clear)\b)", folded):
         role = "thinking"
+        role_label = "Domain RAG"
         category = "rag_synthesis"
         reason = (
             "Tổng hợp tài liệu RAG đa nguồn cần model suy luận sâu"
@@ -1140,10 +2755,11 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
             else "Multi-document RAG synthesis requires deep reasoning"
         )
     elif re.match(
-        r"^/(?:scan|access|list|ls|dir|tree|open|cd|edit|write|append|create|copy|cp|cut|move|mv|delete|rm|run|exec|mcp|git|system|processes|undo|rollback|permissions|rules|memory|skills?|rag)\b",
+        r"^/(?:scan|access|list|ls|dir|tree|open|cd|edit|write|append|create|copy|cp|cut|move|mv|delete|rm|run|exec|mcp|git|system|processes|undo|rollback|permissions|rules|memory|skills?|ponytail|docx|pdf|xlsx|rag)\b",
         folded,
     ):
         role = "action"
+        role_label = "UI Action"
         category = "slash_action"
         reason = (
             "Thao tác trực tiếp trên Desktop / MCP / Tệp ưu tiên tốc độ phản hồi"
@@ -1153,14 +2769,14 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
     else:
         # 2. Check explicit deep reasoning / analysis / architecture / algorithm / debugging cues
         deep_thinking_match = re.search(
-            r"\b(?:suy luan|suy nghi sau|phan tich sau|phan tich ky|phan tich nguyen nhan|giai thich chi tiet|giai thich sau|so sanh uu nhuoc|kien truc|thuat toan|toi uu hoa|debug sau|go loi|tim nguyen nhan|root cause|deadlock|race condition|lock-free|concurrency|de quy|quy hoach dong|dynamic programming|len ke hoach|lap ke hoach|ke hoach chi tiet|step by step|tung buoc|chung minh|danh gia kien truc|thiet ke he thong|system design|architecture|algorithm|complexity|big-o|trade-off|tradeoff|deep dive|deep thinking|reason about|analyze deeply|explain why|under the hood|multi-step plan|refactor strategy|triet hoc|philosophy|philosophical|sang tao sau|out of the box|lateral thinking)\b",
+            r"\b(?:suy luan|suy nghi sau|phan tich sau|phan tich ky|phan tich nguyen nhan|giai thich chi tiet|giai thich sau|so sanh uu nhuoc|kien truc|thuat toan|toi uu hoa|debug sau|go loi|tim nguyen nhan|root cause|deadlock|race condition|lock-free|concurrency|de quy|quy hoach dong|dynamic programming|len ke hoach|lap ke hoach|ke hoach chi tiet|create a plan|make a plan|build a plan|help me plan|step by step|tung buoc|chung minh|danh gia kien truc|thiet ke he thong|system design|architecture|algorithm|complexity|big-o|trade-off|tradeoff|deep dive|deep thinking|reason about|analyze deeply|explain why|under the hood|multi-step plan|refactor strategy|triet hoc|philosophy|philosophical|sang tao sau|out of the box|lateral thinking)\b",
             folded,
-        ) or re.match(
-            r"^(?:tai sao|vi sao|why does|why is|how should we architect|phan tich|analyze|design a|hay phan tich|hay giai thich sau|hay lap ke hoach)\b",
+        ) or re.search(
+            r"(?:^(?:tai sao|vi sao|why does|why is|how should we architect|phan tich|analyze|design a|hay phan tich|hay giai thich sau|hay lap ke hoach)|(?:^|\b(?:please|can you|could you|help me|i want to|i need to|we need to|lets|let's|and)\s+)plan\s+(?:a|an|my|the|our|for))\b",
             folded,
         )
         ui_action_match = re.search(
-            r"\b(?:click|nhap chuot|bam|keo tha|scroll|cuon trang|go phim|type text|focus window|dong cua so|close window|chuyen workspace|switch workspace|mo ung dung|launch app|open app|am luong|volume|mute|unmute|do sang|brightness|clipboard|chup man hinh|screenshot|ocr|tren man hinh|on screen|cua so dang mo|active window|computer-use|playwright|devtools|desktop-commander)\b",
+            r"\b(?:click|nhap chuot|bam|keo tha|scroll|cuon trang|go phim|type text|focus window|dong cua so|close window|chuyen workspace|switch workspace|mo ung dung|launch app|open app|am luong|volume|mute|unmute|do sang|brightness|clipboard|chup man hinh|screen\s*shot|ocr|tren man hinh|xem man hinh|nhin man hinh|thay man hinh|trong anh chup|trong buc anh|mo ta anh chup|mo ta buc anh|on screen|on my screen|on the screen|see my screen|see the screen|what do you see|what can you see|what you can see|describe\s+(?:my\s+|the\s+)?screen(?:\s*shot)?|cua so dang mo|active window|computer-use|playwright|devtools|desktop-commander)\b",
             folded,
         )
         strong_deep_cue = re.search(
@@ -1170,14 +2786,25 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
 
         if deep_thinking_match and (not ui_action_match or strong_deep_cue):
             role = "thinking"
+            role_label = "Domain RAG" if domain_rag_domains else "Deep Thinking"
             category = "deep_reasoning"
             reason = (
                 "Yêu cầu phân tích sâu, thuật toán, kiến trúc hoặc lập kế hoạch"
                 if lang == "vi"
                 else "Prompt requests deep analysis, architecture, algorithm design, or planning"
             )
+        elif (is_domain_cap or is_domain_concept or is_config_check or domain_rag_domains) and not ui_action_match:
+            role = "thinking"
+            role_label = "Domain RAG"
+            category = "domain_rag"
+            reason = (
+                "Tra cứu Hệ thống Domain RAG 3 tầng (Niri / Quickshell / Arch Linux)"
+                if lang == "vi"
+                else "3-Stage Domain RAG lookup (Niri / Quickshell / Arch Linux)"
+            )
         elif ui_action_match and not deep_thinking_match:
             role = "action"
+            role_label = "UI Action"
             category = "desktop_ui_action"
             reason = (
                 "Điều khiển giao diện Desktop, màn hình hoặc công cụ MCP"
@@ -1188,10 +2815,20 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
             intent_info = classify_intent(raw)
             kind = intent_info.get("kind", "chat")
             user_effort_hint = str(opts.get("thinkingEffort") or "off").strip().lower()
-            if kind in ("plan_and_code", "self_learn") or (
+            if kind == "rag_query" and intent_info.get("subkind") in ("domain_capability", "domain_concepts", "check_config"):
+                role = "thinking"
+                role_label = "Domain RAG"
+                category = "domain_rag"
+                reason = (
+                    "Tra cứu Hệ thống Domain RAG 3 tầng (Niri / Quickshell / Arch Linux)"
+                    if lang == "vi"
+                    else "3-Stage Domain RAG lookup (Niri / Quickshell / Arch Linux)"
+                )
+            elif kind in ("plan_and_code", "self_learn") or (
                 kind == "rag_manage" and intent_info.get("subkind") == "query"
             ):
                 role = "thinking"
+                role_label = "Deep Thinking"
                 category = kind
                 reason = (
                     "Tác vụ lập kế hoạch mã nguồn, tự học hoặc truy vấn RAG chuyên sâu"
@@ -1199,6 +2836,7 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
                     else "Code planning, self-learning, or RAG synthesis task"
                 )
             elif kind in (
+                "screen_observe",
                 "screen_inspect",
                 "gui_action",
                 "desktop_control",
@@ -1207,12 +2845,19 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
                 "shell_task",
                 "git_task",
                 "mcp_manage",
+                "web_task",
+                "voice_task",
                 "permission_manage",
+                "rule_manage",
+                "memory_manage",
+                "pocket_manage",
+                "skill_manage",
                 "confirmation_response",
                 "stop",
                 "resume",
             ):
                 role = "action"
+                role_label = "UI Action"
                 category = kind
                 reason = (
                     "Thao tác hệ thống / tệp / giao diện trực tiếp cần phản hồi tức thì"
@@ -1220,33 +2865,59 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
                     else "Direct desktop, file, or system action routed for instant execution"
                 )
             elif (
-                len(raw) >= 140
-                or (not ui_action_match and user_effort_hint in ("high", "xhigh", "max"))
-            ) and (
-                "?" in raw
-                or any(
-                    k in folded
-                    for k in (
-                        "explain",
-                        "giai thich",
-                        "how",
-                        "lam sao",
-                        "nhu the nao",
-                        "compare",
-                        "so sanh",
-                        "fix bug",
-                        "sua loi",
-                        "debug",
-                        "go loi",
+                not re.search(
+                    r"\b(?:how are you|how is your day|how's your day|how is it going|how's it going|what's up|whats up|what is your name|who are you|good morning|good afternoon|good evening|ban ten la gi|ban la ai|ban khoe khong|hom nay the nao)\b",
+                    folded,
+                )
+                and (
+                    len(raw) >= 140
+                    or (not ui_action_match and user_effort_hint in ("high", "xhigh", "max"))
+                )
+                and (
+                    "?" in raw
+                    or any(
+                        k in folded
+                        for k in (
+                            "explain",
+                            "giai thich",
+                            "how",
+                            "lam sao",
+                            "nhu the nao",
+                            "compare",
+                            "so sanh",
+                            "fix bug",
+                            "sua loi",
+                            "debug",
+                            "go loi",
+                        )
                     )
                 )
             ):
                 role = "thinking"
+                role_label = "Deep Thinking"
                 category = "complex_analysis"
                 reason = (
                     "Câu hỏi phân tích hoặc gỡ lỗi chuyên sâu cần suy luận chi tiết"
                     if lang == "vi"
                     else "Analytical or debugging question routed to Deep Thinking model"
+                )
+            elif (
+                re.search(
+                    r"\b(?:what is|what are|how does|how do|how to|can you explain|explain|difference between|compare|do you know|do you have|la gi|nhu the nao|lam sao|giai thich|so sanh|co biet|kien thuc)\b",
+                    folded,
+                )
+                and not re.search(
+                    r"\b(?:how are you|how is your day|how's your day|how is it going|how's it going|what's up|whats up|what is your name|who are you|good morning|good afternoon|good evening|ban ten la gi|ban la ai|ban khoe khong|hom nay the nao)\b",
+                    folded,
+                )
+            ):
+                role = "thinking"
+                role_label = "Deep Thinking"
+                category = "knowledge_qa"
+                reason = (
+                    "Câu hỏi kiến thức & giải thích kỹ thuật"
+                    if lang == "vi"
+                    else "Knowledge & technical explanation query"
                 )
 
     auto_enabled = opts.get("autoModelRoutingEnabled", True) is not False
@@ -1294,6 +2965,11 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
         user_effort = "off"
 
     dual_model_active = bool(auto_enabled and action_model and thinking_model and action_model != thinking_model)
+    is_light_knowledge = bool(
+        category in ("domain_rag", "knowledge_qa")
+        and not strong_deep_cue
+        and not deep_thinking_match
+    )
 
     if not auto_enabled:
         selected_model = base_model
@@ -1302,7 +2978,12 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
     elif role == "thinking":
         selected_model = thinking_model
         selected_endpoint = thinking_endpoint
-        recommended_effort = user_effort if user_effort in ("medium", "high", "xhigh", "max") else "high"
+        if is_domain_cap or is_domain_concept or is_config_check:
+            recommended_effort = "off"
+        elif is_light_knowledge:
+            recommended_effort = "low" if user_effort in ("medium", "high", "xhigh", "max") else (user_effort if user_effort != "off" else "low")
+        else:
+            recommended_effort = user_effort if user_effort in ("medium", "high", "xhigh", "max") else "high"
     else:
         selected_model = action_model
         selected_endpoint = action_endpoint
@@ -1317,8 +2998,8 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
     if explicit_reason:
         in_chat_directive = explicit_reason.group(0)
     elif is_plus_iq and auto_enabled:
-        if role == "action":
-            in_chat_directive = "{REASON:ixhigh}" if user_effort in ("xhigh", "max") else "{REASON:imedium}"
+        if role == "action" or is_light_knowledge:
+            in_chat_directive = "{REASON:ixhigh}" if (role == "action" and user_effort in ("xhigh", "max")) else "{REASON:imedium}"
         else:
             if any(
                 k in folded
@@ -1343,7 +3024,11 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
     else:
         in_chat_directive = ""
 
-    enable_thinking = (role == "thinking") if auto_enabled else (recommended_effort not in ("off", "instant"))
+    enable_thinking = (
+        (role == "thinking" and not is_light_knowledge)
+        if auto_enabled
+        else (recommended_effort not in ("off", "instant"))
+    )
     if not auto_enabled:
         routing_mode = "manual"
     elif dual_model_active:
@@ -1355,7 +3040,6 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
     else:
         routing_mode = "single-model"
 
-    role_label = "Deep Thinking" if role == "thinking" else "UI Action"
     return {
         "role": role,
         "roleLabel": role_label,
@@ -1376,12 +3060,19 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
         "isMtp": bool(is_mtp),
         "mtpOptimizeEnabled": bool(mtp_optimize_enabled),
         "mtpActive": bool(mtp_active),
-        "temperature": 0.7 if mtp_active else None,
+        "temperature": (
+            round(max(0.0, min(2.0, float(opts["temperature"]))), 2)
+            if isinstance(opts.get("temperature"), (int, float)) and opts.get("hasTemperatureOverride") is True
+            else (0.7 if mtp_active else None)
+        ),
         "repetitionPenalty": 1.0 if mtp_active else None,
         "recommendedTemperature": 0.7 if mtp_active else 0.65,
         "recommendedRepetitionPenalty": 1.0 if mtp_active else None,
         "inChatDirective": in_chat_directive,
     }
+
+
+classify_task_type = classify_prompt_model_role
 
 
 def _call_local_model_tool_turn(
@@ -1392,33 +3083,66 @@ def _call_local_model_tool_turn(
     enable_thinking: bool = False,
     in_chat_directive: str = "",
     mtp_active: bool | None = None,
+    messages: list[dict] | None = None,
+    temperature: float | None = None,
+    tools: list[dict] | None = None,
+    provider: str = "",
+    context_window: int | None = None,
 ) -> dict | None:
     """Optional structured tool-call query against the active local OpenAI/Ollama endpoint.
 
     Strictly parses structured `tool_calls` from the API response object; never
     executes JSON or commands found inside plain assistant prose.
     """
+    global _LAST_LMSTUDIO_ERROR
     if not endpoint_url or not model_name:
         return None
     if not (endpoint_url.startswith("http://127.0.0.1:") or endpoint_url.startswith("http://localhost:")):
         return None
-    effective_user_prompt = user_prompt[:1200]
+    if not _ensure_lmstudio_runtime_ready(endpoint_url, model_name):
+        return None
+    effective_model_name = _LAST_LMSTUDIO_LOADED_MODEL or model_name
+    effective_user_prompt = user_prompt[:1800]
     if in_chat_directive and in_chat_directive not in effective_user_prompt:
         effective_user_prompt = f"{in_chat_directive}\n{effective_user_prompt}"
-    effective_mtp = _is_mtp_model(model_name) if mtp_active is None else bool(mtp_active)
+    effective_mtp = _is_mtp_model(effective_model_name) if mtp_active is None else bool(mtp_active)
+    eff_temp = (
+        round(max(0.0, min(2.0, float(temperature))), 2)
+        if isinstance(temperature, (int, float))
+        else (0.7 if effective_mtp else 0.1)
+    )
+    is_live_lms = (
+        ":1234" in endpoint_url
+        and not os.environ.get("ALIS_TEST_ISOLATED")
+        and not os.environ.get("AQUA_TEST_ENDPOINT")
+        and not os.environ.get("AI_FIXTURE_URL")
+    )
+    t0 = time.time()
+    watchdog_stop = _start_lmstudio_gtt_watchdog() if is_live_lms else None
     try:
         if "/v1/" in endpoint_url:
-            body = {
-                "model": model_name,
-                "messages": [
+            if isinstance(messages, list) and messages:
+                req_messages, _ = context_policy.compact_messages_for_route(
+                    messages,
+                    provider=provider,
+                    model=effective_model_name,
+                    endpoint=endpoint_url,
+                    reserved_output=512 if enable_thinking else 320,
+                    context_window=context_window,
+                )
+            else:
+                req_messages = [
                     {"role": "system", "content": system_prompt[:2400]},
-                    {"role": "user", "content": effective_user_prompt[:1260]},
-                ],
-                "tools": AGENT_TOOL_SCHEMAS,
+                    {"role": "user", "content": effective_user_prompt[:1860]},
+                ]
+            body = {
+                "model": effective_model_name,
+                "messages": req_messages,
+                "tools": tools if isinstance(tools, list) else AGENT_TOOL_SCHEMAS,
                 "tool_choice": "auto",
-                "temperature": 0.7 if effective_mtp else 0.1,
-                "max_tokens": 512 if enable_thinking else 256,
-                "reasoning_effort": "high" if enable_thinking else "low",
+                "temperature": eff_temp,
+                "max_tokens": 512 if enable_thinking else 320,
+                "reasoning_effort": "high" if enable_thinking else "none",
                 "chat_template_kwargs": {"enable_thinking": bool(enable_thinking)},
                 "stream": False,
             }
@@ -1430,7 +3154,8 @@ def _call_local_model_tool_turn(
                 data=json.dumps(body).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=25) as resp:
+            req_timeout = 90 if is_live_lms else 25
+            with urllib.request.urlopen(req, timeout=req_timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8", errors="replace"))
             choice = (data.get("choices") or [{}])[0]
             msg = choice.get("message") or {}
@@ -1474,17 +3199,92 @@ def _call_local_model_tool_turn(
                     if args_error:
                         tc_entry["argsError"] = args_error
                     tool_calls.append(tc_entry)
+            raw_text = str(msg.get("content") or "").strip()
+            raw_text = re.sub(r"<think(?:ing)?>[\s\S]*?</think(?:ing)?>", "", raw_text, flags=re.IGNORECASE).strip()
             return {
-                "text": str(msg.get("content") or "").strip(),
+                "text": raw_text,
                 "toolCalls": tool_calls,
+                "rawMessage": msg,
                 "tokenUsage": {
                     "inputTokens": int(usage.get("prompt_tokens") or 0),
                     "outputTokens": int(usage.get("completion_tokens") or 0),
                 },
             }
     except Exception:
+        if is_live_lms and not _LAST_LMSTUDIO_ERROR:
+            log_err = _check_lmstudio_log_recent_fit_or_oom_error(since_ts=t0 - 1.0)
+            if log_err == "gpu_oom":
+                _LAST_LMSTUDIO_ERROR = log_err
         return None
+    finally:
+        if watchdog_stop is not None:
+            watchdog_stop.set()
     return None
+
+
+def _check_file_syntax_valid(fpath: Path) -> tuple[bool, str]:
+    """Check whether a Python or JSON file is syntactically valid."""
+    if not fpath.is_file():
+        return True, ""
+    ext = fpath.suffix.lower()
+    try:
+        src = fpath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return True, ""
+    if ext == ".py":
+        import ast
+        try:
+            ast.parse(src, filename=str(fpath))
+            return True, ""
+        except SyntaxError as exc:
+            return False, f"SyntaxError at line {exc.lineno}: {exc.msg}"
+    if ext == ".json":
+        try:
+            json.loads(src)
+            return True, ""
+        except Exception as exc:
+            return False, f"JSONDecodeError: {exc}"
+    return True, ""
+
+
+def _detect_cross_component_impact(target_path: str, new_content: str = "") -> list[dict]:
+    """Detect whether symbols defined in `target_path` (or removed by `new_content`) are referenced by sibling code files."""
+    fpath = Path(target_path)
+    code_exts = (".py", ".qml", ".js", ".ts", ".cjs", ".mjs")
+    if not fpath.is_file() or fpath.suffix.lower() not in code_exts:
+        return []
+    try:
+        old_src = fpath.read_text(encoding="utf-8", errors="replace")[:32000]
+    except OSError:
+        return []
+    old_syms = [
+        s
+        for s in re.findall(r"(?:^|\n)\s*(?:def|class|function)\s+([A-Za-z][A-Za-z0-9_]{2,})\b", old_src)
+        if not s.startswith("_") and s not in ("main", "init", "run", "test")
+    ]
+    if new_content:
+        cand_syms = [s for s in old_syms if not re.search(rf"\b{re.escape(s)}\b", new_content)]
+    else:
+        cand_syms = list(dict.fromkeys(old_syms))[:12]
+    if not cand_syms:
+        return []
+    impacts: list[dict] = []
+    try:
+        siblings = sorted(
+            p for p in fpath.parent.iterdir()
+            if p.is_file() and p != fpath and p.suffix.lower() in code_exts
+        )[:16]
+    except OSError:
+        return []
+    for sib in siblings:
+        try:
+            sib_src = sib.read_text(encoding="utf-8", errors="replace")[:32000]
+        except OSError:
+            continue
+        matched = [sym for sym in cand_syms if re.search(rf"\b{re.escape(sym)}\b", sib_src)]
+        if matched:
+            impacts.append({"file": str(sib), "name": sib.name, "symbols": matched[:4]})
+    return impacts
 
 
 def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, now_ms: int) -> str:
@@ -1519,55 +3319,267 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
     else:
         return f"[{name} error: unsupported tool arguments type]"
     last_dir = str(session_ctx.get("lastDirectory") or Path.home())
+    active_sid = str(
+        (globals().get("_CURRENT_TURN_THREAD_ID") or "")
+        or session_ctx.get("activeThreadId")
+        or ((session_ctx.get("_activeTurnOptions") or {}).get("threadId") if isinstance(session_ctx.get("_activeTurnOptions"), dict) else "")
+        or "chat_default"
+    ).strip() or "chat_default"
+    tc_id = str(tc.get("toolCallId") or tc.get("id") or "")
 
-    if name == "file_inspect":
-        target = str(args.get("path") or last_dir)
+    if name == "read_spill":
+        try:
+            sp_res = read_spill_tool({
+                "sessionId": active_sid,
+                "spillId": args.get("spill_id") or args.get("spillId") or "",
+                "path": args.get("path") or "",
+                "offsetLine": args.get("offset_line", args.get("offsetLine", 1)),
+                "limitLines": args.get("limit_lines", args.get("limitLines", 120)),
+                "grep": args.get("grep") or "",
+            })
+            return str(sp_res.get("content") or "")
+        except ToolError as exc:
+            return f"[read_spill error ({exc.code}): {exc.message}]"
+
+    if name in ("file_inspect", "read_file"):
+        target = str(args.get("path") or args.get("targetPath") or args.get("file") or last_dir)
         resolved = str(resolve_candidate_path(target, last_dir=last_dir))
         perm = check_permission("file_read", target_path=resolved, explicit_prompt_target=True, now_ms=now_ms)
         if not perm["allowed"]:
-            return f"[file_inspect blocked: {perm['reason']} on {resolved}]"
-        res = agent_file_op({"op": "access", "targetPath": resolved, "lastDirectory": last_dir, "nowMs": now_ms})
-        return f"{res['summary']}\n" + "\n".join(res.get("lines", [])[:40])
+            return f"[{name} blocked: {perm['reason']} on {resolved}]"
+        op_opts: dict = {
+            "op": "access",
+            "targetPath": resolved,
+            "lastDirectory": last_dir,
+            "threadId": active_sid,
+            "callId": tc_id,
+            "nowMs": now_ms,
+        }
+        if args.get("startLine") is not None or args.get("start_line") is not None:
+            op_opts["startLine"] = args.get("startLine", args.get("start_line"))
+        if args.get("endLine") is not None or args.get("end_line") is not None:
+            op_opts["endLine"] = args.get("endLine", args.get("end_line"))
+        res = agent_file_op(op_opts)
+        if res.get("spilled") and res.get("spillPreview"):
+            return f"{res['summary']}\n{res['spillPreview']}"
+        joined = f"{res['summary']}\n" + "\n".join(res.get("lines", []))
+        return spill_store.maybe_spill_tool_output(joined, session_id=active_sid, call_id=tc_id, tool_name=name)[0]
 
-    if name == "file_mutate":
+    if name in ("file_mutate", "edit_file", "write_file"):
         op = str(args.get("op") or "edit")
-        target = str(args.get("path") or "")
+        target = str(args.get("path") or args.get("targetPath") or args.get("file") or "")
         resolved = str(resolve_candidate_path(target, last_dir=last_dir))
         perm = check_permission("file_write", target_path=resolved, explicit_prompt_target=True, now_ms=now_ms)
         if not perm["allowed"]:
-            return f"[file_mutate blocked: {perm['reason']} on {resolved}]"
+            return f"[{name} blocked: {perm['reason']} on {resolved}]"
+        resolved_p = Path(resolved)
+        existed_before = resolved_p.is_file()
+        was_valid_syntax, _ = _check_file_syntax_valid(resolved_p) if existed_before else (True, "")
         res = agent_file_op({
             "op": op,
             "targetPath": resolved,
             "destPath": str(args.get("destPath") or ""),
-            "content": str(args.get("content") or ""),
+            "content": str(args.get("content") or args.get("text") or ""),
             "searchText": str(args.get("searchText") or ""),
             "mode": str(args.get("mode") or "write"),
             "lastDirectory": last_dir,
             "nowMs": now_ms,
         })
+        if op in ("edit", "patch") and existed_before:
+            rcpt_id = str(res.get("receiptId") or "")
+            added_lines = int(res.get("addedLines") or 0)
+            removed_lines = int(res.get("removedLines") or 0)
+            now_valid_syntax, syn_err = _check_file_syntax_valid(resolved_p)
+            if rcpt_id and was_valid_syntax and not now_valid_syntax:
+                try:
+                    rollback_file_receipt(rcpt_id)
+                    return f"[{name} reverted: edit introduced syntax error ({syn_err}) in {resolved_p.name}; original file restored]"
+                except Exception:
+                    pass
+            if rcpt_id and added_lines == 0 and removed_lines == 0:
+                try:
+                    rollback_file_receipt(rcpt_id)
+                    return f"[{name} reverted: edit on {resolved_p.name} produced no effective diff (0 lines changed)]"
+                except Exception:
+                    pass
         return f"{res['summary']}\n" + "\n".join(res.get("lines", [])[:20])
 
-    if name == "shell_run":
-        cmd = str(args.get("command") or "").strip()
+    if name in ("create_document", "convert_document"):
+        src_raw = str(args.get("sourcePath") or args.get("srcPath") or args.get("source") or "")
+        dst_raw = str(args.get("destPath") or args.get("targetPath") or args.get("outputPath") or args.get("path") or "")
+        if not dst_raw:
+            return f"[{name} error: missing destination path]"
+        dst_resolved = str(resolve_candidate_path(dst_raw, last_dir=last_dir))
+        perm_w = check_permission("file_write", target_path=dst_resolved, explicit_prompt_target=True, now_ms=now_ms)
+        if not perm_w["allowed"]:
+            return f"[{name} blocked: {perm_w['reason']} on {dst_resolved}]"
+        if name == "create_document" or not src_raw or src_raw == dst_raw:
+            body_txt = str(args.get("content") or args.get("text") or "")
+            edited = agent_file_op({
+                "op": "edit",
+                "targetPath": dst_resolved,
+                "content": body_txt,
+                "mode": "write",
+                "lastDirectory": last_dir,
+                "nowMs": now_ms,
+            })
+            conv_meta = convert_or_create_document(dst_resolved, dst_resolved)
+            return f"{edited['summary']} ({conv_meta.get('bytes', 0)} bytes)"
+        src_resolved = str(resolve_candidate_path(src_raw, last_dir=last_dir))
+        perm_r = check_permission("file_read", target_path=src_resolved, explicit_prompt_target=True, now_ms=now_ms)
+        if not perm_r["allowed"]:
+            return f"[{name} blocked: {perm_r['reason']} on {src_resolved}]"
+        src_info = code_tools.read_file(src_resolved, max_chars=200000)
+        edited = agent_file_op({
+            "op": "edit",
+            "targetPath": dst_resolved,
+            "content": str(src_info.get("text") or ""),
+            "mode": "write",
+            "lastDirectory": last_dir,
+            "nowMs": now_ms,
+        })
+        conv_meta = convert_or_create_document(src_resolved, dst_resolved)
+        return f"Converted `{Path(src_resolved).name}` to `{Path(dst_resolved).name}` (`{edited['targetPath']}`, {conv_meta.get('bytes', 0)} bytes)."
+
+    if name in ("shell_run", "run_command"):
+        cmd = str(args.get("command") or args.get("cmd") or "").strip()
         cwd = str(args.get("cwd") or last_dir)
         perm = check_permission("shell_run", target_path=cwd, explicit_prompt_target=True, now_ms=now_ms)
         if not perm["allowed"]:
-            return f"[shell_run blocked: {perm['reason']} in {cwd}]"
-        res = agent_file_op({"op": "run", "targetPath": cmd, "content": cmd, "lastDirectory": cwd, "nowMs": now_ms})
-        return f"{res['summary']}\n" + "\n".join(res.get("lines", [])[:40])
+            return f"[{name} blocked: {perm['reason']} in {cwd}]"
+        res = agent_file_op({
+            "op": "run",
+            "targetPath": cmd,
+            "content": cmd,
+            "lastDirectory": cwd,
+            "threadId": active_sid,
+            "callId": tc_id,
+            "nowMs": now_ms,
+        })
+        if res.get("spilled") and res.get("spillPreview"):
+            return f"{res['summary']}\n{res['spillPreview']}"
+        joined = f"{res['summary']}\n" + "\n".join(res.get("lines", []))
+        return spill_store.maybe_spill_tool_output(joined, session_id=active_sid, call_id=tc_id, tool_name=name)[0]
+
+    if name == "file_receipt_rollback":
+        res = agent_file_op({
+            "op": "rollback",
+            "receiptId": str(args.get("receiptId") or ""),
+            "nowMs": now_ms,
+        })
+        return f"{res['summary']}\n" + "\n".join(res.get("lines", [])[:10])
+
+    if name == "voice_tts_stop":
+        res = desktop_control.voice_tts_stop()
+        return str(res.get("summary") or "Stopped TTS playback.")
 
     if name == "desktop_control":
+        act_dc = str(args.get("action") or args.get("action_type") or "list_windows").strip()
+        if act_dc in (
+            "gui_click",
+            "gui_fill",
+            "gui_focus",
+            "atspi_action",
+            "som_click",
+            "click",
+            "fill",
+            "set_text",
+            "focus_element",
+            "move",
+        ):
+            mapped_act = (
+                "fill"
+                if act_dc in ("gui_fill", "fill", "set_text")
+                else (
+                    "focus_element"
+                    if act_dc in ("gui_focus", "focus_element")
+                    else (
+                        "atspi_action"
+                        if act_dc == "atspi_action"
+                        else ("move" if act_dc == "move" else ("click" if act_dc == "click" else "som_click"))
+                    )
+                )
+            )
+            gui_res = perform_gui_action(
+                action_type=mapped_act,
+                x=int(args["x"]) if args.get("x") is not None else None,
+                y=int(args["y"]) if args.get("y") is not None else None,
+                text=str(args.get("value") or args.get("text") or ""),
+                mark_id=args.get("markId") if args.get("markId") is not None else args.get("mark_id"),
+                element_name=str(args.get("target") or args.get("element") or args.get("element_name") or ""),
+                role=str(args.get("role") or ""),
+                ref=str(args.get("ref") or ""),
+                now_ms=now_ms,
+            )
+            if isinstance(gui_res.get("cursorEvent"), dict):
+                session_ctx["_lastCursorEvent"] = gui_res["cursorEvent"]
+            return str(gui_res.get("summary") or "Completed GUI action.")
         res = desktop_control.manage_desktop(
-            action=str(args.get("action") or "list_windows"),
+            action=act_dc,
             target=str(args.get("target") or ""),
             value=str(args.get("value") or ""),
         )
         return f"{res['summary']}\n" + "\n".join(res.get("lines", [])[:25])
 
-    if name == "system_telemetry":
+    if name in ("gui_action", "screen_observe"):
+        if name == "screen_observe":
+            explicit_vision = bool(
+                args.get("explicitVision")
+                or args.get("annotateSom")
+                or args.get("som")
+            )
+            obs_r = observe_active_window(
+                allow_screenshot=bool(args.get("allowScreenshot", False) and explicit_vision),
+                annotate_som=bool(args.get("annotateSom", False) or args.get("som", False)),
+                now_ms=now_ms,
+            )
+            if not (obs_r.get("elements") or []) and (args.get("allowScreenshot") is not False):
+                obs_r = observe_active_window(
+                    allow_screenshot=True,
+                    annotate_som=True,
+                    now_ms=now_ms,
+                )
+            return str(obs_r.get("semanticSnapshot") or format_semantic_snapshot(obs_r.get("elements") or []))
+        gui_res = perform_gui_action(
+            action_type=str(args.get("action") or args.get("action_type") or "click"),
+            x=int(args["x"]) if args.get("x") is not None else None,
+            y=int(args["y"]) if args.get("y") is not None else None,
+            text=str(args.get("text") or args.get("value") or ""),
+            mark_id=args.get("markId") if args.get("markId") is not None else args.get("mark_id"),
+            element_name=str(args.get("element") or args.get("element_name") or args.get("target") or ""),
+            role=str(args.get("role") or ""),
+            ref=str(args.get("ref") or ""),
+            now_ms=now_ms,
+        )
+        if isinstance(gui_res.get("cursorEvent"), dict):
+            session_ctx["_lastCursorEvent"] = gui_res["cursorEvent"]
+        return str(gui_res.get("summary") or "Completed GUI action.")
+
+    if name in ("system_telemetry", "system_status"):
         res = desktop_control.get_system_telemetry()
         return f"{res['summary']}\n" + "\n".join(res.get("lines", [])[:25])
+
+    if name == "inspect_user_configuration":
+        q_cfg = str(args.get("query") or args.get("prompt") or "inspect user configuration").strip()
+        return str(domain_rag.inspect_user_configuration(q_cfg, lang=detect_language(q_cfg), companion_root=companion_root) or "")[:1200]
+
+    if name == "domain_rag":
+        q_dom = str(args.get("query") or args.get("prompt") or "").strip()
+        doms = args.get("domains") if isinstance(args.get("domains"), list) else domain_rag.detect_domains(q_dom)
+        drag = domain_rag.query_domain_rag(
+            q_dom,
+            domains=doms or None,
+            companion_root=companion_root,
+            token_budget=int(args.get("tokenBudget") or 400),
+        )
+        ctx_md = str(drag.get("contextMarkdown") or "").strip()
+        if ctx_md:
+            return ctx_md[:1200]
+        chunks = drag.get("chunks") or []
+        return "\n".join(
+            f"- {c.get('title') or c.get('source')}: {str(c.get('content') or '')[:240]}"
+            for c in chunks[:5]
+        ) or f"Domain RAG queried ({', '.join(doms or ['general'])}): 0 chunks matched."
 
     if name == "process_manage":
         res = desktop_control.manage_processes(
@@ -1585,42 +3597,32 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
             subaction=str(args.get("action") or "status"),
             extra_args=str(args.get("args") or ""),
         )
-        return f"{res['summary']}\n" + "\n".join(res.get("lines", [])[:30])
+        raw_git = f"{res['summary']}\n" + "\n".join(res.get("lines", []))
+        return spill_store.maybe_spill_tool_output(raw_git, session_id=active_sid, call_id=tc_id, tool_name=name)[0]
 
-    if name == "screen_observe":
-        called = mcp_client.call_tool(
-            "computer-use-linux",
-            "screenshot",
-            {"allowScreenshot": bool(args.get("allowScreenshot", True))},
-            companion_root=companion_root,
-        )
-        return "\n".join(c.get("text", "") for c in called.get("content", []) if c.get("text"))
-
-    if name == "gui_action":
-        act = str(args.get("action") or "inspect_window")
-        called = mcp_client.call_tool(
-            "computer-use-linux",
-            "window_action",
-            {"action": act, "targetWindowId": args.get("targetWindowId")},
-            companion_root=companion_root,
-        )
-        return "\n".join(c.get("text", "") for c in called.get("content", []) if c.get("text"))
-
-    if name == "code_inspect":
-        ws = str(args.get("workspace") or session_ctx.get("lastProject") or last_dir)
-        act = str(args.get("action") or "repo_map")
-        if act == "repo_map":
+    if name in ("code_inspect", "code_search"):
+        ws = str(args.get("workspace") or args.get("path") or session_ctx.get("lastProject") or last_dir)
+        act = str(args.get("action") or ("search" if name == "code_search" else "repo_map"))
+        q_code = str(args.get("query") or args.get("pattern") or "").strip()
+        if act == "repo_map" or (name == "code_search" and not q_code):
             rm = build_repo_map(ws, token_budget=360)
             return "\n".join(e["summary"] for e in rm.get("entries", [])[:16])
         if act == "run_tests":
             tr = run_project_tests(ws)
-            return "\n".join(tr.get("lines", [])[:20])
-        sr = search_code(ws, str(args.get("query") or ""))
-        return "\n".join(f"{m['file']}:{m['line']}: {m['text']}" for m in sr.get("matches", [])[:16])
+            raw_tr = "\n".join(tr.get("lines", []))
+            return spill_store.maybe_spill_tool_output(raw_tr, session_id=active_sid, call_id=tc_id, tool_name=name)[0]
+        sr = search_code(ws, q_code)
+        matches = sr.get("matches", [])
+        if matches:
+            raw_sr = "\n".join(f"{m['file']}:{m['line']}: {m['text']}" for m in matches)
+            return spill_store.maybe_spill_tool_output(raw_sr, session_id=active_sid, call_id=tc_id, tool_name=name)[0]
+        rm = build_repo_map(ws, token_budget=240)
+        return "\n".join(e["summary"] for e in rm.get("entries", [])[:12])
 
     if name == "rag_search":
         rag = retrieve_rag(str(args.get("query") or ""), companion_root=companion_root, page=int(args.get("page") or 1))
-        return "\n".join(rag.get("snippets", []))
+        raw_rag = "\n".join(rag.get("snippets", []))
+        return spill_store.maybe_spill_tool_output(raw_rag, session_id=active_sid, call_id=tc_id, tool_name=name)[0]
 
     if name == "mcp_call":
         called = mcp_client.call_tool(
@@ -1629,20 +3631,44 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
             args.get("arguments") if isinstance(args.get("arguments"), dict) else {},
             companion_root=companion_root,
         )
-        return "\n".join(c.get("text", "") for c in called.get("content", []) if c.get("text"))
+        if isinstance((called.get("structured") or {}).get("cursorEvent"), dict):
+            session_ctx["_lastCursorEvent"] = called["structured"]["cursorEvent"]
+        raw_mcp = "\n".join(c.get("text", "") for c in called.get("content", []) if c.get("text"))
+        return spill_store.maybe_spill_tool_output(raw_mcp, session_id=active_sid, call_id=tc_id, tool_name=name)[0]
 
     if name == "web_search":
+        open_br = bool(args.get("openBrowser", False))
+        srv = "playwright-mcp" if open_br else "web-search-mcp"
         called = mcp_client.call_tool(
-            "playwright-mcp" if args.get("openBrowser") else "web-search-mcp",
-            "browser_search" if args.get("openBrowser") else "web_search",
+            srv,
+            "browser_search" if open_br else "web_search",
             {
                 "query": str(args.get("query") or ""),
                 "engine": str(args.get("engine") or "auto"),
-                "openBrowser": bool(args.get("openBrowser", False)),
+                "openBrowser": open_br,
             },
             companion_root=companion_root,
+            enabled_overrides={srv: True},
         )
-        return "\n".join(c.get("text", "") for c in called.get("content", []) if c.get("text"))
+        base_out = "\n".join(c.get("text", "") for c in called.get("content", []) if c.get("text"))
+        if not open_br and os.environ.get("AQUA_TEST_AGENT_ENABLED") != "1" and not os.environ.get("AQUA_TEST_ENDPOINT"):
+            w_res = (called.get("structured") or {}).get("results") or []
+            page_blocks: list[str] = []
+            for r in w_res[:2]:
+                u = str(r.get("url") or "").strip()
+                if not u.startswith(("http://", "https://")):
+                    continue
+                try:
+                    pg = web_tools.fetch_url_excerpt(u, max_chars=1400, timeout_sec=3.5)
+                    p_lines = [str(ln).strip() for ln in (pg.get("lines") or [])[:8] if str(ln).strip()]
+                    if p_lines:
+                        dom = web_tools.short_source_domain(u)
+                        page_blocks.append(f"### Webpage ({dom} — {u})\n" + "\n".join(f"- {ln[:200]}" for ln in p_lines))
+                except Exception:
+                    pass
+            if page_blocks:
+                base_out = f"{base_out}\n\n" + "\n\n".join(page_blocks)
+        return base_out
 
     if name == "web_fetch":
         called = mcp_client.call_tool(
@@ -1653,8 +3679,10 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
                 "maxChars": int(args.get("maxChars") or 3600),
             },
             companion_root=companion_root,
+            enabled_overrides={"fetch-mcp": True},
         )
-        return "\n".join(c.get("text", "") for c in called.get("content", []) if c.get("text"))
+        raw_fetch = "\n".join(c.get("text", "") for c in called.get("content", []) if c.get("text"))
+        return spill_store.maybe_spill_tool_output(raw_fetch, session_id=active_sid, call_id=tc_id, tool_name=name)[0]
 
     if name == "skill_run":
         ran = skill_store.run_skill(
@@ -1692,7 +3720,1235 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
             return "\n".join(f"- [{r.get('status')}] {r.get('prompt')}: {r.get('lesson')}" for r in res["reflections"][:10])
         return json.dumps(res, ensure_ascii=False)[:800]
 
+    if name == "delegate_subagent":
+        turn_opts = session_ctx.get("_activeTurnOptions") if isinstance(session_ctx.get("_activeTurnOptions"), dict) else {}
+        sub_res = delegate_subagent(
+            role=str(args.get("role") or "researcher"),
+            task=str(args.get("task") or ""),
+            context_hint=str(args.get("context_hint") or args.get("contextHint") or ""),
+            options=turn_opts,
+            session_ctx=session_ctx,
+            companion_root=companion_root,
+            now_ms=now_ms,
+        )
+        return str(sub_res.get("summary") or "")[:_SUBAGENT_MAX_SUMMARY_CHARS]
+
     return f"[unknown tool: {name}]"
+
+
+_SUBAGENT_EXTRA_TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a file or inspect a directory within permitted scope.",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "code_search",
+            "description": "Search workspace source code or build a compact repository map.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "workspace": {"type": "string"},
+                    "query": {"type": "string"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "domain_rag",
+            "description": "Query the 3-Stage Domain RAG knowledge base (Niri, Quickshell, Arch Linux).",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "system_status",
+            "description": "Check Linux system status and telemetry (CPU, RAM, disk, battery, thermals).",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inspect_user_configuration",
+            "description": "Inspect user Niri, Quickshell, and Alis configuration files.",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_file",
+            "description": "Edit an existing file or create a file with syntax validation and rollback receipt.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                    "searchText": {"type": "string"},
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write content to a file within permitted workspace scope.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_document",
+            "description": "Create a formatted document (.md, .txt, .pdf, .docx, .xlsx, .pptx, .html).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "convert_document",
+            "description": "Convert a document from sourcePath to destPath.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sourcePath": {"type": "string"},
+                    "destPath": {"type": "string"},
+                },
+                "required": ["sourcePath", "destPath"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_command",
+            "description": "Run a shell command within permitted workspace scope.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string"},
+                    "cwd": {"type": "string"},
+                },
+                "required": ["command"],
+            },
+        },
+    },
+]
+
+
+def delegate_subagent(
+    role: str,
+    task: str,
+    context_hint: str = "",
+    *,
+    options: dict | None = None,
+    session_ctx: dict | None = None,
+    companion_root: Path | None = None,
+    subagent_index: int = 1,
+    subagent_total: int = 1,
+    now_ms: int | None = None,
+    requested_tools: list[str] | None = None,
+) -> dict:
+    """Execute a specialist Subagent sequentially on the single loaded local model in an isolated context window."""
+    import concurrent.futures
+
+    ctx = dict(session_ctx if isinstance(session_ctx, dict) else load_session_context())
+    inherited_opts = ctx.get("_activeTurnOptions") if isinstance(ctx.get("_activeTurnOptions"), dict) else {}
+    opts = {**inherited_opts, **dict(options or {})}
+    role_key = _normalize_subagent_role(role)
+    role_spec = SUBAGENT_ROLES[role_key]
+    role_title = str(role_spec["title"])
+    task_str = str(task or "").strip()
+    hint_str = str(context_hint or "").strip()
+    comp_root = Path(companion_root).resolve(strict=False) if companion_root else Path(__file__).resolve().parents[2]
+    ts_ms = int(now_ms or int(time.time() * 1000))
+    idx = max(1, int(subagent_index or (len(_ACTIVE_SUBAGENT_RUNS) + 1)))
+    tot = max(idx, int(subagent_total or idx))
+
+    allowed_set = set(role_spec["allowed_tools"])
+    read_only_role = role_key in ("researcher", "planner", "verifier")
+    blocked_tools: list[str] = []
+
+    req_tool_list = (
+        list(requested_tools)
+        if isinstance(requested_tools, (list, tuple, set))
+        else (list(opts.get("requestedTools")) if isinstance(opts.get("requestedTools"), (list, tuple, set)) else [])
+    )
+    for rt in req_tool_list:
+        rt_name = str(rt or "").strip()
+        if not rt_name:
+            continue
+        if (
+            rt_name == "delegate_subagent"
+            or rt_name not in allowed_set
+            or (read_only_role and rt_name in _PRIVILEGED_MUTATE_EXEC_TOOLS)
+        ):
+            if rt_name not in blocked_tools:
+                blocked_tools.append(rt_name)
+
+    with _SUBAGENT_LOCK:
+        t0_ms = int(time.time() * 1000)
+        # Strictly reuse the single loaded model; never load a second LLM into VRAM/GTT
+        route_meta = opts.get("modelRoute") if isinstance(opts.get("modelRoute"), dict) else {}
+        pinned_model = (
+            _LAST_LMSTUDIO_LOADED_MODEL
+            or str(opts.get("model") or opts.get("selectedModel") or route_meta.get("selectedModel") or "").strip()
+            or "qwen3.5-9b-uncensored-hauhaucs-aggressive"
+        )
+        pinned_endpoint = str(
+            opts.get("endpoint")
+            or opts.get("selectedEndpoint")
+            or route_meta.get("selectedEndpoint")
+            or ""
+        ).strip()
+
+        running_prog = _emit_subagent_progress(
+            role_key,
+            index=idx,
+            total=tot,
+            summary=str(role_spec["status_summary"]),
+            status="running",
+        )
+        running_label = str(running_prog["current"])
+
+        # Isolated context window: fresh [system, user] messages list without main chat history bloat
+        sub_sys = str(role_spec["system_prompt"])
+        sub_user = f"Subtask [{role_title}]: {task_str[:900]}"
+        if hint_str:
+            sub_user = f"{sub_user}\n\nContext Hint:\n{hint_str[:600]}"
+        sub_messages: list[dict] = [
+            {"role": "system", "content": sub_sys},
+            {"role": "user", "content": sub_user},
+        ]
+
+        role_tool_schemas = [
+            schema
+            for schema in (AGENT_TOOL_SCHEMAS + _SUBAGENT_EXTRA_TOOL_SCHEMAS)
+            if schema.get("function", {}).get("name") in allowed_set
+            and schema.get("function", {}).get("name") != "delegate_subagent"
+            and not (read_only_role and schema.get("function", {}).get("name") in _PRIVILEGED_MUTATE_EXEC_TOOLS)
+        ]
+
+        sub_steps: list[dict] = []
+        findings: list[str] = []
+        parallel_io_used = False
+        workspace = str(ctx.get("lastProject") or ctx.get("lastDirectory") or comp_root)
+
+        if blocked_tools:
+            sub_steps.append({"tool": "privilege_guard", "blockedTools": list(blocked_tools)})
+            findings.append(
+                f"Privilege isolation enforced for [{role_title}]: blocked disallowed tool(s) ({', '.join(blocked_tools)})."
+            )
+
+        # Optional live/fixture LLM tool turn on the pinned single model
+        if (
+            pinned_endpoint
+            and (pinned_endpoint.startswith("http://127.0.0.1:") or pinned_endpoint.startswith("http://localhost:"))
+            and opts.get("useSubagentLlm") is not False
+        ):
+            llm_turn = _call_local_model_tool_turn(
+                endpoint_url=pinned_endpoint,
+                model_name=pinned_model,
+                system_prompt=sub_sys,
+                user_prompt=sub_user,
+                enable_thinking=bool(role_spec["enable_thinking"]),
+                in_chat_directive="",
+                mtp_active=route_meta.get("mtpActive") if "mtpActive" in route_meta else None,
+                messages=sub_messages,
+                temperature=float(role_spec["temperature"]),
+                tools=role_tool_schemas,
+            )
+            if isinstance(llm_turn, dict):
+                tcs = llm_turn.get("toolCalls") or []
+                for tc in tcs[:2]:
+                    tc_name = str(tc.get("name") or "").strip()
+                    if not tc_name:
+                        continue
+                    if (
+                        tc_name == "delegate_subagent"
+                        or tc_name not in allowed_set
+                        or (read_only_role and tc_name in _PRIVILEGED_MUTATE_EXEC_TOOLS)
+                    ):
+                        if tc_name not in blocked_tools:
+                            blocked_tools.append(tc_name)
+                        sub_steps.append({"tool": tc_name, "status": "blocked_privilege_isolation"})
+                        continue
+                    obs = _execute_llm_tool_call(tc, ctx, comp_root, ts_ms)
+                    sub_steps.append({"tool": tc_name, "observation": obs[:360]})
+                    findings.append(f"[{tc_name}] {obs[:360]}")
+                llm_txt = str(llm_turn.get("text") or "").strip()
+                if llm_txt:
+                    findings.append(llm_txt[:700])
+
+        # Deterministic role-scoped local execution/context gathering so subagents always return grounded compact summaries
+        if not findings or (len(findings) == 1 and blocked_tools):
+            if role_key == "researcher":
+                combined_q = f"{task_str} {hint_str}".strip()
+                doms = domain_rag.detect_domains(combined_q)
+                if not doms and domain_rag.is_config_check_query(combined_q):
+                    doms = ["niri", "quickshell"]
+                cand_path = _extract_path_from_text(combined_q, ctx)
+
+                def _io_domain_rag() -> tuple[dict | None, str]:
+                    if not doms:
+                        return None, ""
+                    try:
+                        drag = domain_rag.query_domain_rag(
+                            task_str,
+                            domains=doms,
+                            companion_root=comp_root,
+                            token_budget=260,
+                        )
+                        snippets = [c.get("title") or c.get("source") or "" for c in (drag.get("chunks") or [])[:3]]
+                        msg_s = (
+                            f"Domain RAG ({', '.join(doms)}): matched {len(drag.get('chunks') or [])} reference(s)"
+                            + (f" ({', '.join(s for s in snippets if s)})" if any(snippets) else "")
+                        )
+                        return {"tool": "domain_rag", "domains": doms}, msg_s
+                    except Exception:
+                        return None, ""
+
+                def _io_read_target() -> tuple[dict | None, str]:
+                    if not (cand_path and Path(cand_path).exists()):
+                        return None, ""
+                    p_obj = Path(cand_path)
+                    if p_obj.is_file():
+                        try:
+                            info = code_tools.read_file(p_obj, max_chars=420)
+                            preview = re.sub(r"\s+", " ", str(info.get("text") or "").strip())[:320]
+                            return {"tool": "read_file", "targetPath": str(p_obj)}, f"Inspected `{p_obj.name}`: {preview}"
+                        except Exception:
+                            return {"tool": "read_file", "targetPath": str(p_obj)}, f"Located target file `{p_obj}`."
+                    return {"tool": "read_file", "targetPath": str(p_obj)}, f"Inspected directory `{p_obj}`."
+
+                def _io_repo_map() -> tuple[dict | None, str]:
+                    try:
+                        rmap = build_repo_map(workspace, token_budget=180)
+                        top_entries = ", ".join(f"`{e['file']}`" for e in (rmap.get("entries") or [])[:4])
+                        msg_s = (
+                            f"Workspace `{Path(workspace).name}` context: {rmap.get('fileCount', 0)} files indexed"
+                            + (f" (key files: {top_entries})." if top_entries else ".")
+                        )
+                        return {"tool": "code_search", "workspace": workspace}, msg_s
+                    except Exception:
+                        return None, ""
+
+                # Parallel I/O discovery across independent read-only sources via ThreadPoolExecutor
+                with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+                    fut_rag = pool.submit(_io_domain_rag)
+                    fut_file = pool.submit(_io_read_target)
+                    fut_repo = pool.submit(_io_repo_map)
+                    io_results = [fut_rag.result(), fut_file.result(), fut_repo.result()]
+                parallel_io_used = True
+                for step_meta, msg_s in io_results:
+                    if step_meta and msg_s:
+                        sub_steps.append(step_meta)
+                        findings.append(msg_s)
+                if not findings:
+                    findings.append(f"Gathered context for: {task_str[:240]}")
+            elif role_key == "planner":
+                sub_steps.append({"tool": "plan_checklist", "task": task_str[:120]})
+                findings.append(
+                    f"Execution Plan for '{task_str[:160]}':\n"
+                    "1. Validate scope, target files, and configuration constraints.\n"
+                    "2. Execute targeted changes with backward compatibility.\n"
+                    "3. Cross-verify output integrity and state readback."
+                )
+            elif role_key in ("executor", "coder"):
+                sub_steps.append({"tool": "action_prepare", "task": task_str[:120]})
+                findings.append(
+                    f"Prepared & scoped concrete {role_title.lower()} actions for '{task_str[:200]}'"
+                    + (f" (context: {hint_str[:180]})" if hint_str else "")
+                    + "."
+                )
+            elif role_key == "verifier":
+                sub_steps.append({"tool": "verify_state", "task": task_str[:120]})
+                findings.append(
+                    f"Independently cross-verified task requirements, permissions, and state consistency for '{task_str[:200]}'."
+                )
+
+        header = f"[{role_title} {idx}/{tot}]"
+        joined = " | ".join(f.strip() for f in findings if f.strip())
+        compact_summary = f"{header} {joined}".strip()[:_SUBAGENT_MAX_SUMMARY_CHARS]
+        if not compact_summary:
+            compact_summary = f"{header} Completed subtask: {task_str[:300]}"[:_SUBAGENT_MAX_SUMMARY_CHARS]
+
+        done_prog = _emit_subagent_progress(
+            role_key,
+            index=idx,
+            total=tot,
+            summary=f"Completed ({len(compact_summary)} chars)",
+            status="completed",
+        )
+        elapsed_ms = max(1, int(time.time() * 1000) - t0_ms)
+        record = {
+            "ok": True,
+            "role": role_key,
+            "roleTitle": role_title,
+            "roleSubtitle": str(role_spec["subtitle"]),
+            "task": task_str,
+            "contextHint": hint_str[:400],
+            "isolatedContext": True,
+            "singleModelPinned": True,
+            "privilegeIsolated": True,
+            "readOnlyRole": read_only_role,
+            "parallelDiscoveryUsed": parallel_io_used,
+            "blockedTools": blocked_tools,
+            "model": pinned_model,
+            "endpoint": pinned_endpoint,
+            "enableThinking": bool(role_spec["enable_thinking"]),
+            "temperature": float(role_spec["temperature"]),
+            "allowedTools": list(role_spec["allowed_tools"]),
+            "messagesCount": len(sub_messages),
+            "statusLabel": running_label,
+            "completedStatusLabel": str(done_prog["current"]),
+            "progressPayload": running_prog,
+            "completedProgressPayload": done_prog,
+            "summary": compact_summary,
+            "summaryLength": len(compact_summary),
+            "maxSummaryChars": _SUBAGENT_MAX_SUMMARY_CHARS,
+            "subagentIndex": idx,
+            "subagentTotal": tot,
+            "toolSteps": sub_steps,
+            "elapsedMs": elapsed_ms,
+        }
+        _ACTIVE_SUBAGENT_RUNS.append(record)
+        return record
+
+
+def assess_task_scale_for_subagents(prompt: str, options: dict | None = None) -> dict:
+    """Assess whether splitting a task into Subagents is provably more effective than 1 single agent.
+
+    Evaluates 5 architectural Efficiency-Gain Criteria (`SUBAGENT_EFFICIENCY_CRITERIA`):
+      1. `cross_verification`  — Independent critic/audit/cross-verification without confirmation bias
+      2. `parallel_discovery`  — Parallel multi-source / multi-domain read I/O discovery
+      3. `privilege_isolation` — Untrusted external/read input separated from local write/exec tools
+      4. `context_isolation`   — Heavy multi-file/log/document/repo ingestion isolated from main KV-cache
+      5. `cognitive_separation`— Combining deterministic extraction (temp=0.2, thinking=off) with deep planning (temp=0.5, thinking=on)
+    """
+    opts = dict(options or {})
+    raw = str(prompt or "").strip()
+    folded = _fold_ascii(raw)
+    domains = domain_rag.detect_domains(raw)
+
+    def _fast_single_agent(reason_msg: str, act_cnt: int = 1, ph_list: list[str] | None = None) -> dict:
+        return {
+            "shouldDecompose": False,
+            "efficiencyJustified": False,
+            "scale": "normal",
+            "criteria": [],
+            "subagentCriteria": [],
+            "matchedReasons": [],
+            "reason": reason_msg,
+            "actionCount": act_cnt,
+            "phases": list(ph_list or []),
+            "domains": domains,
+            "parallelSources": [],
+            "subtasks": [],
+        }
+
+    if opts.get("disableSubagents") is True or opts.get("autoSubagentDecompose") is False:
+        return _fast_single_agent("Subagent decomposition disabled by options", act_cnt=0)
+
+    # Fast-exit for empty, slash commands, or negated/hypothetical queries
+    if not raw or raw.startswith("/"):
+        return _fast_single_agent("Single slash command or empty prompt", act_cnt=1 if raw else 0)
+
+    if is_hypothetical_or_negated(raw):
+        return _fast_single_agent("Negated or hypothetical prompt (no execution)", act_cnt=0)
+
+    explicit_subagent = bool(
+        opts.get("forceSubagents") is True
+        or re.search(
+            r"\b(?:subagents?|sub-agents?|delegate_subagent|goi\s+subagent|dung\s+subagent|chia\s+nho\s+cho\s+subagent|chia\s+subagent|multi-agent|orchestrate\s+subagents?)\b",
+            folded,
+        )
+    )
+
+    # Detect distinct workflow phases present in the prompt
+    has_research = bool(
+        re.search(
+            r"\b(?:kiem\s+tra|thu\s+thap|tim\s+hieu|tra\s+cuu|quet|khao\s+sat|doc\s+va\s+tim|research|investigate|gather|inspect|audit|scan|explore|search\s+and\s+read)\b",
+            folded,
+        )
+    )
+    has_plan = bool(
+        re.search(
+            r"\b(?:phan\s+tich|lap\s+ke\s+hoach|thiet\s+ke|len\s+phuong\s+an|danh\s+gia|tong\s+hop\s+ke\s+hoach|kien\s+truc|analyze|plan|architect|design|outline|evaluate|structure)\b",
+            folded,
+        )
+    )
+    has_execute = bool(
+        re.search(
+            r"\b(?:tao\s+bao\s+cao|viet\s+bao\s+cao|xuat\s+bao\s+cao|cap\s+nhat|trien\s+khai|chinh\s+sua|viet\s+tai\s+lieu|tao\s+file|sua\s+file|chay\s+lenh|implement|build|create\s+report|generate\s+report|write\s+report|refactor|patch|apply\s+changes)\b",
+            folded,
+        )
+    )
+    has_verify = bool(
+        re.search(
+            r"\b(?:xac\s+minh|doi\s+chieu|kiem\s+chung|kiem\s+chung\s+cheo|kiem\s+tra\s+cheo|kiem\s+toan|chay\s+test|verify|validate|cross-verify|cross-check|confirm\s+output|run\s+tests|double-check|independent\s+audit)\b",
+            folded,
+        )
+    )
+
+    phases: list[str] = []
+    if has_research:
+        phases.append("researcher")
+    if has_plan:
+        phases.append("planner")
+    if has_execute:
+        phases.append("executor")
+    if has_verify:
+        phases.append("verifier")
+
+    # Evaluate the 5 Efficiency-Gain Criteria
+    criteria: list[str] = []
+    matched_reasons: list[str] = []
+
+    # 1. cross_verification (Kiểm chứng chéo độc lập / Independent Critic & Verification)
+    explicit_cross_verify = bool(
+        re.search(
+            r"\b(?:kiem\s+chung\s+cheo|kiem\s+tra\s+cheo|doi\s+chieu\s+doc\s+lap|kiem\s+toan|so\s+sanh\s+hai\s+gia\s+thuyet|cross-verify|cross-check|independent\s+verif|independent\s+audit|compare\s+two\s+hypotheses|critic)\b",
+            folded,
+        )
+    )
+    if explicit_cross_verify or (has_verify and (has_execute or has_plan)):
+        criteria.append("cross_verification")
+        matched_reasons.append(
+            "Independent cross-verification/audit in a clean context window prevents confirmation bias"
+        )
+        if "verifier" not in phases:
+            phases.append("verifier")
+
+    # 2. parallel_discovery (Xử lý song song đa nguồn / Parallel Multi-Source I/O & Discovery)
+    parallel_sources: list[str] = [f"domain:{d}" for d in domains]
+    if re.search(r"\b(?:web|internet|http://|https://|url|github|wikipedia|duckduckgo)\b", folded):
+        parallel_sources.append("source:web")
+    if re.search(r"\b(?:log|logs|repo|codebase|thu\s+muc|workspace|git)\b", folded):
+        parallel_sources.append("source:workspace")
+    if re.search(r"\b(?:cpu|ram|gpu|battery|pin|nhiet\s+do|telemetry|system\s+status)\b", folded):
+        parallel_sources.append("source:telemetry")
+    explicit_parallel = bool(
+        re.search(
+            r"\b(?:xu\s+ly\s+song\s+song|song\s+song|dong\s+thoi|cung\s+luc|da\s+nguon|in\s+parallel|simultaneously|parallel\s+discovery|multiple\s+sources)\b",
+            folded,
+        )
+    )
+    if (len(parallel_sources) >= 2 and (has_research or has_plan or explicit_parallel)) or explicit_parallel:
+        criteria.append("parallel_discovery")
+        matched_reasons.append(
+            f"Parallel multi-source discovery across {max(2, len(parallel_sources))} independent sources/domains"
+        )
+        if "researcher" not in phases:
+            phases.insert(0, "researcher")
+
+    # 3. privilege_isolation (Phân quyền truy cập / Least-Privilege Tool Sandboxing)
+    has_untrusted_external_input = bool(
+        re.search(
+            r"\b(?:https?://|trang\s+web|webpage|url|external\s+doc|tai\s+lieu\s+ngoai|log\s+ngoai|untrusted|phan\s+quyen\s+truy\s+cap|privilege\s+isolation|least\s+privilege|sandbox)\b",
+            folded,
+        )
+    )
+    has_sensitive_local_action = bool(
+        has_execute
+        or re.search(
+            r"\b(?:sua\s+cau\s+hinh|cap\s+nhat\s+config|chay\s+lenh|shell|exec|edit\s+config|modify\s+file|write\s+file|run\s+command|phan\s+quyen\s+truy\s+cap|privilege\s+isolation|least\s+privilege)\b",
+            folded,
+        )
+    )
+    if has_untrusted_external_input and has_sensitive_local_action:
+        criteria.append("privilege_isolation")
+        matched_reasons.append(
+            "Least-privilege sandboxing isolates untrusted external/read input in a read-only Researcher before local actions"
+        )
+        if "researcher" not in phases:
+            phases.insert(0, "researcher")
+        if "executor" not in phases and has_execute:
+            phases.append("executor")
+
+    # 4. context_isolation (Cô lập ngữ cảnh lớn / Context-Bloat Prevention)
+    attached_files_list = opts.get("attachedFiles") if isinstance(opts.get("attachedFiles"), list) else []
+    doc_mentions = re.findall(r"\.(?:pdf|docx|xlsx|pptx|csv|log|jsonl)\b", folded)
+    has_heavy_context = bool(
+        len(attached_files_list) >= 2
+        or len(doc_mentions) >= 2
+        or re.search(
+            r"\b(?:toan\s+bo\s+repo|tat\s+ca\s+cac\s+file|nhieu\s+file|hang\s+loat|large\s+log|multi-file|entire\s+repo|entire\s+codebase|deep\s+scan|co\s+lap\s+ngu\s+canh|context\s+isolation)\b",
+            folded,
+        )
+    )
+    if has_heavy_context and (has_research or has_plan or has_execute):
+        criteria.append("context_isolation")
+        matched_reasons.append(
+            "Context isolation prevents large multi-file/document/repo dumps from bloating the main agent context window"
+        )
+        if "researcher" not in phases:
+            phases.insert(0, "researcher")
+
+    # 5. cognitive_separation (Tách biệt chế độ suy luận / Specialist Parameter Isolation)
+    if has_research and has_plan and (has_execute or has_verify or len(domains) >= 2 or len(raw) >= 48):
+        criteria.append("cognitive_separation")
+        matched_reasons.append(
+            "Cognitive separation isolates deterministic factual extraction (temp=0.2, thinking=off) from architectural planning (temp=0.5, thinking=on)"
+        )
+
+    connector_matches = re.findall(
+        r"(?:\b(?:roi|sau\s+do|tiep\s+theo|cuoi\s+cung|dong\s+thoi|va\s+sau\s+do|then|after\s+that|next|finally|subsequently|and\s+then)\b|[,;]\s*(?:va|and|roi|then)\b)",
+        folded,
+    )
+    clause_parts = [
+        p.strip()
+        for p in re.split(
+            r"(?:[,;]|\b(?:roi|sau\s+do|tiep\s+theo|cuoi\s+cung|then|after\s+that|next|finally)\b)+",
+            raw,
+            flags=re.IGNORECASE,
+        )
+        if len(p.strip()) >= 8
+    ]
+    action_count = max(len(phases), min(len(clause_parts), len(phases) + len(connector_matches)))
+
+    if explicit_subagent and not criteria:
+        criteria.append("cognitive_separation")
+        matched_reasons.append("Explicit subagent delegation requested by user/caller")
+
+    # Only decompose when efficiency is justified by >= 1 architectural criterion AND either explicit request or multi-role workflow
+    efficiency_justified = bool(
+        explicit_subagent
+        or (
+            len(criteria) >= 1
+            and (
+                len(phases) >= 2
+                or "parallel_discovery" in criteria
+                or "privilege_isolation" in criteria
+                or "cross_verification" in criteria
+            )
+            and len(raw) >= 28
+        )
+    )
+
+    if not efficiency_justified:
+        return _fast_single_agent(
+            "Single-agent execution is more efficient (no cross-verification, parallel I/O, privilege boundary, or heavy context isolation required)",
+            act_cnt=max(1, len(phases)),
+            ph_list=phases,
+        )
+
+    if not phases:
+        phases = ["researcher", "planner", "executor"]
+    elif len(phases) == 1:
+        if "cross_verification" in criteria and "verifier" not in phases:
+            phases.append("verifier")
+        elif "privilege_isolation" in criteria and "executor" not in phases:
+            phases.append("executor")
+        else:
+            if "researcher" not in phases:
+                phases.insert(0, "researcher")
+            if "planner" not in phases:
+                phases.append("planner")
+
+    subtasks: list[dict] = []
+    total_sub = len(phases)
+    for i, role_key in enumerate(phases, start=1):
+        spec = SUBAGENT_ROLES[role_key]
+        clause_hint = clause_parts[i - 1] if i - 1 < len(clause_parts) else raw
+        subtasks.append(
+            {
+                "role": role_key,
+                "title": str(spec["title"]),
+                "index": i,
+                "total": total_sub,
+                "task": clause_hint[:360],
+                "allowedTools": list(spec["allowed_tools"]),
+                "statusLabel": f"🤖 Subagent [{spec['title']} {i}/{total_sub}]: {spec['status_summary']}",
+            }
+        )
+
+    return {
+        "shouldDecompose": True,
+        "efficiencyJustified": True,
+        "scale": "large",
+        "criteria": criteria,
+        "subagentCriteria": list(criteria),
+        "matchedReasons": matched_reasons,
+        "reason": (
+            "Explicit subagent delegation requested"
+            if explicit_subagent
+            else f"Subagent split justified by {', '.join(criteria)} ({len(phases)} specialist roles: {', '.join(phases)})"
+        ),
+        "actionCount": max(action_count, len(subtasks)),
+        "phases": phases,
+        "domains": domains,
+        "parallelSources": parallel_sources,
+        "subtasks": subtasks,
+    }
+
+
+def run_swarm_mission(
+    goal: str,
+    options: dict,
+    companion_root: Path,
+    host_root: Path | None = None,
+    *,
+    session_ctx: dict | None = None,
+) -> tuple[dict, str]:
+    """Execute a standalone Companion /swarm mission across Coordinator + specialist workers."""
+    now_ms = int(options.get("nowMs") or int(time.time() * 1000))
+    ctx = session_ctx if isinstance(session_ctx, dict) else load_session_context()
+    clean_goal = re.sub(r"^/swarm\b\s*", "", str(goal or "").strip(), flags=re.IGNORECASE).strip() or "Swarm analysis"
+    lang = detect_language(clean_goal)
+    swarm_opts = dict(options)
+    swarm_opts["forceSubagents"] = True
+    scale = assess_task_scale_for_subagents(clean_goal, swarm_opts)
+    pinned_model = str(options.get("model") or options.get("routedModel") or "local-pinned").strip()
+    state = swarm_store.start_swarm_mission(
+        clean_goal,
+        scale.get("subtasks") or [],
+        model=pinned_model,
+        now_ms=now_ms,
+        emit=True,
+    )
+    workers = [m for m in state.get("members", []) if isinstance(m, dict) and m.get("id") != "coordinator"]
+    total_w = max(1, len(workers))
+    accumulated_hints: list[str] = []
+    worker_bullets: list[str] = []
+
+    for idx, worker in enumerate(workers, start=1):
+        wid = str(worker.get("id") or f"worker-{idx}")
+        wrole = str(worker.get("role") or "researcher")
+        wtask = str(worker.get("task") or clean_goal)
+        swarm_store.mark_worker_working(state, wid, now_ms=int(time.time() * 1000), emit=True)
+        sub_res = delegate_subagent(
+            role=wrole,
+            task=wtask,
+            context_hint="\n".join(accumulated_hints[-3:]),
+            options=options,
+            session_ctx=ctx,
+            companion_root=companion_root,
+            subagent_index=idx,
+            subagent_total=total_w,
+            now_ms=int(time.time() * 1000),
+        )
+        swarm_store.record_worker_completion(state, wid, sub_res, now_ms=int(time.time() * 1000), emit=True)
+        raw_sum = str(sub_res.get("rawSummary") or sub_res.get("summary") or "").strip()
+        if raw_sum:
+            accumulated_hints.append(f"[{wid}] {raw_sum[:360]}")
+            worker_bullets.append(f"- **`@{wid}`** ({worker.get('title')}): {raw_sum}")
+
+    joined_findings = "\n".join(worker_bullets) if worker_bullets else "- All assigned slices completed."
+    synth_text = ""
+    if str(options.get("endpoint") or "").strip() and str(options.get("model") or "").strip():
+        try:
+            synth_text = _synthesize_observations_with_llm(
+                clean_goal,
+                joined_findings,
+                lang,
+                options,
+            )
+        except Exception:
+            synth_text = ""
+    if not synth_text:
+        synth_text = (
+            f"Completed {len(workers)} specialist slices for **{clean_goal}**.\n{joined_findings}"
+            if lang != "vi"
+            else f"Đã hoàn tất {len(workers)} nhánh chuyên trách cho **{clean_goal}**.\n{joined_findings}"
+        )
+
+    state = swarm_store.finish_swarm_mission(
+        state,
+        synth_text,
+        status="completed",
+        now_ms=int(time.time() * 1000),
+        emit=True,
+    )
+    header = (
+        f"### 🐝 Swarm Completed — {state['title']} ({len(workers)} workers)\n"
+        if lang != "vi"
+        else f"### 🐝 Swarm hoàn tất — {state['title']} ({len(workers)} workers)\n"
+    )
+    return state, header + synth_text
+
+
+def execute_swarm_action(payload: dict, companion_root: Path, host_root: Path | None = None) -> dict:
+    """Handle UI/helper actions for the Swarm workspace (Board / Members / Graph)."""
+    op = str(payload.get("op") or "get").strip().lower()
+    now_ms = int(payload.get("nowMs") or int(time.time() * 1000))
+    model_name = str(payload.get("model") or "").strip()
+    if op == "get":
+        return {"op": "get", "swarm": swarm_store.load_state(now_ms)}
+    if op == "clear":
+        return {"op": "clear", "swarm": swarm_store.clear_swarm_state(model=model_name, now_ms=now_ms, emit=True)}
+    if op == "stop":
+        cancel_active_runs(now_ms)
+        return {"op": "stop", "swarm": swarm_store.stop_swarm_state(now_ms=now_ms, emit=True)}
+    if op == "add_member":
+        role = str(payload.get("role") or "researcher").strip().lower()
+        brief = str(payload.get("brief") or payload.get("task") or "").strip()
+        state, member = swarm_store.add_member_to_state(role, brief, model=model_name, now_ms=now_ms, emit=True)
+        if payload.get("runNow") is True:
+            ctx = load_session_context()
+            swarm_store.mark_worker_working(state, member["id"], now_ms=int(time.time() * 1000), emit=True)
+            sub_res = delegate_subagent(
+                role=member["role"],
+                task=member["task"],
+                context_hint=str(state.get("goal") or ""),
+                options=payload,
+                session_ctx=ctx,
+                companion_root=companion_root,
+                subagent_index=1,
+                subagent_total=1,
+                now_ms=int(time.time() * 1000),
+            )
+            state = swarm_store.record_worker_completion(state, member["id"], sub_res, now_ms=int(time.time() * 1000), emit=True)
+        return {"op": "add_member", "member": member, "swarm": state}
+    if op == "remove_member":
+        member_id = str(payload.get("memberId") or payload.get("name") or "").strip()
+        state = swarm_store.remove_member_from_state(member_id, now_ms=now_ms, emit=True)
+        return {"op": "remove_member", "swarm": state}
+    if op == "run":
+        goal = str(payload.get("goal") or payload.get("prompt") or "").strip()
+        if not goal:
+            raise SwarmStoreError("empty_goal", "Provide a mission goal for /swarm.")
+        state, summary_md = run_swarm_mission(goal, payload, companion_root, host_root)
+        return {"op": "run", "swarm": state, "summary": summary_md[:4000]}
+    if op == "post":
+        text = str(payload.get("text") or payload.get("message") or "").strip()
+        if not text:
+            raise SwarmStoreError("empty_message", "Board message cannot be empty.")
+        state = swarm_store.load_state(now_ms)
+        mentions = swarm_store.extract_mentions(text)
+        # If swarm is idle and user enters a mission or /swarm <goal> on the board, launch the swarm!
+        if (state.get("status") == "idle" and not mentions) or re.match(r"^/swarm\b", text, flags=re.IGNORECASE):
+            state, summary_md = run_swarm_mission(text, payload, companion_root, host_root)
+            return {"op": "post", "swarm": state, "summary": summary_md[:4000]}
+        swarm_store._append_board_post(
+            state,
+            sender="user",
+            kind="user",
+            mentions=mentions,
+            text=text,
+            now_ms=now_ms,
+        )
+        state = swarm_store.save_state(state, emit=True, now_ms=now_ms)
+        if payload.get("dispatch") is not False and mentions:
+            member_map = {str(m.get("id")): m for m in state.get("members", []) if isinstance(m, dict)}
+            targets = (
+                [m for mid, m in member_map.items() if mid != "coordinator"]
+                if "all" in mentions
+                else [member_map[m] for m in mentions if m in member_map and m != "coordinator"]
+            )
+            if targets:
+                ctx = load_session_context()
+                state["status"] = "running"
+                for idx, target_m in enumerate(targets[:4], start=1):
+                    wid = str(target_m["id"])
+                    clean_inst = re.sub(rf"@{re.escape(wid)}\b", "", text, flags=re.IGNORECASE).strip() or target_m.get("task") or text
+                    target_m["task"] = clean_inst[:360]
+                    swarm_store.mark_worker_working(state, wid, now_ms=int(time.time() * 1000), emit=True)
+                    sub_res = delegate_subagent(
+                        role=str(target_m.get("role") or "researcher"),
+                        task=str(clean_inst),
+                        context_hint=str(state.get("goal") or ""),
+                        options=payload,
+                        session_ctx=ctx,
+                        companion_root=companion_root,
+                        subagent_index=idx,
+                        subagent_total=len(targets[:4]),
+                        now_ms=int(time.time() * 1000),
+                    )
+                    state = swarm_store.record_worker_completion(state, wid, sub_res, now_ms=int(time.time() * 1000), emit=True)
+                state["status"] = "completed"
+                state = swarm_store.save_state(state, emit=True, now_ms=int(time.time() * 1000))
+        return {"op": "post", "swarm": state}
+    raise SwarmStoreError("invalid_swarm_op", f"Unsupported swarm operation: {op}")
+
+
+def _synthesize_observations_with_llm(
+    prompt: str,
+    observations_text: str,
+    lang_or_options: str | dict = "en",
+    options_or_lang: dict | str | None = None,
+    sources_or_ctx: str | dict = "",
+) -> str:
+    """Synthesize gathered tool observations into a natural, detailed Markdown answer via the Local LLM."""
+    if isinstance(lang_or_options, dict):
+        options = lang_or_options
+        lang = str(options_or_lang or detect_language(prompt))
+        sources_markdown = str(sources_or_ctx) if isinstance(sources_or_ctx, str) else ""
+    else:
+        lang = str(lang_or_options or detect_language(prompt))
+        options = options_or_lang if isinstance(options_or_lang, dict) else {}
+        sources_markdown = str(sources_or_ctx) if isinstance(sources_or_ctx, str) else ""
+
+    ep_url, mdl_name = _resolve_live_llm(options)
+    if not ep_url or not (ep_url.startswith("http://127.0.0.1:") or ep_url.startswith("http://localhost:")):
+        return ""
+    if "/v1/" not in ep_url:
+        return ""
+
+    t0_synth = int(time.time() * 1000)
+    _emit_activity_step(f"Synthesizing answer ({(mdl_name or 'local-llm')[:24]}) ›", kind="llm_think", status="running")
+    try:
+        custom_sys = str(options.get("systemPrompt") or "").strip()
+        rules_txt = str(options.get("rulesText") or "").strip()
+        effort = str(options.get("thinkingEffort") or "medium").strip().lower()
+        synth_max_tokens = 1600 if effort in ("max", "xhigh", "high") else (1200 if effort == "medium" else 700)
+        if lang == "vi":
+            sys_msg = (
+                "Bạn là Alis-Companion. Hãy đọc kỹ dữ liệu tìm kiếm và nội dung chi tiết các trang web/công cụ bên dưới để tổng hợp thành câu trả lời Markdown "
+                "đầy đủ, có cấu trúc rõ ràng (dùng tiêu đề ###, danh sách gạch đầu dòng), thực tế và hữu ích (~220-320 từ). Trích dẫn nguồn gọn gàng dạng ([tên-miền](url)) hoặc `[tệp#dòng]`. "
+                "Không sinh thẻ <think>. {REASON:none}"
+            )
+            usr_msg = (
+                f"{{REASON:none}}\nCâu hỏi / Yêu cầu của người dùng: {prompt[:500]}\n\n"
+                f"Dữ liệu thu thập được từ công cụ & trang web:\n{observations_text[:4200]}"
+            )
+        else:
+            sys_msg = (
+                "You are Alis-Companion. Carefully read the gathered tool observations and webpage excerpts below and synthesize them into a complete, well-structured, "
+                "actionable Markdown response (~220-320 words, using ### headings and bullet points where appropriate). Cite sources compactly as ([domain](url)) or `[file#line]`. "
+                "Do not output <think>. {REASON:none}"
+            )
+            usr_msg = (
+                f"{{REASON:none}}\nUser Request: {prompt[:500]}\n\n"
+                f"Gathered Tool & Webpage Observations:\n{observations_text[:4200]}"
+            )
+        if custom_sys:
+            sys_msg = f"{custom_sys[:1200]}\n\n{sys_msg}"
+        if rules_txt and rules_txt not in sys_msg:
+            sys_msg = f"{sys_msg}\n\n## Active Rules\n{rules_txt[:1000]}"
+        opt_temp = options.get("temperature")
+        synth_temp = (
+            round(max(0.0, min(2.0, float(opt_temp))), 2)
+            if isinstance(opt_temp, (int, float))
+            else 0.4
+        )
+        body = {
+            "model": mdl_name or "default",
+            "messages": [
+                {"role": "system", "content": sys_msg[:2400]},
+                {"role": "user", "content": usr_msg},
+            ],
+            "temperature": synth_temp,
+            "max_tokens": synth_max_tokens,
+            "reasoning_effort": "none",
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        if _is_mtp_model(mdl_name):
+            body["repetition_penalty"] = 1.0
+            body["repeat_penalty"] = 1.0
+        raw_content = _call_chat_completion_text(ep_url, body, chunk_timeout=65.0, max_wall_sec=120.0)
+        if raw_content:
+            if sources_markdown and sources_markdown not in raw_content:
+                lbl = "📚 **Nguồn tra cứu:**" if lang == "vi" else "📚 **Sources:**"
+                raw_content = f"{raw_content.rstrip()}\n\n{lbl} {sources_markdown}"
+            return raw_content
+    except Exception:
+        return ""
+    finally:
+        dt_s = max(1, int(round((int(time.time() * 1000) - t0_synth) / 1000.0)))
+        _emit_activity_step(f"Synthesized in {dt_s}s ›", kind="llm_think", status="completed")
+    return ""
+
+
+def run_react_tool_loop(
+    prompt: str = "",
+    session_ctx: dict | None = None,
+    companion_root: Path | None = None,
+    options: dict | None = None,
+    now_ms: int | None = None,
+    max_steps: int = 4,
+    *,
+    endpoint_url: str = "",
+    model_name: str = "",
+    system_prompt: str = "",
+    user_prompt: str = "",
+    enable_thinking: bool | None = None,
+    in_chat_directive: str = "",
+    mtp_active: bool | None = None,
+    temperature: float | None = None,
+) -> dict | None:
+    """Multi-step ReAct loop: Thought -> Tool Call 1 -> Observation 1 -> Thought -> Tool Call 2 -> Final LLM Synthesis."""
+    opts = dict(options or {})
+    eff_prompt = str(user_prompt or prompt or opts.get("prompt") or "").strip()
+    eff_endpoint = str(endpoint_url or opts.get("endpoint") or "").strip()
+    eff_model = str(model_name or opts.get("model") or "").strip()
+    if not eff_endpoint or not eff_model:
+        return None
+    opts["endpoint"] = eff_endpoint
+    opts["model"] = eff_model
+    ctx = session_ctx if isinstance(session_ctx, dict) else load_session_context()
+    ctx["_activeTurnOptions"] = dict(opts)
+    comp_root = Path(companion_root).resolve(strict=False) if companion_root else Path(__file__).resolve().parents[2]
+    ts_ms = int(now_ms or int(time.time() * 1000))
+    lang = detect_language(eff_prompt)
+    route_meta = opts.get("modelRoute") if isinstance(opts.get("modelRoute"), dict) else {}
+    eff_thinking = bool(enable_thinking) if enable_thinking is not None else bool(route_meta.get("enableThinking", False))
+    eff_directive = str(in_chat_directive or route_meta.get("inChatDirective") or "")
+    eff_mtp = mtp_active if mtp_active is not None else (route_meta.get("mtpActive") if "mtpActive" in route_meta else None)
+    eff_temp = temperature if isinstance(temperature, (int, float)) else (
+        opts.get("temperature") if isinstance(opts.get("temperature"), (int, float)) else None
+    )
+
+    attached_ctx = str(opts.get("_attachedFilesContext") or "").strip()
+    effective_user_content = eff_prompt[:1600]
+    if attached_ctx and attached_ctx not in effective_user_content:
+        effective_user_content = f"{effective_user_content}\n\n{attached_ctx[:2800]}"
+    if eff_directive and eff_directive not in effective_user_content:
+        effective_user_content = f"{eff_directive}\n{effective_user_content}"
+
+    active_sid = str(
+        opts.get("threadId")
+        or (globals().get("_CURRENT_TURN_THREAD_ID") or "")
+        or ctx.get("activeThreadId")
+        or "chat_default"
+    ).strip() or "chat_default"
+    eff_provider = str(opts.get("provider") or route_meta.get("provider") or "").strip()
+    eff_ctx_window = opts.get("contextWindow")
+
+    sys_prompt = str(system_prompt or opts.get("systemPrompt") or "").strip() or (
+        "You are Alis-Companion, a full-authority Linux desktop agent running a multi-step ReAct loop. "
+        "You may chain multiple tool calls across turns (e.g. search -> fetch_url -> file_mutate, or read_spill on spilled outputs) when needed. "
+        "Once you have gathered enough observations, provide a clear, well-structured Markdown answer with compact citations."
+    )
+    rules_txt = str(opts.get("rulesText") or "").strip()
+    if rules_txt and rules_txt not in sys_prompt:
+        sys_prompt = f"{sys_prompt}\n\n## Active Rules\n{rules_txt[:1000]}"
+
+    messages: list[dict] = [
+        {"role": "system", "content": sys_prompt[:2400]},
+    ]
+    prior_messages = opts.get("messages")
+    if isinstance(prior_messages, list) and prior_messages:
+        for pm in prior_messages:
+            if isinstance(pm, dict) and pm.get("role") in ("user", "assistant", "tool"):
+                messages.append(dict(pm))
+    messages.append({"role": "user", "content": effective_user_content[:3600]})
+    messages, _ = context_policy.drain_and_inject_context(messages, active_sid)
+
+    run = None
+    run_id = ""
+    tool_outputs: list[str] = []
+    tool_steps: list[dict] = []
+    tool_chain: list[str] = []
+    thoughts: list[str] = []
+    final_synthesis = ""
+    step_counter = 0
+    max_iters = max(1, min(6, int(max_steps or 4)))
+
+    for turn_idx in range(1, max_iters + 1):
+        messages, _ = context_policy.compact_messages_for_route(
+            messages,
+            provider=eff_provider,
+            model=eff_model,
+            endpoint=eff_endpoint,
+            reserved_output=512 if eff_thinking else 320,
+            context_window=eff_ctx_window,
+        )
+        llm_turn = _call_local_model_turn_react_step(
+            endpoint_url=eff_endpoint,
+            model_name=eff_model,
+            system_prompt=sys_prompt,
+            user_prompt=eff_prompt,
+            enable_thinking=eff_thinking,
+            in_chat_directive=eff_directive,
+            mtp_active=eff_mtp,
+            messages=messages,
+            temperature=eff_temp,
+            provider=eff_provider,
+            context_window=eff_ctx_window,
+        )
+        if not llm_turn:
+            break
+
+        turn_text = str(llm_turn.get("text") or "").strip()
+        turn_tcs = llm_turn.get("toolCalls") or []
+
+        if not turn_tcs:
+            if turn_idx == 1 and not tool_outputs:
+                if (
+                    turn_text
+                    and ":1234" in str(eff_endpoint or "")
+                    and not os.environ.get("ALIS_TEST_ISOLATED")
+                    and not os.environ.get("AQUA_TEST_ENDPOINT")
+                    and not os.environ.get("AI_FIXTURE_URL")
+                ):
+                    return {
+                        "handled": True,
+                        "runId": "",
+                        "text": turn_text,
+                        "finalText": turn_text,
+                        "toolSteps": [],
+                        "stepCount": 0,
+                        "toolChain": [],
+                        "stepsExecuted": 0,
+                        "thoughts": [],
+                        "synthesized": True,
+                        "observations": [],
+                    }
+                return None
+            if turn_text:
+                final_synthesis = turn_text
+            break
+
+        if run is None:
+            run = start_run(eff_prompt, source="interactive", language=lang, max_turns=12, max_duration_sec=180, now_ms=ts_ms)
+            run_id = run["runId"]
+
+        if turn_text:
+            thoughts.append(turn_text)
+
+        assistant_tc_payload = []
+        for tc in turn_tcs[:4]:
+            assistant_tc_payload.append({
+                "id": tc["toolCallId"],
+                "type": "function",
+                "function": {
+                    "name": tc["name"],
+                    "arguments": json.dumps(tc.get("args") or {}, ensure_ascii=False),
+                },
+            })
+        messages.append({
+            "role": "assistant",
+            "content": turn_text or "",
+            "tool_calls": assistant_tc_payload,
+        })
+
+        for tc in turn_tcs[:4]:
+            step_counter += 1
+            t_name = tc["name"]
+            tool_chain.append(t_name)
+            _emit_activity_step(f"Step {step_counter}: `{t_name}` ›", kind="tool", status="running")
+            step_id = record_step_start(run_id, step_counter, t_name, side_effect=True, now_ms=ts_ms)
+            try:
+                out_str = _execute_llm_tool_call(tc, ctx, comp_root, ts_ms)
+                record_step_finish(step_id, status="completed", detail={"output": out_str[:400]})
+                tool_outputs.append(f"### `{t_name}`\n{out_str}")
+                tool_steps.append({"step": step_counter, "name": t_name, "args": tc.get("args") or {}, "status": "completed", "observation": out_str})
+            except Exception as exc:
+                out_str = f"[{t_name} error: {exc}]"
+                record_step_finish(step_id, status="failed", detail={"error": str(exc)})
+                tool_outputs.append(f"### `{t_name}` (error)\n{exc}")
+                tool_steps.append({"step": step_counter, "name": t_name, "args": tc.get("args") or {}, "status": "failed", "observation": out_str})
+            advance_turn(run_id, now_ms=ts_ms)
+            spilled_tool_content, _ = spill_store.maybe_spill_tool_output(
+                out_str,
+                session_id=active_sid,
+                call_id=tc["toolCallId"],
+                tool_name=t_name,
+            )
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc["toolCallId"],
+                "name": t_name,
+                "content": spilled_tool_content,
+            })
+
+        # Next-step boundary: drain any non-waking context updates queued during tool execution
+        messages, _ = context_policy.drain_and_inject_context(messages, active_sid)
+
+    if not tool_outputs or not run_id:
+        return None
+
+    observations_joined = "\n\n".join(tool_outputs)
+    if final_synthesis:
+        combined_msg = f"{final_synthesis}\n\n{observations_joined}"
+        synthesized = True
+    else:
+        synth_try = _synthesize_observations_with_llm(eff_prompt, observations_joined, lang, opts)
+        if synth_try:
+            combined_msg = f"{synth_try}\n\n{observations_joined}"
+            synthesized = True
+        else:
+            thought_prefix = (thoughts[0] + "\n\n") if thoughts else ""
+            combined_msg = f"{thought_prefix}{observations_joined}"
+            synthesized = False
+
+    clean_final = combined_msg.strip()
+    finish_run(
+        run_id,
+        status="completed",
+        checkpoint={"remainingSteps": [], "completedSteps": tool_steps, "finalReply": clean_final[:12000]},
+        now_ms=ts_ms,
+        final_reply=clean_final,
+    )
+    return {
+        "handled": True,
+        "runId": run_id,
+        "text": clean_final,
+        "finalText": clean_final,
+        "toolSteps": tool_steps,
+        "stepCount": step_counter,
+        "toolChain": tool_chain,
+        "stepsExecuted": step_counter,
+        "thoughts": thoughts,
+        "synthesized": synthesized,
+        "observations": tool_outputs,
+    }
+
+
+def _call_local_model_turn_react_step(
+    endpoint_url: str,
+    model_name: str,
+    system_prompt: str,
+    user_prompt: str,
+    enable_thinking: bool = False,
+    in_chat_directive: str = "",
+    mtp_active: bool | None = None,
+    messages: list[dict] | None = None,
+    temperature: float | None = None,
+    provider: str = "",
+    context_window: int | None = None,
+) -> dict | None:
+    return _call_local_model_tool_turn(
+        endpoint_url,
+        model_name,
+        system_prompt,
+        user_prompt,
+        enable_thinking=enable_thinking,
+        in_chat_directive=in_chat_directive,
+        mtp_active=mtp_active,
+        messages=messages,
+        temperature=temperature,
+        provider=provider,
+        context_window=context_window,
+    )
 
 
 def _build_clarification_payload(
@@ -1906,6 +5162,56 @@ def _generate_task_clarification(prompt: str, lang: str, session_ctx: dict | Non
                 },
             ]
         )
+    elif any(k in folded for k in ("sua code", "chinh sua", "edit", "refactor", "thay doi", "modify", "anh huong", "impact", "module khac", "component")):
+        topic_label = clean_topic or workspace_name
+        question = (
+            f"Để đảm bảo chỉ chỉnh sửa đúng phạm vi được giao và không làm hỏng các thành phần liên quan trong `{topic_label}`, bạn muốn xử lý theo hướng nào?"
+            if lang == "vi"
+            else f"To keep changes strictly surgical and avoid unintended impact on other components in `{topic_label}`, how would you like to proceed?"
+        )
+        opts = (
+            [
+                {
+                    "label": "Chỉ sửa đúng tệp/hàm được chỉ định & tự động hoàn tác nếu không hiệu quả",
+                    "description": "Giới hạn thay đổi cục bộ, giữ nguyên API các phần khác và dọn sạch nếu không có tác dụng",
+                    "value": f"Chỉ sửa đúng phạm vi được chỉ định cho {topic_label}, giữ nguyên các thành phần khác và hoàn tác nếu không hiệu quả",
+                    "recommended": True,
+                },
+                {
+                    "label": "Cập nhật đồng bộ các thành phần bị ảnh hưởng kèm kiểm thử hồi quy",
+                    "description": "Điều chỉnh cả module gọi liên quan và chạy bộ test tự động để xác minh",
+                    "value": f"Cập nhật đồng bộ các thành phần liên quan và chạy kiểm thử hồi quy cho {topic_label}",
+                    "recommended": False,
+                },
+                {
+                    "label": "Phân tích phạm vi ảnh hưởng & xem trước Diff trước khi sửa",
+                    "description": "Liệt kê các tệp bị tác động để bạn duyệt trước khi chạm vào mã nguồn",
+                    "value": f"Phân tích phạm vi ảnh hưởng và hiển thị diff preview trước khi sửa {topic_label}",
+                    "recommended": False,
+                },
+            ]
+            if lang == "vi"
+            else [
+                {
+                    "label": "Strictly surgical edit on assigned target & auto-revert if ineffective",
+                    "description": "Modify only the assigned scope, preserve external contracts, and clean up no-op edits",
+                    "value": f"Apply strictly surgical edits to the assigned target for {topic_label} and revert if ineffective",
+                    "recommended": True,
+                },
+                {
+                    "label": "Coordinate updates across affected components with regression tests",
+                    "description": "Update dependent callers in lockstep and verify with automated tests",
+                    "value": f"Update affected components in lockstep and run regression tests for {topic_label}",
+                    "recommended": False,
+                },
+                {
+                    "label": "Inspect cross-component impact & preview diff before editing",
+                    "description": "List all impacted files and contracts for your review before modifying code",
+                    "value": f"Analyze cross-component impact and preview diff before editing {topic_label}",
+                    "recommended": False,
+                },
+            ]
+        )
     else:
         topic_label = clean_topic or workspace_name
         question = (
@@ -1916,8 +5222,8 @@ def _generate_task_clarification(prompt: str, lang: str, session_ctx: dict | Non
         opts = (
             [
                 {
-                    "label": f"Lập kế hoạch từng bước & triển khai đầy đủ cho {topic_label}",
-                    "description": "Khảo sát cấu trúc tệp, thực thi an toàn và kiểm thử tự động",
+                    "label": f"Lập kế hoạch từng bước & triển khai đúng phạm vi cho {topic_label}",
+                    "description": "Chỉ sửa đúng phần được giao, hỏi nếu ảnh hưởng module khác và dọn sạch nếu không hiệu quả",
                     "value": f"Lập kế hoạch chi tiết và triển khai đầy đủ cho {topic_label}",
                     "recommended": True,
                 },
@@ -1937,8 +5243,8 @@ def _generate_task_clarification(prompt: str, lang: str, session_ctx: dict | Non
             if lang == "vi"
             else [
                 {
-                    "label": f"Step-by-step implementation plan & verification for {topic_label}",
-                    "description": "Inspect repo structure, apply surgical changes, and verify with tests",
+                    "label": f"Step-by-step surgical implementation & verification for {topic_label}",
+                    "description": "Modify only assigned targets, ask if other modules are affected, and revert ineffective edits",
                     "value": f"Create a step-by-step implementation plan and verification for {topic_label}",
                     "recommended": True,
                 },
@@ -1995,11 +5301,18 @@ def _format_reply(
 ) -> dict:
     clean = re.sub(r"\r\n?", "\n", re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(text or "")))
     clean = re.sub(r"[ \t]+\n", "\n", clean)
+    clean = re.sub(r"\n+(?:1[.)][ \t]+[^\n]*\n+)?[ \t]*\d+[.)][ \t]*$", "", clean)
     clean = re.sub(r"\n{3,}", "\n\n", clean).strip()[:5800]
     if not clean:
         clean = "Đã hoàn thành." if language == "vi" else "Completed."
     expr = expression if expression in ("idle", "happy", "excited", "thinking", "working", "surprised", "sleepy", "sad", "alert") else "idle"
     clean_images = [str(p).strip() for p in (images or []) if str(p or "").strip()][:4]
+    if run_id and str(status) == "completed" and clean:
+        try:
+            finish_run(run_id, status="completed", final_reply=clean)
+        except Exception:
+            pass
+    last_cursor_evt = (session_ctx or {}).pop("_lastCursorEvent", None) if isinstance(session_ctx, dict) else None
     out = {
         "contractVersion": AGENT_CONTRACT_VERSION,
         "runId": str(run_id or ""),
@@ -2016,6 +5329,8 @@ def _format_reply(
         "activitySteps": [s["label"] for s in _ACTIVE_RUN_STEPS[-12:]],
         "workedSeconds": max(1, round((int(time.time() * 1000) - (_ACTIVE_RUN_START_MS or int(time.time() * 1000))) / 1000.0)),
     }
+    if isinstance(last_cursor_evt, dict):
+        out["cursorEvent"] = last_cursor_evt
     if clean_images:
         out["images"] = clean_images
     if isinstance(clarification, dict) and clarification.get("question") and isinstance(clarification.get("options"), list):
@@ -2109,6 +5424,18 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
     global _CURRENT_TURN_THREAD_ID
     now_ms = int(options.get("nowMs") or int(time.time() * 1000))
     req_tid = str(options.get("threadId") or "").strip()
+    pending_ctx_updates = options.get("pendingContextUpdates")
+    if isinstance(pending_ctx_updates, list):
+        eff_inbox_sid = req_tid or "chat_default"
+        for item in pending_ctx_updates:
+            if isinstance(item, dict) and item.get("content"):
+                context_policy.enqueue_context_update(
+                    eff_inbox_sid,
+                    str(item.get("kind") or "ambient"),
+                    item.get("content", ""),
+                    dedupe_key=str(item.get("dedupeKey") or ""),
+                    now_ms=now_ms,
+                )
     if req_tid:
         try:
             if history_store.get_active_thread_id() != req_tid:
@@ -2152,9 +5479,134 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
     result["modelRoute"] = route_info
     result["routedModel"] = route_info.get("selectedModel", "")
     result["routedRole"] = route_info.get("role", "action")
+    scale_info = (
+        effective_options.get("_taskScale")
+        if isinstance(effective_options.get("_taskScale"), dict)
+        else assess_task_scale_for_subagents(str(options.get("prompt") or ""), effective_options)
+    )
+    result["taskScale"] = scale_info
+    result["subagentRuns"] = list(_ACTIVE_SUBAGENT_RUNS)
+    result["subagentCount"] = len(_ACTIVE_SUBAGENT_RUNS)
+    if (
+        _ACTIVE_SUBAGENT_RUNS
+        and not result.get("handled")
+        and (
+            effective_options.get("autoSubagentDecompose") is True
+            or effective_options.get("forceSubagents") is True
+            or bool(
+                re.search(
+                    r"\b(?:subagents?|sub-agents?|delegate_subagent)\b",
+                    _fold_ascii(str(options.get("prompt") or "")),
+                )
+            )
+        )
+    ):
+        lang_turn = str(result.get("language") or detect_language(str(options.get("prompt") or "")))
+        sub_lines = [f"- {r['summary']}" for r in _ACTIVE_SUBAGENT_RUNS]
+        if lang_turn == "vi":
+            orchestrated_msg = (
+                f"### Điều phối Subagent hoàn tất ({len(_ACTIVE_SUBAGENT_RUNS)} Subagent tuần tự trên cùng 1 model)\n"
+                + "\n".join(sub_lines)
+            )
+        else:
+            orchestrated_msg = (
+                f"### Subagent Orchestration Complete ({len(_ACTIVE_SUBAGENT_RUNS)} sequential subagents on single loaded model)\n"
+                + "\n".join(sub_lines)
+            )
+        ctx_curr = load_session_context()
+        formatted = _format_reply(
+            orchestrated_msg,
+            expression="working",
+            status="completed",
+            language=lang_turn,
+            session_ctx=ctx_curr,
+        )
+        persist_hist = options.get("persistHistory") is not False
+        u_id, a_id, saved = (
+            _persist_turn_to_history(str(options.get("prompt") or ""), formatted["text"])
+            if persist_hist
+            else (0, 0, False)
+        )
+        result.update(
+            {
+                "handled": True,
+                "intent": "subagent_orchestration",
+                **formatted,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
+        )
+    from_voice = bool(
+        options.get("fromVoice")
+        or options.get("fromVoiceInput")
+        or options.get("voiceMode")
+        or options.get("voiceInputTurn")
+    )
+    result["fromVoice"] = from_voice
+    if isinstance(effective_options.get("_domainRag"), dict) and "domainRag" not in result:
+        result["domainRag"] = effective_options["_domainRag"]
     if result.get("handled"):
+        if "attachedFiles" not in result:
+            ctx_after = result.get("sessionContext") if isinstance(result.get("sessionContext"), dict) else load_session_context()
+            att_list = ctx_after.get("attachedFiles") if isinstance(ctx_after.get("attachedFiles"), list) else (
+                options.get("attachedFiles") if isinstance(options.get("attachedFiles"), list) else []
+            )
+            result["attachedFiles"] = att_list
+        if (
+            effective_options.get("synthesizeWithLlm") is True
+            and result.get("intent") in ("system_control", "git_task", "rag_query")
+            and not result.get("synthesized")
+            and result.get("text")
+            and "### Synthesis" not in str(result.get("text") or "")
+            and "### Tổng hợp" not in str(result.get("text") or "")
+        ):
+            synth_txt = _synthesize_observations_with_llm(
+                str(options.get("prompt") or ""),
+                str(result.get("text") or ""),
+                str(result.get("language") or "en"),
+                effective_options,
+            )
+            if synth_txt:
+                result["text"] = f"{synth_txt}\n\n{result['text']}"
+                result["synthesized"] = True
+        if from_voice and str(result.get("text") or "").strip():
+            try:
+                if (
+                    result.get("intent") == "voice_task"
+                    and isinstance(result.get("voiceResult"), dict)
+                    and result["voiceResult"].get("spoken")
+                ):
+                    tts_res = result["voiceResult"]
+                else:
+                    tts_res = desktop_control.voice_tts(
+                        text=str(result.get("text") or ""),
+                        language=str(result.get("language") or "auto"),
+                    )
+                result["voiceReply"] = {
+                    "spoken": bool(tts_res.get("spoken", True)),
+                    "transcriptAfterVoice": True,
+                    "backend": str(tts_res.get("ttsBackend") or tts_res.get("backend") or "tts"),
+                    "voice": str(tts_res.get("voice") or "default"),
+                    "neuralVoice": str(tts_res.get("neuralVoice") or ""),
+                    "spokenText": str(tts_res.get("spokenText") or ""),
+                    "audioPath": str(tts_res.get("audioPath") or ""),
+                }
+            except Exception as exc:
+                result["voiceReply"] = {
+                    "spoken": False,
+                    "transcriptAfterVoice": True,
+                    "error": str(exc),
+                }
+        else:
+            result["voiceReply"] = {
+                "spoken": False,
+                "transcriptAfterVoice": False,
+            }
         try:
             run_id_done = str(result.get("runId") or "")
+            if run_id_done and str(result.get("status") or "") == "completed" and result.get("text"):
+                finish_run(run_id_done, status="completed", final_reply=str(result["text"]), now_ms=now_ms)
             run_obj = get_run(run_id_done) if run_id_done else None
             prompt_str = str(options.get("prompt") or "").strip()
             matched_sk = skill_store.match_skills(prompt_str, companion_root=companion_root, max_results=2) if result.get("intent") != "skill_manage" else []
@@ -2195,6 +5647,7 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
             ]
             result["workflowReflections"] = skill_store.list_workflow_reflections(limit=6)
             result["mcpServers"] = mcp_client.list_servers()
+            result["swarmState"] = swarm_store.load_state(now_ms)
         except Exception:
             pass
     return result
@@ -2202,6 +5655,8 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
 
 def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Path) -> dict:
     """Core implementation of the natural-language desktop agent turn."""
+    global _LAST_LMSTUDIO_ERROR
+    _LAST_LMSTUDIO_ERROR = ""
     now_ms = int(options.get("nowMs") or int(time.time() * 1000))
     _reset_activity_steps(now_ms)
     prompt = str(options.get("prompt") or "").strip()
@@ -2211,6 +5666,68 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
 
     reconciled = reconcile_crashed_runs(now_ms)
     session_ctx = load_session_context()
+    last_f_cur = str(session_ctx.get("lastFile") or "").strip()
+    last_d_cur = str(session_ctx.get("lastDirectory") or "").strip()
+    rec_cands = session_ctx.get("recentCandidates") or []
+    folded_prompt = _fold_ascii(prompt)
+    has_stale_obsidian = (
+        bool(last_f_cur and (".obsidian/" in last_f_cur or last_f_cur.endswith("01_Core.css")))
+        or bool(last_d_cur and ".obsidian" in last_d_cur)
+        or any(".obsidian/" in str(c) or str(c).endswith("01_Core.css") for c in rec_cands)
+    )
+    if has_stale_obsidian and "01_core.css" not in folded_prompt and ".obsidian" not in folded_prompt:
+        if ".obsidian/" in last_f_cur or last_f_cur.endswith("01_Core.css"):
+            session_ctx["lastFile"] = ""
+        if ".obsidian" in last_d_cur:
+            session_ctx["lastDirectory"] = ""
+        session_ctx["recentCandidates"] = [
+            c for c in rec_cands
+            if ".obsidian/" not in str(c) and not str(c).endswith("01_Core.css")
+        ]
+        save_session_context(session_ctx, now_ms=now_ms)
+    pre_resolved = options.get("_resolvedAttachments")
+    if isinstance(pre_resolved, dict) and "files" in pre_resolved and "contextMarkdown" in pre_resolved:
+        attached_info = pre_resolved
+    else:
+        attached_info = resolve_file_attachments_and_mentions(
+            prompt,
+            options.get("attachedFiles") if isinstance(options.get("attachedFiles"), list) else None,
+            session_ctx,
+        )
+        options["_resolvedAttachments"] = attached_info
+    if attached_info["files"]:
+        session_ctx["attachedFiles"] = [f["path"] for f in attached_info["files"]]
+        session_ctx["lastFile"] = attached_info["files"][0]["path"]
+        session_ctx["lastDirectory"] = str(Path(attached_info["files"][0]["path"]).parent)
+        save_session_context(session_ctx, now_ms=now_ms)
+
+    detected_domains = domain_rag.detect_domains(prompt)
+    if not detected_domains and (
+        domain_rag.is_config_check_query(prompt)
+        or domain_rag.is_domain_concept_or_command_query(prompt)
+        or domain_rag.is_domain_capability_query(prompt)
+    ):
+        detected_domains = ["niri", "quickshell", "arch"]
+    if detected_domains and options.get("enableDomainRag") is not False:
+        try:
+            domain_rag_info = domain_rag.query_domain_rag(
+                prompt,
+                domains=detected_domains,
+                companion_root=companion_root,
+                token_budget=int(options.get("domainRagTokenBudget") or 800),
+            )
+            options["_domainRag"] = domain_rag_info
+            if domain_rag_info.get("contextMarkdown"):
+                existing_md = str(attached_info.get("contextMarkdown") or "").strip()
+                if domain_rag_info["contextMarkdown"] not in existing_md:
+                    attached_info["contextMarkdown"] = (
+                        f"{existing_md}\n\n{domain_rag_info['contextMarkdown']}"
+                        if existing_md
+                        else domain_rag_info["contextMarkdown"]
+                    )
+        except Exception:
+            pass
+
     intent = classify_intent(prompt, session_ctx)
     lang = intent["language"]
     kind = intent["kind"]
@@ -2218,51 +5735,236 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
         intent_lbl = "planning" if (kind == "code_task" and intent.get("subkind") == "plan") else kind.replace("_", " ")
         _emit_activity_step(f"Analyzed request ({intent_lbl}) ›", kind="intent", status="completed")
 
-    # 0. Ordinary chat fallback (or optional local LLM structured tool-calling loop)
+    if kind == "swarm_task":
+        swarm_arg = re.sub(r"^/swarm\b", "", prompt, flags=re.IGNORECASE).strip()
+        folded_arg = swarm_arg.lower()
+        pinned_model = str(options.get("model") or options.get("routedModel") or "local-pinned").strip()
+        if not swarm_arg or folded_arg in ("status", "board", "members", "graph"):
+            st = swarm_store.load_state(now_ms)
+            reply_md = swarm_store.format_swarm_markdown(st, lang=lang)
+        elif folded_arg in ("stop", "kill", "cancel"):
+            cancel_active_runs(now_ms)
+            st = swarm_store.stop_swarm_state(now_ms=now_ms, emit=True)
+            reply_md = swarm_store.format_swarm_markdown(st, lang=lang)
+        elif folded_arg in ("clear", "reset"):
+            st = swarm_store.clear_swarm_state(model=pinned_model, now_ms=now_ms, emit=True)
+            reply_md = (
+                "### 🐝 Swarm Cleared\nBoard, worker roster, and graph reset to idle."
+                if lang != "vi"
+                else "### 🐝 Đã làm mới Swarm\nBảng tin, danh sách thành viên và đồ thị đã trở về trạng thái chờ."
+            )
+        elif swarm_arg.startswith("@"):
+            post_res = execute_swarm_action(
+                {**options, "op": "post", "text": swarm_arg, "dispatch": True, "nowMs": now_ms},
+                companion_root,
+                host_root,
+            )
+            st = post_res.get("swarm") or swarm_store.load_state(now_ms)
+            reply_md = swarm_store.format_swarm_markdown(st, lang=lang)
+        else:
+            st, reply_md = run_swarm_mission(
+                swarm_arg,
+                options,
+                companion_root,
+                host_root,
+                session_ctx=session_ctx,
+            )
+        formatted = _format_reply(
+            reply_md,
+            expression="working",
+            status="completed",
+            language=lang,
+            session_ctx=session_ctx,
+        )
+        u_id, a_id, saved = (
+            _persist_turn_to_history(prompt, formatted["text"])
+            if persist_history
+            else (0, 0, False)
+        )
+        return {
+            "handled": True,
+            "intent": "swarm_task",
+            "openSwarmTab": True,
+            "swarmState": st,
+            **formatted,
+            "userMessageId": u_id,
+            "assistantMessageId": a_id,
+            "historySaved": saved,
+        }
+
+    scale_info = assess_task_scale_for_subagents(prompt, options)
+    options["_taskScale"] = scale_info
+    if (
+        scale_info.get("shouldDecompose")
+        and options.get("autoSubagentDecompose", True) is not False
+        and kind
+        not in (
+            "hypothetical_or_negated",
+            "stop",
+            "sudo_password_reply",
+            "confirmation_response",
+            "clarification_reply",
+            "clarify_task",
+            "adjust_budget",
+        )
+        and not session_ctx.get("pendingClarification")
+        and not session_ctx.get("pendingSudoOp")
+    ):
+        subtasks = scale_info.get("subtasks") or []
+        prev_summary = ""
+        sub_md_lines: list[str] = []
+        auto_swarm = swarm_store.start_swarm_mission(
+            prompt,
+            subtasks,
+            model=str(options.get("model") or options.get("routedModel") or "local-pinned"),
+            now_ms=now_ms,
+            emit=True,
+        )
+        auto_workers = [m for m in auto_swarm.get("members", []) if isinstance(m, dict) and m.get("id") != "coordinator"]
+        for idx_st, st in enumerate(subtasks):
+            wid = str(auto_workers[idx_st]["id"]) if idx_st < len(auto_workers) else f"{st.get('role', 'researcher')}-{idx_st + 1}"
+            swarm_store.mark_worker_working(auto_swarm, wid, now_ms=int(time.time() * 1000), emit=True)
+            sub_res = delegate_subagent(
+                role=str(st.get("role") or "researcher"),
+                task=str(st.get("task") or prompt),
+                context_hint=prev_summary,
+                options=options,
+                session_ctx=session_ctx,
+                companion_root=companion_root,
+                subagent_index=int(st.get("index") or 1),
+                subagent_total=int(st.get("total") or len(subtasks) or 1),
+                now_ms=now_ms,
+            )
+            auto_swarm = swarm_store.record_worker_completion(auto_swarm, wid, sub_res, now_ms=int(time.time() * 1000), emit=True)
+            prev_summary = str(sub_res.get("summary") or "")
+            if prev_summary:
+                sub_md_lines.append(f"- {prev_summary}")
+        swarm_store.finish_swarm_mission(
+            auto_swarm,
+            "\n".join(sub_md_lines) if sub_md_lines else "Delegated subtasks completed.",
+            status="completed",
+            now_ms=int(time.time() * 1000),
+            emit=True,
+        )
+        if sub_md_lines:
+            sub_block = "### Subagent Findings (Isolated Context)\n" + "\n".join(sub_md_lines)
+            existing_md = str(attached_info.get("contextMarkdown") or "").strip()
+            attached_info["contextMarkdown"] = f"{existing_md}\n\n{sub_block}" if existing_md else sub_block
+
+    # 0. Ordinary chat fallback (or multi-step ReAct structured tool-calling loop)
     if kind == "chat":
         endpoint_url = str(options.get("endpoint") or "").strip()
         model_name = str(options.get("model") or "").strip()
         route_meta = options.get("modelRoute") if isinstance(options.get("modelRoute"), dict) else {}
-        if endpoint_url and model_name and options.get("useModelTools") is True:
-            sys_prompt = (
-                "You are Alis-Companion, a full-authority Linux desktop agent. "
-                f"Active directory: {session_ctx.get('lastDirectory') or Path.home()}. "
-                "Call a tool only if the user is asking to inspect/modify files, run commands, or control the desktop/system. "
-                "Present responses neatly: lead with a concise 1-sentence summary, use compact bullet points or code blocks for details, and avoid filler or repetition."
+        ponytail_mode = str(options.get("ponytailMode") or session_ctx.get("ponytailMode") or "").strip().lower()
+        ponytail_clause = ""
+        if ponytail_mode in ("lite", "full", "ultra"):
+            ponytail_clause = (
+                f"\n\n## Active Ponytail Discipline (mode: {ponytail_mode})\n"
+                "- Motto: \"The best code is the code you never wrote.\"\n"
+                "- Walk The Ladder before writing code: (1) YAGNI existence check, (2) Reuse existing repo helper/pattern, "
+                "(3) Use standard library / native platform, (4) Fewest lines that solve it cleanly.\n"
+                "- Never cut security, trust-boundary validation, or data-loss safeguards.\n"
+                "- End with an Accountability Receipt noting skipped bloat and any trade-offs."
             )
-            llm_turn = _call_local_model_tool_turn(
-                endpoint_url,
-                model_name,
-                sys_prompt,
-                prompt,
+        if endpoint_url and model_name and options.get("useModelTools") is True:
+            custom_sys = str(options.get("systemPrompt") or "").strip()
+            rules_txt = str(options.get("rulesText") or "").strip() or str(load_rules_state(now_ms).get("rulesText") or "").strip()
+            base_react_sys = (
+                "You are Alis-Companion, a full-authority Linux desktop agent. "
+                "You can chain multiple tool calls across steps (Thought -> Tool Call -> Observation -> Next Tool Call -> Final Synthesis). "
+                "Present responses neatly: lead with a concise summary, use compact bullet points or code blocks for details, and avoid filler."
+            )
+            active_turn_sid = str(options.get("threadId") or (globals().get("_CURRENT_TURN_THREAD_ID") or "") or session_ctx.get("activeThreadId") or "chat_default")
+            context_policy.enqueue_context_update(
+                active_turn_sid,
+                "active_directory",
+                str(session_ctx.get("lastDirectory") or Path.home()),
+                dedupe_key="active_directory",
+                now_ms=now_ms,
+            )
+            sys_prompt = f"{custom_sys[:1200]}\n\n{base_react_sys}" if custom_sys else base_react_sys
+            if rules_txt and rules_txt not in sys_prompt:
+                sys_prompt = f"{sys_prompt}\n\n## Active Rules\n{rules_txt[:1000]}"
+            if ponytail_clause and "Ponytail Discipline" not in sys_prompt:
+                sys_prompt = f"{sys_prompt}{ponytail_clause}"
+            prompt_for_react = (
+                f"{prompt}\n\n{attached_info['contextMarkdown']}"
+                if attached_info["contextMarkdown"]
+                else prompt
+            )
+            max_react_steps = int(options.get("maxReactSteps") or 5)
+            opt_temp = options.get("temperature")
+            react_res = run_react_tool_loop(
+                endpoint_url=endpoint_url,
+                model_name=model_name,
+                system_prompt=sys_prompt,
+                user_prompt=prompt_for_react,
+                session_ctx=session_ctx,
+                companion_root=companion_root,
+                options=options,
+                now_ms=now_ms,
+                max_steps=max_react_steps,
                 enable_thinking=bool(route_meta.get("enableThinking", False)),
                 in_chat_directive=str(route_meta.get("inChatDirective") or ""),
                 mtp_active=route_meta.get("mtpActive") if "mtpActive" in route_meta else None,
+                temperature=float(opt_temp) if isinstance(opt_temp, (int, float)) else None,
             )
-            if llm_turn and llm_turn.get("toolCalls"):
-                run = start_run(prompt, source="interactive", language=lang, max_turns=10, max_duration_sec=180, now_ms=now_ms)
-                run_id = run["runId"]
-                tool_outputs = []
-                for idx, tc in enumerate(llm_turn["toolCalls"][:4], start=1):
-                    step_id = record_step_start(run_id, idx, tc["name"], side_effect=True, now_ms=now_ms)
-                    try:
-                        out_str = _execute_llm_tool_call(tc, session_ctx, companion_root, now_ms)
-                        record_step_finish(step_id, status="completed", detail={"output": out_str[:400]})
-                        tool_outputs.append(f"### `{tc['name']}`\n{out_str}")
-                    except Exception as exc:
-                        record_step_finish(step_id, status="failed", detail={"error": str(exc)})
-                        tool_outputs.append(f"### `{tc['name']}` (error)\n{exc}")
-                    advance_turn(run_id, now_ms=now_ms)
-                finish_run(run_id, status="completed", now_ms=now_ms)
-                combined_msg = (llm_turn.get("text") + "\n\n" if llm_turn.get("text") else "") + "\n\n".join(tool_outputs)
+            if react_res and react_res.get("handled") and react_res.get("toolSteps"):
+                run_id = str(react_res.get("runId") or "")
+                if not run_id:
+                    run = start_run(prompt, source="interactive", language=lang, max_turns=10, max_duration_sec=180, now_ms=now_ms)
+                    run_id = run["runId"]
+                    for idx, st in enumerate(react_res["toolSteps"], start=1):
+                        step_id = record_step_start(run_id, idx, st["name"], side_effect=True, now_ms=now_ms)
+                        record_step_finish(step_id, status=st.get("status", "completed"), detail={"output": str(st.get("observation") or "")[:400]})
+                        advance_turn(run_id, now_ms=now_ms)
+                    finish_run(run_id, status="completed", now_ms=now_ms)
+                combined_msg = str(react_res.get("finalText") or "").strip()
                 res = _format_reply(combined_msg, expression="working", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
                 u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
-                return {"handled": True, "intent": "llm_tool_turn", **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+                return {
+                    "handled": True,
+                    "intent": "llm_tool_turn",
+                    "reactSteps": react_res["toolSteps"],
+                    "reactStepCount": react_res["stepCount"],
+                    "toolChain": react_res.get("toolChain", []),
+                    "synthesized": bool(react_res.get("synthesized", False)),
+                    "attachedFiles": attached_info["files"],
+                    "ponytailMode": ponytail_mode,
+                    **res,
+                    "userMessageId": u_id,
+                    "assistantMessageId": a_id,
+                    "historySaved": saved,
+                }
+            if react_res and react_res.get("handled") and str(react_res.get("finalText") or "").strip():
+                combined_msg = str(react_res.get("finalText") or "").strip()
+                res = _format_reply(combined_msg, expression="working", status="completed", language=lang, session_ctx=session_ctx)
+                u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+                return {
+                    "handled": True,
+                    "intent": "chat",
+                    "attachedFiles": attached_info["files"],
+                    "attachedContextMarkdown": attached_info["contextMarkdown"],
+                    "ponytailMode": ponytail_mode,
+                    **res,
+                    "userMessageId": u_id,
+                    "assistantMessageId": a_id,
+                    "historySaved": saved,
+                }
+            if _LAST_LMSTUDIO_ERROR in ("gpu_oom", "gpu_fit_failed", "low_memory"):
+                msg = _lmstudio_error_user_message(lang)
+                res = _format_reply(msg, expression="alert", status="failed", language=lang, session_ctx=session_ctx)
+                u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+                return {"handled": True, "intent": "chat", **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
         return {
             "handled": False,
             "intent": "chat",
             "language": lang,
             "reconciledRuns": reconciled,
+            "attachedFiles": attached_info["files"],
+            "attachedContextMarkdown": attached_info["contextMarkdown"],
+            "ponytailMode": ponytail_mode,
         }
 
     # 1. Negated / hypothetical / quoted guard: NEVER execute tools!
@@ -2434,6 +6136,9 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
         return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
 
     # 4. Clarification reply when multiple files matched previously or a task clarification was posed
+    if kind != "clarification_reply" and session_ctx.get("pendingClarification"):
+        session_ctx["pendingClarification"] = None
+        save_session_context(session_ctx, now_ms=now_ms)
     if kind == "clarification_reply":
         pending_clar = session_ctx.get("pendingClarification") or {}
         folded_reply = _fold_ascii(prompt).strip()
@@ -2451,7 +6156,41 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
 
         clar_kind = str(pending_clar.get("kind") or "file_ambiguity")
         clar_opts = pending_clar.get("options") if isinstance(pending_clar.get("options"), list) else []
-        num_match = re.match(r"^(?:#|option\s+|lua chon\s+|y\s+|idea\s+)?([1-3])(?:\s*[.)])?$", folded_reply)
+        num_match = re.match(r"^(?:#|option\s+|lua chon\s+|y\s+|idea\s+|chon\s+|phuong an\s+)?([1-3])(?:\s*[.)])?$", folded_reply)
+
+        if clar_kind == "plan_followup":
+            session_ctx["pendingClarification"] = None
+            save_session_context(session_ctx, now_ms=now_ms)
+            orig_goal = str(pending_clar.get("originalPrompt") or "").strip()
+            selected_opt = None
+            if num_match:
+                opt_idx = int(num_match.group(1)) - 1
+                if 0 <= opt_idx < len(clar_opts):
+                    selected_opt = clar_opts[opt_idx]
+            if not selected_opt:
+                for opt in clar_opts:
+                    if not isinstance(opt, dict):
+                        continue
+                    lbl = str(opt.get("label") or "").strip()
+                    val = str(opt.get("value") or "").strip()
+                    if lbl and (prompt.strip().lower() == lbl.lower() or lbl.lower() in prompt.strip().lower()):
+                        selected_opt = opt
+                        break
+                    if val and (prompt.strip().lower() == val.lower() or val.lower() in prompt.strip().lower()):
+                        selected_opt = opt
+                        break
+            chosen_direction = str((selected_opt or {}).get("value") or (selected_opt or {}).get("label") or prompt).strip()
+            if orig_goal and orig_goal.lower() not in chosen_direction.lower() and "—" not in chosen_direction:
+                refined_plan_prompt = f"{orig_goal} — {chosen_direction}"
+            elif "—" not in chosen_direction:
+                refined_plan_prompt = f"{chosen_direction} — {str((selected_opt or {}).get('label') or ('Chi tiết' if lang == 'vi' else 'Details'))}"
+            else:
+                refined_plan_prompt = chosen_direction
+            return execute_agent_turn(
+                {**options, "prompt": refined_plan_prompt},
+                companion_root=companion_root,
+                host_root=host_root,
+            )
 
         if clar_kind == "task_clarification":
             session_ctx["pendingClarification"] = None
@@ -2730,62 +6469,122 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
             return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
 
-        # 8. Rule management via natural language
+        # 8. Rule management via natural language or `/rule` / `/rules`
         if kind == "rule_manage":
             sub = intent["subkind"]
             if sub == "list":
                 rstate = load_rules_state(now_ms)
                 rules = rstate.get("rules", [])
-                if not rules:
-                    msg = "Hiện chưa có quy tắc tự động nào được bật." if lang == "vi" else "No proactive background rules are currently configured."
-                else:
+                rules_txt = str(rstate.get("rulesText") or "").strip()
+                parts = []
+                if rules_txt:
+                    parts.append(
+                        (f"**Quy tắc hành vi (Rules):**\n{rules_txt}" if lang == "vi" else f"**Active Behavioral Rules:**\n{rules_txt}")
+                    )
+                if rules:
                     lines = [
                         f"- `{r['ruleId']}` ({r['triggerType']}, {'bật' if r['enabled'] else 'tắt'}): {r['taskPrompt']}"
                         for r in rules[:8]
                     ]
-                    msg = ("Danh sách quy tắc hiện tại:\n" if lang == "vi" else "Configured background rules:\n") + "\n".join(lines)
+                    parts.append(
+                        ("Danh sách quy tắc tự động:\n" if lang == "vi" else "Configured background rules:\n") + "\n".join(lines)
+                    )
+                elif not parts:
+                    parts.append("Hiện chưa có quy tắc tự động nào được bật." if lang == "vi" else "No proactive background rules are currently configured.")
+                msg = "\n\n".join(parts)
+            elif sub == "reset":
+                rstate = set_rules_text(reset=True, now_ms=now_ms)
+                msg = (
+                    f"Đã khôi phục Quy tắc (Rules) về mặc định:\n{rstate.get('rulesText', DEFAULT_RULES_TEXT)}"
+                    if lang == "vi"
+                    else f"Reset Rules to default:\n{rstate.get('rulesText', DEFAULT_RULES_TEXT)}"
+                )
             elif sub == "disable":
                 m_id = re.search(r"\b(rule_[0-9a-f]{8,16})\b", prompt)
                 if m_id:
                     set_rule_enabled(rule_id=m_id.group(1), enabled=False, now_ms=now_ms)
                     msg = f"Đã tắt quy tắc `{m_id.group(1)}`." if lang == "vi" else f"Disabled rule `{m_id.group(1)}`."
                 else:
-                    set_rule_enabled(disable_all=True, enabled=False, now_ms=now_ms)
-                    msg = "Đã tắt toàn bộ quy tắc tự khởi việc." if lang == "vi" else "Disabled all proactive background rules."
+                    rm_query = ""
+                    if re.match(r"^/rules?\b", _fold_ascii(prompt)):
+                        rm_query = re.sub(
+                            r"^/rules?\b\s*(?:disable|delete|remove|stop|tat|xoa|huy)\s*:?\s*",
+                            "",
+                            prompt.strip(),
+                            flags=re.IGNORECASE,
+                        ).strip()
+                    folded_rm = _fold_ascii(rm_query)
+                    if rm_query and folded_rm not in ("all", "tat ca", "toan bo", "everything", "rules"):
+                        rm_res = remove_instruction_rule(rm_query, now_ms=now_ms)
+                        removed_lines = rm_res.get("removedLines") or []
+                        if removed_lines:
+                            msg = (
+                                f"Đã xoá khỏi Quy tắc (Rules): `{removed_lines[0]}`\n\n**Quy tắc hiện tại:**\n{rm_res.get('rulesText', '')}"
+                                if lang == "vi"
+                                else f"Removed from Rules: `{removed_lines[0]}`\n\n**Active Rules:**\n{rm_res.get('rulesText', '')}"
+                            )
+                        else:
+                            set_rule_enabled(disable_all=True, enabled=False, now_ms=now_ms)
+                            msg = "Đã tắt toàn bộ quy tắc tự khởi việc." if lang == "vi" else "Disabled all proactive background rules."
+                    else:
+                        set_rule_enabled(disable_all=True, enabled=False, now_ms=now_ms)
+                        msg = "Đã tắt toàn bộ quy tắc tự khởi việc." if lang == "vi" else "Disabled all proactive background rules."
             else:
                 folded = _fold_ascii(prompt)
                 planner_events = options.get("plannerEvents") if isinstance(options.get("plannerEvents"), list) else []
                 m_time = re.search(r"\b(\d{1,2}:\d{2})\b", prompt)
                 m_ev = re.search(r"\b(evt_[A-Za-z0-9_\-]+)\b", prompt)
-                if "focus" in folded or "pomodoro" in folded:
-                    ttype = "focus_end"
-                    ev_id = ""
-                    hm = ""
-                elif m_time and "planner" not in folded and not m_ev:
-                    ttype = "schedule_time"
-                    ev_id = ""
-                    hm = m_time.group(1)
+                is_trigger_rule = bool(
+                    m_time
+                    or m_ev
+                    or planner_events
+                    or any(
+                        kw in folded
+                        for kw in (
+                            "focus", "pomodoro", "planner", "when ", "every ",
+                            "khi su kien", "khi bat dau", "sau khi ket thuc", "moi ngay",
+                        )
+                    )
+                )
+                if not is_trigger_rule and re.match(r"^/rules?\b", folded):
+                    clean_rule_line = re.sub(r"^/rules?\b\s*(?:add|create|set|them|tao)?\s*:?\s*", "", prompt.strip(), flags=re.IGNORECASE).strip()
+                    rstate = append_instruction_rule(clean_rule_line or prompt.strip(), now_ms=now_ms)
+                    msg = (
+                        f"Đã thêm vào Quy tắc (Rules): `- {clean_rule_line}`\n\n**Quy tắc hiện tại:**\n{rstate.get('rulesText', '')}"
+                        if lang == "vi"
+                        else f"Added to Rules: `- {clean_rule_line}`\n\n**Active Rules:**\n{rstate.get('rulesText', '')}"
+                    )
                 else:
-                    ttype = "planner_event"
-                    ev_id = m_ev.group(1) if m_ev else (str(planner_events[0].get("id")) if planner_events else "evt_planner_default")
-                    hm = ""
-                created = create_or_update_rule(
-                    trigger_type=ttype,
-                    task_prompt=prompt,
-                    event_id=ev_id,
-                    time_hm=hm,
-                    planner_events=planner_events,
-                    now_ms=now_ms,
-                )
-                msg = (
-                    f"Đã tạo quy tắc `{created['ruleId']}` (nguồn: `{ttype}`, giới hạn: tối đa {created['budget']['maxTurns']} vòng / {created['budget']['maxRunsPerDay']} lần mỗi ngày, không chiếm quyền chuột/bàn phím)."
-                    if lang == "vi"
-                    else f"Created rule `{created['ruleId']}` (trigger: `{ttype}`, budget: max {created['budget']['maxTurns']} turns / {created['budget']['maxRunsPerDay']} runs per day, no GUI input takeover)."
-                )
+                    if "focus" in folded or "pomodoro" in folded:
+                        ttype = "focus_end"
+                        ev_id = ""
+                        hm = ""
+                    elif m_time and "planner" not in folded and not m_ev:
+                        ttype = "schedule_time"
+                        ev_id = ""
+                        hm = m_time.group(1)
+                    else:
+                        ttype = "planner_event"
+                        ev_id = m_ev.group(1) if m_ev else (str(planner_events[0].get("id")) if planner_events else "evt_planner_default")
+                        hm = ""
+                    created = create_or_update_rule(
+                        trigger_type=ttype,
+                        task_prompt=prompt,
+                        event_id=ev_id,
+                        time_hm=hm,
+                        planner_events=planner_events,
+                        now_ms=now_ms,
+                    )
+                    msg = (
+                        f"Đã tạo quy tắc `{created['ruleId']}` (nguồn: `{ttype}`, giới hạn: tối đa {created['budget']['maxTurns']} vòng / {created['budget']['maxRunsPerDay']} lần mỗi ngày, không chiếm quyền chuột/bàn phím)."
+                        if lang == "vi"
+                        else f"Created rule `{created['ruleId']}` (trigger: `{ttype}`, budget: max {created['budget']['maxTurns']} turns / {created['budget']['maxRunsPerDay']} runs per day, no GUI input takeover)."
+                    )
+            latest_rules = load_rules_state(now_ms)
             finish_run(run_id, status="completed", now_ms=now_ms)
             res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
-            return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+            return {"handled": True, "intent": kind, "agentRules": latest_rules, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
 
         # 9. Memory management via natural language
         if kind == "memory_manage":
@@ -2913,53 +6712,127 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
             return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
 
+        # 10b. Local Offline Voice Mode (STT / TTS / Status via pipewire-mpris-mcp & desktop_control)
+        if kind == "voice_task":
+            sub = str(intent.get("subkind") or "status")
+            step_id = record_step_start(run_id, 1, f"voice_{sub}", side_effect=(sub == "tts"), now_ms=now_ms)
+            if sub == "tts":
+                clean_tts = re.sub(
+                    r"^(?:/tts\s+|/speak\s+|(?:hãy\s+|hay\s+|vui lòng\s+|vui long\s+|please\s+)?(?:đọc to|doc to|phát âm|phat am|nói to|noi to|speak aloud|read aloud|say out loud))\s*:?\s*",
+                    "",
+                    prompt.strip(),
+                    flags=re.IGNORECASE,
+                ).strip() or prompt.strip()
+                v_res = desktop_control.voice_tts(text=clean_tts, language=lang)
+                tts_backend = str(v_res.get("ttsBackend") or v_res.get("backend") or "tts")
+                msg = (
+                    f"🔊 Đã đọc thành tiếng qua `{tts_backend}`: \"{clean_tts}\""
+                    if lang == "vi"
+                    else f"🔊 Spoke aloud via `{tts_backend}`: \"{clean_tts}\""
+                )
+            elif sub == "stt":
+                audio_p = str(options.get("audioPath") or _extract_path_from_text(prompt, session_ctx) or "").strip()
+                v_res = desktop_control.voice_stt(
+                    audio_path=audio_p,
+                    duration_sec=int(options.get("durationSec") or 4),
+                    language=lang,
+                )
+                transcript = str(v_res.get("transcript") or "").strip()
+                stt_backend = str(v_res.get("sttBackend") or v_res.get("backend") or "stt")
+                msg = (
+                    f"🎙 Nhận diện giọng nói (`{stt_backend}`): \"{transcript}\""
+                    if lang == "vi"
+                    else f"🎙 Voice transcription (`{stt_backend}`): \"{transcript}\""
+                )
+            else:
+                v_res = desktop_control.voice_status()
+                msg = (
+                    f"🎙 Trạng thái Voice ngoại tuyến: {v_res.get('summary', '')}"
+                    if lang == "vi"
+                    else f"🎙 Offline Voice status: {v_res.get('summary', '')}"
+                )
+            record_step_finish(step_id, status="completed", detail=v_res)
+            advance_turn(run_id, now_ms=now_ms)
+            finish_run(run_id, status="completed", now_ms=now_ms)
+            res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
+            u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+            return {
+                "handled": True,
+                "intent": kind,
+                "voiceResult": v_res,
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
+
         # 11. Screen / Active Window Observation (routed via computer-use-linux MCP)
         if kind == "screen_observe":
             step_id = record_step_start(run_id, 1, "screen_observe", side_effect=False, now_ms=now_ms)
             prev_win = session_ctx.get("lastWindowId")
             folded_p = _fold_ascii(prompt)
-            wants_screenshot_img = bool(intent.get("captureScreenshot")) or bool(
+            wants_som = bool(
+                intent.get("annotateSom")
+                or options.get("annotateSom")
+                or re.search(r"\b(?:set of mark|som|annotate|danh so|elements)\b", folded_p)
+                or re.match(r"^/som\b", folded_p)
+            )
+            wants_screenshot_img = bool(intent.get("captureScreenshot")) or wants_som or bool(
                 re.search(
-                    r"\b(?:chup man hinh|chup anh man hinh|chup lai man hinh|take a screenshot|capture screen|screenshot)\b",
+                    r"\b(?:chup man hinh|chup anh man hinh|chup lai man hinh|take(?:\s+a)?\s+screen\s*shot|capture screen|screen\s*shot)\b",
                     folded_p,
                 )
-                or re.match(r"^(?:/agent\s+|/)?screenshot\b", folded_p)
+                or re.match(r"^(?:/agent\s+|/)?screen\s*shot\b", folded_p)
             )
             effective_allow_ss = bool(allow_screenshot or wants_screenshot_img)
-            ep_url = str(options.get("endpoint") or "").strip()
-            mdl_name = str(options.get("model") or "").strip()
             is_live_desktop = (
                 not os.environ.get("ALIS_AQUA_SCREEN_FIXTURE")
                 and not os.environ.get("AQUA_TEST_ENDPOINT")
                 and not os.environ.get("AI_FIXTURE_URL")
             )
-            if is_live_desktop and options.get("runSource") == "interactive" and (not ep_url or "/v1/" not in ep_url or not mdl_name):
-                try:
-                    with urllib.request.urlopen("http://127.0.0.1:1234/v1/models", timeout=1.5) as r_m:
-                        m_payload = json.loads(r_m.read().decode("utf-8", errors="replace"))
-                    for m_entry in (m_payload.get("data") or []):
-                        cand_id = str(m_entry.get("id") or "").strip()
-                        if cand_id and "embed" not in cand_id.lower():
-                            mdl_name = cand_id
-                            ep_url = "http://127.0.0.1:1234/v1/chat/completions"
-                            break
-                except Exception:
-                    pass
+            ep_url, mdl_name = _resolve_live_llm(options)
+            if not ep_url:
+                ep_url = str(options.get("endpoint") or "").strip()
+            if not mdl_name:
+                mdl_name = re.sub(r"^(?:lmstudio-|ollama-|gguf:)", "", str(options.get("model") or "").strip())
             mdl_lower = mdl_name.lower()
+            allow_vlm_call = is_live_desktop or (options.get("synthesizeWithLlm") is True)
             has_live_vlm = bool(
-                is_live_desktop
+                allow_vlm_call
                 and effective_allow_ss
                 and ep_url
                 and mdl_name
                 and "/v1/" in ep_url
                 and (ep_url.startswith("http://127.0.0.1:") or ep_url.startswith("http://localhost:"))
-                and any(k in mdl_lower for k in ("qwen3.5", "qwen3_5", "qwen2-vl", "qwen2.5-vl", "-vl", "vision", "llava", "pixtral", "gemma-3", "minicpm", "internvl"))
+                and any(
+                    k in mdl_lower
+                    for k in (
+                        "qwen3.6",
+                        "qwen3_6",
+                        "qwen3.5",
+                        "qwen3_5",
+                        "qwen3",
+                        "qwen2-vl",
+                        "qwen2.5-vl",
+                        "-vl",
+                        "vision",
+                        "llava",
+                        "pixtral",
+                        "gemma-3",
+                        "gemma3",
+                        "minicpm",
+                        "internvl",
+                    )
+                )
             )
             is_followup_about_shot = bool(
-                re.search(r"\b(?:inside the screenshot|in the screenshot|from the screenshot|about the screenshot|trong anh chup|trong buc anh)\b", folded_p)
-                and not re.search(r"\b(?:take|capture|chup)\b", folded_p)
+                re.search(
+                    r"\b(?:inside the screen\s*shot|in the screen\s*shot|from the screen\s*shot|about the screen\s*shot|describe the screen\s*shot|what(?:'s| is) (?:in|inside) the screen\s*shot|tell me about the screen\s*shot|what (?:you can|can you|do you) see in the screen\s*shot|trong anh chup|trong buc anh|mo ta anh chup|mo ta buc anh)\b",
+                    folded_p,
+                )
+                and not re.search(r"\b(?:take|capture)\b|\bchup\s+(?:man\s+hinh|lai|anh|moi)\b", folded_p)
             )
-            need_capture_img = bool((wants_screenshot_img or has_live_vlm) and not is_followup_about_shot)
+            need_capture_img = bool(effective_allow_ss and not is_followup_about_shot)
             try:
                 mcp_obs = mcp_client.call_tool(
                     "computer-use-linux",
@@ -2969,7 +6842,8 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                         "previousWindowId": prev_win,
                         "nowMs": now_ms,
                         "captureImage": need_capture_img,
-                        "skipOcr": has_live_vlm,
+                        "skipOcr": True,
+                        "annotateSom": wants_som,
                     },
                     companion_root=companion_root,
                     enabled_overrides={"computer-use-linux": True},
@@ -2979,7 +6853,8 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     previous_window_id=prev_win,
                     now_ms=now_ms,
                     capture_image=need_capture_img,
-                    skip_ocr=has_live_vlm,
+                    skip_ocr=True,
+                    annotate_som=wants_som,
                 )
             except McpError:
                 obs_res = observe_active_window(
@@ -2987,18 +6862,44 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     previous_window_id=prev_win,
                     now_ms=now_ms,
                     capture_image=need_capture_img,
-                    skip_ocr=has_live_vlm,
+                    skip_ocr=True,
+                    annotate_som=wants_som,
                 )
             obs = obs_res["observation"]
             screenshot_path = str(obs_res.get("screenshotPath") or obs.get("screenshotPath") or "").strip()
+            som_image_path = str(
+                obs_res.get("somImagePath")
+                or obs_res.get("somScreenshotPath")
+                or obs.get("somImagePath")
+                or obs.get("somScreenshotPath")
+                or ""
+            ).strip()
+            reused_previous_shot = False
             if is_followup_about_shot and not screenshot_path:
                 try:
-                    from screen_context import _screenshots_dir
-                    recent_shots = sorted(_screenshots_dir().glob("screenshot-*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
-                    if recent_shots and (time.time() - recent_shots[0].stat().st_mtime) <= 300:
-                        screenshot_path = str(recent_shots[0])
+                    saved_shot = str(session_ctx.get("lastScreenshotPath") or "").strip()
+                    if saved_shot and Path(saved_shot).is_file():
+                        screenshot_path = saved_shot
+                    else:
+                        from screen_context import _screenshots_dir
+                        recent_shots = sorted(_screenshots_dir().glob("screenshot-*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
+                        if recent_shots and (time.time() - recent_shots[0].stat().st_mtime) <= 600:
+                            screenshot_path = str(recent_shots[0])
+                    if screenshot_path:
+                        reused_previous_shot = True
                         obs_res["screenshotPath"] = screenshot_path
                         obs["screenshotPath"] = screenshot_path
+                        obs["source"] = "niri+vision"
+                        obs["focusChanged"] = False
+                        if saved_shot and screenshot_path == saved_shot:
+                            if session_ctx.get("lastScreenshotTitle"):
+                                obs["title"] = str(session_ctx["lastScreenshotTitle"])
+                            if session_ctx.get("lastScreenshotAppId"):
+                                obs["appId"] = str(session_ctx["lastScreenshotAppId"])
+                            if isinstance(session_ctx.get("lastScreenshotHeadings"), list):
+                                obs_res["headings"] = list(session_ctx["lastScreenshotHeadings"])
+                        else:
+                            obs_res["headings"] = []
                 except Exception:
                     pass
             if (need_capture_img or effective_allow_ss) and not screenshot_path:
@@ -3006,12 +6907,19 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 if screenshot_path:
                     obs_res["screenshotPath"] = screenshot_path
                     obs["screenshotPath"] = screenshot_path
-            reply_images = [screenshot_path] if (wants_screenshot_img and screenshot_path and not is_followup_about_shot) else []
+            if not reused_previous_shot and screenshot_path:
+                session_ctx["lastScreenshotPath"] = screenshot_path
+                session_ctx["lastScreenshotTitle"] = str(obs.get("title") or "")
+                session_ctx["lastScreenshotAppId"] = str(obs.get("appId") or "")
+                session_ctx["lastScreenshotHeadings"] = list(obs_res.get("headings") or [])[:12]
+            primary_img = som_image_path if (wants_som and som_image_path) else screenshot_path
+            reply_images = [primary_img] if (primary_img and not reused_previous_shot) else []
             record_step_finish(step_id, status="completed", detail=obs)
             advance_turn(run_id, now_ms=now_ms)
 
-            session_ctx["lastWindowId"] = obs.get("windowId")
-            session_ctx["lastAppId"] = obs.get("appId") or ""
+            if not reused_previous_shot:
+                session_ctx["lastWindowId"] = obs.get("windowId")
+                session_ctx["lastAppId"] = obs.get("appId") or ""
             save_session_context(session_ctx, now_ms=now_ms)
             observations.append(obs)
 
@@ -3028,34 +6936,72 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 compact_headings.append(f"- {ln_txt}")
                 if len(compact_headings) >= 8:
                     break
+            som_lines = []
+            if wants_som and obs_res.get("elements"):
+                for el in obs_res["elements"][:8]:
+                    el_line = f"- `[{el.get('markId')}]` {el.get('role', 'widget')}: **{el.get('name', '')}** `@({el.get('centerX')}, {el.get('centerY')})`"
+                    som_lines.append(el_line)
+                    if el_line not in compact_headings:
+                        compact_headings.append(el_line)
             lines_preview = "\n".join(compact_headings)
             source_badge = str(obs.get("source") or "niri+vision")
-            if is_live_desktop and ep_url and mdl_name and "/v1/" in ep_url and (ep_url.startswith("http://127.0.0.1:") or ep_url.startswith("http://localhost:")):
+            vlm_img_path = screenshot_path if (screenshot_path and Path(screenshot_path).is_file()) else primary_img
+            wants_detail = bool(
+                re.search(
+                    r"\b(?:detail|detailed|as detail as possible|in detail|thorough|everything|all visible|chi tiet|ky luong|day du|tat ca|toan bo)\b",
+                    folded_p,
+                )
+            )
+            if allow_vlm_call and ep_url and mdl_name and "/v1/" in ep_url and (ep_url.startswith("http://127.0.0.1:") or ep_url.startswith("http://localhost:")):
                 try:
-                    if has_live_vlm and screenshot_path and Path(screenshot_path).is_file():
+                    if has_live_vlm and vlm_img_path and Path(vlm_img_path).is_file():
                         import base64
                         import io
                         from PIL import Image
-                        im_v = Image.open(screenshot_path).convert("RGB")
-                        im_v.thumbnail((728, 728))
+                        _emit_activity_step(
+                            f"Analyzing screenshot with Vision ({mdl_name[:24]}) ›",
+                            kind="vlm_vision",
+                            status="running",
+                        )
+                        im_v = Image.open(vlm_img_path).convert("RGB")
+                        im_v.thumbnail((1120, 1120))
                         buf = io.BytesIO()
                         im_v.save(buf, format="JPEG", quality=85)
                         b64_v = base64.b64encode(buf.getvalue()).decode("ascii")
+                        ground_truth_block = (
+                            f"\nAT-SPI & OCR Ground-Truth UI Text (use as ground truth for small UI text; never guess unreadable text):\n{lines_preview}"
+                            if lines_preview
+                            else ""
+                        )
                         if lang == "vi":
-                            sys_vlm = (
-                                "Bạn là Alis-Companion. Hãy nhìn trực tiếp vào ảnh chụp màn hình của người dùng "
-                                "và mô tả/trả lời chính xác những ứng dụng, cửa sổ và nội dung văn bản đang hiển thị "
-                                "bằng 3-4 gạch đầu dòng Markdown ngắn gọn. Không sinh thẻ <think>."
-                            )
+                            if wants_detail:
+                                sys_vlm = (
+                                    "Bạn là Alis-Companion. Hãy phân tích trực tiếp ảnh chụp màn hình bằng tính năng Vision của mô hình "
+                                    "và mô tả chi tiết, đầy đủ tất cả các vùng giao diện đang hiển thị (thanh điều hướng/URL trên cùng, thanh bên trái, nội dung chính/bài đăng ở giữa kèm tiêu đề & số lượt tương tác, cửa sổ chat nổi ở góc dưới phải, danh sách tab bên phải, và thanh trạng thái hệ thống) "
+                                    "bằng 5-6 gạch đầu dòng Markdown chi tiết, hoàn chỉnh câu (không dùng đường kẻ ngang --- hay tiêu đề ###). Nếu thấy khung giao diện tối màu của Alis-Companion ở góc dưới trái (gồm hộp thoại chat và các nút Focus 25:00 / Today / Stop), chỉ gộp chung trong tối đa 1 gạch đầu dòng ngắn và không tách thành công cụ quay màn hình riêng. Tuyệt đối không đoán mò chữ nhỏ không đọc được. Không sinh thẻ <think>."
+                                )
+                            else:
+                                sys_vlm = (
+                                    "Bạn là Alis-Companion. Hãy phân tích trực tiếp ảnh chụp màn hình bằng tính năng Vision của mô hình "
+                                    "để mô tả/trả lời chính xác những ứng dụng, cửa sổ và nội dung đang hiển thị trên màn hình "
+                                    "bằng 3-5 gạch đầu dòng Markdown ngắn gọn, hoàn chỉnh câu. Tuyệt đối không đoán mò chữ nhỏ không đọc được. Không sinh thẻ <think>."
+                                )
                         else:
-                            sys_vlm = (
-                                "You are Alis-Companion. Look directly at the user's screenshot and answer their request "
-                                "by accurately describing the visible applications, workspace, and text content in 3-4 concise "
-                                "Markdown bullet points. Do not output <think>."
-                            )
+                            if wants_detail:
+                                sys_vlm = (
+                                    "You are Alis-Companion. Analyze the captured screenshot directly using your Vision capability "
+                                    "and answer the user's request by describing all visible regions on screen in detail (top bar/URL, left navigation sidebar & shortcuts, main central feed posts/articles with exact titles and engagement counts, bottom-right chat popups/messages, right browser tab sidebar, and system bar) "
+                                    "in 5-6 detailed Markdown bullet points with complete sentences (do not use --- horizontal dividers or ### subheadings). If the dark Alis-Companion widget appears in the bottom-left corner (including its chat bubble and Focus 25:00 / Today / Stop pill buttons), mention it in at most one brief bullet and do not mistake its Focus timer/Stop buttons for a separate screen recording tool. Never guess unreadable small text. Do not output <think>."
+                                )
+                            else:
+                                sys_vlm = (
+                                    "You are Alis-Companion. Analyze the captured screenshot directly using your Vision capability "
+                                    "and answer the user's request by accurately describing the visible applications, windows, and content on screen in 3-5 concise "
+                                    "Markdown bullet points with complete sentences. Never guess unreadable small text. Do not output <think>."
+                                )
                         usr_vlm_text = (
                             f"{{REASON:instant}}\n"
-                            f"Active window: {obs.get('title') or ''} ({obs.get('appId') or 'desktop'})\n"
+                            f"Active window: {obs.get('title') or ''} ({obs.get('appId') or 'desktop'}){ground_truth_block}\n"
                             f"User request: {prompt[:400]}"
                         )
                         screen_body = {
@@ -3072,32 +7018,39 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                             ],
                             "reasoning_effort": "none",
                             "chat_template_kwargs": {"enable_thinking": False},
-                            "temperature": 0.2,
-                            "max_tokens": 135,
+                            "temperature": (
+                                round(max(0.0, min(2.0, float(options["temperature"]))), 2)
+                                if isinstance(options.get("temperature"), (int, float))
+                                else 0.2
+                            ),
+                            "max_tokens": 680 if wants_detail else 380,
                         }
                         if _is_mtp_model(mdl_name):
                             screen_body["repetition_penalty"] = 1.0
                             screen_body["repeat_penalty"] = 1.0
-                        req_s = urllib.request.Request(
+                        ai_txt = _call_chat_completion_text(
                             ep_url,
-                            data=json.dumps(screen_body).encode("utf-8"),
-                            headers={"Content-Type": "application/json"},
-                        )
-                        with urllib.request.urlopen(req_s, timeout=75) as resp_s:
-                            data_s = json.loads(resp_s.read().decode("utf-8", errors="replace"))
-                        ai_txt = str(((data_s.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+                            screen_body,
+                            chunk_timeout=125.0,
+                            max_wall_sec=195.0,
+                            stream_stdout=False,
+                        ).strip()
                         ai_txt = re.sub(r"<think(?:ing)?>[\s\S]*?</think(?:ing)?>", "", ai_txt, flags=re.IGNORECASE).strip()
                         if ai_txt:
-                            lines_preview = ai_txt[:1200]
+                            lines_preview = ai_txt[:3200]
+                            if som_lines:
+                                lines_preview = f"{lines_preview}\n" + "\n".join(som_lines)
                             source_badge = "niri+vision"
+                        elif _LAST_LMSTUDIO_ERROR in ("gpu_oom", "gpu_fit_failed", "low_memory"):
+                            lines_preview = f"{lines_preview}\n\n{_lmstudio_error_user_message(lang)}".strip()
                 except Exception:
                     pass
             win_label = str(obs.get("title") or obs.get("appId") or "desktop").strip()
             if len(win_label) > 44:
                 win_label = win_label[:41].rstrip() + "…"
             wants_guide = any(k in folded_p for k in ("eyes", "hands", "mat va tay", "can you see"))
-            shot_note_vi = f"\n📷 Đã chụp màn hình (`{Path(screenshot_path).name}`)." if (wants_screenshot_img and screenshot_path) else ""
-            shot_note_en = f"\n📷 Screenshot captured (`{Path(screenshot_path).name}`)." if (wants_screenshot_img and screenshot_path) else ""
+            shot_note_vi = f"\n📷 Đã chụp màn hình (`{Path(primary_img).name}`)." if (primary_img and not reused_previous_shot) else ""
+            shot_note_en = f"\n📷 Screenshot captured (`{Path(primary_img).name}`)." if (primary_img and not reused_previous_shot) else ""
             if lang == "vi":
                 guide_vi = (
                     "\n\n💡 **Mắt & Tay MCP:** `/web` tìm kiếm · `/fetch` đọc trang · `/browser` tự động hoá web · mở ứng dụng / chạy lệnh."
@@ -3130,36 +7083,129 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 images=reply_images,
             )
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
-            return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+            return {
+                "handled": True,
+                "intent": kind,
+                "elements": obs_res.get("elements") or [],
+                "semanticSnapshot": obs_res.get("semanticSnapshot") or obs.get("semanticSnapshot") or "",
+                "somImagePath": som_image_path,
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
 
         # 12. GUI / Niri action broker (routed via computer-use-linux MCP)
         if kind == "gui_action":
             if run_source == "rule":
                 raise AgentPermissionError("rule_gui_forbidden", "Background rules are not allowed to control mouse/keyboard or focus.")
-            m_win = re.search(r"\b(\d+)\b", prompt)
-            win_id = int(m_win.group(1)) if m_win else session_ctx.get("lastWindowId")
-            req_scale = "click" in _fold_ascii(prompt) or "toa do" in _fold_ascii(prompt)
-            try:
-                mcp_gui = mcp_client.call_tool(
-                    "computer-use-linux",
-                    "window_action",
-                    {
-                        "action": "focus_window" if m_win else "inspect_window",
-                        "targetWindowId": win_id,
-                        "requireScale": req_scale,
-                        "nowMs": now_ms,
-                    },
-                    companion_root=companion_root,
-                    enabled_overrides={"computer-use-linux": True},
-                )
-                gui_res = mcp_gui.get("structured")
-                if not isinstance(gui_res, dict) or "observation" not in gui_res:
-                    gui_res = perform_gui_action(
-                        action_type="focus_window" if m_win else "inspect_window",
-                        target_window_id=win_id,
-                        require_scale=req_scale,
-                        now_ms=now_ms,
+            folded_gui = _fold_ascii(prompt)
+            sub_gui = str(intent.get("subkind") or "")
+            is_fill_action = sub_gui == "fill" or bool(
+                re.search(r"\b(?:fill|set_text|type|nhap|dien)\s+(?:vao\s+|into\s+)?(?:\[\d+\]|@e\d+\b)", folded_gui)
+            )
+            is_focus_elem = sub_gui == "focus_element" or bool(
+                re.search(r"\bfocus(?:_element)?\s+(?:vao\s+|on\s+)?(?:\[\d+\]|@e\d+\b)", folded_gui)
+            )
+            is_atspi_action = sub_gui == "atspi_action" or bool(
+                re.search(r"\batspi_action\b", folded_gui)
+            )
+            is_som_click = (
+                is_fill_action
+                or is_focus_elem
+                or is_atspi_action
+                or sub_gui == "som_click"
+                or bool(
+                    re.search(
+                        r"\b(?:som_click|click\s+(?:mark\s+|element\s+|button\s+|into\s+)?(?:\[?#?\d+\]?|@e\d+\b)|click\s+(?:button|element|nut)\s+['\"`][^'\"`]+['\"`])",
+                        folded_gui,
                     )
+                )
+            )
+            try:
+                if is_som_click:
+                    m_ref = re.search(r"(@e\d+)\b", folded_gui)
+                    m_mark = (
+                        re.search(r"(?:mark|element|o|so|\[|#|@e)\s*(\d+)\b", folded_gui)
+                        or re.search(r"\b(?:click|bam|nhan|tap|press|chon|fill|set_text|type|nhap|dien|focus|focus_element|atspi_action)\s+(?:vao\s+|into\s+|on\s+|mark\s+|element\s+|button\s+|nut\s+)?(?:\[?#?(\d+)\]?|@e(\d+)\b)", folded_gui)
+                        or re.search(r"^/som\s+(?:\[?#?(\d+)\]?|@e(\d+)\b)", folded_gui)
+                    )
+                    m_elem = re.search(r"""(?:button|element|nut|click)\s+['"`]([^'"`]+)['"`]""", prompt, re.IGNORECASE)
+                    m_role = re.search(r"\b(button|entry|text|link|checkbox|menuitem|tab)\b", folded_gui)
+                    m_win_explicit = re.search(r"(?:window|cua so)\s+#?(\d+)\b", folded_gui)
+                    win_id = int(m_win_explicit.group(1)) if m_win_explicit else None
+                    ref_val = m_ref.group(1) if m_ref else ""
+                    mark_digits = next((g for g in (m_mark.groups() if m_mark else ()) if g and g.isdigit()), None)
+                    mark_val = int(mark_digits) if mark_digits else None
+                    elem_val = m_elem.group(1).strip() if m_elem else ""
+                    role_val = m_role.group(1).strip() if m_role else ""
+                    fill_text = ""
+                    if is_fill_action:
+                        m_q_txt = re.search(r"""['"`]([^'"`]+)['"`]""", prompt)
+                        if m_q_txt:
+                            fill_text = m_q_txt.group(1)
+                        else:
+                            m_after_ref = re.search(r"(?:@e\d+|\[\d+\])\s+(?:with\s+|voi\s+|to\s+)?(.+)$", prompt, re.IGNORECASE)
+                            if m_after_ref:
+                                fill_text = m_after_ref.group(1).strip()
+                    mcp_tool_name = (
+                        "fill"
+                        if is_fill_action
+                        else ("focus_element" if is_focus_elem else ("atspi_action" if is_atspi_action else "som_click"))
+                    )
+                    mcp_gui = mcp_client.call_tool(
+                        "computer-use-linux",
+                        mcp_tool_name,
+                        {
+                            "ref": ref_val,
+                            "markId": mark_val,
+                            "element": elem_val,
+                            "role": role_val,
+                            "text": fill_text,
+                            "targetWindowId": win_id,
+                            "requireScale": True,
+                            "nowMs": now_ms,
+                        },
+                        companion_root=companion_root,
+                        enabled_overrides={"computer-use-linux": True},
+                    )
+                    gui_res = mcp_gui.get("structured")
+                    if not isinstance(gui_res, dict) or "observation" not in gui_res:
+                        gui_res = perform_gui_action(
+                            action_type=mcp_tool_name,
+                            target_window_id=win_id,
+                            require_scale=True,
+                            now_ms=now_ms,
+                            text=fill_text,
+                            mark_id=mark_val,
+                            element_name=elem_val,
+                            role=role_val,
+                            ref=ref_val,
+                        )
+                else:
+                    m_win = re.search(r"\b(\d+)\b", prompt)
+                    win_id = int(m_win.group(1)) if m_win else session_ctx.get("lastWindowId")
+                    req_scale = "click" in folded_gui or "toa do" in folded_gui
+                    mcp_gui = mcp_client.call_tool(
+                        "computer-use-linux",
+                        "window_action",
+                        {
+                            "action": "focus_window" if m_win else "inspect_window",
+                            "targetWindowId": win_id,
+                            "requireScale": req_scale,
+                            "nowMs": now_ms,
+                        },
+                        companion_root=companion_root,
+                        enabled_overrides={"computer-use-linux": True},
+                    )
+                    gui_res = mcp_gui.get("structured")
+                    if not isinstance(gui_res, dict) or "observation" not in gui_res:
+                        gui_res = perform_gui_action(
+                            action_type="focus_window" if m_win else "inspect_window",
+                            target_window_id=win_id,
+                            require_scale=req_scale,
+                            now_ms=now_ms,
+                        )
             except McpError as exc:
                 raise ScreenContextError(exc.code, exc.message) from exc
             observations.append(gui_res["observation"])
@@ -3171,13 +7217,30 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
             finish_run(run_id, status="completed", now_ms=now_ms)
             res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, observations=observations, session_ctx=session_ctx)
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
-            return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+            is_explicit_som_cmd = folded_gui.startswith("/som")
+            return {
+                "handled": True,
+                "intent": kind if is_explicit_som_cmd else ("screen_observe" if is_som_click else kind),
+                "targetElement": gui_res.get("resolvedElement") or gui_res.get("targetElement"),
+                "ref": gui_res.get("ref") or (gui_res.get("resolvedElement") or {}).get("ref") or "",
+                "clickedCoords": {"x": gui_res.get("x"), "y": gui_res.get("y")} if "x" in gui_res else gui_res.get("clickedCoords"),
+                "cursorEvent": gui_res.get("cursorEvent"),
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
 
         # 13. Coding / LSP / Repo Map / Test Runner tasks
         if kind == "code_task":
             sub = intent["subkind"]
             folded_plan_check = _fold_ascii(prompt)
-            explicit_plan_path = _extract_path_from_text(prompt, session_ctx) if sub == "plan" else None
+            raw_plan_path = _extract_path_from_text(prompt, session_ctx) if sub == "plan" else None
+            explicit_plan_path = (
+                raw_plan_path
+                if raw_plan_path and Path(raw_plan_path).expanduser().exists()
+                else None
+            )
             is_code_plan = bool(
                 sub != "plan"
                 or explicit_plan_path
@@ -3244,18 +7307,22 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     flags=re.IGNORECASE,
                 ).strip()
                 goal_text = re.sub(r"^/plan\s*:?\s*", "", goal_text, flags=re.IGNORECASE).strip() or (Path(workspace).name if workspace else prompt.strip())
-                display_goal = re.sub(r"\s*\([^)]*(?:internet|web|google|tra cứu|tra cuu|tìm kiếm|tim kiem|search)[^)]*\)\s*", "", goal_text, flags=re.IGNORECASE).strip()
+                display_goal = web_tools.clean_search_query(goal_text, for_plan=False) or goal_text
                 display_goal = re.sub(r"^(?:cho\s+|for\s+)", "", display_goal, flags=re.IGNORECASE).strip() or goal_text
 
-                # Perform live web search when planning real-world / personal / travel / research tasks or when internet search is requested
+                # Perform live web search + top webpage reading when planning real-world / personal / travel / research tasks or when internet search is requested
                 llm_plan_reply = ""
                 web_context_text = ""
+                fetched_pages_text = ""
                 web_sources_md = ""
                 web_highlights_lines: list[str] = []
+                plan_steps: list[dict] = []
+                plan_synthesized = False
                 is_live_desktop = (
-                    str(options.get("runSource") or "") == "interactive"
+                    (str(options.get("runSource") or "") == "interactive" or options.get("synthesizeWithLlm") is True)
                     and os.environ.get("AQUA_TEST_AGENT_ENABLED") != "1"
                     and not os.environ.get("AQUA_TEST_ENDPOINT")
+                    and not (bool(os.environ.get("ALIS_TEST_ISOLATED")) and not bool(options.get("endpoint")) and not bool(os.environ.get("AQUA_TEST_WEB_FIXTURE")))
                 )
                 folded_prompt = _fold_ascii(prompt)
                 wants_web_for_plan = (not is_code_plan) or any(
@@ -3286,6 +7353,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                             web_res = web_tools.web_search(search_q, max_results=5, timeout_sec=6.0)
                             w_results = web_res.get("results") or []
                             record_step_finish(w_step, status="completed", detail={"query": search_q, "count": len(w_results)})
+                            plan_steps.append({"stepId": w_step, "tool": "web_search", "status": "completed", "targetPath": search_q})
                             if w_results:
                                 web_sources_md = str(web_res.get("sources_markdown") or web_tools.format_markdown_sources(w_results, max_sources=5))
                                 ctx_rows: list[str] = []
@@ -3298,6 +7366,18 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                                     if t_str and len(web_highlights_lines) < 3:
                                         web_highlights_lines.append(f"  - **{t_str}** ([{dom_str}]({u_str})): {s_str[:160]}")
                                 web_context_text = "\n".join(ctx_rows)
+                                if options.get("fetchTopPages") is not False:
+                                    effort_lvl = str(options.get("thinkingEffort") or "medium").strip().lower()
+                                    max_fetch_pages = int(options.get("maxFetchPages") or (3 if effort_lvl in ("max", "xhigh", "high") else 2))
+                                    _, fetched_pages_text = _fetch_top_search_pages(
+                                        run_id,
+                                        w_results,
+                                        plan_steps,
+                                        max_pages=max_fetch_pages,
+                                        max_chars_per_page=1800,
+                                        timeout_sec=4.0,
+                                        now_ms=now_ms,
+                                    )
                         except Exception as exc:
                             record_step_finish(w_step, status="failed", error_text=str(exc))
 
@@ -3305,56 +7385,100 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     plan_endpoint, clean_model = _resolve_live_llm(options)
                     if plan_endpoint:
                         t0_llm = int(time.time() * 1000)
-                        _emit_activity_step(f"Thinking & drafting plan ({(clean_model or 'local-llm')[:26]}) ›", kind="llm_think", status="running")
+                        s_step = record_step_start(
+                            run_id,
+                            len(plan_steps) + 1,
+                            "llm_synthesize",
+                            side_effect=False,
+                            target_path=clean_model or "local-llm",
+                            now_ms=now_ms,
+                        )
                         try:
+                            effort = str(options.get("thinkingEffort") or "medium").strip().lower()
+                            plan_max_tokens = 1800 if effort in ("max", "xhigh", "high") else (1200 if effort == "medium" else 700)
+                            combined_web_ctx = web_context_text
+                            if fetched_pages_text:
+                                combined_web_ctx = (combined_web_ctx + "\n\n" + fetched_pages_text).strip()
                             if is_code_plan and workspace:
                                 rmap_ctx = build_repo_map(workspace, token_budget=300)
                                 files_ctx = ", ".join(e["path"] for e in rmap_ctx["entries"][:8])
                                 sys_prompt = (
-                                    "Bạn là Alis-Companion. Hãy lập kế hoạch kỹ thuật ngắn gọn, rõ ràng bằng Markdown tiếng Việt (dùng tiêu đề ### và các bước cụ thể). {REASON:instant}"
+                                    "Bạn là Alis-Companion. Hãy lập kế hoạch kỹ thuật chi tiết, rõ ràng bằng Markdown tiếng Việt (dùng tiêu đề ### và các bước cụ thể). Không sinh thẻ <think>. {REASON:none}"
                                     if lang == "vi"
-                                    else "You are Alis-Companion. Write a concise, actionable technical implementation plan in English Markdown (use ### heading and clear steps). {REASON:instant}"
+                                    else "You are Alis-Companion. Write a thorough, actionable technical implementation plan in English Markdown (use ### headings and clear steps). Do not output <think>. {REASON:none}"
                                 )
-                                usr_prompt = f"{{REASON:instant}}\nMục tiêu: {display_goal}\nWorkspace: {workspace} (Các tệp chính: {files_ctx})"
-                                if web_context_text:
-                                    usr_prompt += f"\n\nThông tin tra cứu trên Internet:\n{web_context_text}"
+                                usr_prompt = f"{{REASON:none}}\nMục tiêu: {display_goal}\nWorkspace: {workspace} (Các tệp chính: {files_ctx})"
+                                if combined_web_ctx:
+                                    usr_prompt += f"\n\nThông tin tra cứu trên Internet:\n{combined_web_ctx[:3600]}"
                             else:
-                                sys_prompt = (
-                                    "Bạn là Alis-Companion. Hãy viết kế hoạch ngắn gọn, súc tích (dưới 180 từ) bằng Markdown tiếng Việt, đi thẳng vào 3 mục: 1. Địa điểm gợi ý (từ kết quả tra cứu), 2. Lịch trình theo giờ (bắt đầu từ 08:30), 3. Chuẩn bị & Lưu ý. Không viết phần mở đầu dài dòng, không tự chèn URL dài."
-                                    if lang == "vi"
-                                    else "You are Alis-Companion. Write a concise Markdown plan in English (under 180 words) with 3 direct sections: 1. Recommended Spots (from web search), 2. Time-slotted Schedule, 3. Checklist & Tips. No long intro."
-                                )
-                                usr_prompt = f"{{REASON:instant}}\nYêu cầu lập kế hoạch: {display_goal}"
-                                if web_context_text:
-                                    usr_prompt += f"\n\nDữ liệu thực tế vừa tra cứu trên Internet:\n{web_context_text}\n\nHãy tổng hợp ngắn gọn, đầy đủ 3 mục (không bị cụt câu)."
-                            req_body = json.dumps({
+                                if combined_web_ctx.strip():
+                                    sys_prompt = (
+                                        "Bạn là Alis-Companion. Dựa trên kết quả tìm kiếm và nội dung chi tiết các trang web vừa đọc, hãy lập một kế hoạch đầy đủ, súc tích (~200-280 từ, mỗi mục 2-3 gạch đầu dòng ngắn gọn) bằng Markdown tiếng Việt với đủ 4 mục ###: "
+                                        "1. Ý tưởng chủ đề & Chuẩn bị ngay, 2. Danh sách cần chuẩn bị (Đồ ăn & Thức uống, Vật dụng, Âm nhạc & Trò chơi), 3. Lịch trình theo khung giờ, và 4. Mẹo & Lưu ý quan trọng. "
+                                        "Trích dẫn gọn tên miền nguồn tham khảo có thực trong dữ liệu bên dưới. Không sinh thẻ <think>. {REASON:none}"
+                                        if lang == "vi"
+                                        else "You are Alis-Companion. Using the web search results and webpage excerpts below, write a complete, concise, actionable plan (~200-280 words, 2-3 brief bullet points per section) in English Markdown covering all 4 ### sections: "
+                                        "1. Concept, Theme & Immediate Prep, 2. Essential Checklist (Food & Drinks, Supplies, Music & Activities), 3. Time-Slotted Schedule, and 4. Host Tips. "
+                                        "Cite key recommendations inline only from the provided domain names (e.g. [domain.com]). Ensure all 4 sections finish with complete sentences. Do not output <think>. {REASON:none}"
+                                    )
+                                    usr_prompt = (
+                                        f"{{REASON:none}}\nPlanning Request: {display_goal}\n\n"
+                                        f"Live Web Search & Webpage Excerpts:\n{combined_web_ctx[:4200]}\n\n"
+                                        f"Synthesize these findings into a complete 4-section plan."
+                                    )
+                                else:
+                                    sys_prompt = (
+                                        "Bạn là Alis-Companion. Không có kết quả tìm kiếm web trực tuyến nào được trả về. Hãy lập một kế hoạch thực tế, đầy đủ, súc tích (~200-280 từ, mỗi mục 2-3 gạch đầu dòng ngắn gọn) bằng Markdown tiếng Việt với đủ 4 mục ###: "
+                                        "1. Ý tưởng chủ đề & Chuẩn bị ngay, 2. Danh sách cần chuẩn bị (Đồ ăn & Thức uống, Vật dụng, Âm nhạc & Trò chơi), 3. Lịch trình theo khung giờ, và 4. Mẹo & Lưu ý quan trọng. "
+                                        "Tuyệt đối KHÔNG bịa đặt tên miền, URL hay nguồn trích dẫn web. Không sinh thẻ <think>. {REASON:none}"
+                                        if lang == "vi"
+                                        else "You are Alis-Companion. No live web search results were retrieved. Write a complete, concise, actionable offline plan (~200-280 words, 2-3 brief bullet points per section) in English Markdown covering all 4 ### sections: "
+                                        "1. Concept, Theme & Immediate Prep, 2. Essential Checklist (Food & Drinks, Supplies, Music & Activities), 3. Time-Slotted Schedule, and 4. Host Tips. "
+                                        "Do NOT invent or cite any domain names, URLs, or web sources. Ensure all 4 sections finish with complete sentences. Do not output <think>. {REASON:none}"
+                                    )
+                                    usr_prompt = (
+                                        f"{{REASON:none}}\nPlanning Request: {display_goal}\n\n"
+                                        f"Note: Live web search returned 0 results. Provide a grounded offline plan without fabricating any web citations."
+                                    )
+                            body = {
                                 "model": clean_model or "default",
                                 "messages": [
                                     {"role": "system", "content": sys_prompt},
                                     {"role": "user", "content": usr_prompt},
                                 ],
-                                "max_tokens": 320,
-                                "temperature": 0.4,
+                                "max_tokens": plan_max_tokens,
+                                "temperature": (
+                                    round(max(0.0, min(2.0, float(options["temperature"]))), 2)
+                                    if isinstance(options.get("temperature"), (int, float))
+                                    else 0.45
+                                ),
                                 "reasoning_effort": "none",
-                            }).encode("utf-8")
-                            req = urllib.request.Request(plan_endpoint, data=req_body, headers={"Content-Type": "application/json"}, method="POST")
-                            with urllib.request.urlopen(req, timeout=75) as resp:
-                                resp_obj = json.loads(resp.read().decode("utf-8", errors="replace"))
-                                choices = resp_obj.get("choices") or []
-                                if choices and isinstance(choices[0], dict):
-                                    msg_obj = choices[0].get("message") or {}
-                                    raw_content = str(msg_obj.get("content") or "").strip()
-                                    raw_content = re.sub(r"<think>[\s\S]*?</think>", "", raw_content).strip()
-                                    if "<think>" in raw_content:
-                                        raw_content = raw_content.split("<think>", 1)[0].strip()
-                                    if raw_content:
-                                        llm_plan_reply = raw_content
-                        except Exception:
-                            pass
+                                "chat_template_kwargs": {"enable_thinking": False},
+                            }
+                            if _is_mtp_model(clean_model):
+                                body["repetition_penalty"] = 1.0
+                                body["repeat_penalty"] = 1.0
+                            raw_content = _call_chat_completion_text(plan_endpoint, body, chunk_timeout=65.0, max_wall_sec=120.0)
+                            if raw_content:
+                                llm_plan_reply = raw_content
+                                plan_synthesized = True
+                            record_step_finish(
+                                s_step,
+                                status="completed" if llm_plan_reply else "failed",
+                                target_path=clean_model or "local-llm",
+                                detail={"chars": len(llm_plan_reply)},
+                            )
+                        except Exception as exc:
+                            record_step_finish(s_step, status="failed", target_path=clean_model or "local-llm", error_text=str(exc))
                         finally:
                             dt_llm = max(1, int(round((int(time.time() * 1000) - t0_llm) / 1000.0)))
                             _emit_activity_step(f"Thought for {dt_llm}s ›", kind="llm_think", status="completed")
 
+                folded_goal = _fold_ascii(display_goal)
+                is_party_or_evening = any(
+                    k in folded_goal
+                    for k in ("tiec", "party", "sinh nhat", "birthday", "bbq", "8 gio toi", "20:00", "20h", "buoi toi", "toi mai", "dinner", "lien hoan")
+                )
                 if is_code_plan and workspace:
                     rmap = build_repo_map(workspace, token_budget=400)
                     matched_sk = skill_store.match_skills(goal_text, companion_root=companion_root, max_results=2)
@@ -3378,7 +7502,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                             f"- **Cấu trúc tệp trọng tâm:**\n{top_files}\n"
                             f"- **Các bước đề xuất:**\n"
                             f"  1. Kiểm tra ngữ cảnh và các tệp liên quan trong `{Path(workspace).name}`.\n"
-                            f"  2. Thực hiện chỉnh sửa nguyên tử và bảo toàn dữ liệu hiện có.\n"
+                            f"  2. Thực hiện chỉnh sửa nguyên tử đúng phạm vi được giao (hỏi ý kiến nếu ảnh hưởng module khác và tự động hoàn tác nếu không hiệu quả).\n"
                             f"  3. Chạy `/tests` hoặc `/diagnostics` để xác minh không có hồi quy.\n"
                             f"  4. Dùng `/learn` để lưu lại quy trình hoặc bài học mới vào Skill."
                         )
@@ -3390,7 +7514,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                             f"- **Key Workspace Files:**\n{top_files}\n"
                             f"- **Execution Steps:**\n"
                             f"  1. Inspect affected files and contracts in `{Path(workspace).name}`.\n"
-                            f"  2. Apply focused edits while preserving backward compatibility.\n"
+                            f"  2. Apply focused surgical edits (ask with options if other components are affected, and revert ineffective changes).\n"
                             f"  3. Run `/tests` or `/diagnostics` to verify zero regressions.\n"
                             f"  4. Run `/learn` to consolidate new workflow insights into a reusable Skill."
                         )
@@ -3403,38 +7527,237 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                             if web_highlights_lines
                             else ""
                         )
-                        msg = (
-                            f"### Kế hoạch chi tiết: {display_goal}{highlights_block}\n"
-                            f"- **1. Chuẩn bị & vật dụng cần thiết:**\n"
-                            f"  - Xác định địa điểm cụ thể, thời gian xuất phát và kiểm tra dự báo thời tiết.\n"
-                            f"  - Chuẩn bị đồ ăn nhẹ, nước uống, thảm trải, túi đựng rác và vật dụng cá nhân.\n"
-                            f"- **2. Lịch trình gợi ý:**\n"
-                            f"  - **08:30 – Buổi sáng:** Tập trung, di chuyển đến địa điểm, dựng khu vực nghỉ ngơi và tham quan/chụp ảnh.\n"
-                            f"  - **11:30 – Buổi trưa:** Dùng bữa trưa, thưởng thức đặc sản địa phương, nghỉ ngơi thư giãn và vui chơi nhóm.\n"
-                            f"  - **15:30 – Buổi chiều:** Tham gia hoạt động ngoài trời, thu dọn vệ sinh sạch sẽ và di chuyển về trước khi trời tối.\n"
-                            f"- **3. Lưu ý:** Mang theo sạc dự phòng, kem chống nắng/mũ nón và thuốc y tế cơ bản."
-                        )
+                        if is_party_or_evening:
+                            msg = (
+                                f"### Kế hoạch chi tiết: {display_goal}{highlights_block}\n"
+                                f"- **1. Ý tưởng chủ đề & Danh sách chuẩn bị:**\n"
+                                f"  - Xác nhận không gian tổ chức (tại nhà, sân thượng BBQ hoặc nhà hàng), số lượng khách mời và thực đơn chính kèm đồ uống.\n"
+                                f"  - Chuẩn bị loa Bluetooth/playlist nhạc, ánh sáng ấm, bộ dụng cụ ăn uống, đá lạnh và trò chơi tương tác nhóm (Boardgame / Minigame).\n"
+                                f"- **2. Lịch trình khung giờ buổi tối (20:00):**\n"
+                                f"  - **19:00 – Chuẩn bị & Đón khách:** Bày trí bàn tiệc, kiểm tra âm thanh/ánh sáng và chuẩn bị đồ uống chào mừng (welcome drink).\n"
+                                f"  - **20:00 – Khai tiệc & Ẩm thực:** Bắt đầu bữa tiệc chính lúc 8 giờ tối, nâng ly chúc mừng và thưởng thức các món chính.\n"
+                                f"  - **21:00 – Giao lưu & Hoạt động nhóm:** Tổ chức minigame/boardgame, âm nhạc thư giãn, cắt bánh và chụp ảnh kỷ niệm.\n"
+                                f"  - **22:00 – Kết thúc & Thu dọn:** Dùng tráng miệng nhẹ, hỗ trợ khách đặt xe về an toàn và thu dọn không gian.\n"
+                                f"- **3. Lưu ý:** Chuẩn bị thêm món nhẹ/không cồn, lưu ý giảm âm lượng nhạc sau 22:00 và bố trí phương tiện di chuyển an toàn."
+                            )
+                        else:
+                            msg = (
+                                f"### Kế hoạch chi tiết: {display_goal}{highlights_block}\n"
+                                f"- **1. Chuẩn bị & vật dụng cần thiết:**\n"
+                                f"  - Xác định địa điểm cụ thể, thời gian xuất phát và kiểm tra dự báo thời tiết.\n"
+                                f"  - Chuẩn bị đồ ăn nhẹ, nước uống, thảm trải, túi đựng rác và vật dụng cá nhân.\n"
+                                f"- **2. Lịch trình gợi ý:**\n"
+                                f"  - **08:30 – Buổi sáng:** Tập trung, di chuyển đến địa điểm, dựng khu vực nghỉ ngơi và tham quan/chụp ảnh.\n"
+                                f"  - **11:30 – Buổi trưa:** Dùng bữa trưa, thưởng thức đặc sản địa phương, nghỉ ngơi thư giãn và vui chơi nhóm.\n"
+                                f"  - **15:30 – Buổi chiều:** Tham gia hoạt động ngoài trời, thu dọn vệ sinh sạch sẽ và di chuyển về trước khi trời tối.\n"
+                                f"- **3. Lưu ý:** Mang theo sạc dự phòng, kem chống nắng/mũ nón và thuốc y tế cơ bản."
+                            )
                     else:
                         highlights_block = (
                             "\n- **Top Web Highlights:**\n" + "\n".join(web_highlights_lines)
                             if web_highlights_lines
                             else ""
                         )
-                        msg = (
-                            f"### Action Plan: {display_goal}{highlights_block}\n"
-                            f"- **1. Preparation & Checklist:**\n"
-                            f"  - Confirm location, departure time, and weather forecast.\n"
-                            f"  - Pack food, drinks, mat/blanket, trash bags, and personal essentials.\n"
-                            f"- **2. Suggested Schedule:**\n"
-                            f"  - **08:30 – Morning:** Arrive at the location, set up the base spot, and enjoy outdoor activities.\n"
-                            f"  - **11:30 – Midday:** Lunch break, relaxation, and group games.\n"
-                            f"  - **15:30 – Afternoon:** Clean up the area thoroughly and head back before sunset.\n"
-                            f"- **3. Tips:** Bring a power bank, sunscreen/light jacket, and basic first-aid items."
-                        )
-                if web_sources_md:
+                        if is_party_or_evening:
+                            msg = (
+                                f"### Action Plan: {display_goal}{highlights_block}\n"
+                                f"- **1. Theme & Preparation Checklist:**\n"
+                                f"  - Confirm venue (home, rooftop BBQ, or private lounge), guest count, main menu, and beverages.\n"
+                                f"  - Prepare speaker/playlist, warm lighting, tableware, ice, and group party games.\n"
+                                f"- **2. Evening Schedule (20:00 Start):**\n"
+                                f"  - **19:00 – Setup & Welcome:** Arrange the table, test lighting/music, and serve welcome drinks.\n"
+                                f"  - **20:00 – Kickoff & Main Course:** Start the party at 8:00 PM with a toast and main dishes.\n"
+                                f"  - **21:00 – Games & Socializing:** Group games, music, dessert/cake, and group photos.\n"
+                                f"  - **22:00 – Wrap-Up:** Wind down, arrange safe rides home for guests, and tidy up.\n"
+                                f"- **3. Host Tips:** Keep non-alcoholic and dietary options ready, lower music volume after 22:00, and plan safe transport."
+                            )
+                        else:
+                            msg = (
+                                f"### Action Plan: {display_goal}{highlights_block}\n"
+                                f"- **1. Preparation & Checklist:**\n"
+                                f"  - Confirm location, departure time, and weather forecast.\n"
+                                f"  - Pack food, drinks, mat/blanket, trash bags, and personal essentials.\n"
+                                f"- **2. Suggested Schedule:**\n"
+                                f"  - **08:30 – Morning:** Arrive at the location, set up the base spot, and enjoy outdoor activities.\n"
+                                f"  - **11:30 – Midday:** Lunch break, relaxation, and group games.\n"
+                                f"  - **15:30 – Afternoon:** Clean up the area thoroughly and head back before sunset.\n"
+                                f"- **3. Tips:** Bring a power bank, sunscreen/light jacket, and basic first-aid items."
+                            )
+                if web_sources_md and web_sources_md not in msg:
                     src_label = "📚 **Nguồn tra cứu:**" if lang == "vi" else "📚 **Sources:**"
                     msg = f"{msg.rstrip()}\n\n{src_label} {web_sources_md}"
+                plan_clarification = None
+                if "—" not in prompt:
+                    plan_goal_prefix = (
+                        (f"Lên kế hoạch cho {display_goal}" if not re.search(r"\b(?:kế hoạch|ke hoach)\b", display_goal, re.I) else display_goal)
+                        if lang == "vi"
+                        else (f"Create a plan for {display_goal}" if not re.search(r"\bplan\b", display_goal, re.I) else display_goal)
+                    )
+                    if is_party_or_evening:
+                        clar_q = (
+                            "Để mình tinh chỉnh thực đơn, chi phí và kịch bản sát nhất cho buổi tiệc của bạn, bạn muốn chọn phong cách nào?"
+                            if lang == "vi"
+                            else "To tailor the menu, budget, and schedule to your exact party style, which option do you prefer?"
+                        )
+                        clar_opts = (
+                            [
+                                {
+                                    "label": "Tiệc ấm cúng tại nhà (Home Party / Đồ nướng & Lẩu)",
+                                    "description": "Chủ động không gian, tối ưu chi phí và dễ chuẩn bị cho nhóm 5–12 người",
+                                    "value": "Tiệc ấm cúng tại nhà với thực đơn đồ nướng/lẩu và boardgame",
+                                    "recommended": True,
+                                },
+                                {
+                                    "label": "Tiệc BBQ ngoài trời / Sân thượng (Chill & Acoustic)",
+                                    "description": "Không gian thoáng đãng, phù hợp tiệc nướng tối và giao lưu âm nhạc",
+                                    "value": "Tiệc BBQ ngoài trời/sân thượng phong cách chill & acoustic",
+                                    "recommended": False,
+                                },
+                                {
+                                    "label": "Đặt bàn tại Nhà hàng / Lounge riêng tư",
+                                    "description": "Tiện lợi trọn gói, không mất thời gian nấu nướng và dọn dẹp",
+                                    "value": "Tổ chức tại nhà hàng/lounge riêng tư phục vụ trọn gói",
+                                    "recommended": False,
+                                },
+                            ]
+                            if lang == "vi"
+                            else [
+                                {
+                                    "label": "Cozy Home Party (Finger Food / Hotpot & Boardgames)",
+                                    "description": "Flexible, budget-friendly setup ideal for 5–12 guests",
+                                    "value": "Cozy home party with finger food and boardgames",
+                                    "recommended": True,
+                                },
+                                {
+                                    "label": "Outdoor / Rooftop BBQ & Acoustic Night",
+                                    "description": "Open-air evening vibe with grilled dishes and music",
+                                    "value": "Outdoor rooftop BBQ and acoustic party",
+                                    "recommended": False,
+                                },
+                                {
+                                    "label": "Private Restaurant / Lounge Reservation",
+                                    "description": "Full-service dining with zero prep or cleanup",
+                                    "value": "Private restaurant or lounge reservation",
+                                    "recommended": False,
+                                },
+                            ]
+                        )
+                    elif is_code_plan:
+                        clar_q = (
+                            "Bạn muốn mình triển khai bước tiếp theo cho kế hoạch kỹ thuật này theo hướng nào?"
+                            if lang == "vi"
+                            else "How would you like to proceed with implementing this technical plan?"
+                        )
+                        clar_opts = (
+                            [
+                                {
+                                    "label": "Thực thi đúng phạm vi được giao & tự động hoàn tác nếu không hiệu quả",
+                                    "description": "Chỉ sửa các tệp được chỉ định, hỏi nếu ảnh hưởng phần khác và chạy test xác minh",
+                                    "value": "Thực thi đúng phạm vi chỉ định và chạy kiểm thử",
+                                    "recommended": True,
+                                },
+                                {
+                                    "label": "Kiểm tra ảnh hưởng chéo giữa các module trước khi sửa",
+                                    "description": "Phân tích phụ thuộc và hiển thị diff preview để bạn duyệt trước",
+                                    "value": "Phân tích ảnh hưởng chéo và xem trước diff",
+                                    "recommended": False,
+                                },
+                                {
+                                    "label": "Viết bản mẫu tối giản (Prototype) để kiểm chứng nhanh",
+                                    "description": "Thử nghiệm giải pháp nhỏ gọn trước khi áp dụng rộng",
+                                    "value": "Tạo bản mẫu tối giản (Prototype)",
+                                    "recommended": False,
+                                },
+                            ]
+                            if lang == "vi"
+                            else [
+                                {
+                                    "label": "Execute strictly within assigned scope & auto-revert if ineffective",
+                                    "description": "Modify only assigned files, ask if other modules are affected, and verify with tests",
+                                    "value": "Execute strictly within assigned scope and run tests",
+                                    "recommended": True,
+                                },
+                                {
+                                    "label": "Audit cross-component impact & preview diff first",
+                                    "description": "Inspect dependent callers and show diff preview before editing",
+                                    "value": "Audit cross-component impact and preview diff",
+                                    "recommended": False,
+                                },
+                                {
+                                    "label": "Build a minimal prototype first",
+                                    "description": "Validate the core idea with minimal code changes",
+                                    "value": "Build a minimal prototype",
+                                    "recommended": False,
+                                },
+                            ]
+                        )
+                    else:
+                        clar_q = (
+                            "Để mình hoàn thiện kế hoạch chi tiết sát với nhu cầu của bạn hơn, bạn muốn ưu tiên hướng nào?"
+                            if lang == "vi"
+                            else "To refine this plan further, which direction would you like to prioritize?"
+                        )
+                        clar_opts = (
+                            [
+                                {
+                                    "label": "Chi tiết hoá lịch trình, ngân sách dự kiến & danh sách chuẩn bị",
+                                    "description": "Bổ sung bảng chi phí ước tính và checklist mua sắm cụ thể",
+                                    "value": "Chi tiết hoá lịch trình, ngân sách dự kiến và checklist mua sắm",
+                                    "recommended": True,
+                                },
+                                {
+                                    "label": "Gợi ý thêm các địa điểm & hoạt động trải nghiệm",
+                                    "description": "So sánh các lựa chọn địa điểm và hoạt động nhóm phù hợp",
+                                    "value": "Gợi ý thêm địa điểm và hoạt động trải nghiệm đặc sắc",
+                                    "recommended": False,
+                                },
+                                {
+                                    "label": "Phương án tối giản, gọn nhẹ & tiết kiệm thời gian",
+                                    "description": "Ưu tiên dịch vụ có sẵn và giảm thiểu khâu chuẩn bị",
+                                    "value": "Phương án tối giản, gọn nhẹ và tiết kiệm thời gian",
+                                    "recommended": False,
+                                },
+                            ]
+                            if lang == "vi"
+                            else [
+                                {
+                                    "label": "Detailed schedule, budget breakdown & shopping checklist",
+                                    "description": "Add estimated costs and an itemized preparation checklist",
+                                    "value": "Detailed schedule, budget breakdown, and shopping checklist",
+                                    "recommended": True,
+                                },
+                                {
+                                    "label": "Compare alternative venues & group activities",
+                                    "description": "Explore top venue options and interactive activities",
+                                    "value": "Compare alternative venues and group activities",
+                                    "recommended": False,
+                                },
+                                {
+                                    "label": "Minimal-prep, time-saving setup",
+                                    "description": "Streamline supplies and use ready-made services",
+                                    "value": "Minimal-prep, time-saving setup",
+                                    "recommended": False,
+                                },
+                            ]
+                        )
+                    plan_clarification = _build_clarification_payload(
+                        question=clar_q,
+                        options=clar_opts,
+                        original_prompt=plan_goal_prefix,
+                        language=lang,
+                        kind="plan_followup",
+                    )
+                    session_ctx["pendingClarification"] = plan_clarification
+                    save_session_context(session_ctx, now_ms=now_ms)
+                    opt_lines = []
+                    for item in plan_clarification["options"]:
+                        rec_tag = (" (Khuyên dùng)" if lang == "vi" else " (Recommended)") if item.get("recommended") else ""
+                        desc_part = f" — {item['description']}" if item.get("description") else ""
+                        opt_lines.append(f"{item['number']}. **{item['label']}{rec_tag}**{desc_part}")
+                    msg = f"{msg.rstrip()}\n\n**{plan_clarification['question']}**\n" + "\n".join(opt_lines)
             else:
+                plan_synthesized = False
+                plan_clarification = None
                 folded = _fold_ascii(prompt)
                 if "repo map" in folded or "cau truc" in folded:
                     rmap = build_repo_map(workspace, token_budget=480)
@@ -3464,15 +7787,32 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                         msg = f"Kết quả tìm kiếm mã trong `{Path(workspace).name}`:\n{m_lines}" if lang == "vi" else f"Code search results in `{Path(workspace).name}`:\n{m_lines}"
 
             finish_run(run_id, status="completed", now_ms=now_ms)
-            res = _format_reply(msg, expression="working", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
+            res = _format_reply(
+                msg,
+                expression="working",
+                status="completed",
+                run_id=run_id,
+                language=lang,
+                session_ctx=session_ctx,
+                clarification=locals().get("plan_clarification"),
+            )
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
-            return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+            return {"handled": True, "intent": kind, "synthesized": bool(locals().get("plan_synthesized", False)), **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
 
         # 14. RAG Knowledge Retrieval & Source Management with Citations
         if kind == "rag_query":
             folded = _fold_ascii(prompt)
             raw_clean = re.sub(r"^(?:/rag|rag)\s*", "", prompt.strip(), flags=re.IGNORECASE).strip()
-            if (
+            if intent.get("subkind") == "check_config" or domain_rag.is_config_check_query(prompt):
+                msg = domain_rag.inspect_user_configuration(prompt, lang=lang, companion_root=companion_root)
+                rag_synthesized = True
+            elif intent.get("subkind") == "domain_concepts" or domain_rag.is_domain_concept_or_command_query(prompt):
+                msg = domain_rag.format_domain_concepts_reply(prompt, lang=lang, companion_root=companion_root)
+                rag_synthesized = True
+            elif intent.get("subkind") == "domain_capability" or domain_rag.is_domain_capability_query(prompt):
+                msg = domain_rag.format_domain_rag_capability_reply(prompt, lang=lang, companion_root=companion_root)
+                rag_synthesized = True
+            elif (
                 not raw_clean
                 or re.match(r"^(?:list|sources|status|danh sach|nguon)\b", _fold_ascii(raw_clean))
                 or any(k in folded for k in ("xem nguon rag", "danh sach nguon rag", "list rag sources", "rag sources"))
@@ -3484,6 +7824,14 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     f"Nguồn tri thức RAG đang hoạt động ({len(active_paths)} đường dẫn + tài liệu tích hợp):\n" + "\n".join(rows)
                     if lang == "vi"
                     else f"Active RAG knowledge sources ({len(active_paths)} path(s) + built-in docs):\n" + "\n".join(rows)
+                )
+            elif re.match(r"^(?:sync|update|refresh|dong bo|cap nhat)\b", _fold_ascii(raw_clean)) or any(k in folded for k in ("dong bo rag", "cap nhat rag", "sync rag", "update rag")):
+                canon = domain_rag.sync_canonical_docs(allow_network=True)
+                pers = domain_rag.sync_personal_context(force=True)
+                msg = (
+                    f"Đã đồng bộ hệ thống RAG 3 tầng: Canonical ({canon['totalDocuments']} tài liệu, cập nhật {canon['updatedCount']}, không đổi {canon['notModifiedCount']}), Personal ({pers['watchedFileCount']} tệp đã lập chỉ mục)."
+                    if lang == "vi"
+                    else f"Synchronized 3-stage Domain RAG: Canonical ({canon['totalDocuments']} docs, {canon['updatedCount']} updated, {canon['notModifiedCount']} unchanged), Personal ({pers['watchedFileCount']} files indexed)."
                 )
             elif re.match(r"^(?:add|them)\b", _fold_ascii(raw_clean)) or any(k in folded for k in ("them vao rag", "them nguon rag", "add to rag")):
                 target_p = _extract_path_from_text(prompt, session_ctx) or re.sub(r"^(?:add|them|thêm)(?:\s+nguon|\s+nguồn|\s+source)?\s+", "", raw_clean, flags=re.IGNORECASE).strip()
@@ -3505,6 +7853,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 query_text = re.sub(r"^(?:search|query|tim|tìm|tra cuu|tra cứu)\s+", "", raw_clean, flags=re.IGNORECASE).strip() or prompt
                 extra = [d["path"] for d in inspect_permissions({"nowMs": now_ms})["directories"]]
                 rag = retrieve_rag(query_text, companion_root=companion_root, extra_dirs=extra, token_budget=480, page=1, page_size=3)
+                rag_synthesized = False
                 if rag["snippets"]:
                     cites = "\n".join(f"- {s}" for s in rag["snippets"])
                     msg = (
@@ -3512,12 +7861,26 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                         if lang == "vi"
                         else f"Grounded RAG results with citations ({rag['estimatedTokens']} tokens):\n{cites}"
                     )
+                    if options.get("synthesizeWithLlm") is True:
+                        synth = _synthesize_observations_with_llm(prompt, cites, options, lang, "")
+                        if synth:
+                            msg += f"\n\n### {'Tổng hợp' if lang == 'vi' else 'Synthesis'}\n{synth}"
+                            rag_synthesized = True
                 else:
                     msg = "Không tìm thấy đoạn tài liệu khớp với truy vấn trong phạm vi được cấp." if lang == "vi" else "No matching documentation snippets found within permitted scope."
             finish_run(run_id, status="completed", now_ms=now_ms)
             res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
-            return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+            return {
+                "handled": True,
+                "intent": kind,
+                "synthesized": locals().get("rag_synthesized", False),
+                "attachedContextMarkdown": attached_info["contextMarkdown"],
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
 
         # 14b. MCP (Model Context Protocol) Management & Tool/Resource Execution
         if kind == "mcp_manage":
@@ -3660,9 +8023,62 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
             sub = intent.get("subkind") or "search"
             folded = _fold_ascii(prompt)
             raw_clean = re.sub(r"^/(?:web|search|browser|fetch)\s*", "", prompt.strip(), flags=re.IGNORECASE).strip()
+            dom_elements = []
+            dom_action_res = {}
 
             m_url = re.search(r"(https?://[^\s'\"`<>]+)", raw_clean)
-            if sub == "fetch_url" or (m_url and sub != "open_browser"):
+            if sub == "dom_snapshot":
+                target_url = m_url.group(1) if m_url else (raw_clean.split()[-1] if raw_clean else "")
+                step_id = record_step_start(run_id, 1, "browser_snapshot", side_effect=False, target_path=target_url, now_ms=now_ms)
+                called = mcp_client.call_tool(
+                    "playwright-mcp",
+                    "browser_snapshot",
+                    {"url": target_url, "maxElements": 40},
+                    companion_root=companion_root,
+                    enabled_overrides={"playwright-mcp": True},
+                )
+                snap_struct = called.get("structured") or {}
+                dom_elements = snap_struct.get("elements") or []
+                record_step_finish(step_id, status="completed", detail={"url": target_url, "elementCount": len(dom_elements)})
+                advance_turn(run_id, now_ms=now_ms)
+                out_text = "\n".join(c.get("text", "") for c in called.get("content", []) if c.get("text"))
+                msg = (
+                    f"Cây DOM tương tác qua `playwright-mcp` ({len(dom_elements)} phần tử):\n{out_text}"
+                    if lang == "vi"
+                    else f"Interactive DOM snapshot via `playwright-mcp` ({len(dom_elements)} element(s)):\n{out_text}"
+                )
+            elif sub == "dom_action":
+                m_ref = re.search(r"\[?(e\d+)\]?", prompt, re.IGNORECASE)
+                ref_id = m_ref.group(1).lower() if m_ref else "e1"
+                if any(k in folded for k in ("fill", "dien")):
+                    dom_act = "fill"
+                elif any(k in folded for k in ("type", "go ")):
+                    dom_act = "type"
+                elif any(k in folded for k in ("select", "chon")):
+                    dom_act = "select"
+                else:
+                    dom_act = "click"
+                m_val = re.search(r"""['"`]([^'"`]+)['"`]""", prompt)
+                val_str = m_val.group(1) if m_val else ""
+                target_url = m_url.group(1) if m_url else ""
+                step_id = record_step_start(run_id, 1, f"browser_{dom_act}", side_effect=True, target_path=ref_id, now_ms=now_ms)
+                called = mcp_client.call_tool(
+                    "playwright-mcp",
+                    f"browser_{dom_act}",
+                    {"url": target_url, "ref": ref_id, "value": val_str},
+                    companion_root=companion_root,
+                    enabled_overrides={"playwright-mcp": True},
+                )
+                dom_action_res = called.get("structured") or {}
+                record_step_finish(step_id, status="completed", detail=dom_action_res)
+                advance_turn(run_id, now_ms=now_ms)
+                out_text = "\n".join(c.get("text", "") for c in called.get("content", []) if c.get("text"))
+                msg = (
+                    f"Đã thực hiện thao tác DOM qua `playwright-mcp`: {out_text}"
+                    if lang == "vi"
+                    else f"Executed DOM action via `playwright-mcp`: {out_text}"
+                )
+            elif sub == "fetch_url" or (m_url and sub != "open_browser"):
                 target_url = m_url.group(1) if m_url else raw_clean.split()[-1]
                 step_id = record_step_start(run_id, 1, "fetch_url", side_effect=False, target_path=target_url, now_ms=now_ms)
                 called = mcp_client.call_tool(
@@ -3674,7 +8090,17 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 )
                 record_step_finish(step_id, status="completed", detail={"url": target_url})
                 advance_turn(run_id, now_ms=now_ms)
+                fetch_structured = called.get("structured") or {}
                 out_text = "\n".join(c.get("text", "") for c in called.get("content", []) if c.get("text"))
+                fetch_has_content = bool(
+                    not called.get("isError")
+                    and fetch_structured.get("ok") is not False
+                    and (
+                        bool(fetch_structured.get("lines"))
+                        or bool(fetch_structured.get("headings"))
+                        or (not fetch_structured and out_text.strip() and "(No readable text" not in out_text and "Error:" not in out_text)
+                    )
+                )
                 msg = (
                     f"Nội dung trích xuất từ trang web qua `fetch-mcp` (Eyes):\n{out_text}"
                     if lang == "vi"
@@ -3683,21 +8109,28 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
             elif sub == "open_browser":
                 from web_tools import extract_clean_browser_query, short_source_domain
                 engine = "google"
-                if "youtube" in folded or re.search(r"\b(?:mo bai|phat bai|bat bai|nghe bai|mo ca khuc|phat ca khuc|play song|play music|play video)\b", folded):
+                if "youtube" in folded or re.search(r"\b(?:yt|mo bai|phat bai|bat bai|nghe bai|mo ca khuc|phat ca khuc|mo video|phat video|xem video|play song|play a song|play the song|play music|play video|play a video|play the video|play track|listen to)\b", folded):
                     engine = "youtube"
                 elif "github" in folded:
                     engine = "github"
-                elif "wikipedia" in folded or "wiki" in folded:
+                elif "wikipedia" in folded or re.search(r"\bwiki\b", folded):
                     engine = "wikipedia"
-                elif "duckduckgo" in folded or "ddg" in folded:
+                elif "duckduckgo" in folded or re.search(r"\bddg\b", folded):
                     engine = "duckduckgo"
 
-                if m_url:
+                cleaned_q = extract_clean_browser_query(raw_clean, engine=engine)
+                has_multi_query = bool(
+                    m_url
+                    and not cleaned_q.get("isDirectUrl")
+                    and cleaned_q.get("query")
+                    and str(cleaned_q.get("query")).strip() != m_url.group(1)
+                )
+                use_direct_url = bool(m_url and not has_multi_query)
+                if use_direct_url:
                     target_str = m_url.group(1)
                     clean_query = target_str
                     wants_play = False
                 else:
-                    cleaned_q = extract_clean_browser_query(raw_clean, engine=engine)
                     clean_query = str(cleaned_q.get("query") or "").strip()
                     engine = str(cleaned_q.get("engine") or engine)
                     wants_play = bool(cleaned_q.get("wantsPlay"))
@@ -3707,7 +8140,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 opened_call = mcp_client.call_tool(
                     "playwright-mcp",
                     "browser_open",
-                    {"target": raw_clean if not m_url else target_str, "engine": engine, "playMedia": wants_play},
+                    {"target": raw_clean if not use_direct_url else target_str, "engine": engine, "playMedia": wants_play},
                     companion_root=companion_root,
                     enabled_overrides={"playwright-mcp": True},
                 )
@@ -3715,54 +8148,55 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 record_step_finish(step_id, status="completed", detail=opened_info)
                 advance_turn(run_id, now_ms=now_ms)
 
-                extra_search_text = ""
-                search_q_for_eyes = str(opened_info.get("cleanQuery") or clean_query or "").strip()
-                if search_q_for_eyes and not m_url:
-                    try:
-                        srch_call = mcp_client.call_tool(
-                            "web-search-mcp",
-                            "github_search" if engine == "github" else ("wikipedia_search" if engine == "wikipedia" else "web_search"),
-                            {"query": search_q_for_eyes, "maxResults": 4},
-                            companion_root=companion_root,
-                            enabled_overrides={"web-search-mcp": True},
-                        )
-                        srch_lines = (srch_call.get("structured") or {}).get("lines") or []
-                        if srch_lines:
-                            extra_search_text = "\n\n" + (
-                                "**Kết quả liên quan (Web Search Eyes):**\n" if lang == "vi" else "**Related search results (Web Search Eyes):**\n"
-                            ) + "\n".join(srch_lines)
-                    except Exception:
-                        pass
-
                 opened_url = str(opened_info.get("url") or target_str)
                 short_dom = short_source_domain(opened_url) if opened_url.startswith(("http://", "https://")) else opened_url
                 md_link = f"[{short_dom}]({opened_url})" if opened_url.startswith(("http://", "https://")) else f"`{opened_url}`"
+                clean_q_disp = str(opened_info.get("cleanQuery") or clean_query or "").strip()
                 if opened_info.get("playedVideo"):
-                    vid_title = str(opened_info.get("videoTitle") or search_q_for_eyes or target_str)
+                    vid_title = str(opened_info.get("videoTitle") or clean_q_disp or target_str)
                     msg = (
-                        f"Đã mở trình duyệt và phát trực tiếp **{vid_title}** trên YouTube ({md_link}).{extra_search_text}"
+                        f"Đã mở trình duyệt và phát **{vid_title}** trên YouTube ({md_link})."
                         if lang == "vi"
-                        else f"Opened default browser and started playing **{vid_title}** on YouTube ({md_link}).{extra_search_text}"
+                        else f"Opened YouTube and started playing **{vid_title}** ({md_link})."
+                    )
+                elif engine == "youtube" and clean_q_disp and not use_direct_url:
+                    msg = (
+                        f"Đã mở YouTube và tìm kiếm **{clean_q_disp}** ({md_link})."
+                        if lang == "vi"
+                        else f"Opened YouTube and searched for **{clean_q_disp}** ({md_link})."
+                    )
+                elif clean_q_disp and not use_direct_url:
+                    msg = (
+                        f"Đã mở trình duyệt và tìm kiếm **{clean_q_disp}** ({md_link})."
+                        if lang == "vi"
+                        else f"Opened default browser and searched for **{clean_q_disp}** ({md_link})."
                     )
                 else:
                     msg = (
-                        f"Đã mở trình duyệt mặc định ({md_link} — `{opened_url}`) qua `playwright-mcp` (Hands).{extra_search_text}"
+                        f"Đã mở trình duyệt mặc định ({md_link})."
                         if lang == "vi"
-                        else f"Opened default browser ({md_link} — `{opened_url}`) via `playwright-mcp` (Hands).{extra_search_text}"
+                        else f"Opened default browser ({md_link})."
                     )
             else:
                 tool_to_use = "web_search"
-                if "github" in folded:
+                if re.search(
+                    r"\b(?:tim tren github|tim kiem tren github|tra cuu github|search github|on github|github repo|github repositories)\b",
+                    folded,
+                ):
                     tool_to_use = "github_search"
-                elif "wikipedia" in folded or "wiki" in folded:
+                elif re.search(
+                    r"\b(?:tim tren wikipedia|tim kiem tren wikipedia|tra cuu wikipedia|search wikipedia|on wikipedia)\b",
+                    folded,
+                ):
                     tool_to_use = "wikipedia_search"
 
                 query_str = re.sub(
-                    r"^(?:/(?:web|search)\s+)?(?:hay\s+|vui long\s+|please\s+)?(?:tim kiem tren web|tìm kiếm trên web|tim tren web|tìm trên web|tim kiem tren mang|tìm kiếm trên mạng|tim tren mang|tìm trên mạng|tra cuu tren web|tra cứu trên web|tra cuu tren mang|tra cứu trên mạng|tra cuu tren internet|tra cứu trên internet|tra cuu thong tin tren internet|tra cứu thông tin trên internet|tim tren github|tìm trên github|search github|tim tren wikipedia|tìm trên wikipedia|search wikipedia|tra cuu wikipedia|tra cứu wikipedia|tim google|tìm google|search google|search web|web search)(?:\s+(?:ve|về|cho toi|cho mình|for|about))?\s*:?\s*",
+                    r"^(?:/(?:web|search)\s+)?(?:hay\s+|hãy\s+|vui long\s+|vui lòng\s+|please\s+)?(?:tim kiem tren web|tìm kiếm trên web|tim tren web|tìm trên web|tim kiem tren mang|tìm kiếm trên mạng|tim tren mang|tìm trên mạng|tra cuu tren web|tra cứu trên web|tra cuu tren mang|tra cứu trên mạng|tra cuu tren internet|tra cứu trên internet|tra cuu thong tin tren internet|tra cứu thông tin trên internet|su dung internet|sử dụng internet|dung internet|dùng internet|tim tren github|tìm trên github|search github|tim tren wikipedia|tìm trên wikipedia|search wikipedia|tra cuu wikipedia|tra cứu wikipedia|tim google|tìm google|search google|search web|web search)(?:\s+(?:de\s+tong\s+hop\s+thong\s+tin|để\s+tổng\s+hợp\s+thông\s+tin))?(?:\s+(?:ve|về|cho toi|cho tôi|cho mình|for|about))?\s*:?\s*",
                     "",
                     raw_clean,
                     flags=re.IGNORECASE,
                 ).strip() or raw_clean
+                query_str = web_tools.clean_search_query(query_str, for_plan=False) or query_str
 
                 step_id = record_step_start(run_id, 1, tool_to_use, side_effect=False, target_path=query_str, now_ms=now_ms)
                 called = mcp_client.call_tool(
@@ -3773,11 +8207,13 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     enabled_overrides={"web-search-mcp": True},
                 )
                 structured = called.get("structured") or {}
-                record_step_finish(step_id, status="completed", detail={"query": query_str, "count": len(structured.get("results") or [])})
+                w_results = structured.get("results") or []
+                record_step_finish(step_id, status="completed", detail={"query": query_str, "count": len(w_results)})
+                web_steps: list[dict] = [{"stepId": step_id, "tool": tool_to_use, "status": "completed", "targetPath": query_str}]
                 advance_turn(run_id, now_ms=now_ms)
                 lines = structured.get("lines") or []
                 body = "\n".join(lines) if lines else ("(Không tìm thấy kết quả phù hợp)" if lang == "vi" else "(No matching results found)")
-                sources_md = str(structured.get("sources_markdown") or web_tools.format_markdown_sources(structured.get("results") or [], max_sources=5))
+                sources_md = str(structured.get("sources_markdown") or web_tools.format_markdown_sources(w_results, max_sources=5))
                 sources_footer = (
                     f"\n\n📚 **Nguồn tra cứu:** {sources_md}"
                     if (sources_md and lang == "vi")
@@ -3788,11 +8224,75 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     if lang == "vi"
                     else f"Search results via `web-search-mcp` ({structured.get('engine', 'web')}) for **{query_str}**:\n{body}{sources_footer}"
                 )
+                fetched_pages_text = ""
+                should_deep_read = (
+                    (options.get("synthesizeWithLlm") is True or str(options.get("runSource") or "") == "interactive")
+                    and os.environ.get("AQUA_TEST_AGENT_ENABLED") != "1"
+                    and not os.environ.get("AQUA_TEST_ENDPOINT")
+                    and not (bool(os.environ.get("ALIS_TEST_ISOLATED")) and not bool(options.get("endpoint")) and not bool(os.environ.get("AQUA_TEST_WEB_FIXTURE")))
+                )
+                if w_results and should_deep_read and options.get("fetchTopPages") is not False:
+                    effort_lvl = str(options.get("thinkingEffort") or "medium").strip().lower()
+                    max_fetch_pages = int(options.get("maxFetchPages") or (3 if effort_lvl in ("max", "xhigh", "high") else 2))
+                    _, fetched_pages_text = _fetch_top_search_pages(
+                        run_id,
+                        w_results,
+                        web_steps,
+                        max_pages=max_fetch_pages,
+                        max_chars_per_page=1800,
+                        timeout_sec=4.0,
+                        now_ms=now_ms,
+                    )
+
+            web_synthesized = False
+            has_grounding_to_synthesize = (
+                bool(locals().get("w_results"))
+                or bool(locals().get("fetch_has_content"))
+            )
+            if has_grounding_to_synthesize and (
+                options.get("synthesizeWithLlm") is True or (sub == "search" and locals().get("should_deep_read", False))
+            ):
+                obs_input = msg
+                if locals().get("fetched_pages_text"):
+                    obs_input = f"{msg}\n\n## Fetched Webpage Content\n{locals()['fetched_pages_text']}"
+                synth_seq = len(locals().get("web_steps") or [{"stepId": 1}]) + 1
+                _, synth_mdl = _resolve_live_llm(options)
+                s_step = record_step_start(
+                    run_id,
+                    synth_seq,
+                    "llm_synthesize",
+                    side_effect=False,
+                    target_path=synth_mdl or str(options.get("model") or "local-llm"),
+                    now_ms=now_ms,
+                )
+                synth = _synthesize_observations_with_llm(prompt, obs_input, options, lang, locals().get("sources_md", ""))
+                record_step_finish(
+                    s_step,
+                    status="completed" if synth else "failed",
+                    target_path=synth_mdl or str(options.get("model") or "local-llm"),
+                    detail={"chars": len(synth or "")},
+                )
+                if synth:
+                    if sub == "search":
+                        msg = synth
+                    else:
+                        msg += f"\n\n### {'Tổng hợp' if lang == 'vi' else 'Synthesis'}\n{synth}"
+                    web_synthesized = True
 
             finish_run(run_id, status="completed", now_ms=now_ms)
             res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
-            return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+            return {
+                "handled": True,
+                "intent": kind,
+                "synthesized": web_synthesized,
+                "domElements": dom_elements,
+                "domAction": dom_action_res,
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
 
         # 14c. Hermes Self-Learning, Workflow Adaptation & Agent Skills (`SKILL.md`)
         if kind == "skill_manage":
@@ -3800,6 +8300,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
             direct_skill = str(intent.get("directSkill") or "").strip()
             raw_clean = re.sub(r"^(?:/skills?|skills?|/learn|/workflow|/reflect)\s*", "", prompt.strip(), flags=re.IGNORECASE).strip()
             clean_folded = _fold_ascii(raw_clean)
+            extra_skill_meta: dict = {}
 
             if direct_skill:
                 arg_text = re.sub(rf"^/{re.escape(direct_skill)}\s*", "", prompt.strip(), flags=re.IGNORECASE).strip()
@@ -3809,6 +8310,11 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     companion_root=companion_root,
                     workspace=session_ctx.get("lastProject") or session_ctx.get("lastDirectory"),
                 )
+                if ran.get("ponytailMode"):
+                    session_ctx["ponytailMode"] = ran["ponytailMode"]
+                    save_session_context(session_ctx, now_ms=now_ms)
+                    extra_skill_meta["ponytailMode"] = ran["ponytailMode"]
+                extra_skill_meta["skill"] = ran["skill"]
                 details = ran["output"] if ran["output"] else ran["instructions"][:900]
                 msg = (
                     f"Đã kích hoạt Skill `{ran['skill']}` (v{ran.get('version', 1)} — {ran['description']}):\n{details}"
@@ -3947,7 +8453,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
             elif (
                 re.match(r"^(?:run|use|exec|chay|dung)\s+", clean_folded)
                 or any(k in folded for k in ("chay skill", "dung skill", "dung ky nang", "run skill", "use skill"))
-                or any(b in folded for b in ("system-diagnostics", "code-assistant", "rag-researcher", "focus-planner", "screen-copilot", "desktop-organizer", "window-workspace-layout", "git-daily-brief", "system-tuner", "clipboard-transformer"))
+                or any(b in folded for b in ("system-diagnostics", "code-assistant", "rag-researcher", "focus-planner", "screen-copilot", "desktop-organizer", "window-workspace-layout", "git-daily-brief", "system-tuner", "clipboard-transformer", "niri-wm", "quickshell-qml", "arch-linux", "ponytail", "docx", "pdf", "xlsx"))
             ):
                 m_run_sk = re.search(
                     r"(?:run|use|exec|chay|chạy|dung|dùng)(?:\s+skill|\s+ky\s+nang|\s+kỹ\s+năng)?\s+([A-Za-z0-9_\-]+)(?:\s+([\s\S]+))?$",
@@ -3969,6 +8475,11 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     companion_root=companion_root,
                     workspace=session_ctx.get("lastProject") or session_ctx.get("lastDirectory"),
                 )
+                if ran.get("ponytailMode"):
+                    session_ctx["ponytailMode"] = ran["ponytailMode"]
+                    save_session_context(session_ctx, now_ms=now_ms)
+                    extra_skill_meta["ponytailMode"] = ran["ponytailMode"]
+                extra_skill_meta["skill"] = ran["skill"]
                 details = ran["output"] if ran["output"] else ran["instructions"][:900]
                 msg = (
                     f"Đã kích hoạt Skill `{ran['skill']}` ({ran['description']}):\n{details}"
@@ -3989,7 +8500,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
             finish_run(run_id, status="completed", now_ms=now_ms)
             res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
-            return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+            return {"handled": True, "intent": kind, **extra_skill_meta, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
 
         # 15. Preference edit via natural language
         if kind == "preference_manage":
@@ -4108,6 +8619,39 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 if any(k in folded for k in ("dong cua so", "close window")):
                     m_id = re.search(r"\b(\d+)\b", prompt)
                     desk_res = desktop_control.manage_desktop(action="close_window", target=m_id.group(1) if m_id else "")
+                elif re.search(r"\b(?:chuyen|dua)\s+cua\s+so(?:\s+#?\d+)?\s+sang\s+workspace|\b(?:move|send)\s+window(?:\s+#?\d+)?\s+to\s+workspace", folded):
+                    m_ws = re.search(r"(?:workspace)\s+#?(\d+)", folded)
+                    m_win = re.search(r"(?:window|cua so)\s+#?(\d+)", folded)
+                    ws_target = m_ws.group(1) if m_ws else "1"
+                    win_target = m_win.group(1) if m_win else ""
+                    desk_res = desktop_control.manage_desktop(action="move_window_to_workspace", target=ws_target, value=win_target)
+                elif any(k in folded for k in ("consume or expel", "gop hoac tach cua so")):
+                    dir_val = "right" if ("right" in folded or "phai" in folded) else "left"
+                    desk_res = desktop_control.manage_desktop(action="consume_or_expel_window", value=dir_val)
+                elif any(k in folded for k in ("gop cua so vao cot", "consume window into column", "consume into column", "consume window")):
+                    desk_res = desktop_control.manage_desktop(action="consume_window_into_column")
+                elif any(k in folded for k in ("tach cua so khoi cot", "expel window from column", "expel from column", "expel window")):
+                    desk_res = desktop_control.manage_desktop(action="expel_window_from_column")
+                elif any(k in folded for k in ("do rong cot", "column width", "set column width", "resize column", "resize window")):
+                    m_pct = re.search(r"([+\-]?\d+\s*%|\d+\s*px)", prompt)
+                    val = m_pct.group(1).replace(" ", "") if m_pct else "50%"
+                    desk_res = desktop_control.manage_desktop(action="set_column_width", value=val)
+                elif any(k in folded for k in ("chieu cao cua so", "window height", "set window height")):
+                    m_pct = re.search(r"([+\-]?\d+\s*%|\d+\s*px)", prompt)
+                    val = m_pct.group(1).replace(" ", "") if m_pct else "50%"
+                    desk_res = desktop_control.manage_desktop(action="set_window_height", value=val)
+                elif any(k in folded for k in ("toan man hinh", "fullscreen window", "toggle fullscreen")):
+                    m_id = re.search(r"\b(\d+)\b", prompt)
+                    desk_res = desktop_control.manage_desktop(action="fullscreen_window", target=m_id.group(1) if m_id else "")
+                elif any(k in folded for k in ("cua so noi", "float window", "floating window", "toggle floating", "unfloat window")):
+                    m_id = re.search(r"\b(\d+)\b", prompt)
+                    desk_res = desktop_control.manage_desktop(action="toggle_window_floating", target=m_id.group(1) if m_id else "")
+                elif any(k in folded for k in ("can giua cot", "center column")):
+                    desk_res = desktop_control.manage_desktop(action="center_column")
+                elif any(k in folded for k in ("maximize column", "phong to cot")):
+                    desk_res = desktop_control.manage_desktop(action="maximize_column")
+                elif any(k in folded for k in ("expand column", "mo rong cot")):
+                    desk_res = desktop_control.manage_desktop(action="expand_column_to_available_width")
                 elif any(k in folded for k in ("chuyen workspace", "switch workspace", "go to workspace")):
                     m_ws = re.search(r"\b(\d+)\b", prompt)
                     desk_res = desktop_control.manage_desktop(action="switch_workspace", target=m_ws.group(1) if m_ws else "1")
@@ -4177,7 +8721,15 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
             finish_run(run_id, status="completed", now_ms=now_ms)
             res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
-            return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+            return {
+                "handled": True,
+                "intent": kind,
+                "desktopResult": desk_res,
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
 
         # 16. File & Directory Operations (Full Home access + Sudo-gated System access + Complete Listing)
         if kind == "file_task":
@@ -4187,29 +8739,105 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
 
             if sub == "rollback":
                 rb = agent_file_op({"op": "rollback", "nowMs": now_ms})
+                rb_rcpt = str(rb.get("receiptId") or "")
+                if rb_rcpt:
+                    receipts.append(rb_rcpt)
                 msg = (
                     f"Đã hoàn tác thành công: {rb['summary']}"
                     if lang == "vi"
                     else f"Rollback completed: {rb['summary']}"
                 )
                 finish_run(run_id, status="completed", now_ms=now_ms)
-                res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
+                res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, receipts=receipts, session_ctx=session_ctx)
                 u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
-                return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+                return {
+                    "handled": True,
+                    "intent": kind,
+                    **res,
+                    "receiptId": rb_rcpt,
+                    "restored": str(rb.get("restored") or rb.get("targetPath") or ""),
+                    "existedBefore": bool(rb.get("existedBefore", False)),
+                    "userMessageId": u_id,
+                    "assistantMessageId": a_id,
+                    "historySaved": saved,
+                }
 
-            # Check copy / cut (move / rename) in natural language or command syntax
+            # Check copy / cut (move / rename) or document format conversion in natural language or command syntax
             m_copy = re.match(
-                r"^(?:/agent\s+|/)?(?:(?:hãy|hay|vui\s+lòng|vui\s+long|làm\s+ơn|lam\s+on|giúp\s+tôi|giup\s+toi|giúp\s+mình|giup\s+minh|tôi\s+muốn|toi\s+muon|mình\s+muốn|minh\s+muon|please|can\s+you|could\s+you|help\s+me|i\s+want\s+to)\s+)*(copy|cp|sao\s+chép|sao\s+chep|cut|cắt|cat|move|mv|di\s+chuyển|di\s+chuyen|chuyển|chuyen|đổi\s+tên|doi\s+ten|rename)\s+(?:(?:file|tệp|tep|thư\s+mục|thu\s+muc|folder|directory)\s+)?(.+?)\s*(?:->|=>|\s+to\s+|\s+into\s+|\s+sang\s+|\s+tới\s+|\s+toi\s+|\s+vào\s+|\s+vao\s+|\s+qua\s+|\s+đến\s+|\s+den\s+|\s+thành\s+|\s+thanh\s+)\s*(?:(?:file|tệp|tep|thư\s+mục|thu\s+muc|folder|directory)\s+)?(.+)$",
+                r"^(?:/agent\s+|/)?(?:(?:hãy|hay|vui\s+lòng|vui\s+long|làm\s+ơn|lam\s+on|giúp\s+tôi|giup\s+toi|giúp\s+mình|giup\s+minh|tôi\s+muốn|toi\s+muon|mình\s+muốn|minh\s+muon|please|can\s+you|could\s+you|help\s+me|i\s+want\s+to)\s+)*(convert|chuyển\s+đổi|chuyen\s+doi|copy|cp|sao\s+chép|sao\s+chep|cut|cắt|cat|move|mv|di\s+chuyển|di\s+chuyen|chuyển|chuyen|đổi\s+tên|doi\s+ten|rename)\s+(?:(?:file|tệp|tep|thư\s+mục|thu\s+muc|folder|directory)\s+)?(.+?)\s*(?:->|=>|\s+to\s+|\s+into\s+|\s+sang\s+|\s+tới\s+|\s+toi\s+|\s+vào\s+|\s+vao\s+|\s+qua\s+|\s+đến\s+|\s+den\s+|\s+thành\s+|\s+thanh\s+)\s*(?:(?:file|tệp|tep|thư\s+mục|thu\s+muc|folder|directory)\s+)?(.+)$",
                 prompt.strip(),
                 re.IGNORECASE,
             )
             if m_copy:
-                verb_raw = _fold_ascii(m_copy.group(1))
-                op_kind = "copy" if verb_raw in ("copy", "cp", "sao chep") else "cut"
+                verb_raw = re.sub(r"\s+", " ", _fold_ascii(m_copy.group(1))).strip()
                 src_raw = m_copy.group(2).strip().strip("'\"`")
                 dst_raw = m_copy.group(3).strip().strip("'\"`")
                 src_cand = str(resolve_candidate_path(src_raw, last_dir=last_dir))
                 dst_cand = str(resolve_candidate_path(dst_raw, last_dir=last_dir))
+                src_ext = Path(src_cand).suffix.lower()
+                dst_ext = Path(dst_cand).suffix.lower()
+                is_doc_convert = bool(
+                    verb_raw in ("convert", "chuyen doi")
+                    or (
+                        verb_raw == "chuyen"
+                        and src_ext != dst_ext
+                        and (dst_ext in (".docx", ".pdf", ".xlsx") or src_ext in (".docx", ".pdf", ".xlsx"))
+                        and Path(src_cand).is_file()
+                    )
+                )
+                if is_doc_convert:
+                    if is_system_path(src_cand) or is_system_path(dst_cand):
+                        return _prompt_for_system_sudo(
+                            "edit",
+                            dst_cand,
+                            prompt,
+                            lang,
+                            run_id,
+                            session_ctx,
+                            now_ms,
+                            extra_payload={"sourcePath": src_cand},
+                            persist_history=persist_history,
+                        )
+                    src_info = code_tools.read_file(src_cand, max_chars=200000)
+                    if not src_info.get("ok"):
+                        raise ToolError("not_found", f"Source file '{src_cand}' could not be read.")
+                    edited = agent_file_op({
+                        "op": "edit",
+                        "targetPath": dst_cand,
+                        "content": str(src_info.get("text") or ""),
+                        "mode": "write",
+                        "lastDirectory": last_dir,
+                        "nowMs": now_ms,
+                    })
+                    conv_meta = convert_or_create_document(src_cand, dst_cand)
+                    cv_rcpt = str(edited.get("receiptId") or "")
+                    if cv_rcpt:
+                        receipts.append(cv_rcpt)
+                    session_ctx["lastFile"] = edited["targetPath"]
+                    session_ctx["lastDirectory"] = str(Path(edited["targetPath"]).parent)
+                    save_session_context(session_ctx, now_ms=now_ms)
+                    msg = (
+                        f"Đã chuyển đổi `{Path(src_cand).name}` sang `{Path(dst_cand).name}` (`{edited['targetPath']}`, {conv_meta.get('bytes', 0)} bytes)."
+                        if lang == "vi"
+                        else f"Converted `{Path(src_cand).name}` to `{Path(dst_cand).name}` (`{edited['targetPath']}`, {conv_meta.get('bytes', 0)} bytes)."
+                    )
+                    finish_run(run_id, status="completed", now_ms=now_ms)
+                    res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, receipts=receipts, session_ctx=session_ctx)
+                    u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+                    return {
+                        "handled": True,
+                        "intent": kind,
+                        **res,
+                        "receiptId": cv_rcpt,
+                        "convertedDocument": conv_meta,
+                        "addedLines": int(edited.get("addedLines") or 0),
+                        "removedLines": int(edited.get("removedLines") or 0),
+                        "diffPreview": str(edited.get("diffPreview") or ""),
+                        "userMessageId": u_id,
+                        "assistantMessageId": a_id,
+                        "historySaved": saved,
+                    }
+                op_kind = "copy" if verb_raw in ("copy", "cp", "sao chep") else "cut"
                 if is_system_path(src_cand) or is_system_path(dst_cand):
                     return _prompt_for_system_sudo(
                         op_kind,
@@ -4223,11 +8851,25 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                         persist_history=persist_history,
                     )
                 moved = agent_file_op({"op": op_kind, "targetPath": src_cand, "destPath": dst_cand, "lastDirectory": last_dir, "nowMs": now_ms})
+                mv_rcpt = str(moved.get("receiptId") or "")
+                if mv_rcpt:
+                    receipts.append(mv_rcpt)
                 msg = f"{moved['summary']}\n" + "\n".join(moved["lines"])
                 finish_run(run_id, status="completed", now_ms=now_ms)
-                res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
+                res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, receipts=receipts, session_ctx=session_ctx)
                 u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
-                return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+                return {
+                    "handled": True,
+                    "intent": kind,
+                    **res,
+                    "receiptId": mv_rcpt,
+                    "addedLines": int(moved.get("addedLines") or 0),
+                    "removedLines": int(moved.get("removedLines") or 0),
+                    "diffPreview": str(moved.get("diffPreview") or ""),
+                    "userMessageId": u_id,
+                    "assistantMessageId": a_id,
+                    "historySaved": saved,
+                }
 
             is_list_query = bool(re.search(
                 r"\b(?:thu muc|folder|directory|liet ke|list|ls|dir|tree|show files|show all|show folders|xem tat ca|xem het|danh sach)\b",
@@ -4235,6 +8877,8 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
             ))
             expect_dir = is_list_query and not any(k in folded for k in ("doc tep", "doc file", "read file", "sua tep", "sua file", "edit file", "xoa tep", "xoa file", "delete file"))
             target, ambiguous_candidates = _resolve_conversational_target(prompt, session_ctx, expect_dir=expect_dir)
+            if not target and attached_info["files"]:
+                target = attached_info["files"][0]["path"]
 
             # Ambiguity clarification gate
             if ambiguous_candidates:
@@ -4365,7 +9009,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 or is_slash_edit
                 or bool(
                     re.search(
-                        r"\b(?:chinh\s+sua|sua|edit)\b.*(?:~/|/|\.\.?/|\b[a-z0-9_.\-]+\.(?:txt|md|py|qml|js|cjs|mjs|ts|tsx|jsx|json|rs|toml|sh|bash|zsh|fish|yaml|yml|html|css|scss|vue|svelte|c|cpp|cc|h|hpp|go|java|kt|rb|php|lua|sql|xml|csv|tsv|env|nix|log|conf|cfg|ini|service)\b)",
+                        r"\b(?:chinh\s+sua|sua|edit|tao|create)\b.*(?:~/|/|\.\.?/|\b[a-z0-9_.\-]+\.(?:txt|md|py|qml|js|cjs|mjs|ts|tsx|jsx|json|rs|toml|sh|bash|zsh|fish|yaml|yml|html|css|scss|vue|svelte|c|cpp|cc|h|hpp|go|java|kt|rb|php|lua|sql|xml|csv|tsv|env|nix|log|conf|cfg|ini|service|pdf|docx)\b)",
                         folded,
                     )
                 )
@@ -4402,6 +9046,8 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     raise ToolError("invalid_path", "Specify the target file to edit or create.")
                 resolved_target = str(resolve_candidate_path(target, last_dir=last_dir))
                 content_to_write = m_colon_edit.group(1).strip() if m_colon_edit else ""
+                if " — " in content_to_write:
+                    content_to_write = content_to_write.split(" — ", 1)[0].strip()
                 has_explicit_content = bool(content_to_write)
                 if not content_to_write:
                     m_quote = re.search(r"""['"`]([^'"`]+)['"`]\s*$""", prompt)
@@ -4445,11 +9091,110 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                         u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
                         return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
 
+                existed_before = Path(resolved_target).exists()
+                has_cross_comp_keyword = bool(
+                    not has_explicit_content
+                    and "—" not in prompt
+                    and re.search(r"\b(?:anh huong|affect|impact|cac thanh phan khac|other components|other modules)\b", folded)
+                )
+                impacted_siblings = (
+                    _detect_cross_component_impact(resolved_target, content_to_write if has_explicit_content else "")
+                    if existed_before
+                    and "—" not in prompt
+                    and not options.get("confirmCrossComponent")
+                    and (
+                        (has_explicit_content and mode == "write")
+                        or re.search(
+                            r"\b(?:refactor|rename|doi ten|xoa ham|remove function|thay doi chu ky|change signature)\b",
+                            folded,
+                        )
+                    )
+                    else []
+                )
+                if has_cross_comp_keyword or impacted_siblings:
+                    if impacted_siblings and not has_cross_comp_keyword:
+                        target_name = Path(resolved_target).name
+                        sib_summary = ", ".join(
+                            f"`{item['file']}` ({', '.join(item['symbols'])})" for item in impacted_siblings
+                        )
+                        if lang == "vi":
+                            opt1 = f"1. Chỉ sửa gọn trong `{target_name}` và giữ nguyên chữ ký hàm/thành phần đang dùng ở {sib_summary} (Khuyên dùng)"
+                            opt2 = f"2. Vẫn cập nhật `{target_name}` theo yêu cầu và đồng bộ thêm các tệp liên quan ({sib_summary})"
+                            opt3 = f"3. Mở `{target_name}` trong Editor để tự kiểm tra trước khi sửa"
+                            msg = (
+                                f"💡 **Kiểm tra phạm vi chỉnh sửa (`{target_name}`):** Phát hiện các tệp cùng thư mục có tham chiếu trực tiếp đến thành phần trong `{target_name}`: {sib_summary}.\n\n"
+                                f"Theo quy tắc **Surgical Changes**, tôi tạm dừng để tránh làm gãy các thành phần khác ngoài mục tiêu được giao. Bạn muốn xử lý theo hướng nào?\n"
+                                f"- {opt1}\n- {opt2}\n- {opt3}\n\n"
+                                f"*(Chọn 1 phương án bên dưới hoặc nhập yêu cầu tuỳ chỉnh)*"
+                            )
+                        else:
+                            opt1 = f"1. Edit strictly inside `{target_name}` while preserving public signatures used by {sib_summary} (Recommended)"
+                            opt2 = f"2. Apply the change to `{target_name}` and coordinate updates across {sib_summary}"
+                            opt3 = f"3. Open `{target_name}` in the Editor to inspect before modifying"
+                            msg = (
+                                f"💡 **Surgical Scope Check (`{target_name}`):** Detected sibling files referencing symbols in `{target_name}`: {sib_summary}.\n\n"
+                                f"To avoid unintended cross-component breakage, how would you like to proceed?\n"
+                                f"- {opt1}\n- {opt2}\n- {opt3}\n\n"
+                                f"*(Select an option below or type your custom instruction)*"
+                            )
+                        clar_payload = {
+                            "type": "cross_component_clarification",
+                            "originalPrompt": prompt,
+                            "targetPath": resolved_target,
+                            "impactedFiles": impacted_siblings,
+                            "question": (
+                                "Chọn phương án giới hạn phạm vi chỉnh sửa hoặc nhập hướng dẫn riêng:"
+                                if lang == "vi"
+                                else "Choose how to scope this edit or type a custom instruction:"
+                            ),
+                            "allowCustomInput": True,
+                            "customPlaceholder": (
+                                "Nhập phạm vi hoặc file được phép sửa thêm..."
+                                if lang == "vi"
+                                else "Type allowed scope or additional files..."
+                            ),
+                            "options": [
+                                {"id": "opt_1", "label": opt1, "value": opt1, "recommended": True},
+                                {"id": "opt_2", "label": opt2, "value": opt2, "recommended": False},
+                                {"id": "opt_3", "label": opt3, "value": opt3, "recommended": False},
+                            ],
+                        }
+                    else:
+                        msg, clar_payload = _generate_task_clarification(prompt, lang, session_ctx)
+                    session_ctx["pendingClarification"] = clar_payload
+                    save_session_context(session_ctx, now_ms=now_ms)
+                    finish_run(run_id, status="awaiting_clarification", now_ms=now_ms)
+                    res = _format_reply(
+                        msg,
+                        expression="thinking",
+                        status="awaiting_clarification",
+                        run_id=run_id,
+                        language=lang,
+                        session_ctx=session_ctx,
+                        clarification=clar_payload,
+                    )
+                    u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+                    return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+
+                prev_trimmed = (
+                    (
+                        str(code_tools.read_file(resolved_target, max_chars=200000).get("text") or "").strip()
+                        if Path(resolved_target).suffix.lower() in (".docx", ".pdf", ".xlsx")
+                        else Path(resolved_target).read_text(encoding="utf-8", errors="replace").strip()
+                    )
+                    if existed_before and Path(resolved_target).is_file()
+                    else None
+                )
+                was_syntax_valid = (
+                    _check_file_syntax_valid(Path(resolved_target))[0]
+                    if has_explicit_content and existed_before and Path(resolved_target).is_file()
+                    else False
+                )
                 step_id = record_step_start(
                     run_id,
                     2 if summary_part else 1,
                     "file_mutate" if has_explicit_content else "file_open_editor",
-                    side_effect=bool(has_explicit_content or not Path(resolved_target).exists()),
+                    side_effect=bool(has_explicit_content or not existed_before),
                     target_path=resolved_target,
                     now_ms=now_ms,
                 )
@@ -4470,7 +9215,37 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                         "nowMs": now_ms,
                     })
                 m_rcpt = re.search(r"(rcpt_[0-9a-f]{16})", edited["summary"])
-                rcpt_id = m_rcpt.group(1) if m_rcpt else ""
+                rcpt_id = str(edited.get("receiptId") or (m_rcpt.group(1) if m_rcpt else ""))
+                added_lines = int(edited.get("addedLines") or 0)
+                removed_lines = int(edited.get("removedLines") or 0)
+                reverted_noop = False
+                reverted_syntax = ""
+                is_noop_edit = bool(
+                    has_explicit_content
+                    and existed_before
+                    and mode == "write"
+                    and ((added_lines == 0 and removed_lines == 0) or (prev_trimmed is not None and prev_trimmed == content_to_write.strip()))
+                )
+                if is_noop_edit and rcpt_id:
+                    try:
+                        rollback_file_receipt(rcpt_id)
+                        reverted_noop = True
+                        rcpt_id = ""
+                        added_lines = 0
+                        removed_lines = 0
+                    except Exception:
+                        pass
+                elif has_explicit_content and existed_before and was_syntax_valid and rcpt_id:
+                    syntax_ok, syntax_err = _check_file_syntax_valid(Path(edited["targetPath"]))
+                    if not syntax_ok and syntax_err:
+                        try:
+                            rollback_file_receipt(rcpt_id)
+                            reverted_syntax = syntax_err
+                            rcpt_id = ""
+                            added_lines = 0
+                            removed_lines = 0
+                        except Exception:
+                            pass
                 if rcpt_id:
                     receipts.append(rcpt_id)
                 record_step_finish(step_id, status="completed", target_path=edited["targetPath"], receipt_id=rcpt_id, detail=edited)
@@ -4499,6 +9274,18 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                             if lang == "vi"
                             else f"Opened `{target_name}` ({line_cnt} lines, {byte_sz} bytes) in the inline Editor Popup (+50% expanded view)."
                         )
+                elif reverted_noop:
+                    msg = summary_part + (
+                        f"Thay đổi trên `{target_name}` không tạo ra khác biệt thực tế (0 dòng thay đổi) nên đã tự động hoàn tác/dọn sạch để giữ mã nguồn gọn gàng."
+                        if lang == "vi"
+                        else f"Edit on `{target_name}` produced no effective diff (0 lines changed) and was automatically reverted/cleaned up."
+                    )
+                elif reverted_syntax:
+                    msg = summary_part + (
+                        f"Thay đổi trên `{target_name}` gây lỗi cú pháp (`{reverted_syntax}`) nên đã tự động hoàn tác/khôi phục bản gốc sạch sẽ."
+                        if lang == "vi"
+                        else f"Edit on `{target_name}` introduced a syntax error (`{reverted_syntax}`) and was automatically reverted to keep the file clean."
+                    )
                 else:
                     ext_note_vi = f" Đồng thời đã mở bằng trình Editor mặc định (`{ed_cmd}`) vì tệp lớn." if edited.get("editorMode") == "external" else ""
                     ext_note_en = f" Also opened in the system default editor (`{ed_cmd}`) because the file is large." if edited.get("editorMode") == "external" else ""
@@ -4514,6 +9301,10 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     "handled": True,
                     "intent": kind,
                     **res,
+                    "receiptId": rcpt_id,
+                    "addedLines": added_lines,
+                    "removedLines": removed_lines,
+                    "diffPreview": str(edited.get("diffPreview") or ""),
                     "editorMode": edited.get("editorMode", ""),
                     "isLargeFile": bool(edited.get("isLargeFile", False)),
                     "openedExternalEditor": bool(edited.get("openedExternalEditor", False)),
@@ -4524,10 +9315,48 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     "historySaved": saved,
                 }
 
-            # Default file/directory inspect & full listing
+            # Default file/directory inspect, search & full listing
+            is_find_query = bool(
+                re.search(
+                    r"\b(?:tim\s+file|tim\s+tep|tim\s+kiem|tim\s+giup|tim\s+cho|tim\s+thu\s+muc|kiem\s+file|kiem\s+tep|kiem\s+thu\s+muc|kiem\s+giup|nam\s+o\s+dau|o\s+dau|find\b|locate\b|where\s+is\b|search\s+for\b|search\s+file\b|look\s+for\b)\b",
+                    folded,
+                )
+            )
+            raw_target_arg = str(target or "").strip()
             if not target:
                 target = session_ctx.get("lastDirectory") or str(Path.home())
             resolved_target = str(resolve_candidate_path(target, last_dir=last_dir))
+            search_matches: list[Path] = []
+            search_step_id = None
+            query_name = Path(raw_target_arg).name if raw_target_arg else ""
+            if (is_find_query or not Path(resolved_target).exists()) and query_name and Path(resolved_target) != Path.home().resolve():
+                search_step_id = (
+                    record_step_start(run_id, 1, "file_search", side_effect=False, target_path=query_name, now_ms=now_ms)
+                    if is_find_query
+                    else None
+                )
+                search_matches = search_files_in_home(query_name, last_dir=last_dir, max_results=25)
+                if search_step_id is not None:
+                    record_step_finish(
+                        search_step_id,
+                        status="completed",
+                        target_path=query_name,
+                        detail={"count": len(search_matches), "matches": [str(m) for m in search_matches[:10]]},
+                    )
+                if search_matches:
+                    resolved_target = str(search_matches[0])
+                elif is_find_query and not Path(resolved_target).exists():
+                    advance_turn(run_id, now_ms=now_ms)
+                    finish_run(run_id, status="completed", now_ms=now_ms)
+                    msg = (
+                        f"Không tìm thấy tệp hoặc thư mục nào khớp với `{query_name}` trong `{Path.home()}`."
+                        if lang == "vi"
+                        else f"Could not find any file or folder matching `{query_name}` in `{Path.home()}`."
+                    )
+                    res = _format_reply(msg, expression="thinking", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
+                    u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+                    return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+
             perm = check_permission("file_read", target_path=resolved_target, explicit_prompt_target=True, now_ms=now_ms)
             if not perm["allowed"]:
                 if perm.get("requiresSudo"):
@@ -4562,15 +9391,37 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 raise AgentPermissionError(perm["reason"], f"Read access to '{resolved_target}' is not permitted ({perm['reason']}).")
 
             include_hidden = _wants_all_or_hidden(prompt)
-            step_id = record_step_start(run_id, 1, "file_inspect", side_effect=False, target_path=resolved_target, now_ms=now_ms)
-            inspected = agent_file_op({
-                "op": "access",
-                "targetPath": resolved_target,
-                "includeHidden": include_hidden,
-                "lastDirectory": last_dir,
-                "pageSize": 500,
-                "nowMs": now_ms,
-            })
+            step_id = record_step_start(run_id, 2 if search_step_id is not None else 1, "file_inspect", side_effect=False, target_path=resolved_target, now_ms=now_ms)
+            resolved_p_cand = Path(resolved_target)
+            if resolved_p_cand.is_file() and resolved_p_cand.suffix.lower() in (".pdf", ".docx", ".xlsx", ".pptx", ".odt", ".epub"):
+                doc_info = code_tools.read_file(resolved_p_cand, max_chars=4800)
+                extracted_doc = str(doc_info.get("text") or "")
+                doc_lines = [ln for ln in extracted_doc.splitlines() if ln.strip()][:40]
+                extra_summary = ""
+                if resolved_p_cand.suffix.lower() == ".xlsx":
+                    sheet_cnt = len(doc_info.get("sheets") or [])
+                    form_cnt = len(doc_info.get("formulas") or [])
+                    err_cnt = len(doc_info.get("formulaErrors") or [])
+                    extra_summary = f", {sheet_cnt} sheet(s), {form_cnt} formula(s), {err_cnt} formula error(s)"
+                inspected = {
+                    "targetPath": str(resolved_p_cand),
+                    "summary": f"Extracted structured Markdown from {resolved_p_cand.name} ({len(extracted_doc)} chars{extra_summary})",
+                    "lines": doc_lines or [f"(empty document: {resolved_p_cand.name})"],
+                    "tables": doc_info.get("tables") or [],
+                    "markdownTables": doc_info.get("markdownTables") or [],
+                    "sheets": doc_info.get("sheets") or [],
+                    "formulas": doc_info.get("formulas") or [],
+                    "formulaErrors": doc_info.get("formulaErrors") or [],
+                }
+            else:
+                inspected = agent_file_op({
+                    "op": "access",
+                    "targetPath": resolved_target,
+                    "includeHidden": include_hidden,
+                    "lastDirectory": last_dir,
+                    "pageSize": 500,
+                    "nowMs": now_ms,
+                })
             record_step_finish(step_id, status="completed", target_path=inspected["targetPath"], detail=inspected)
             advance_turn(run_id, now_ms=now_ms)
 
@@ -4581,22 +9432,31 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     str(p.resolve(strict=False)) for p in sorted(resolved_p.iterdir(), key=lambda x: x.name.lower())
                     if p.is_file()
                 ][:20]
-                session_ctx["recentCandidates"] = files_in_dir
+                session_ctx["recentCandidates"] = [str(m) for m in search_matches[:20]] if search_matches else files_in_dir
                 if len(files_in_dir) == 1:
                     session_ctx["lastFile"] = files_in_dir[0]
             else:
                 session_ctx["lastFile"] = str(resolved_p)
                 session_ctx["lastDirectory"] = str(resolved_p.parent)
-                session_ctx["recentCandidates"] = [str(resolved_p)]
+                session_ctx["recentCandidates"] = [str(m) for m in search_matches[:20]] if search_matches else [str(resolved_p)]
             save_session_context(session_ctx, now_ms=now_ms)
 
             # Complete listing: include ALL lines returned by tool_store (no [:10] slicing!)
-            body_lines = "\n".join(f"- {ln}" for ln in inspected["lines"])
+            lines_to_show = inspected["lines"][:25] if (is_find_query and len(inspected["lines"]) > 25) else inspected["lines"]
+            body_lines = "\n".join(f"- {ln}" for ln in lines_to_show)
             display_name = resolved_p.name or str(resolved_p)
-            msg = (
-                f"Đã đọc `{display_name}` ({inspected['summary']}):\n{body_lines}"
+            found_prefix = ""
+            if is_find_query and search_matches:
+                found_list = "\n".join(f"- `{m}`" for m in search_matches)
+                found_prefix = (
+                    f"Đã tìm thấy **{len(search_matches)}** kết quả cho `{query_name or display_name}`:\n{found_list}\n\n"
+                    if lang == "vi"
+                    else f"Found **{len(search_matches)}** matching path(s) for `{query_name or display_name}`:\n{found_list}\n\n"
+                )
+            msg = found_prefix + (
+                f"Đã đọc `{display_name}` (`{resolved_p}` — {inspected['summary']}):\n{body_lines}"
                 if lang == "vi"
-                else f"Inspected `{display_name}` ({inspected['summary']}):\n{body_lines}"
+                else f"Inspected `{display_name}` (`{resolved_p}` — {inspected['summary']}):\n{body_lines}"
             )
             finish_run(run_id, status="completed", now_ms=now_ms)
             res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)

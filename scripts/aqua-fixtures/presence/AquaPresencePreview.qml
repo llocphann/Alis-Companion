@@ -168,6 +168,25 @@ Window {
             "far Companion did not start fast return near home")
         waitFor(presence,"traveling",false,2500)
         require(!presence.returningForChat && presence.isNearHome(),"fast return did not settle near home")
+        const preOccludePos=physical()
+        root.allowed=false;presence.occluded=true;input.wait(30)
+        require(!actor.visible && !presence.visitActive && presence.suspendedByOcclusion && presence.sawOcclusionWhileHidden,
+            "transient occlusion did not suspend active visit when permitted updated before occluded")
+        root.allowed=true;presence.occluded=false;input.wait(30)
+        require(actor.visible && actor.presentation>.99 && actor.inputReady && presence.visitActive
+            && !presence.peekIntro && presence.appearClip==="emerge" && Scene.distance(preOccludePos,physical())<2,
+            "transient occlusion re-ran entrance animation instead of adopting in place")
+        presence.occluded=true;root.allowed=false;presence.homeAlong=0.64;input.wait(30)
+        presence.occluded=false;root.allowed=true;input.wait(30)
+        require(actor.visible && actor.presentation>.99 && actor.inputReady && presence.visitActive
+            && !presence.peekIntro && presence.isAtHome(),
+            "home edit during occlusion did not adopt new home position in place")
+        presence.hiddenUntil=Date.now()+20000;presence.hideImmediately();input.wait(20)
+        root.allowed=false;presence.occluded=true;presence.homeAlong=0.72;input.wait(20)
+        root.allowed=true;presence.occluded=false;input.wait(30)
+        require(!actor.visible && !presence.visitActive && presence.hiddenUntil>Date.now(),
+            "exiting transient occlusion or updating home respawned a hidden Companion")
+        presence.hiddenUntil=0
         presence.homeEdge=""
         root.allowed=false;input.wait(40)
         require(!deadline.running && !named(presence,"aquaPeekDeadline").running,"hidden presence left a deadline running")

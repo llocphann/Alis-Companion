@@ -11,6 +11,7 @@ Item {
     property var actor: null
     property bool handoffActive: false
     property bool permitted: false
+    property bool occluded: false
     property real requestedReveal: 0
     property bool motionEnabled: true
     property bool interactionHeld: false
@@ -43,10 +44,19 @@ Item {
     property bool releasedFlight: false
     property bool supportRecovery: false
     property bool returningForChat: false
-    readonly property real nearHomeRadius: 240*(scene?.scale ?? 1)
+    readonly property real sceneScale: scene?.scale ?? 1
+    readonly property real sceneHostWidth: scene?.hostWidth ?? 112
+    readonly property real sceneHostHeight: scene?.hostHeight ?? 98
+    readonly property real nearHomeRadius: 240*sceneScale
     readonly property bool surfaceBound: true
     property bool peekIntro: false
     property bool peekOnly: false
+    property bool suspendedByOcclusion: false
+    property bool sawOcclusionWhileHidden: false
+    property var occludedPlacement: null
+    property bool occludedPeekOnly: false
+    property string occludedHomeEdge: ""
+    property real occludedHomeAlong: 0.72
     property double fullyPresentSince: 0
     readonly property int minimumFullVisit: 8000
     property double hiddenUntil: 0
@@ -58,22 +68,22 @@ Item {
     property real pointerX: 0
     property real pointerY: 0
     property double nextPointerNotice: 0
-    readonly property real pointerNoticeRadius: 420*(scene?.scale ?? 1)
-    readonly property real nearbyClickRadius: 460*(scene?.scale ?? 1)
+    readonly property real pointerNoticeRadius: 420*sceneScale
+    readonly property real nearbyClickRadius: 460*sceneScale
     readonly property bool pointerNearby: pointerFresh && pointerReactionsEnabled
         && permitted && visitActive && motionEnabled && !interactionHeld
         && !handoffActive && !dragging && !retreating && !traveling && !portalActive && !directed
         && actor && !actor.gesturing && actor.reactionExpression!=="angry"
         && actor.presentation>.99 && requestedReveal>.99
-        && Math.hypot(pointerX-actor.x+(actor.scale-1)*actor.width/2-(scene?.hostWidth ?? 0)/2,
-            pointerY-actor.y+(actor.scale-1)*actor.height/2-(scene?.hostHeight ?? 0)/2)<=pointerNoticeRadius
+        && Math.hypot(pointerX-actor.x+(actor.scale-1)*actor.width/2-sceneHostWidth/2,
+            pointerY-actor.y+(actor.scale-1)*actor.height/2-sceneHostHeight/2)<=pointerNoticeRadius
     property real dragVelocityX: 0
     property real dragVelocityY: 0
     property double dragSampleTime: 0
     property var dragSamples: []
     property real throwSpeed: 0
     property real throwArc: 0
-    readonly property real throwThreshold: .8*(scene?.scale ?? 1)
+    readonly property real throwThreshold: .8*sceneScale
     property int shakeReversals: 0
     property string pendingReaction: ""
     property real avoidX: 0
@@ -264,7 +274,7 @@ Item {
         homeReturnDeadline.stop()
     }
     function returnToHome(immediate = false): bool {
-        if (!permitted || !Scene.valid(scene) || !homeEdge) return false
+        if (!permitted || occluded || !Scene.valid(scene) || !homeEdge || requestedReveal<=0 || Date.now()<hiddenUntil) return false
         const home=homePlacement()
         if (!home.qualified || !Scene.clearAt(scene,home)) return false
         homeReturnDeadline.stop()
@@ -333,6 +343,102 @@ Item {
         stopRequested()
         traveling=false; releasedFlight=false; supportRecovery=false; returningForChat=false; throwSpeed=0; throwArc=0; waypoints=[]; waypoint=0
     }
+    function clearOcclusionState(): void {
+        suspendedByOcclusion=false
+        sawOcclusionWhileHidden=false
+        occludedPlacement=null
+        occludedPeekOnly=false
+        occludedHomeEdge=""
+        occludedHomeAlong=0.72
+    }
+    function captureOcclusionState(): void {
+        if (suspendedByOcclusion || !visitActive || retreating || requestedReveal<=0 || Date.now()<hiddenUntil)
+            return
+        let snap=placement
+        if (portalActive || traveling || !placement?.grounded) {
+            const current=position()
+            const support=Scene.supportAt(scene,current,placement?.support?.edge ?? placement?.edge)
+            if (support) {
+                const isEdge=Scene.edges.includes(support.key)
+                const candidate=Scene.annotate(scene,current,support.edge,isEdge ? "edge" : "surface",support.key)
+                if (candidate.qualified && candidate.grounded && Scene.clearAt(scene,candidate))
+                    snap=candidate
+            } else if (destination?.qualified && destination?.grounded && Scene.clearAt(scene,destination)) {
+                snap=destination
+            } else if (!placement?.qualified || !placement?.grounded) {
+                const home=homePlacement()
+                if (home.qualified) snap=home
+            }
+        }
+        if (!snap?.qualified) return
+        suspendedByOcclusion=true
+        if (occluded) sawOcclusionWhileHidden=true
+        occludedPlacement=Object.assign({},snap,{support:snap.support ? Object.assign({},snap.support) : null})
+        occludedPeekOnly=peekOnly && requestedReveal<.99
+        occludedHomeEdge=homeEdge
+        occludedHomeAlong=homeAlong
+    }
+    function resumeFromOcclusion(): bool {
+        if (!permitted || occluded || !Scene.valid(scene)) return false
+        if (!suspendedByOcclusion || !sawOcclusionWhileHidden || requestedReveal<=0 || Date.now()<hiddenUntil) {
+            clearOcclusionState()
+            return false
+        }
+        const homeChanged=homeEdge!==occludedHomeEdge || Math.abs(homeAlong-occludedHomeAlong)>0.0001
+        let target=null
+        if (!homeChanged && occludedPlacement?.qualified) {
+            const ride=Scene.ride(scene,{x:occludedPlacement.x,y:occludedPlacement.y},occludedPlacement)
+            if (ride.qualified && ride.grounded && Scene.clearAt(scene,ride)) {
+                target=ride
+            } else if (Scene.clearAt(scene,occludedPlacement)) {
+                const support=Scene.supportAt(scene,occludedPlacement,occludedPlacement.support?.edge ?? occludedPlacement.edge)
+                if (support) {
+                    const isEdge=Scene.edges.includes(support.key)
+                    const candidate=Scene.annotate(scene,occludedPlacement,support.edge,isEdge ? "edge" : "surface",support.key)
+                    if (candidate.qualified && candidate.grounded && Scene.clearAt(scene,candidate))
+                        target=candidate
+                }
+            }
+        }
+        if (!target) {
+            const home=homePlacement()
+            if (home.qualified && Scene.clearAt(scene,home))
+                target=home
+            else {
+                const fallback=Scene.appearance(scene,random(),random(),random())
+                if (fallback.qualified && Scene.clearAt(scene,fallback))
+                    target=fallback
+            }
+        }
+        const wasPeekOnly=occludedPeekOnly && requestedReveal<.99
+        clearOcclusionState()
+        if (!target || !target.qualified || !Scene.clearAt(scene,target))
+            return false
+        clearMotion()
+        recoveryDeadline.stop()
+        fullVisitDeadline.stop()
+        peekDeadline.stop()
+        peekIntro=false
+        peekOnly=wasPeekOnly
+        appearClip="emerge"
+        appearanceOffsetX=0;appearanceOffsetY=0
+        placement=target;destination=target
+        targetX=target.x;targetY=target.y
+        retreating=false;visitActive=true
+        renderedReveal=wasPeekOnly ? peekReveal : requestedReveal
+        fullyPresentSince=(!wasPeekOnly && renderedReveal>.99) ? Date.now() : 0
+        if (actor) {
+            actor.adoptTo(
+                targetX+(actor.scale-1)*actor.width/2,
+                targetY+(actor.scale-1)*actor.height/2,
+                target.edge,
+                renderedReveal
+            )
+        }
+        scheduleSurface()
+        scheduleHomeReturn()
+        return true
+    }
     function hideImmediately(): void {
         clearMotion()
         appearanceOffsetX=0;appearanceOffsetY=0
@@ -346,6 +452,7 @@ Item {
         resetRequested(targetX,targetY,emergenceEdge)
     }
     function appear(selected): void {
+        clearOcclusionState()
         const useHome=!selected && homeEdge.length>0
         if (!selected) {
             const home=homePlacement()
@@ -376,14 +483,16 @@ Item {
     }
     function synchronize(): void {
         if (!initialized) return
-        if (!permitted || !Scene.valid(scene)) {hideImmediately();return}
+        if (!permitted || occluded || !Scene.valid(scene)) {hideImmediately();return}
         if (handoffActive) return
         if (hiddenUntil>Date.now()) {
+            clearOcclusionState()
             if(!recoveryDeadline.running){recoveryDeadline.interval=Math.round(hiddenUntil-Date.now());recoveryDeadline.restart()}
             if (visitActive && !retreating) retreat()
             return
         }
         if (requestedReveal<=0) {
+            clearOcclusionState()
             // Native visit deadlines may expire during a long entrance or a
             // late surface reveal. Finish the entrance and grant a real visit.
             // Policy hides and deliberate peek-only withdrawals remain immediate.
@@ -397,7 +506,11 @@ Item {
             return
         }
         fullVisitDeadline.stop()
-        if (!visitActive || retreating) {appear();return}
+        if (!visitActive || retreating) {
+            if (!resumeFromOcclusion())
+                appear()
+            return
+        }
         if (requestedReveal<.99) {
             peekDeadline.stop(); peekIntro=false; renderedReveal=peekReveal
         } else if (!peekIntro) renderedReveal=requestedReveal
@@ -680,9 +793,25 @@ Item {
         if (!Scene.valid(scene) || !Scene.clearAt(scene,from)) {hideImmediately();return false}
         const support=Scene.supportAt(scene,from,placement.support?.edge ?? placement.edge)
         if (support) {
-            clearMotion()
             const isEdge=Scene.edges.includes(support.key)
-            const safe=Scene.annotate(scene,from,support.edge,isEdge ? "edge" : "surface",support.key)
+            const expectedKind=isEdge ? "edge" : "surface"
+            if (!traveling && !portalActive && !releasedFlight
+                    && placement?.qualified && placement?.grounded
+                    && placement.kind===expectedKind && placement.key===support.key
+                    && placement.edge===support.edge
+                    && Math.abs((placement.x ?? 0)-from.x)<.05
+                    && Math.abs((placement.y ?? 0)-from.y)<.05
+                    && Math.abs((placement.hostWidth ?? 0)-scene.hostWidth)<.05
+                    && Math.abs((placement.hostHeight ?? 0)-scene.hostHeight)<.05
+                    && placement.support?.key===support.key
+                    && placement.support?.edge===support.edge
+                    && Math.abs((placement.support?.coordinate ?? 0)-(support.coordinate ?? 0))<.05
+                    && Math.abs((placement.support?.from ?? 0)-(support.from ?? 0))<.05
+                    && Math.abs((placement.support?.to ?? 0)-(support.to ?? 0))<.05) {
+                return true
+            }
+            clearMotion()
+            const safe=Scene.annotate(scene,from,support.edge,expectedKind,support.key)
             placement=safe;destination=safe;targetX=safe.x;targetY=safe.y
             scheduleSurface()
             scheduleHomeReturn()
@@ -696,7 +825,7 @@ Item {
         return false
     }
     function reconcileScene(): void {
-        if (!permitted || !Scene.valid(scene)) {hideImmediately();return}
+        if (!permitted || occluded || !Scene.valid(scene)) {hideImmediately();return}
         if (handoffActive) return
         if (portalActive) {
             if ((!portalHopped && !portalSourceValid()) || !portalDestinationValid() || !Scene.clearAt(scene,position())) {
@@ -704,7 +833,11 @@ Item {
             }
             return
         }
-        if (!visitActive && requestedReveal>0 && !retreating) {if(Date.now()>=hiddenUntil)appear();return}
+        if (!visitActive && requestedReveal>0 && !retreating) {
+            if (Date.now()>=hiddenUntil && !resumeFromOcclusion())
+                appear()
+            return
+        }
         if (!visitActive || dragging) return
         let from=position()
         const sizeChanged=Number.isFinite(placement?.hostWidth)
@@ -992,9 +1125,26 @@ Item {
     function gestureFinished(action): void {
         if (action==="startle" && pendingReaction==="evade") {pendingReaction="";evade()}
     }
-    onPermittedChanged: Qt.callLater(root.synchronize)
-    onHomeEdgeChanged: if (initialized && permitted && homeEdge.length>0) Qt.callLater(() => root.returnToHome(true))
-    onHomeAlongChanged: if (initialized && permitted && homeEdge.length>0) Qt.callLater(() => root.returnToHome(true))
+    onPermittedChanged: {
+        if (!permitted) {
+            captureOcclusionState()
+            hideImmediately()
+        } else if (initialized && !occluded) {
+            synchronize()
+        }
+    }
+    onOccludedChanged: {
+        if (occluded) {
+            captureOcclusionState()
+            if (suspendedByOcclusion) sawOcclusionWhileHidden=true
+            if (visitActive || retreating || portalActive || traveling)
+                hideImmediately()
+        } else if (initialized && permitted) {
+            synchronize()
+        }
+    }
+    onHomeEdgeChanged: if (initialized && permitted && !occluded && visitActive && !retreating && requestedReveal>0 && Date.now()>=hiddenUntil && homeEdge.length>0) Qt.callLater(() => root.returnToHome(true))
+    onHomeAlongChanged: if (initialized && permitted && !occluded && visitActive && !retreating && requestedReveal>0 && Date.now()>=hiddenUntil && homeEdge.length>0) Qt.callLater(() => root.returnToHome(true))
     onPointerNearbyChanged: root.offerPointerNotice()
     onRequestedRevealChanged: Qt.callLater(root.synchronize)
     onSceneChanged: Qt.callLater(root.reconcileScene)
@@ -1042,7 +1192,10 @@ Item {
     }
     Timer {id:recoveryDeadline;interval:20000;onTriggered:{
         root.hiddenUntil=0
-        if(root.permitted && root.requestedReveal>0) root.appear()
+        if(root.permitted && !root.occluded && root.requestedReveal>0 && !root.visitActive) {
+            if(!root.resumeFromOcclusion())
+                root.appear()
+        }
     }}
     Connections {
         target: root.actor
