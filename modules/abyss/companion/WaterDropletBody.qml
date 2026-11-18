@@ -282,7 +282,7 @@ Item {
         // quadruples offscreen pixels without preserving visible extra detail.
         textureSize: Qt.size(76, 82)
         smooth: true
-        live: root.floorReflectionEnabled && root.visible && root.grounded && root.detailedEffects && (!root.idleLoopPaused || gait.active)
+        live: root.floorReflectionEnabled && root.visible && root._windowVisible && root.grounded && root.detailedEffects && (!root.idleLoopPaused || gait.active)
         visible: false
     }
     // Reflect only our body, bubbles and face; never desktop content.
@@ -381,31 +381,6 @@ Item {
                 fragmentShader: Qt.resolvedUrl("WaterDropletMaterial.frag.qsb")
             }
             // Decorative droplets fit the enclosing host; the body hitbox stays 76x92.
-            ShaderEffect {
-                id: sharedDropletShader
-                objectName: "aquaSharedDropletShader"
-                width: 28; height: 28
-                visible: root.bubblesEnabled && !root.bubble2DMode && !root.softwareFallback
-                property color accent: root.liquidAccent
-                property color specular: root.reflectionColor
-                property vector4d motion: root.dropletMotionUniform
-                property vector4d optics: root.dropletOpticsUniform
-                property vector4d rendering: root.smallMaterialRenderingUniform
-                property vector4d pose: root.zeroPoseUniform
-                fragmentShader: Qt.resolvedUrl("WaterDropletMaterial.frag.qsb")
-            }
-            ShaderEffectSource {
-                id: sharedDropletSource
-                objectName: "aquaSharedDropletSource"
-                width: 28; height: 28
-                textureSize: Qt.size(28, 28)
-                sourceItem: (root.bubblesEnabled && !root.bubble2DMode && !root.softwareFallback && sharedDropletShader.status !== ShaderEffect.Error) ? sharedDropletShader : null
-                hideSource: true
-                smooth: true
-                mipmap: false
-                live: true
-                visible: false
-            }
             Repeater {
                 objectName: "aquaExternalDroplets"
                 model: !root.bubblesEnabled ? 0 : root.qualityLevel > 1 ? 8 : root.qualityLevel > 0 ? 6 : 3
@@ -448,15 +423,22 @@ Item {
                         }
                     }
                     ShaderEffect {
+                        id: droplet3d
                         objectName: "aquaDroplet3D"
                         anchors.fill: parent
-                        visible: !root.bubble2DMode && !root.softwareFallback && sharedDropletShader.status !== ShaderEffect.Error && material.status !== ShaderEffect.Error
-                        property var source: sharedDropletSource
+                        visible: !root.bubble2DMode && !root.softwareFallback && status !== ShaderEffect.Error && material.status !== ShaderEffect.Error
+                        property color accent: root.liquidAccent
+                        property color specular: root.reflectionColor
+                        property vector4d motion: root.dropletMotionUniform
+                        property vector4d optics: root.dropletOpticsUniform
+                        property vector4d rendering: root.smallMaterialRenderingUniform
+                        property vector4d pose: root.zeroPoseUniform
+                        fragmentShader: Qt.resolvedUrl("WaterDropletMaterial.frag.qsb")
                     }
                     Loader {
                         objectName: "aquaDropletFallback"
                         anchors.fill: parent
-                        active: !root.bubble2DMode && (root.softwareFallback || sharedDropletShader.status === ShaderEffect.Error || material.status === ShaderEffect.Error)
+                        active: !root.bubble2DMode && (root.softwareFallback || droplet3d.status === ShaderEffect.Error || material.status === ShaderEffect.Error)
                         sourceComponent: Shape {
                             antialiasing: true
                             preferredRendererType: Shape.CurveRenderer
@@ -742,9 +724,10 @@ Item {
             PropertyAction { target: root; property: "chompPhase"; value: 0 }
         }
     }
+    readonly property bool _windowVisible: root.Window.window ? root.Window.window.visible : true
     readonly property bool burstActive: squashBurst.running || tapBurst.running || reactionBounce.running || shineBurst.running || swallowBurst.running
-    readonly property bool idleLoopPaused: root.quietSettled && !root.burstActive && !root.hovered && !root.dragging && !root.walking && !root.flying && !root.traveling && !root.pocketDragActive
-    readonly property bool effectiveNearbyInteraction: root.nearbyInteraction || root.hovered || root.dragging || root.walking || root.flying || root.traveling || root.pocketDragActive || root.burstActive
+    readonly property bool idleLoopPaused: !root._windowVisible || root.motionAmount <= 0.001 || (root.quietSettled && !root.burstActive && !root.hovered && !root.dragging && !root.walking && !root.flying && !root.traveling && !root.pocketDragActive)
+    readonly property bool effectiveNearbyInteraction: root._windowVisible && (root.nearbyInteraction || root.hovered || root.dragging || root.walking || root.flying || root.traveling || root.pocketDragActive || root.burstActive)
     SequentialAnimation on bob {
         running: root.motionEnabled && root.visible && !gait.active; paused: root.idleLoopPaused && running; loops: Animation.Infinite
         NumberAnimation { to: -1.2 - root.energy * 2.4; duration: 1570; easing.type: Easing.InOutSine }
@@ -762,7 +745,7 @@ Item {
     }
     NumberAnimation on orbitPhase {
         running: root.motionEnabled && root.visible && root.bubblesEnabled && !root.bubble2DMode
-        paused: running && root.powerProfile !== "performance" && !root.effectiveNearbyInteraction
+        paused: running && (!root._windowVisible || root.motionAmount <= 0.001 || (root.powerProfile !== "performance" && !root.effectiveNearbyInteraction))
         from: 0; to: 1; duration: curves.clips.orbit.duration
         loops: Animation.Infinite
     }

@@ -1691,7 +1691,7 @@ Singleton {
     property double lastContextAttempt: 0
     property int conversationIdleTimeout: 120000
     property double lastCheckIn: 0
-    readonly property string currentDay: Qt.formatDateTime(DateTime.clock.date, "yyyy-MM-dd")
+    readonly property string currentDay: Qt.formatDateTime(DateTime.todayDate ?? DateTime.clock.date, "yyyy-MM-dd")
     readonly property string userMood: Persistent.states.aquaCheckIn.date === currentDay ? Persistent.states.aquaCheckIn.mood : ""
     readonly property string userEnergy: Persistent.states.aquaCheckIn.date === currentDay ? Persistent.states.aquaCheckIn.energy : ""
     readonly property bool checkInComplete: userMood.length > 0 && userEnergy.length > 0
@@ -5031,14 +5031,18 @@ Singleton {
                     if (root.workPhase === "drafting") {
                         const thoughtSec = Math.max(1, Math.round((root.workThinkingDeciseconds || root.workElapsedDeciseconds) / 10));
                         const thoughtLine = "Thought for " + thoughtSec + "s ›";
-                        root.currentActivityLine = "Drafting response ›";
-                        root.workActivitySteps = ["Analyzing context & memory ›", thoughtLine, "Drafting response ›"];
+                        if (root.currentActivityLine !== "Drafting response ›" || (root.workActivitySteps?.[1] ?? "") !== thoughtLine) {
+                            root.currentActivityLine = "Drafting response ›";
+                            root.workActivitySteps = ["Analyzing context & memory ›", thoughtLine, "Drafting response ›"];
+                        }
                     } else {
                         root.workThinkingDeciseconds = root.workElapsedDeciseconds;
                         if (root.workElapsedDeciseconds >= 6) {
                             const thinkLine = "Thinking (" + sec + "s) ›";
-                            root.currentActivityLine = thinkLine;
-                            root.workActivitySteps = ["Analyzing context & memory ›", thinkLine];
+                            if (root.currentActivityLine !== thinkLine) {
+                                root.currentActivityLine = thinkLine;
+                                root.workActivitySteps = ["Analyzing context & memory ›", thinkLine];
+                            }
                         }
                     }
                 }

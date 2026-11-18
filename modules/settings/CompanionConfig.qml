@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
 import qs.services
@@ -349,11 +350,11 @@ ContentPage {
         property string description: ""
         property var options: []
         property var currentValue: ""
-        property int comboMinWidth: 96
+        property int comboMinWidth: 112
         signal selected(var value)
         Layout.fillWidth: true
         Layout.minimumWidth: 0
-        spacing: 6
+        spacing: 8
         StyledText {
             visible: inlineChoice.label.length > 0
             text: inlineChoice.label
@@ -364,9 +365,9 @@ ContentPage {
             id: inlineCombo
             objectName: inlineChoice.objectName ? inlineChoice.objectName + "Control" : ""
             Layout.fillWidth: true
-            Layout.minimumWidth: Math.min(64, inlineChoice.comboMinWidth)
-            Layout.preferredWidth: inlineChoice.comboMinWidth
-            popupMinimumWidth: Math.max(132, inlineChoice.comboMinWidth)
+            Layout.minimumWidth: Math.min(220, Math.round(inlineChoice.comboMinWidth * Appearance.fontSizeScale))
+            Layout.preferredWidth: Math.round(inlineChoice.comboMinWidth * Appearance.fontSizeScale)
+            popupMinimumWidth: Math.max(156, Math.round(inlineChoice.comboMinWidth * Appearance.fontSizeScale))
             model: inlineChoice.options
             textRole: "displayName"
             settingsSearchLabel: inlineChoice.label
@@ -387,6 +388,7 @@ ContentPage {
         property string description: ""
         property var options: []
         property var currentValue: ""
+        property int comboMinWidth: 132
         signal selected(var value)
         Layout.fillWidth: true
         Layout.minimumWidth: 0
@@ -402,6 +404,8 @@ ContentPage {
             id: compactCombo
             objectName: compactChoice.objectName ? compactChoice.objectName + "Control" : ""
             Layout.fillWidth: true
+            Layout.minimumWidth: Math.min(200, Math.round(compactChoice.comboMinWidth * Appearance.fontSizeScale))
+            popupMinimumWidth: Math.max(176, Math.round(compactChoice.comboMinWidth * Appearance.fontSizeScale))
             model: compactChoice.options
             textRole: "displayName"
             settingsSearchLabel: compactChoice.label
@@ -495,198 +499,207 @@ ContentPage {
         columns: root.isOverviewTab && width >= 620 ? 2 : 1
         uniformCellWidths: columns === 2
         columnSpacing: 12
-        rowSpacing: 10
-
-        SettingsCardSection {
-            id: overviewCard
-            property bool _preventBentoReparent: true
-            Layout.preferredWidth: 1
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            Layout.alignment: Qt.AlignTop
-            settingsTaskSection: "overview"
-            visible: root.isOverviewTab
-            expanded: true
-            title: Translation.tr("Overview")
-            icon: "water_drop"
-
-            Rectangle {
-                Layout.fillWidth: true
-                implicitHeight: hero.implicitHeight + 24
-                radius: SettingsMaterialPreset.groupRadius
-                color: Appearance.colors.colLayer1
-                border.width: 1
-                border.color: Appearance.colors.colLayer0Border
-                GridLayout {
-                    id: hero
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: 12
-                    columns: root.availableRowWidth > 560 ? 2 : 1
-                    columnSpacing: 18
-                    rowSpacing: 8
-                    Rectangle {
-                        Layout.fillWidth: hero.columns === 1
-                        Layout.fillHeight: true
-                        Layout.preferredWidth: 220
-                        Layout.preferredHeight: 198
-                        Layout.minimumHeight: 192
-                        radius: SettingsMaterialPreset.groupRadius
-                        color: AbyssStyle.surface
-                        border.width: 1
-                        border.color: Qt.alpha(AbyssStyle.accent, 0.22)
-                        HoverHandler {
-                            id: previewHover
-                        }
-                        WaterDropletBody {
-                            id: preview
-                            character: root.preferences.character
-                            objectName: "companionPreview"
-                            anchors.centerIn: parent
-                            width: 76
-                            height: 92
-                            scale: Math.min(1.95, 1.68 * root.preferences.size)
-                            transformOrigin: Item.Center
-                            expression: root.previewExpression
-                            motionAction: root.previewMotion
-                            grounded: !["fly", "jump", "drag"].includes(root.previewMotion)
-                            motionScale: Preferences.motionScale(root.preferences.personality)
-                            motionEnabled: root.preferences.animationsEnabled && AbyssStyle.motionEnabled && visible
-                            effectsEnabled: root.preferences.effectsEnabled && Appearance.effectsEnabled && AbyssRenderPolicy.aquaQuality !== "performance"
-                            powerProfile: AbyssRenderPolicy.powerProfile
-                            bubblesEnabled: root.preferences.effectsEnabled && Appearance.effectsEnabled
-                            nearbyInteraction: previewHover.hovered || preview.hovered || root.previewMotion !== ""
-                            renderQuality: AbyssRenderPolicy.aquaQuality
-                            translucency: root.preferences.translucency
-                        }
-                    }
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            StyledText {
-                                Layout.fillWidth: true
-                                text: root.preferences.character === "octo" ? "Octo" : "Aqua"
-                                font.pixelSize: 22
-                                font.weight: Font.DemiBold
-                            }
-                            CompactIconButton {
-                                objectName: "companionReset"
-                                enabled: Config.ready
-                                iconName: "restart_alt"
-                                tooltipText: Translation.tr("Reset Companion settings")
-                                onClicked: root.resetPreferences()
-                            }
-                        }
-                        StyledText {
-                            Layout.fillWidth: true
-                            text: Translation.tr("A little liquid companion for your desktop.")
-                            font.pixelSize: Appearance.font.pixelSize.smaller
-                            color: Appearance.colors.colSubtext
-                            wrapMode: Text.WordWrap
-                        }
-                        GridLayout {
-                            Layout.fillWidth: true
-                            columns: width > 360 ? 2 : 1
-                            uniformCellWidths: columns > 1
-                            columnSpacing: 12
-                            rowSpacing: 8
-                            CompactChoice {
-                                objectName: "companionPreviewExpression"
-                                label: Translation.tr("Preview expression")
-                                options: root.expressionOptions
-                                currentValue: root.previewExpression
-                                onSelected: value => root.previewExpression = value
-                            }
-                            CompactChoice {
-                                objectName: "companionPreviewMotion"
-                                label: Translation.tr("Preview movement")
-                                options: root.motionOptions
-                                currentValue: root.previewMotion
-                                onSelected: value => root.previewMotion = value
-                            }
-                        }
-                    }
-                }
-            }
-
-            SettingsGroup {
-                enabled: Config.ready
-                CompactChoice {
-                    objectName: "companionCharacter"
-                    label: Translation.tr("Companion")
-                    options: [
-                        {
-                            displayName: "Aqua",
-                            value: "aqua"
-                        },
-                        {
-                            displayName: "Octo",
-                            value: "octo"
-                        }
-                    ]
-                    currentValue: root.preferences.character
-                    onSelected: value => root.setPreference("character", value)
-                }
-                GridLayout {
-                    objectName: "companionOverviewTogglesGrid"
-                    Layout.fillWidth: true
-                    columns: overviewCard.width > 420 ? 2 : 1
-                    uniformCellWidths: columns > 1
-                    columnSpacing: 10
-                    rowSpacing: 8
-                    CompactToggle {
-                        objectName: "companionEnabled"
-                        buttonIcon: "visibility"
-                        text: Translation.tr("Enable Companion")
-                        tooltipText: Translation.tr("Let your companion join the desktop. Right-click to open these settings.")
-                        checked: root.preferences.enabled
-                        onToggledByUser: checked => root.setPreference("enabled", checked)
-                    }
-                    CompactToggle {
-                        objectName: "companionAlternate"
-                        buttonIcon: "swap_horiz"
-                        text: Translation.tr("Take turns on the desktop")
-                        tooltipText: "Alternate between Aqua and Octo across desktop visits."
-                        checked: root.preferences.alternateCompanions
-                        onToggledByUser: checked => root.setPreference("alternateCompanions", checked)
-                    }
-                    CompactToggle {
-                        objectName: "companionInteractive"
-                        buttonIcon: "touch_app"
-                        text: Translation.tr("Respond to Click")
-                        tooltipText: Translation.tr("Highlight on hover, react to clicks, and drag your companion around the screen.")
-                        checked: root.preferences.interactive
-                        onToggledByUser: checked => root.setPreference("interactive", checked)
-                    }
-                    CompactToggle {
-                        objectName: "companionFullscreen"
-                        buttonIcon: "fullscreen_exit"
-                        text: Translation.tr("Always hide in fullscreen")
-                        tooltipText: Translation.tr("Otherwise, follow the screen edge fullscreen setting.")
-                        checked: root.preferences.hideInFullscreen
-                        onToggledByUser: checked => root.setPreference("hideInFullscreen", checked)
-                    }
-                }
-            }
-        }
+        rowSpacing: 12
 
         ColumnLayout {
-            id: rightOverviewColumn
+            id: leftOverviewColumn
             visible: root.isOverviewTab
             Layout.preferredWidth: 1
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            Layout.fillHeight: false
             Layout.alignment: Qt.AlignTop
-            spacing: 10
+            spacing: 12
+
+            SettingsCardSection {
+                id: overviewCard
+                property bool _preventBentoReparent: true
+                Layout.preferredWidth: 1
+                Layout.fillWidth: true
+                Layout.fillHeight: false
+                Layout.alignment: Qt.AlignTop
+                settingsTaskSection: "overview"
+                visible: root.isOverviewTab
+                expanded: true
+                title: Translation.tr("Overview")
+                icon: "water_drop"
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: hero.implicitHeight + 24
+                    radius: SettingsMaterialPreset.groupRadius
+                    color: Appearance.colors.colLayer1
+                    border.width: 1
+                    border.color: Appearance.colors.colLayer0Border
+                    GridLayout {
+                        id: hero
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 12
+                        columns: overviewCard.width >= 480 ? 2 : 1
+                        columnSpacing: 14
+                        rowSpacing: 8
+                        Rectangle {
+                            Layout.fillWidth: hero.columns === 1
+                            Layout.fillHeight: false
+                            Layout.preferredWidth: 184
+                            Layout.preferredHeight: 176
+                            Layout.minimumHeight: 172
+                            radius: SettingsMaterialPreset.groupRadius
+                            color: AbyssStyle.surface
+                            border.width: 1
+                            border.color: Qt.alpha(AbyssStyle.accent, 0.22)
+                            HoverHandler {
+                                id: previewHover
+                            }
+                            WaterDropletBody {
+                                id: preview
+                                character: root.preferences.character
+                                objectName: "companionPreview"
+                                anchors.centerIn: parent
+                                width: 76
+                                height: 92
+                                scale: Math.min(1.95, 1.68 * root.preferences.size)
+                                transformOrigin: Item.Center
+                                expression: root.previewExpression
+                                motionAction: root.previewMotion
+                                grounded: !["fly", "jump", "drag"].includes(root.previewMotion)
+                                motionScale: Preferences.motionScale(root.preferences.personality)
+                                motionEnabled: root.preferences.animationsEnabled && AbyssStyle.motionEnabled && visible
+                                effectsEnabled: root.preferences.effectsEnabled && Appearance.effectsEnabled && AbyssRenderPolicy.aquaQuality !== "performance"
+                                powerProfile: AbyssRenderPolicy.powerProfile
+                                bubblesEnabled: root.preferences.effectsEnabled && Appearance.effectsEnabled
+                                nearbyInteraction: previewHover.hovered || preview.hovered || root.previewMotion !== ""
+                                renderQuality: AbyssRenderPolicy.aquaQuality
+                                translucency: root.preferences.translucency
+                            }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.alignment: Qt.AlignTop
+                            spacing: 6
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                spacing: 8
+                                StyledText {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    elide: Text.ElideRight
+                                    text: root.preferences.character === "octo" ? "Octo" : "Aqua"
+                                    font.pixelSize: 20
+                                    font.weight: Font.DemiBold
+                                }
+                                CompactIconButton {
+                                    objectName: "companionReset"
+                                    enabled: Config.ready
+                                    iconName: "restart_alt"
+                                    tooltipText: Translation.tr("Reset Companion settings")
+                                    onClicked: root.resetPreferences()
+                                }
+                            }
+                            StyledText {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                text: Translation.tr("A little liquid companion for your desktop.")
+                                font.pixelSize: Appearance.font.pixelSize.smaller
+                                color: Appearance.colors.colSubtext
+                                wrapMode: Text.WordWrap
+                            }
+                            GridLayout {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                columns: width > 320 ? 2 : 1
+                                uniformCellWidths: columns > 1
+                                columnSpacing: 10
+                                rowSpacing: 6
+                                CompactChoice {
+                                    objectName: "companionPreviewExpression"
+                                    label: Translation.tr("Preview expression")
+                                    options: root.expressionOptions
+                                    currentValue: root.previewExpression
+                                    onSelected: value => root.previewExpression = value
+                                }
+                                CompactChoice {
+                                    objectName: "companionPreviewMotion"
+                                    label: Translation.tr("Preview movement")
+                                    options: root.motionOptions
+                                    currentValue: root.previewMotion
+                                    onSelected: value => root.previewMotion = value
+                                }
+                            }
+                        }
+                    }
+                }
+
+                SettingsGroup {
+                    enabled: Config.ready
+                    CompactChoice {
+                        objectName: "companionCharacter"
+                        label: Translation.tr("Companion")
+                        options: [
+                            {
+                                displayName: "Aqua",
+                                value: "aqua"
+                            },
+                            {
+                                displayName: "Octo",
+                                value: "octo"
+                            }
+                        ]
+                        currentValue: root.preferences.character
+                        onSelected: value => root.setPreference("character", value)
+                    }
+                    GridLayout {
+                        objectName: "companionOverviewTogglesGrid"
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        columns: overviewCard.width >= 460 ? 2 : 1
+                        uniformCellWidths: columns > 1
+                        columnSpacing: 10
+                        rowSpacing: 8
+                        CompactToggle {
+                            objectName: "companionEnabled"
+                            buttonIcon: "visibility"
+                            text: Translation.tr("Enable Companion")
+                            tooltipText: Translation.tr("Let your companion join the desktop. Right-click to open these settings.")
+                            checked: root.preferences.enabled
+                            onToggledByUser: checked => root.setPreference("enabled", checked)
+                        }
+                        CompactToggle {
+                            objectName: "companionAlternate"
+                            buttonIcon: "swap_horiz"
+                            text: Translation.tr("Take turns on the desktop")
+                            tooltipText: "Alternate between Aqua and Octo across desktop visits."
+                            checked: root.preferences.alternateCompanions
+                            onToggledByUser: checked => root.setPreference("alternateCompanions", checked)
+                        }
+                        CompactToggle {
+                            objectName: "companionInteractive"
+                            buttonIcon: "touch_app"
+                            text: Translation.tr("Respond to Click")
+                            tooltipText: Translation.tr("Highlight on hover, react to clicks, and drag your companion around the screen.")
+                            checked: root.preferences.interactive
+                            onToggledByUser: checked => root.setPreference("interactive", checked)
+                        }
+                        CompactToggle {
+                            objectName: "companionFullscreen"
+                            buttonIcon: "fullscreen_exit"
+                            text: Translation.tr("Always hide in fullscreen")
+                            tooltipText: Translation.tr("Otherwise, follow the screen edge fullscreen setting.")
+                            checked: root.preferences.hideInFullscreen
+                            onToggledByUser: checked => root.setPreference("hideInFullscreen", checked)
+                        }
+                    }
+                }
+            }
 
             SettingsCardSection {
                 id: renderingCard
                 property bool _preventBentoReparent: true
                 Layout.fillWidth: true
+                Layout.fillHeight: false
                 Layout.alignment: Qt.AlignTop
                 settingsTaskSection: "rendering"
                 visible: root.isOverviewTab
@@ -695,44 +708,49 @@ ContentPage {
                 icon: "diamond"
                 SettingsGroup {
                     enabled: Config.ready
-                    RowLayout {
+                    ColumnLayout {
                         objectName: "companionRenderingTogglesGrid"
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         spacing: 8
 
                         ConfigSelectionArray {
                             id: companionQualitySelector
                             objectName: "companionQuality"
                             Layout.fillWidth: true
-                            Layout.minimumWidth: 248
                             enabled: !root.preferences.autoQuality
                             currentValue: root.preferences.autoQuality ? AbyssRenderPolicy.aquaQuality : root.preferences.renderQuality
                             options: root.qualityOptions
                             onSelected: value => root.setPreference("renderQuality", value)
                         }
 
-                        SettingsSwitch {
-                            Layout.fillWidth: false
-                            buttonIcon: "speed"
-                            text: "Auto quality"
-                            autoToggle: false
-                            checked: root.preferences.autoQuality
-                            onToggledByUser: checked => root.setPreference("autoQuality", checked)
-                            StyledToolTip {
-                                text: Translation.tr("Use Performance in Power Saver, Balanced in Balanced, and Quality in Performance power profile.")
-                            }
-                        }
+                        GridLayout {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            columns: renderingCard.width >= 420 ? 2 : 1
+                            uniformCellWidths: columns > 1
+                            columnSpacing: 10
+                            rowSpacing: 6
 
-                        SettingsSwitch {
-                            objectName: "companionEffects"
-                            Layout.fillWidth: false
-                            buttonIcon: "auto_fix_high"
-                            text: "More details"
-                            autoToggle: false
-                            checked: root.preferences.effectsEnabled
-                            onToggledByUser: checked => root.setPreference("effectsEnabled", checked)
-                            StyledToolTip {
-                                text: Translation.tr("Add floating bubbles and sparkle around your companion. Respects the shell effects setting.")
+                            CompactToggle {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                buttonIcon: "speed"
+                                text: "Auto quality"
+                                tooltipText: Translation.tr("Use Performance in Power Saver, Balanced in Balanced, and Quality in Performance power profile.")
+                                checked: root.preferences.autoQuality
+                                onToggledByUser: checked => root.setPreference("autoQuality", checked)
+                            }
+
+                            CompactToggle {
+                                objectName: "companionEffects"
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                buttonIcon: "auto_fix_high"
+                                text: "More details"
+                                tooltipText: Translation.tr("Add floating bubbles and sparkle around your companion. Respects the shell effects setting.")
+                                checked: root.preferences.effectsEnabled
+                                onToggledByUser: checked => root.setPreference("effectsEnabled", checked)
                             }
                         }
                     }
@@ -742,10 +760,9 @@ ContentPage {
                     GridLayout {
                         objectName: "companionRenderingSlidersGrid"
                         Layout.fillWidth: true
-                        columns: renderingCard.width > 420 ? 2 : 1
-                        uniformCellWidths: columns > 1
-                        columnSpacing: 14
-                        rowSpacing: 6
+                        Layout.minimumWidth: 0
+                        columns: 1
+                        rowSpacing: 8
                         PercentageRow {
                             objectName: "companionSize"
                             iconName: "open_in_full"
@@ -771,10 +788,130 @@ ContentPage {
             }
 
             SettingsCardSection {
+                id: placementCard
+                property bool _preventBentoReparent: true
+                Layout.fillWidth: true
+                Layout.fillHeight: false
+                Layout.alignment: Qt.AlignTop
+                settingsTaskSection: "overview"
+                visible: root.isOverviewTab
+                expanded: true
+                title: "Placement & Ambient"
+                icon: "dock_to_bottom"
+                SettingsGroup {
+                    enabled: Config.ready
+                    GridLayout {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        columns: placementCard.width >= 440 ? 2 : 1
+                        uniformCellWidths: columns > 1
+                        columnSpacing: 12
+                        rowSpacing: 8
+
+                        CompactChoice {
+                            objectName: "companionScreenEdge"
+                            label: "Home screen edge"
+                            options: [
+                                { displayName: "Auto", value: "auto" },
+                                { displayName: "Bottom", value: "bottom" },
+                                { displayName: "Top", value: "top" },
+                                { displayName: "Left", value: "left" },
+                                { displayName: "Right", value: "right" }
+                            ]
+                            currentValue: root.preferences.edge
+                            onSelected: value => root.setPreference("edge", value)
+                        }
+
+                        CompactChoice {
+                            objectName: "companionOutput"
+                            label: "Target display"
+                            description: "Preferred monitor for Companion placement"
+                            options: [{ displayName: "Primary / Auto", value: "" }].concat(
+                                (Quickshell.screens ?? []).map(s => ({
+                                    displayName: String(s?.name ?? ""),
+                                    value: String(s?.name ?? "")
+                                })).filter(o => o.value.length > 0)
+                            )
+                            currentValue: root.preferences.output
+                            onSelected: value => root.setPreference("output", String(value ?? ""))
+                        }
+                    }
+
+                    PercentageRow {
+                        objectName: "companionEdgeAlong"
+                        iconName: "straighten"
+                        label: "Edge position"
+                        description: "Resting position along the selected screen edge."
+                        value: root.preferences.along
+                        minimum: 0.08
+                        maximum: 0.92
+                        onMoved: value => root.setPreference("along", value)
+                    }
+
+                    SettingsDivider {}
+
+                    GridLayout {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        columns: placementCard.width >= 440 ? 2 : 1
+                        uniformCellWidths: columns > 1
+                        columnSpacing: 10
+                        rowSpacing: 8
+
+                        CompactToggle {
+                            objectName: "companionPocketShelf"
+                            buttonIcon: "inventory_2"
+                            text: "AquaPocket shelf"
+                            tooltipText: "Show the quick Pocket drop shelf inside the Companion panel."
+                            checked: root.preferences.pocketEnabled
+                            onToggledByUser: checked => root.setPreference("pocketEnabled", checked)
+                        }
+
+                        CompactToggle {
+                            objectName: "companionSoundEnabled"
+                            buttonIcon: "volume_up"
+                            text: "Subtle sounds"
+                            tooltipText: "Play soft water and interaction sound cues."
+                            checked: root.preferences.soundEnabled
+                            onToggledByUser: checked => root.setPreference("soundEnabled", checked)
+                        }
+
+                        CompactToggle {
+                            objectName: "companionAmbientReactions"
+                            buttonIcon: "sensors"
+                            text: "Ambient reactions"
+                            tooltipText: "React gently to desktop activity without interrupting work."
+                            checked: root.preferences.ambientEnabled
+                            onToggledByUser: checked => root.setPreference("ambientEnabled", checked)
+                        }
+
+                        CompactToggle {
+                            objectName: "companionAmbientMedia"
+                            buttonIcon: "music_note"
+                            text: "React to media"
+                            tooltipText: "Sway and react softly while music or audio is playing."
+                            checked: root.preferences.ambientMediaEnabled
+                            onToggledByUser: checked => root.setPreference("ambientMediaEnabled", checked)
+                        }
+                    }
+                }
+            }
+        }
+
+        ColumnLayout {
+            id: rightOverviewColumn
+            visible: root.isOverviewTab
+            Layout.preferredWidth: 1
+            Layout.fillWidth: true
+            Layout.fillHeight: false
+            Layout.alignment: Qt.AlignTop
+            spacing: 12
+
+            SettingsCardSection {
                 id: behaviorCard
                 property bool _preventBentoReparent: true
                 Layout.fillWidth: true
-                Layout.fillHeight: true
+                Layout.fillHeight: false
                 Layout.alignment: Qt.AlignTop
                 settingsTaskSection: "behavior"
                 visible: root.isOverviewTab
@@ -786,6 +923,7 @@ ContentPage {
                     GridLayout {
                         objectName: "companionBehaviorChoicesGrid"
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         columns: behaviorCard.width > 360 ? 2 : 1
                         uniformCellWidths: columns > 1
                         columnSpacing: 14
@@ -807,13 +945,17 @@ ContentPage {
                             onSelected: value => root.setPreference("appearanceFrequency", value)
                         }
                     }
+
+                    SettingsDivider {}
+
                     GridLayout {
                         id: companionBehaviorTogglesGrid
                         objectName: "companionBehaviorTogglesGrid"
                         Layout.fillWidth: true
-                        columns: behaviorCard.width > 360 ? 2 : 1
+                        Layout.minimumWidth: 0
+                        columns: behaviorCard.width >= 440 ? 2 : 1
                         uniformCellWidths: columns > 1
-                        columnSpacing: 12
+                        columnSpacing: 10
                         rowSpacing: 8
                         CompactToggle {
                             objectName: "companionMotion"
@@ -847,279 +989,294 @@ ContentPage {
                             checked: AquaMind.talkEnabled
                             onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.talkEnabled", checked)
                         }
+                        CompactToggle {
+                            objectName: "companionAmbientBattery"
+                            buttonIcon: "battery_charging_full"
+                            text: "Battery cues"
+                            tooltipText: "React subtly when battery gets low or charging starts."
+                            checked: root.preferences.ambientBatteryEnabled
+                            onToggledByUser: checked => root.setPreference("ambientBatteryEnabled", checked)
+                        }
+                        CompactToggle {
+                            objectName: "companionOverviewCloudOptIn"
+                            buttonIcon: "cloud"
+                            text: Translation.tr("Allow cloud models")
+                            tooltipText: "Keep off to restrict Companion strictly to verified local models."
+                            checked: !AquaMind.localOnly
+                            onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.localOnly", !checked)
+                        }
+                        CompactToggle {
+                            objectName: "companionVoiceAutoSend"
+                            buttonIcon: "bolt"
+                            text: "Auto-send voice input"
+                            tooltipText: "Send dictated voice prompts automatically after transcription."
+                            checked: AquaMind.voiceAutoSend
+                            onToggledByUser: checked => AquaMind.setVoiceAutoSend(checked)
+                        }
+                        CompactToggle {
+                            objectName: "companionVoiceTts"
+                            buttonIcon: "record_voice_over"
+                            text: "Spoken replies (TTS)"
+                            tooltipText: "Speak Companion chat replies aloud when voice output is enabled."
+                            checked: AquaMind.voiceTtsEnabled
+                            onToggledByUser: checked => AquaMind.setVoiceTtsEnabled(checked)
+                        }
                     }
                 }
             }
-        }
 
-        SettingsCardSection {
-            id: proactiveCard
-            property bool _preventBentoReparent: true
-            Layout.columnSpan: unifiedOverviewGrid.columns
-            Layout.preferredWidth: 1
-            Layout.fillWidth: true
-            Layout.alignment: Qt.AlignTop
-            settingsTaskSection: "behavior"
-            visible: root.isOverviewTab
-            expanded: true
-            title: "Proactive & Reminders"
-            icon: "notifications_active"
-            SettingsGroup {
-                enabled: Config.ready
+            SettingsCardSection {
+                id: proactiveCard
+                property bool _preventBentoReparent: true
+                Layout.preferredWidth: 1
+                Layout.fillWidth: true
+                Layout.fillHeight: false
+                Layout.alignment: Qt.AlignTop
+                settingsTaskSection: "behavior"
+                visible: root.isOverviewTab
+                expanded: true
+                title: "Proactive & Reminders"
+                icon: "notifications_active"
+                SettingsGroup {
+                    enabled: Config.ready
 
-                // ROW 1: Proactive Check-ins + Frequency (Left) | Quiet Hours + Start/End (Right)
-                GridLayout {
-                    objectName: "aquaQuietHoursGrid"
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    Layout.minimumWidth: 0
-                    columns: root.availableRowWidth > 520 ? 2 : 1
-                    uniformCellWidths: columns > 1
-                    columnSpacing: 14
-                    rowSpacing: 6
-
-                    RowLayout {
+                    GridLayout {
+                        objectName: "aquaQuietHoursGrid"
                         Layout.fillWidth: true
                         Layout.preferredWidth: 1
                         Layout.minimumWidth: 0
-                        Layout.alignment: Qt.AlignVCenter
-                        spacing: 8
-                        CompactToggle {
-                            objectName: "aquaEnableProactive"
+                        columns: root.availableRowWidth > 520 ? 2 : 1
+                        uniformCellWidths: columns === 2
+                        columnSpacing: 12
+                        rowSpacing: 8
+
+                        ColumnLayout {
                             Layout.fillWidth: true
                             Layout.preferredWidth: 1
-                            Layout.minimumWidth: 80
-                            buttonIcon: "notifications_active"
-                            text: Translation.tr("Allow proactive check-ins and reminders")
-                            tooltipText: Translation.tr("Off by default. Pauses during Focus, fullscreen, games, dialogs and quiet hours. Repeatedly ignored offers pause until you interact or the next day.")
-                            checked: AquaMind.options.proactiveEnabled === true
-                            enabled: AquaMind.options.proactiveEnabled !== undefined
-                            onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.proactiveEnabled", checked)
+                            Layout.minimumWidth: 0
+                            Layout.alignment: Qt.AlignTop
+                            spacing: 6
+                            CompactToggle {
+                                objectName: "aquaEnableProactive"
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                buttonIcon: "notifications_active"
+                                text: Translation.tr("Allow proactive check-ins and reminders")
+                                tooltipText: Translation.tr("Off by default. Pauses during Focus, fullscreen, games, dialogs and quiet hours. Repeatedly ignored offers pause until you interact or the next day.")
+                                checked: AquaMind.options.proactiveEnabled === true
+                                enabled: AquaMind.options.proactiveEnabled !== undefined
+                                onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.proactiveEnabled", checked)
+                            }
+                            InlineChoice {
+                                objectName: "aquaProactiveFrequency"
+                                Layout.fillWidth: true
+                                label: Translation.tr("Frequency")
+                                comboMinWidth: 140
+                                description: Translation.tr("Check-ins and reminders")
+                                options: [
+                                    {
+                                        displayName: Translation.tr("Rarely while idle"),
+                                        value: "rare"
+                                    },
+                                    {
+                                        displayName: Translation.tr("Occasionally while idle"),
+                                        value: "occasional"
+                                    },
+                                    {
+                                        displayName: Translation.tr("Regularly while idle"),
+                                        value: "regular"
+                                    },
+                                    {
+                                        displayName: Translation.tr("Often while idle"),
+                                        value: "often"
+                                    },
+                                    {
+                                        displayName: Translation.tr("Only when I chat"),
+                                        value: "manual"
+                                    }
+                                ]
+                                currentValue: AquaMind.proactive
+                                onSelected: value => Config.setNestedValue("abyss.companionMind.proactive", value)
+                            }
                         }
-                        InlineChoice {
-                            objectName: "aquaProactiveFrequency"
-                            Layout.fillWidth: false
-                            label: ""
-                            comboMinWidth: 136
-                            description: Translation.tr("Check-ins and reminders")
-                            options: [
-                                {
-                                    displayName: Translation.tr("Rarely while idle"),
-                                    value: "rare"
-                                },
-                                {
-                                    displayName: Translation.tr("Occasionally while idle"),
-                                    value: "occasional"
-                                },
-                                {
-                                    displayName: Translation.tr("Regularly while idle"),
-                                    value: "regular"
-                                },
-                                {
-                                    displayName: Translation.tr("Often while idle"),
-                                    value: "often"
-                                },
-                                {
-                                    displayName: Translation.tr("Only when I chat"),
-                                    value: "manual"
-                                }
-                            ]
-                            currentValue: AquaMind.proactive
-                            onSelected: value => Config.setNestedValue("abyss.companionMind.proactive", value)
-                        }
-                    }
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        Layout.minimumWidth: 0
-                        Layout.alignment: Qt.AlignVCenter
-                        spacing: 8
-                        CompactToggle {
-                            objectName: "aquaQuietHoursToggle"
+                        ColumnLayout {
                             Layout.fillWidth: true
                             Layout.preferredWidth: 1
-                            Layout.minimumWidth: 76
-                            buttonIcon: "bedtime"
-                            text: Translation.tr("Quiet hours")
-                            tooltipText: "Pause automatic check-ins and reminders during your quiet hours."
-                            checked: AquaMind.options.proactiveQuietEnabled !== false
-                            onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.proactiveQuietEnabled", checked)
-                        }
-                        InlineChoice {
-                            objectName: "aquaQuietHoursStart"
-                            Layout.fillWidth: false
-                            label: "Start"
-                            comboMinWidth: 78
-                            options: [
-                                {
-                                    displayName: "20:00",
-                                    value: 1200
-                                },
-                                {
-                                    displayName: "22:00",
-                                    value: 1320
-                                },
-                                {
-                                    displayName: "00:00",
-                                    value: 0
+                            Layout.minimumWidth: 0
+                            Layout.alignment: Qt.AlignTop
+                            spacing: 6
+                            CompactToggle {
+                                objectName: "aquaQuietHoursToggle"
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                buttonIcon: "bedtime"
+                                text: Translation.tr("Quiet hours")
+                                tooltipText: "Pause automatic check-ins and reminders during your quiet hours."
+                                checked: AquaMind.options.proactiveQuietEnabled !== false
+                                onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.proactiveQuietEnabled", checked)
+                            }
+                            Flow {
+                                Layout.fillWidth: true
+                                spacing: 8
+                                InlineChoice {
+                                    objectName: "aquaQuietHoursStart"
+                                    Layout.fillWidth: false
+                                    label: "Start"
+                                    comboMinWidth: 78
+                                    options: [
+                                        { displayName: "20:00", value: 1200 },
+                                        { displayName: "22:00", value: 1320 },
+                                        { displayName: "00:00", value: 0 }
+                                    ]
+                                    currentValue: AquaMind.options.proactiveQuietStart ?? 1320
+                                    onSelected: value => Config.setNestedValue("abyss.companionMind.proactiveQuietStart", value)
                                 }
-                            ]
-                            currentValue: AquaMind.options.proactiveQuietStart ?? 1320
-                            onSelected: value => Config.setNestedValue("abyss.companionMind.proactiveQuietStart", value)
-                        }
-                        InlineChoice {
-                            objectName: "aquaQuietHoursEnd"
-                            Layout.fillWidth: false
-                            label: "End"
-                            comboMinWidth: 78
-                            options: [
-                                {
-                                    displayName: "06:00",
-                                    value: 360
-                                },
-                                {
-                                    displayName: "08:00",
-                                    value: 480
-                                },
-                                {
-                                    displayName: "10:00",
-                                    value: 600
+                                InlineChoice {
+                                    objectName: "aquaQuietHoursEnd"
+                                    Layout.fillWidth: false
+                                    label: "End"
+                                    comboMinWidth: 78
+                                    options: [
+                                        { displayName: "06:00", value: 360 },
+                                        { displayName: "08:00", value: 480 },
+                                        { displayName: "10:00", value: 600 }
+                                    ]
+                                    currentValue: AquaMind.options.proactiveQuietEnd ?? 480
+                                    onSelected: value => Config.setNestedValue("abyss.companionMind.proactiveQuietEnd", value)
                                 }
-                            ]
-                            currentValue: AquaMind.options.proactiveQuietEnd ?? 480
-                            onSelected: value => Config.setNestedValue("abyss.companionMind.proactiveQuietEnd", value)
-                        }
-                    }
-                }
-
-                // ROW 2: Reminder Sources (3 Columns)
-                GridLayout {
-                    objectName: "aquaReminderSourcesGrid"
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    Layout.minimumWidth: 0
-                    columns: root.availableRowWidth > 520 ? 3 : 1
-                    uniformCellWidths: columns > 1
-                    columnSpacing: 14
-                    rowSpacing: 6
-
-                    CompactToggle {
-                        objectName: "aquaPlannerReminders"
-                        Layout.preferredWidth: 1
-                        Layout.minimumWidth: 0
-                        buttonIcon: "event_upcoming"
-                        text: "Read Weekly Planner events"
-                        tooltipText: "Use scheduled events from your Alis Weekly Planner for proactive reminders."
-                        checked: AquaMind.plannerRemindersEnabled
-                        onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.calendarRemindersEnabled", checked)
-                        Item {
-                            objectName: "aquaCalendarReminders"
-                            visible: false
+                            }
                         }
                     }
 
-                    CompactToggle {
-                        objectName: "aquaTodoReminders"
-                        Layout.preferredWidth: 1
-                        Layout.minimumWidth: 0
-                        buttonIcon: "checklist"
-                        text: Translation.tr("Read Todo items for reminders")
-                        tooltipText: "Use timed tasks from your Alis Todo list for proactive reminders."
-                        checked: AquaMind.todoRemindersEnabled
-                        onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.todoRemindersEnabled", checked)
-                    }
+                    SettingsDivider {}
 
-                    CompactToggle {
-                        objectName: "aquaReminderNotifications"
-                        Layout.preferredWidth: 1
-                        Layout.minimumWidth: 0
-                        buttonIcon: "notifications"
-                        text: Translation.tr("Show reminder notifications")
-                        tooltipText: Translation.tr("Also send consented reminders to the notification center. Off by default.")
-                        checked: AquaMind.reminderNotificationsEnabled
-                        onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.reminderNotificationsEnabled", checked)
-                    }
-                }
-
-                // ROW 3: Offer Quotas (Left) | Personalize Dialogue Inline (Right)
-                GridLayout {
-                    objectName: "aquaProactiveQuotaGrid"
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    Layout.minimumWidth: 0
-                    columns: root.availableRowWidth > 520 ? 2 : 1
-                    uniformCellWidths: columns > 1
-                    columnSpacing: 14
-                    rowSpacing: 6
-
-                    RowLayout {
+                    GridLayout {
+                        objectName: "aquaReminderSourcesGrid"
                         Layout.fillWidth: true
                         Layout.preferredWidth: 1
                         Layout.minimumWidth: 0
-                        Layout.alignment: Qt.AlignVCenter
-                        spacing: 10
-                        InlineChoice {
+                        columns: root.availableRowWidth > 520 ? 2 : 1
+                        uniformCellWidths: columns > 1
+                        columnSpacing: 10
+                        rowSpacing: 8
+
+                        CompactToggle {
+                            objectName: "aquaPlannerReminders"
+                            Layout.preferredWidth: 1
+                            Layout.minimumWidth: 0
+                            buttonIcon: "event_upcoming"
+                            text: "Read Weekly Planner events"
+                            tooltipText: "Use scheduled events from your Alis Weekly Planner for proactive reminders."
+                            checked: AquaMind.plannerRemindersEnabled
+                            onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.calendarRemindersEnabled", checked)
+                            Item {
+                                objectName: "aquaCalendarReminders"
+                                visible: false
+                            }
+                        }
+
+                        CompactToggle {
+                            objectName: "aquaTodoReminders"
+                            Layout.preferredWidth: 1
+                            Layout.minimumWidth: 0
+                            buttonIcon: "checklist"
+                            text: Translation.tr("Read Todo items for reminders")
+                            tooltipText: "Use timed tasks from your Alis Todo list for proactive reminders."
+                            checked: AquaMind.todoRemindersEnabled
+                            onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.todoRemindersEnabled", checked)
+                        }
+
+                        CompactToggle {
+                            objectName: "aquaReminderNotifications"
+                            Layout.preferredWidth: 1
+                            Layout.minimumWidth: 0
+                            buttonIcon: "notifications"
+                            text: Translation.tr("Show reminder notifications")
+                            tooltipText: Translation.tr("Also send consented reminders to the notification center. Off by default.")
+                            checked: AquaMind.reminderNotificationsEnabled
+                            onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.reminderNotificationsEnabled", checked)
+                        }
+
+                        CompactToggle {
+                            objectName: "companionOverviewMemoryOptIn"
+                            Layout.preferredWidth: 1
+                            Layout.minimumWidth: 0
+                            buttonIcon: "bookmark"
+                            text: Translation.tr("Use saved memories with local models")
+                            tooltipText: Translation.tr("Only entries you save here are remembered. No automatic extraction from chat. Turning this off stops use and keeps your records available for review or deletion.")
+                            checked: AquaMind.memoryEnabled
+                            enabled: AquaMind.options.memoryEnabled !== undefined && !AquaMind.busy
+                            onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.memoryEnabled", checked)
+                        }
+                    }
+
+                    SettingsDivider {}
+
+                    GridLayout {
+                        objectName: "aquaProactiveQuotaGrid"
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        Layout.minimumWidth: 0
+                        columns: root.availableRowWidth > 520 ? 2 : 1
+                        uniformCellWidths: columns === 2
+                        columnSpacing: 12
+                        rowSpacing: 8
+
+                        CompactChoice {
                             objectName: "aquaProactiveDailyCap"
-                            Layout.preferredWidth: 1
                             label: Translation.tr("Daily offer limit")
-                            comboMinWidth: 64
+                            description: Translation.tr("Daily offer limit")
                             options: [
-                                {
-                                    displayName: "2",
-                                    value: 2
-                                },
-                                {
-                                    displayName: "4",
-                                    value: 4
-                                },
-                                {
-                                    displayName: "6",
-                                    value: 6
-                                },
-                                {
-                                    displayName: "10",
-                                    value: 10
-                                }
+                                { displayName: "2", value: 2 },
+                                { displayName: "4", value: 4 },
+                                { displayName: "6", value: 6 },
+                                { displayName: "10", value: 10 }
                             ]
                             currentValue: AquaMind.options.proactiveDailyCap ?? 6
                             onSelected: value => Config.setNestedValue("abyss.companionMind.proactiveDailyCap", value)
                         }
-                        InlineChoice {
+
+                        CompactChoice {
                             objectName: "aquaProactiveEventCap"
-                            Layout.preferredWidth: 1
                             label: Translation.tr("Limit for each kind of offer")
-                            comboMinWidth: 60
+                            description: Translation.tr("Limit for each kind of offer")
                             options: [
-                                {
-                                    displayName: "1",
-                                    value: 1
-                                },
-                                {
-                                    displayName: "2",
-                                    value: 2
-                                },
-                                {
-                                    displayName: "3",
-                                    value: 3
-                                }
+                                { displayName: "1", value: 1 },
+                                { displayName: "2", value: 2 },
+                                { displayName: "3", value: 3 }
                             ]
                             currentValue: AquaMind.options.proactiveEventCap ?? 3
                             onSelected: value => Config.setNestedValue("abyss.companionMind.proactiveEventCap", value)
                         }
                     }
+                }
+            }
+
+            SettingsCardSection {
+                id: dialoguePrivacyCard
+                property bool _preventBentoReparent: true
+                Layout.preferredWidth: 1
+                Layout.fillWidth: true
+                Layout.fillHeight: false
+                Layout.alignment: Qt.AlignTop
+                settingsTaskSection: "behavior"
+                visible: root.isOverviewTab
+                expanded: true
+                title: "Dialogue & Context"
+                icon: "mood"
+                SettingsGroup {
+                    enabled: Config.ready
 
                     RowLayout {
                         Layout.fillWidth: true
-                        Layout.preferredWidth: 1
                         Layout.minimumWidth: 0
-                        Layout.alignment: Qt.AlignVCenter
                         spacing: 8
                         CompactToggle {
                             objectName: "aquaDialogueConsent"
                             Layout.fillWidth: true
                             Layout.preferredWidth: 1
-                            Layout.minimumWidth: 80
+                            Layout.minimumWidth: 0
                             buttonIcon: "mood"
                             text: Translation.tr("Personalize local dialogue")
                             tooltipText: Translation.tr("Use your chosen tone and today's explicit check-in for local replies. Familiarity is your choice. No relationship score, penalties for absence or pressure to return.")
@@ -1127,53 +1284,122 @@ ContentPage {
                             enabled: AquaMind.options.bondEnabled !== undefined
                             onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.bondEnabled", checked)
                         }
-                        InlineChoice {
-                            objectName: "aquaDialogueTone"
-                            Layout.fillWidth: false
-                            label: ""
-                            description: Translation.tr("Dialogue tone")
-                            comboMinWidth: 84
-                            options: [
-                                {
-                                    displayName: Translation.tr("Gentle"),
-                                    value: "gentle"
-                                },
-                                {
-                                    displayName: Translation.tr("Witty"),
-                                    value: "witty"
-                                },
-                                {
-                                    displayName: Translation.tr("Concise"),
-                                    value: "concise"
-                                }
-                            ]
-                            currentValue: AquaMind.options.dialogueTone ?? "gentle"
-                            onSelected: value => Config.setNestedValue("abyss.companionMind.dialogueTone", value)
-                        }
-                        InlineChoice {
-                            objectName: "aquaDialogueFamiliarity"
-                            Layout.fillWidth: false
-                            label: ""
-                            description: Translation.tr("Familiarity")
-                            comboMinWidth: 96
-                            options: [
-                                {
-                                    displayName: Translation.tr("Neutral"),
-                                    value: "neutral"
-                                },
-                                {
-                                    displayName: Translation.tr("Familiar coworker"),
-                                    value: "familiar"
-                                }
-                            ]
-                            currentValue: AquaMind.options.familiarity ?? "neutral"
-                            onSelected: value => Config.setNestedValue("abyss.companionMind.familiarity", value)
-                        }
                         CompactIconButton {
                             objectName: "aquaResetDialogue"
                             iconName: "restart_alt"
                             tooltipText: Translation.tr("Reset dialogue preferences")
                             onClicked: AquaMind.resetDialogue()
+                        }
+                    }
+
+                    GridLayout {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        columns: dialoguePrivacyCard.width >= 440 ? 2 : 1
+                        uniformCellWidths: columns > 1
+                        columnSpacing: 12
+                        rowSpacing: 8
+
+                        CompactChoice {
+                            objectName: "aquaDialogueTone"
+                            label: Translation.tr("Dialogue tone")
+                            description: Translation.tr("Dialogue tone")
+                            options: [
+                                { displayName: Translation.tr("Gentle"), value: "gentle" },
+                                { displayName: Translation.tr("Witty"), value: "witty" },
+                                { displayName: Translation.tr("Concise"), value: "concise" }
+                            ]
+                            currentValue: AquaMind.options.dialogueTone ?? "gentle"
+                            onSelected: value => Config.setNestedValue("abyss.companionMind.dialogueTone", value)
+                        }
+
+                        CompactChoice {
+                            objectName: "aquaDialogueFamiliarity"
+                            label: Translation.tr("Familiarity")
+                            description: Translation.tr("Familiarity")
+                            options: [
+                                { displayName: Translation.tr("Neutral"), value: "neutral" },
+                                { displayName: Translation.tr("Familiar coworker"), value: "familiar" }
+                            ]
+                            currentValue: AquaMind.options.familiarity ?? "neutral"
+                            onSelected: value => Config.setNestedValue("abyss.companionMind.familiarity", value)
+                        }
+                    }
+
+                    SettingsDivider {}
+
+                    GridLayout {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        columns: dialoguePrivacyCard.width >= 440 ? 2 : 1
+                        uniformCellWidths: columns > 1
+                        columnSpacing: 10
+                        rowSpacing: 8
+
+                        CompactToggle {
+                            objectName: "companionWindowContext"
+                            buttonIcon: "web_asset"
+                            text: "Active window awareness"
+                            tooltipText: "Allow Companion to observe the focused application title when permitted."
+                            checked: root.preferences.contextEnabled
+                            onToggledByUser: checked => root.setPreference("contextEnabled", checked)
+                        }
+
+                        CompactToggle {
+                            objectName: "companionFocusContext"
+                            buttonIcon: "self_improvement"
+                            text: "Share Focus state"
+                            tooltipText: "Share active Focus timer state with Companion reactions."
+                            checked: root.preferences.contextFocusEnabled
+                            onToggledByUser: checked => root.setPreference("contextFocusEnabled", checked)
+                        }
+
+                        CompactToggle {
+                            objectName: "companionOverviewContextAi"
+                            buttonIcon: "psychology"
+                            text: Translation.tr("Share Alis AI activity")
+                            tooltipText: Translation.tr("Only working, waiting for approval and finished. No prompts, replies, tools or permission grants.")
+                            enabled: root.preferences.contextEnabled
+                            checked: root.preferences.contextAiEnabled
+                            onToggledByUser: checked => root.setPreference("contextAiEnabled", checked)
+                        }
+
+                        CompactToggle {
+                            objectName: "companionOverviewAutoRouting"
+                            buttonIcon: "alt_route"
+                            text: "Auto model routing"
+                            tooltipText: "Automatically route quick actions and deep reasoning across configured models."
+                            checked: Config.options?.abyss?.companionMind?.autoModelRoutingEnabled !== false
+                            onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.autoModelRoutingEnabled", checked)
+                        }
+                    }
+
+                    GridLayout {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        columns: dialoguePrivacyCard.width >= 440 ? 2 : 1
+                        uniformCellWidths: columns > 1
+                        columnSpacing: 12
+                        rowSpacing: 8
+
+                        InlineChoice {
+                            objectName: "companionOverviewIdleUnload"
+                            Layout.fillWidth: true
+                            label: "Idle unload"
+                            comboMinWidth: 96
+                            options: AquaMind.llmIdleUnloadOptions
+                            currentValue: AquaMind.llmIdleUnloadMinutes
+                            onSelected: value => AquaMind.setLlmIdleUnloadMinutes(Number(value))
+                        }
+
+                        InlineChoice {
+                            objectName: "companionOverviewScreenshotRetention"
+                            Layout.fillWidth: true
+                            label: "Screenshots"
+                            comboMinWidth: 96
+                            options: AquaMind.screenshotRetentionOptions
+                            currentValue: AquaMind.screenshotRetentionDays
+                            onSelected: value => AquaMind.setScreenshotRetentionDays(Number(value))
                         }
                     }
                 }
@@ -1204,8 +1430,31 @@ ContentPage {
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
                     readonly property bool _boundedEmbedded: root.embedded && root.targetEmbeddedHeight > 0
+                    readonly property real _availEmbeddedHeight: Math.max(180, root.targetEmbeddedHeight - aiCard.chromeImplicitHeight - SettingsMaterialPreset.groupPadding * 2)
+                    readonly property real _nonStorageOverhead: {
+                        const sp = embeddedAiInnerCol.spacing;
+                        let total = 0;
+                        let visCount = 0;
+                        const parts = [
+                            aiModelGrid,
+                            settingsModelAliasRow,
+                            dualModelRoutingGrid,
+                            aiSlidersGrid,
+                            aiDesktopAccessGrid,
+                            storageFoldersRow
+                        ];
+                        for (let i = 0; i < parts.length; ++i) {
+                            const it = parts[i];
+                            if (it && it.visible) {
+                                total += it.implicitHeight;
+                                visCount += 1;
+                            }
+                        }
+                        return total + visCount * sp + 56;
+                    }
+                    readonly property real _storageListBudget: Math.max(168, _availEmbeddedHeight - _nonStorageOverhead)
                     implicitHeight: _boundedEmbedded
-                        ? Math.max(120, root.targetEmbeddedHeight - aiCard.chromeImplicitHeight - SettingsMaterialPreset.groupPadding * 2)
+                        ? _availEmbeddedHeight
                         : embeddedAiInnerCol.implicitHeight
                     Layout.preferredHeight: implicitHeight
                     contentWidth: width
@@ -1213,6 +1462,8 @@ ContentPage {
                     clip: _boundedEmbedded
                     boundsBehavior: Flickable.StopAtBounds
                     interactive: _boundedEmbedded && contentHeight > height + 1
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff; visible: false; width: 0 }
+                    ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AlwaysOff; visible: false; height: 0 }
 
                     WheelHandler {
                         enabled: embeddedAiFlickable._boundedEmbedded && embeddedAiFlickable.contentHeight > embeddedAiFlickable.height + 1
@@ -1459,6 +1710,7 @@ ContentPage {
 
                 // ROW 1B: Dual-Model Auto-Routing (UI Action vs Deep Thinking), MTP Auto-Optimization, Unload & Screenshot Retention
                 GridLayout {
+                    id: dualModelRoutingGrid
                     objectName: "aquaDualModelRoutingGrid"
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
@@ -1499,12 +1751,14 @@ ContentPage {
                         }
                     }
 
-                    RowLayout {
+                    GridLayout {
                         Layout.fillWidth: true
                         Layout.preferredWidth: 1
                         Layout.minimumWidth: 0
-                        Layout.alignment: Qt.AlignVCenter
-                        spacing: 8
+                        columns: root.availableRowWidth >= 420 ? 2 : 1
+                        uniformCellWidths: columns > 1
+                        columnSpacing: 8
+                        rowSpacing: 6
                         StyledComboBox {
                             objectName: "aquaActionModelSelector"
                             Layout.fillWidth: true
@@ -1635,6 +1889,7 @@ ContentPage {
 
                 // ROW 1C: Combined 1-Row 2-Sliders (Thinking Effort Slider + Temperature Slider)
                 GridLayout {
+                    id: aiSlidersGrid
                     objectName: "aquaSlidersGrid"
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
@@ -1917,11 +2172,12 @@ ContentPage {
 
                 // ROW 5: Unified Full Desktop & App Access (merged Desktop Agent) + Share Alis AI Activity
                 GridLayout {
+                    id: aiDesktopAccessGrid
                     objectName: "aquaDialogueGrid"
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
                     Layout.minimumWidth: 0
-                    columns: root.availableRowWidth > (root.embedded ? 400 : 520) ? 2 : 1
+                    columns: root.availableRowWidth > 560 ? 2 : 1
                     uniformCellWidths: columns > 1
                     columnSpacing: root.embedded ? 10 : 14
                     rowSpacing: root.embedded ? 4 : 6
@@ -1961,6 +2217,7 @@ ContentPage {
 
                 // ROW 5B: Storage & Capabilities Sub-Tabs (Skills [Built-in + Learned merged], MCP, RAG / State)
                 RowLayout {
+                    id: storageFoldersRow
                     objectName: "aquaStorageFoldersRow"
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
@@ -2337,10 +2594,15 @@ ContentPage {
                         Flickable {
                             id: skillsListFlickable
                             objectName: "aquaSkillsListFlickable"
-                            readonly property real rowUnitHeight: skillsCardsRepeater.count > 0 && skillsCardsRepeater.itemAt(0) ? skillsCardsRepeater.itemAt(0).implicitHeight : 74
-                            readonly property real maxRowsHeight: root.embedded
-                                ? Math.max(74, Math.min(rowUnitHeight * 1.4, (root.targetEmbeddedHeight > 0 ? root.targetEmbeddedHeight - 395 : 108)))
-                                : (rowUnitHeight * 3 + skillsCardsGrid.rowSpacing * 2)
+                            readonly property real rowUnitHeight: skillsCardsRepeater.count > 0 && skillsCardsRepeater.itemAt(0) ? skillsCardsRepeater.itemAt(0).implicitHeight : 76
+                            readonly property real maxRowsHeight: {
+                                if (!root.embedded)
+                                    return rowUnitHeight * 3 + skillsCardsGrid.rowSpacing * 2;
+                                const budget = root.targetEmbeddedHeight > 0 ? embeddedAiFlickable._storageListBudget : (rowUnitHeight * 2 + skillsCardsGrid.rowSpacing);
+                                const unit = rowUnitHeight + skillsCardsGrid.rowSpacing;
+                                const fullRows = Math.max(2, Math.floor((budget + skillsCardsGrid.rowSpacing) / Math.max(1, unit)));
+                                return fullRows * rowUnitHeight + (fullRows - 1) * skillsCardsGrid.rowSpacing;
+                            }
                             Layout.fillWidth: true
                             Layout.preferredWidth: 1
                             Layout.minimumWidth: 0
@@ -2352,6 +2614,8 @@ ContentPage {
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
                             interactive: contentHeight > height + 1
+                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff; visible: false; width: 0 }
+                            ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AlwaysOff; visible: false; height: 0 }
 
                             WheelHandler {
                                 enabled: skillsListFlickable.contentHeight > skillsListFlickable.height + 1
@@ -2367,7 +2631,7 @@ ContentPage {
                                 id: skillsCardsGrid
                                 objectName: "aquaSkillsCardsGrid"
                                 width: skillsListFlickable.width
-                                columns: root.availableRowWidth > (root.embedded ? 400 : 560) ? 2 : 1
+                                columns: (!root.embedded && root.availableRowWidth >= 760) ? 2 : 1
                                 uniformCellWidths: columns > 1
                                 columnSpacing: 10
                                 rowSpacing: 8
@@ -2386,7 +2650,8 @@ ContentPage {
                                         Layout.fillWidth: true
                                         Layout.preferredWidth: 1
                                         Layout.minimumWidth: 0
-                                        implicitHeight: skillCardCol.implicitHeight + 16
+                                        implicitHeight: Math.max(76, skillCardCol.implicitHeight + 16)
+                                        clip: true
                                         radius: 10
                                         color: Appearance.colors.colLayer2
                                         border.width: 1
@@ -2413,25 +2678,35 @@ ContentPage {
                                                 }
                                                 StyledText {
                                                     objectName: "aquaSkillTitle-" + skillCard.skillName
+                                                    Layout.fillWidth: true
+                                                    Layout.preferredWidth: 1
+                                                    Layout.minimumWidth: 0
+                                                    maximumLineCount: 1
+                                                    elide: Text.ElideRight
                                                     text: skillCard.skillName
                                                     font.weight: Font.DemiBold
                                                 }
                                                 Rectangle {
+                                                    readonly property real maxBadgeW: Math.max(60, Math.min(132, Math.floor((skillCard.width > 0 ? skillCard.width : 340) * 0.30)))
                                                     implicitHeight: 18
-                                                    implicitWidth: badgeText.implicitWidth + 10
+                                                    implicitWidth: Math.min(maxBadgeW, badgeText.implicitWidth + 10)
+                                                    Layout.maximumWidth: maxBadgeW
                                                     radius: 9
                                                     color: Qt.alpha(Appearance.colors.colPrimary, skillCard.isBuiltIn ? 0.14 : 0.22)
                                                     StyledText {
                                                         id: badgeText
-                                                        anchors.centerIn: parent
+                                                        anchors.left: parent.left
+                                                        anchors.right: parent.right
+                                                        anchors.leftMargin: 5
+                                                        anchors.rightMargin: 5
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        horizontalAlignment: Text.AlignHCenter
+                                                        maximumLineCount: 1
+                                                        elide: Text.ElideRight
                                                         text: (skillCard.isBuiltIn ? "Built-in" : "Learned") + " · " + String(skillCard.modelData?.category ?? "general")
                                                         font.pixelSize: Appearance.font.pixelSize.smallest - 1
                                                         color: Appearance.colors.colPrimary
                                                     }
-                                                }
-                                                Item {
-                                                    Layout.fillWidth: true
-                                                    Layout.minimumWidth: 0
                                                 }
                                                 CompactIconButton {
                                                     objectName: "aquaSkillOpen-" + skillCard.skillName
@@ -2541,10 +2816,15 @@ ContentPage {
                         Flickable {
                             id: mcpListFlickable
                             objectName: "aquaMcpListFlickable"
-                            readonly property real rowUnitHeight: mcpCardsRepeater.count > 0 && mcpCardsRepeater.itemAt(0) ? mcpCardsRepeater.itemAt(0).implicitHeight : 74
-                            readonly property real maxRowsHeight: root.embedded
-                                ? Math.max(74, Math.min(rowUnitHeight * 1.4, (root.targetEmbeddedHeight > 0 ? root.targetEmbeddedHeight - 395 : 108)))
-                                : (rowUnitHeight * 3 + mcpCardsGrid.rowSpacing * 2)
+                            readonly property real rowUnitHeight: mcpCardsRepeater.count > 0 && mcpCardsRepeater.itemAt(0) ? mcpCardsRepeater.itemAt(0).implicitHeight : 76
+                            readonly property real maxRowsHeight: {
+                                if (!root.embedded)
+                                    return rowUnitHeight * 3 + mcpCardsGrid.rowSpacing * 2;
+                                const budget = root.targetEmbeddedHeight > 0 ? embeddedAiFlickable._storageListBudget : (rowUnitHeight * 2 + mcpCardsGrid.rowSpacing);
+                                const unit = rowUnitHeight + mcpCardsGrid.rowSpacing;
+                                const fullRows = Math.max(2, Math.floor((budget + mcpCardsGrid.rowSpacing) / Math.max(1, unit)));
+                                return fullRows * rowUnitHeight + (fullRows - 1) * mcpCardsGrid.rowSpacing;
+                            }
                             Layout.fillWidth: true
                             Layout.preferredWidth: 1
                             Layout.minimumWidth: 0
@@ -2556,6 +2836,8 @@ ContentPage {
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
                             interactive: contentHeight > height + 1
+                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff; visible: false; width: 0 }
+                            ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AlwaysOff; visible: false; height: 0 }
 
                             WheelHandler {
                                 enabled: mcpListFlickable.contentHeight > mcpListFlickable.height + 1
@@ -2571,7 +2853,7 @@ ContentPage {
                                 id: mcpCardsGrid
                                 objectName: "aquaMcpCardsGrid"
                                 width: mcpListFlickable.width
-                                columns: root.availableRowWidth > (root.embedded ? 400 : 560) ? 2 : 1
+                                columns: (!root.embedded && root.availableRowWidth >= 760) ? 2 : 1
                                 uniformCellWidths: columns > 1
                                 columnSpacing: 10
                                 rowSpacing: 8
@@ -2594,7 +2876,8 @@ ContentPage {
                                         Layout.fillWidth: true
                                         Layout.preferredWidth: 1
                                         Layout.minimumWidth: 0
-                                        implicitHeight: mcpCardCol.implicitHeight + 16
+                                        implicitHeight: Math.max(76, mcpCardCol.implicitHeight + 16)
+                                        clip: true
                                         radius: 10
                                         color: Appearance.colors.colLayer2
                                         border.width: 1
@@ -2613,7 +2896,7 @@ ContentPage {
                                                 Layout.fillWidth: true
                                                 Layout.preferredWidth: 1
                                                 Layout.minimumWidth: 0
-                                                spacing: 6
+                                                spacing: 5
                                                 MaterialSymbol {
                                                     text: mcpCard.catName === "eyes" ? "travel_explore" : (mcpCard.catName === "eyes-hands" ? "visibility" : (mcpCard.catName === "hands" ? "terminal" : "hub"))
                                                     iconSize: 16
@@ -2621,17 +2904,31 @@ ContentPage {
                                                 }
                                                 StyledText {
                                                     objectName: "aquaMcpTitle-" + mcpCard.serverName
+                                                    Layout.fillWidth: true
+                                                    Layout.preferredWidth: 1
+                                                    Layout.minimumWidth: 0
+                                                    maximumLineCount: 1
+                                                    elide: Text.ElideRight
                                                     text: mcpCard.serverName
                                                     font.weight: Font.DemiBold
                                                 }
                                                 Rectangle {
+                                                    readonly property real maxRoleW: Math.max(54, Math.min(126, Math.floor((mcpCard.width > 0 ? mcpCard.width : 340) * 0.25)))
                                                     implicitHeight: 18
-                                                    implicitWidth: mcpRoleBadgeText.implicitWidth + 10
+                                                    implicitWidth: Math.min(maxRoleW, mcpRoleBadgeText.implicitWidth + 10)
+                                                    Layout.maximumWidth: maxRoleW
                                                     radius: 9
                                                     color: Qt.alpha(Appearance.colors.colPrimary, 0.14)
                                                     StyledText {
                                                         id: mcpRoleBadgeText
-                                                        anchors.centerIn: parent
+                                                        anchors.left: parent.left
+                                                        anchors.right: parent.right
+                                                        anchors.leftMargin: 5
+                                                        anchors.rightMargin: 5
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        horizontalAlignment: Text.AlignHCenter
+                                                        maximumLineCount: 1
+                                                        elide: Text.ElideRight
                                                         text: mcpCard.roleLabel
                                                         font.pixelSize: Appearance.font.pixelSize.smallest - 1
                                                         color: Appearance.colors.colPrimary
@@ -2639,30 +2936,35 @@ ContentPage {
                                                 }
                                                 Rectangle {
                                                     objectName: "aquaMcpVersionBadge-" + mcpCard.serverName
+                                                    readonly property real maxVerW: Math.max(46, Math.min(108, Math.floor((mcpCard.width > 0 ? mcpCard.width : 340) * 0.24)))
                                                     implicitHeight: 18
-                                                    implicitWidth: mcpVerBadgeText.implicitWidth + 10
+                                                    implicitWidth: Math.min(maxVerW, mcpVerBadgeText.implicitWidth + 10)
+                                                    Layout.maximumWidth: maxVerW
                                                     radius: 9
                                                     color: mcpCard.hasUpdate ? Qt.alpha(Appearance.colors.colPrimary, 0.26) : Qt.alpha(Appearance.colors.colSubtext, 0.14)
                                                     StyledText {
                                                         id: mcpVerBadgeText
                                                         objectName: "aquaMcpVersionText-" + mcpCard.serverName
-                                                        anchors.centerIn: parent
+                                                        anchors.left: parent.left
+                                                        anchors.right: parent.right
+                                                        anchors.leftMargin: 5
+                                                        anchors.rightMargin: 5
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        horizontalAlignment: Text.AlignHCenter
+                                                        maximumLineCount: 1
+                                                        elide: Text.ElideRight
                                                         text: mcpCard.hasUpdate ? ("v" + mcpCard.currentVer + " → v" + mcpCard.latestVer) : ("v" + mcpCard.currentVer)
                                                         font.pixelSize: Appearance.font.pixelSize.smallest - 1
                                                         font.weight: mcpCard.hasUpdate ? Font.DemiBold : Font.Normal
                                                         color: mcpCard.hasUpdate ? Appearance.colors.colPrimary : Appearance.colors.colSubtext
                                                     }
                                                 }
-                                                Item {
-                                                    Layout.fillWidth: true
-                                                    Layout.minimumWidth: 0
-                                                }
                                                 RippleButton {
                                                     id: mcpUpdateBtn
                                                     objectName: "aquaMcpUpdate-" + mcpCard.serverName
                                                     visible: mcpCard.hasUpdate
                                                     Layout.preferredHeight: 24
-                                                    Layout.preferredWidth: mcpUpdateBtnRow.implicitWidth + 14
+                                                    Layout.preferredWidth: mcpUpdateBtnRow.implicitWidth + 12
                                                     implicitHeight: 24
                                                     implicitWidth: Layout.preferredWidth
                                                     buttonRadius: 12
@@ -2840,9 +3142,14 @@ ContentPage {
                             id: ragListFlickable
                             objectName: "aquaRagListFlickable"
                             readonly property real rowUnitHeight: 30
-                            readonly property real maxRowsHeight: root.embedded
-                                ? Math.max(74, Math.min(108, (root.targetEmbeddedHeight > 0 ? root.targetEmbeddedHeight - 395 : 108)))
-                                : (rowUnitHeight * 3 + ragRowsColumn.spacing * 2)
+                            readonly property real maxRowsHeight: {
+                                if (!root.embedded)
+                                    return rowUnitHeight * 3 + ragRowsColumn.spacing * 2;
+                                const budget = root.targetEmbeddedHeight > 0 ? embeddedAiFlickable._storageListBudget : (rowUnitHeight * 3 + ragRowsColumn.spacing * 2);
+                                const unit = rowUnitHeight + ragRowsColumn.spacing;
+                                const fullRows = Math.max(3, Math.floor((budget + ragRowsColumn.spacing) / Math.max(1, unit)));
+                                return fullRows * rowUnitHeight + (fullRows - 1) * ragRowsColumn.spacing;
+                            }
                             Layout.fillWidth: true
                             Layout.preferredWidth: 1
                             Layout.minimumWidth: 0
@@ -2854,6 +3161,8 @@ ContentPage {
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
                             interactive: contentHeight > height + 1
+                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff; visible: false; width: 0 }
+                            ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AlwaysOff; visible: false; height: 0 }
 
                             WheelHandler {
                                 enabled: ragListFlickable.contentHeight > ragListFlickable.height + 1
@@ -2915,6 +3224,7 @@ ContentPage {
 
                 // ROW 6: Explicit Local Memories (2 Columns)
                 GridLayout {
+                    id: aiPermissionsGrid
                     objectName: "aquaAiPermissionsGrid"
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
@@ -2929,9 +3239,9 @@ ContentPage {
                         Layout.fillWidth: true
                         Layout.preferredWidth: 1
                         Layout.minimumWidth: 0
-                        columns: root.availableRowWidth > 540 ? 2 : 1
+                        columns: 1
                         columnSpacing: 8
-                        rowSpacing: 4
+                        rowSpacing: 6
                         CompactToggle {
                             objectName: "aquaEnableMemory"
                             Layout.fillWidth: true
@@ -2944,16 +3254,14 @@ ContentPage {
                             enabled: AquaMind.options.memoryEnabled !== undefined && !AquaMind.busy
                             onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.memoryEnabled", checked)
                         }
-                        RowLayout {
-                            Layout.fillWidth: memoryPolicyWrapGrid.columns === 1
-                            Layout.alignment: Qt.AlignVCenter
+                        Flow {
+                            Layout.fillWidth: true
                             spacing: 8
                             InlineChoice {
                                 objectName: "aquaMemoryScope"
-                                Layout.fillWidth: false
                                 label: ""
                                 description: Translation.tr("Remember for")
-                                comboMinWidth: 76
+                                comboMinWidth: 102
                                 options: [
                                     {
                                         displayName: "Aqua",
@@ -2973,10 +3281,9 @@ ContentPage {
                             }
                             InlineChoice {
                                 objectName: "aquaMemoryTtl"
-                                Layout.fillWidth: false
                                 label: ""
                                 description: Translation.tr("Keep memory")
-                                comboMinWidth: 90
+                                comboMinWidth: 164
                                 options: [
                                     {
                                         displayName: Translation.tr("7 days"),
@@ -3072,6 +3379,7 @@ ContentPage {
                 }
 
                 Flickable {
+                    id: memoryReceiptsFlickable
                     visible: AquaMind.toolReceipts.length > 0 || AquaMind.memoryNotice.length > 0 || AquaMind.memories.length > 0
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
@@ -3083,6 +3391,8 @@ ContentPage {
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
                     interactive: contentHeight > height + 1
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff; visible: false; width: 0 }
+                    ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AlwaysOff; visible: false; height: 0 }
                     ColumnLayout {
                         id: memoryReceiptsCol
                         width: parent.width
