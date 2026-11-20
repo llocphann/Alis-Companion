@@ -816,9 +816,8 @@ _LAST_INDEX_SIGNATURE: tuple | None = None
 
 
 def _fold_vi(text: str) -> str:
-    s = unicodedata.normalize("NFD", str(text or ""))
-    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
-    return s.replace("đ", "d").replace("Đ", "d").lower()
+    import knowledge_index
+    return knowledge_index.fold_text(text)
 
 
 def sync_fts5_chunks(chunks: list[dict]) -> bool:
@@ -958,6 +957,7 @@ def query_hybrid_rag(
     q_trigrams = _char_trigrams(" ".join(q_words) if q_words else raw_prompt)
 
     scored: list[tuple[float, dict]] = []
+    lexical_scores: dict[int, float] = {}
     for idx, ch in enumerate(chunks):
         h_low, t_low, s_low = folded_chunks[idx]
         hay = f"{h_low} {t_low} {s_low}"
@@ -989,8 +989,17 @@ def query_hybrid_rag(
                 overlap = len(q_trigrams & c_trigrams) / math.sqrt(len(q_trigrams) * len(c_trigrams))
                 score += overlap * 1.5
 
-        if score >= float(min_score):
-            scored.append((score, ch))
+        if score > 0.0:
+            lexical_scores[idx] = score
+
+    import knowledge_index
+    fts_ranked = [idx for idx, _ in sorted(fts_scores.items(), key=lambda it: -it[1])]
+    lex_ranked = [idx for idx, _ in sorted(lexical_scores.items(), key=lambda it: -it[1])]
+    rrf_bonus = dict(knowledge_index.rrf_fuse([fts_ranked, lex_ranked], k=60))
+    for idx, base_score in lexical_scores.items():
+        boosted = base_score + rrf_bonus.get(idx, 0.0) * 12.0
+        if boosted >= float(min_score):
+            scored.append((boosted, chunks[idx]))
 
     scored.sort(key=lambda item: (-item[0], item[1]["source"]))
     return scored

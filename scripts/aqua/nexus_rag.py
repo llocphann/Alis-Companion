@@ -472,42 +472,19 @@ def _extract_frontmatter_and_body(text: str, rel_path: str) -> tuple[str, list[s
 
 
 def _chunk_note_body(body: str, default_heading: str, max_chunk_chars: int = 950) -> list[tuple[str, str]]:
-    chunks: list[tuple[str, str]] = []
-    heading = default_heading
-    buf: list[str] = []
-    buf_len = 0
+    import knowledge_index
 
-    def _flush() -> None:
-        nonlocal buf, buf_len
-        joined = "\n".join(buf).strip()
-        if joined:
-            if len(joined) > max_chunk_chars:
-                joined = joined[:max_chunk_chars]
-            chunks.append((heading, joined))
-        buf = []
-        buf_len = 0
-
-    for line in str(body or "").splitlines():
-        s = line.strip()
-        if not s:
-            if buf_len >= max_chunk_chars - 120:
-                _flush()
-            continue
-        m_h = re.match(r"^(#{1,4})\s+(.+)$", s)
-        if m_h:
-            _flush()
-            heading = m_h.group(2).strip()[:140]
-            continue
-        if buf_len + len(s) + 1 > max_chunk_chars and buf:
-            _flush()
-        buf.append(s)
-        buf_len += len(s) + 1
-        if len(chunks) >= 24:
-            break
-    _flush()
-    if not chunks and body.strip():
-        chunks.append((default_heading, body.strip()[:max_chunk_chars]))
-    return chunks
+    chunks = knowledge_index.chunk_document(
+        body,
+        title=default_heading,
+        source_label=default_heading,
+        max_chunk_chars=max_chunk_chars,
+        overlap_ratio=0.15,
+        max_chunks=200,
+    )
+    if not chunks and str(body or "").strip():
+        return [(default_heading, str(body).strip()[:max_chunk_chars])]
+    return [(str(c["heading"]), str(c["content"])) for c in chunks]
 
 
 def _init_nexus_db(conn: sqlite3.Connection) -> None:
@@ -554,8 +531,9 @@ def _index_single_file(
         "VALUES (?, ?, ?, ?, ?, ?)",
         (rel_str, st_mtime_ns, st_size, title, folder, tags_str),
     )
+    import knowledge_index
     rows = []
-    folded_meta = _fold_ascii(f"{rel_str} {title} {folder} {tags_str}")
+    folded_meta = knowledge_index.fold_text(f"{rel_str} {title} {folder} {tags_str}", include_cjk_bigrams=True)
     for hd, txt in chunks:
         rows.append((
             rel_str,
@@ -564,7 +542,7 @@ def _index_single_file(
             tags_str,
             hd,
             txt,
-            f"{folded_meta}\n{_fold_ascii(hd)}\n{_fold_ascii(txt)}",
+            f"{folded_meta}\n{knowledge_index.fold_text(hd, include_cjk_bigrams=True)}\n{knowledge_index.fold_text(txt, include_cjk_bigrams=True)}",
         ))
     conn.executemany(
         "INSERT INTO nexus_fts(rel_path, title, folder, tags, heading, body, folded) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -843,7 +821,27 @@ def search_nexus_knowledge(
     finally:
         conn.close()
 
-    scored_rows.sort(key=lambda x: (-x[0], x[1]["relPath"]))
+    import knowledge_index
+    exact_ranked = [((str(c["relPath"]), str(c["heading"]))) for _, c in sorted(scored_rows, key=lambda x: (-x[0], x[1]["relPath"]))]
+    lex_ranked = [
+        (str(c["relPath"]), str(c["heading"]))
+        for _, c in sorted(
+            scored_rows,
+            key=lambda x: (
+                -sum(1 for t in terms if t in knowledge_index.fold_text(f"{x[1]['title']} {x[1]['heading']} {x[1]['snippet']}")),
+                x[1]["relPath"],
+            ),
+        )
+    ]
+    rrf_scores = dict(knowledge_index.rrf_fuse([exact_ranked, lex_ranked], k=60))
+    reranked: list[tuple[float, dict]] = []
+    for base_sc, c in scored_rows:
+        r_key = (str(c["relPath"]), str(c["heading"]))
+        final_sc = base_sc + rrf_scores.get(r_key, 0.0) * 18.0
+        c["score"] = round(final_sc, 3)
+        reranked.append((final_sc, c))
+    reranked.sort(key=lambda x: (-x[0], x[1]["relPath"]))
+    scored_rows = reranked
     citations: list[dict] = []
     snippets: list[str] = []
     est_tokens = 0

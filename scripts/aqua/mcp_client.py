@@ -2754,149 +2754,26 @@ def update_server(name: str, target_version: str = "") -> dict:
 
 
 def _stdio_rpc_exchange(server: dict, method: str, params: dict | None = None, timeout_sec: float = 6.0) -> dict:
-    cmd_str = str(server.get("command") or "").strip()
-    if not cmd_str:
-        raise McpError("invalid_server_config", f"MCP server '{server['name']}' has no command.")
-    if not Path(cmd_str).is_absolute():
-        resolved_bin = shutil.which(cmd_str)
-        if not resolved_bin:
-            for cand in (
-                Path.home() / ".local/bin" / cmd_str,
-                Path.home() / ".local/share/uv/tools/graphifyy/bin" / cmd_str,
-            ):
-                if cand.is_file() and os.access(cand, os.X_OK):
-                    resolved_bin = str(cand)
-                    break
-        if resolved_bin:
-            cmd_str = resolved_bin
-    args = [str(a) for a in (server.get("args") or [])]
-    safe_env_keys = ("PATH", "HOME", "LANG", "LC_ALL", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "TERM")
-    env = {k: os.environ[k] for k in safe_env_keys if k in os.environ}
-    env["PYTHONDONTWRITEBYTECODE"] = "1"
-    for k, v in (server.get("env") or {}).items():
-        env[str(k)] = str(v)
+    import mcp_transport
 
     try:
-        proc = subprocess.Popen(
-            [cmd_str] + args,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            env=env,
-            text=True,
-            bufsize=1,
-            start_new_session=True,
-        )
-    except OSError as exc:
-        raise McpError("server_spawn_failed", f"Failed to start MCP server '{server['name']}': {exc}") from exc
-
-    def _send(msg: dict) -> None:
-        assert proc.stdin is not None
-        proc.stdin.write(json.dumps(msg, separators=(",", ":")) + "\n")
-        proc.stdin.flush()
-
-    def _recv(expected_id: int, deadline: float) -> dict:
-        assert proc.stdout is not None
-        fd = proc.stdout.fileno()
-        while time.monotonic() < deadline:
-            remaining = max(0.05, deadline - time.monotonic())
-            ready, _, _ = select.select([fd], [], [], min(0.5, remaining))
-            if not ready:
-                if proc.poll() is not None:
-                    break
-                continue
-            line = proc.stdout.readline()
-            if not line:
-                break
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                parsed = json.loads(line)
-            except ValueError:
-                continue
-            if isinstance(parsed, dict) and parsed.get("id") == expected_id:
-                if "error" in parsed and isinstance(parsed["error"], dict):
-                    raise McpError("mcp_rpc_error", str(parsed["error"].get("message") or "MCP RPC error"))
-                return parsed.get("result") if isinstance(parsed.get("result"), dict) else {}
-        raise McpError("mcp_timeout", f"MCP server '{server['name']}' timed out or closed on '{method}'.")
-
-    deadline = time.monotonic() + timeout_sec
-    try:
-        _send({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": MCP_PROTOCOL_VERSION,
-                "capabilities": {},
-                "clientInfo": {"name": "alis-companion", "version": "1.0.0"},
-            },
-        })
-        _recv(1, deadline)
-        _send({
-            "jsonrpc": "2.0",
-            "method": "notifications/initialized",
-            "params": {},
-        })
-        _send({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": method,
-            "params": params or {},
-        })
-        return _recv(2, deadline)
-    finally:
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-        except Exception:
-            pass
-        try:
-            proc.wait(timeout=1.0)
-        except Exception:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except Exception:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
+        return mcp_transport.stdio_rpc_exchange(server, method, params=params, timeout_sec=timeout_sec)
+    except mcp_transport.McpTransportError as exc:
+        raise McpError(exc.code, exc.message) from exc
 
 
 def _http_rpc_exchange(server: dict, method: str, params: dict | None = None, timeout_sec: float = 6.0) -> dict:
-    from web_tools import build_safe_opener, validate_external_url
-    url = str(server.get("url") or "").strip()
-    if not url.startswith(("http://", "https://")):
-        raise McpError("invalid_server_config", f"MCP server '{server['name']}' has an invalid HTTP URL.")
-    parsed_host = (urllib.parse.urlsplit(url).hostname or "").strip().lower()
-    explicit_loopback = parsed_host in ("127.0.0.1", "localhost", "::1")
-    ok_url, reason = validate_external_url(url, allow_local=explicit_loopback)
-    if not ok_url:
-        raise McpError("ssrf_blocked", f"MCP server '{server['name']}' HTTP target blocked ({reason}).")
-    payload = json.dumps({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": method,
-        "params": params or {},
-    }).encode("utf-8")
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-    opener = build_safe_opener(allow_local=explicit_loopback)
+    import mcp_transport
+
     try:
-        with opener.open(req, timeout=timeout_sec) as resp:
-            raw = resp.read(256 * 1024)
-        parsed = json.loads(raw.decode("utf-8", errors="replace"))
-        if not isinstance(parsed, dict):
-            raise ValueError()
-        if "error" in parsed and isinstance(parsed["error"], dict):
-            raise McpError("mcp_rpc_error", str(parsed["error"].get("message") or "MCP HTTP RPC error"))
-        return parsed.get("result") if isinstance(parsed.get("result"), dict) else {}
-    except McpError:
-        raise
-    except Exception as exc:
-        raise McpError("mcp_http_failed", f"MCP HTTP request to '{server['name']}' failed: {exc}") from exc
+        return mcp_transport.http_rpc_exchange(server, method, params=params, timeout_sec=timeout_sec)
+    except mcp_transport.McpTransportError as exc:
+        raise McpError(exc.code, exc.message) from exc
 
 
 def list_tools(server_name: str = "") -> list[dict]:
+    import mcp_transport
+
     servers = [
         s for s in list_servers()
         if s.get("enabled") is not False and (not server_name or s["name"] == server_name)
@@ -2912,14 +2789,19 @@ def list_tools(server_name: str = "") -> list[dict]:
                 if s.get("transport") == "http"
                 else _stdio_rpc_exchange(s, "tools/list")
             )
+            discovered = []
             for t in (res.get("tools") or [])[:32]:
                 if isinstance(t, dict) and t.get("name"):
-                    tools.append({
+                    discovered.append({
                         "server": s["name"],
                         "name": str(t["name"])[:80],
                         "description": str(t.get("description") or "")[:240],
                         "inputSchema": t.get("inputSchema") if isinstance(t.get("inputSchema"), dict) else {"type": "object", "properties": {}},
                     })
+            ok_integrity, diff_sig = mcp_transport.verify_tool_manifest_integrity(s["name"], discovered)
+            if not ok_integrity:
+                raise McpError("mcp_rug_pull_detected", f"MCP server '{s['name']}' silently altered tool schemas ({diff_sig}).")
+            tools.extend(discovered)
         except McpError:
             if server_name:
                 raise

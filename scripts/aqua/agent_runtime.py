@@ -5097,20 +5097,23 @@ def _synthesize_observations_with_llm(
                 "and never echo raw logs or append generic wrap-up filler. Cite sources compactly as ([domain](url)) or `[file#line]`. "
                 "Do not output <think>. {REASON:none}"
             )
-        if lang == "vi":
-            usr_msg = (
-                f"{{REASON:none}}\nCâu hỏi / Yêu cầu của người dùng: {prompt[:500]}\n\n"
-                f"Dữ liệu thu thập được từ công cụ & trang web:\n{observations_text[:4200]}"
-            )
-        else:
-            usr_msg = (
-                f"{{REASON:none}}\nUser Request: {prompt[:500]}\n\n"
-                f"Gathered Tool & Webpage Observations:\n{observations_text[:4200]}"
-            )
-        if custom_sys:
-            sys_msg = f"{custom_sys[:1200]}\n\n{sys_msg}"
-        if rules_txt and rules_txt not in sys_msg:
-            sys_msg = f"{sys_msg}\n\n## Active Rules\n{rules_txt[:1000]}"
+        import prompt_assembler
+
+        untrusted_obs = [("tool_observations", observations_text[:4200])]
+        user_q = (
+            f"Câu hỏi / Yêu cầu của người dùng: {prompt[:500]}"
+            if lang == "vi"
+            else f"User Request: {prompt[:500]}"
+        )
+        assembled_msgs = prompt_assembler.assemble_messages(
+            system_persona=sys_msg,
+            trusted_system_prompt=custom_sys[:1200],
+            trusted_rules=rules_txt[:1000],
+            user_prompt=user_q,
+            untrusted_blocks=untrusted_obs,
+            directive_prefix="{REASON:none}",
+            system_max_chars=2400,
+        )
         opt_temp = options.get("temperature")
         synth_temp = (
             round(max(0.0, min(2.0, float(opt_temp))), 2)
@@ -5119,10 +5122,7 @@ def _synthesize_observations_with_llm(
         )
         body = {
             "model": mdl_name or "default",
-            "messages": [
-                {"role": "system", "content": sys_msg[:2400]},
-                {"role": "user", "content": usr_msg},
-            ],
+            "messages": assembled_msgs,
             "temperature": synth_temp,
             "max_tokens": synth_max_tokens,
             "reasoning_effort": "none",
@@ -5310,36 +5310,42 @@ def run_react_tool_loop(
     eff_provider = str(opts.get("provider") or route_meta.get("provider") or "").strip()
     eff_ctx_window = opts.get("contextWindow")
 
-    sys_prompt = str(system_prompt or opts.get("systemPrompt") or "").strip() or (
+    import prompt_assembler
+
+    raw_sys = str(system_prompt or opts.get("systemPrompt") or "").strip() or (
         "You are Alis-Companion, a full-authority Linux desktop agent running a multi-step ReAct loop. "
         "You may chain multiple tool calls across turns (e.g. search -> fetch_url -> file_mutate, or read_spill on spilled outputs) when needed. "
         "Once you have gathered enough observations, provide a clear, well-structured Markdown answer with compact citations."
     )
     rules_txt = str(opts.get("rulesText") or "").strip()
-    if rules_txt and rules_txt not in sys_prompt:
-        sys_prompt = f"{sys_prompt}\n\n## Active Rules\n{rules_txt[:1000]}"
+    untrusted_react_blocks: list[tuple[str, str]] = []
+    if attached_ctx:
+        untrusted_react_blocks.append(("attached_or_rag_context", attached_ctx[:2800]))
     if opts.get("memoryEnabled") is True:
         try:
-            vis_mems = memory_store.list_visible()
+            char_key = "octo" if str(opts.get("character") or "").lower() == "octo" else "aqua"
+            vis_mems = memory_store.search_visible(char_key, eff_prompt, now_ms=ts_ms, limit=6)
             mem_lines = [
-                f"- [{m.get('category', 'note')}] {str(m.get('content') or '')[:160]}"
-                for m in (vis_mems or [])[:6]
-                if isinstance(m, dict) and str(m.get("content") or "").strip()
+                f"- [{m.get('scope', 'shared')}] {str(m.get('text') or '')[:200]}"
+                for m in (vis_mems or [])
+                if isinstance(m, dict) and str(m.get("text") or "").strip()
             ]
-            if mem_lines and "## Active Memories" not in sys_prompt:
-                sys_prompt = f"{sys_prompt}\n\n## Active Memories\n" + "\n".join(mem_lines)
+            if mem_lines:
+                untrusted_react_blocks.append(("user_memories", "\n".join(mem_lines)))
         except Exception:
             pass
 
-    messages: list[dict] = [
-        {"role": "system", "content": sys_prompt[:2400]},
-    ]
-    prior_messages = opts.get("messages")
-    if isinstance(prior_messages, list) and prior_messages:
-        for pm in prior_messages:
-            if isinstance(pm, dict) and pm.get("role") in ("user", "assistant", "tool"):
-                messages.append(dict(pm))
-    messages.append({"role": "user", "content": effective_user_content[:3600]})
+    prior_messages = opts.get("messages") if isinstance(opts.get("messages"), list) else []
+    messages = prompt_assembler.assemble_messages(
+        system_persona=raw_sys,
+        trusted_rules=rules_txt,
+        history=prior_messages,
+        user_prompt=eff_prompt[:1600],
+        untrusted_blocks=untrusted_react_blocks,
+        directive_prefix=eff_directive,
+        system_max_chars=2400,
+    )
+    sys_prompt = str(messages[0].get("content") or raw_sys)
     messages, _ = context_policy.drain_and_inject_context(messages, active_sid)
 
     run = None

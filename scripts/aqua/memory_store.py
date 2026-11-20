@@ -6,9 +6,11 @@ or background inference. Deletion is logical; backups/external copies remain.
 """
 import os
 from pathlib import Path
+import re
 import sqlite3
 import stat
 import time
+import unicodedata
 
 MAX_ITEMS = 128
 MAX_TEXT = 320
@@ -204,6 +206,79 @@ def forget_all():
             changed = db.execute("DELETE FROM memories").rowcount
         db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         return changed
+    except sqlite3.Error as exc:
+        raise MemoryError("memory_delete_failed") from exc
+    finally:
+        db.close()
+
+
+def _fold_mem(text):
+    norm = unicodedata.normalize("NFD", str(text or ""))
+    return "".join(ch for ch in norm if unicodedata.category(ch) != "Mn").replace("đ", "d").replace("Đ", "d").lower()
+
+
+def _mem_tokens(text):
+    return {t for t in re.findall(r"[a-z0-9_]{2,}", _fold_mem(text))}
+
+
+def search_visible(character, query="", now_ms=None, limit=6):
+    """Return top-ranked visible memories using accent-folded relevance + recency tie-break."""
+    rows = list_visible(character, now_ms=now_ms, limit=32)
+    if not rows:
+        return []
+    q_toks = _mem_tokens(query)
+    if not q_toks:
+        return rows[:max(1, min(32, int(limit)))]
+    scored = []
+    for idx, row in enumerate(rows):
+        m_toks = _mem_tokens(row.get("text", ""))
+        overlap = len(q_toks & m_toks)
+        recency = max(0.0, 0.25 - idx * 0.01)
+        scored.append((overlap + recency, row))
+    scored.sort(key=lambda x: (-x[0], -int(x[1].get("id") or 0)))
+    return [row for _, row in scored[:max(1, min(32, int(limit)))]]
+
+
+def detect_conflicts(character, candidate_text, now_ms=None):
+    """Detect existing visible memories that likely contradict or supersede `candidate_text`."""
+    cand_norm = _fold_mem(candidate_text).strip()
+    cand_toks = _mem_tokens(cand_norm)
+    if not cand_toks:
+        return []
+    if character == "shared":
+        seen_ids = set()
+        rows = []
+        for c in ("aqua", "octo"):
+            for r in list_visible(c, now_ms=now_ms, limit=32):
+                if r["id"] not in seen_ids:
+                    seen_ids.add(r["id"])
+                    rows.append(r)
+    else:
+        rows = list_visible(character, now_ms=now_ms, limit=32)
+    conflicts = []
+    for row in rows:
+        row_norm = _fold_mem(row.get("text", "")).strip()
+        if not row_norm or row_norm == cand_norm:
+            continue
+        row_toks = _mem_tokens(row_norm)
+        if not row_toks:
+            continue
+        jaccard = len(cand_toks & row_toks) / max(1, len(cand_toks | row_toks))
+        if jaccard >= 0.45:
+            conflicts.append(row)
+    return conflicts
+
+
+def prune_expired(now_ms=None):
+    """Delete expired memories safely without breaking callers when DB does not exist."""
+    now = int(time.time() * 1000) if now_ms is None else int(now_ms)
+    db = connect(create=False)
+    if db is None:
+        return 0
+    try:
+        with db:
+            changed = db.execute("DELETE FROM memories WHERE expires_ms>0 AND expires_ms<=?", (now,)).rowcount
+        return int(changed or 0)
     except sqlite3.Error as exc:
         raise MemoryError("memory_delete_failed") from exc
     finally:
