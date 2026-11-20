@@ -12,6 +12,7 @@ import "AquaPersona.js" as AquaPersona
 import "AquaModelPolicy.js" as ModelPolicy
 import "AquaProactivePolicy.js" as ProactivePolicy
 import "AquaReminderPolicy.js" as ReminderPolicy
+import "../modules/abyss/companion/AquaThinkingRouter.js" as ThinkingRouter
 
 // On-demand model I/O is isolated from the renderer/native companion clock.
 Singleton {
@@ -747,6 +748,19 @@ Singleton {
         cancel()
     readonly property string thinkingEffort: ["auto", "off", "instant", "low", "medium", "high", "xhigh", "max"].includes(String(options.thinkingEffort ?? "off")) ? String(options.thinkingEffort ?? "off") : "off"
     property string lastAutoResolvedEffort: ""
+    property bool thinkingRouterInstalled: false
+    property bool thinkingRouterInstalling: false
+    property string thinkingRouterModelLabel: "mmBERT-small (141M INT8)"
+    property string thinkingRouterStatusError: ""
+    property string lastAutoRouterSource: ""
+    property var lastAutoRouterDetail: null
+    readonly property string thinkingRouterStatePath: {
+        const override = String(Quickshell.env("ALIS_THINKING_ROUTER_STATE") ?? "").trim();
+        if (override.length > 0)
+            return override;
+        const base = String(Quickshell.env("XDG_STATE_HOME") || (String(Quickshell.env("HOME") || "/tmp") + "/.local/state"));
+        return base + "/alis-companion/last_auto_thinking.json";
+    }
     onEffectiveThinkingEffortChanged: if (!refreshingModels && pending?.action === "ai_chat" && pending.request.userEffort !== thinkingEffort)
         cancel()
     readonly property string referenceVault: String(options.referenceVault ?? "")
@@ -2610,34 +2624,9 @@ Singleton {
         Config.setNestedValue("abyss.companionMind.mtpOptimizeEnabled", enabled === true);
     }
     function resolveAutoThinkingEffort(rawPrompt, fromVoice = false, meta = null): string {
-        const raw = String(rawPrompt ?? "").trim();
-        if (!raw)
-            return "off";
-        const folded = raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").trim();
-        const cat = String(meta?.category ?? "");
-        const isDomainCap = Boolean(meta?.isDomainCap);
-        const casualRe = /\b(?:can you hear me|do you hear me|hear me|are you listening|listening to me|mic test|test mic|testing mic|alo+|nghe ro khong|nghe thay khong|co nghe khong|ban nghe khong|how are you|how is your day|how's your day|how is it going|how's it going|what's up|whats up|what is your name|who are you|good morning|good afternoon|good evening|ban ten la gi|ban la ai|ban khoe khong|hom nay the nao)\b/;
-        if (isDomainCap || casualRe.test(folded) || /^(?:hi|hello|hey|yo|alo+|chao|xin chao|ok|okay|thanks|thank you|cam on)[!.,?\s]*$/.test(folded))
-            return "off";
-        if (["slash_action", "desktop_ui_action", "gui_action", "desktop_control", "system_control", "file_task", "shell_task", "git_task", "mcp_manage", "web_task", "voice_task"].includes(cat))
-            return "off";
-        const hasCodeBlock = raw.includes("```") || (raw.match(/[;{}=<>]{2,}/g) ?? []).length >= 2;
-        const deepRe = /\b(?:suy luan|suy nghi sau|phan tich sau|phan tich ky|phan tich nguyen nhan|giai thich chi tiet|giai thich sau|kien truc|thuat toan|debug sau|go loi|tim nguyen nhan|root cause|deadlock|race condition|lock-free|concurrency|de quy|quy hoach dong|dynamic programming|len ke hoach|lap ke hoach|ke hoach chi tiet|create a plan|make a plan|build a plan|help me plan|step by step|tung buoc|chung minh|danh gia kien truc|thiet ke he thong|system design|architecture|algorithm|complexity|big-o|trade-off|tradeoff|deep dive|deep thinking|reason about|analyze deeply|explain why|under the hood|multi-step plan|refactor strategy|triet hoc|philosophy|philosophical|sang tao sau|out of the box|lateral thinking)\b/g;
-        const exhaustiveRe = /\b(?:exhaustive|exhaustively|deepest|maximum effort|formal proof|mathematical proof|no spoon|einstein|cuc sau|chuyen sau nhat|toan dien)\b/;
-        const moderateRe = /\b(?:compare|so sanh|difference between|khac nhau|khac biet|debug|fix bug|sua loi|refactor|optimize|toi uu|explain how|explain|giai thich|script|function|regex|sql|systemd|niri|quickshell|python|qml|typescript|rust|bash|arch|pacman|error|exception|traceback)\b/;
-        const simpleQaRe = /\b(?:what is|what are|who is|when|where|how much|how many|translate|dich|summarize|tom tat|rewrite|define|dinh nghia|capital of|la gi|nghia la gi)\b/;
-        const deepHits = (folded.match(deepRe) ?? []).length;
-        const exhaustiveHit = exhaustiveRe.test(folded);
-        const moderateHit = moderateRe.test(folded);
-        if (exhaustiveHit || (raw.length >= 650 && (deepHits >= 2 || hasCodeBlock)))
-            return fromVoice ? "high" : "max";
-        if (deepHits >= 1 || cat === "slash_thinking" || cat === "deep_reasoning" || /^\/(?:plan|diagnostics|learn|workflow|reflect|swarm)\b/.test(folded) || hasCodeBlock || (raw.length >= 320 && (moderateHit || raw.includes("?"))))
-            return fromVoice ? "medium" : "high";
-        if (["rag_synthesis", "complex_analysis", "plan_and_code", "self_learn", "domain_rag"].includes(cat) || moderateHit || (raw.length >= 120 && (raw.includes("?") || simpleQaRe.test(folded))))
-            return "medium";
-        if (cat === "knowledge_qa" || simpleQaRe.test(folded) || (raw.includes("?") && raw.length >= 36))
-            return "low";
-        return raw.length < 48 ? "off" : "low";
+        return ThinkingRouter.resolveEffort(rawPrompt, fromVoice, Object.assign({
+            prevEffort: lastAutoResolvedEffort
+        }, meta || {}));
     }
     function classifyTaskType(rawPrompt, fromVoice = false): var {
         return classifyPromptModelRole(rawPrompt, fromVoice);
@@ -2823,7 +2812,29 @@ Singleton {
         if (effort !== "off" && effort !== "auto" && !thinkingLevels.some(entry => entry.value === effort))
             return;
         lastAutoResolvedEffort = "";
+        lastAutoRouterSource = "";
         Config.setNestedValue("abyss.companionMind.thinkingEffort", effort);
+    }
+    function refreshThinkingRouterStatus(): void {
+        if (!liveModelAutoDetectAllowed || _thinkingRouterStatusProc.running)
+            return;
+        _thinkingRouterStatusProc.command = ["/usr/bin/python3", AlisCompanion.packageRoot + "/scripts/aqua/thinking_router.py", "--status"];
+        _thinkingRouterStatusProc.running = true;
+    }
+    function installThinkingRouter(): void {
+        if (thinkingRouterInstalling || _thinkingRouterInstallProc.running)
+            return;
+        thinkingRouterInstalling = true;
+        thinkingRouterStatusError = "";
+        _thinkingRouterInstallProc.command = ["/usr/bin/bash", AlisCompanion.packageRoot + "/scripts/aqua/install-thinking-router.sh"];
+        _thinkingRouterInstallProc.running = true;
+    }
+    function uninstallThinkingRouter(): void {
+        if (thinkingRouterInstalling || _thinkingRouterUninstallProc.running)
+            return;
+        thinkingRouterStatusError = "";
+        _thinkingRouterUninstallProc.command = ["/usr/bin/python3", AlisCompanion.packageRoot + "/scripts/aqua/thinking_router.py", "--uninstall"];
+        _thinkingRouterUninstallProc.running = true;
     }
     function refreshJournal(automatic = false): bool {
         return false;
@@ -4098,8 +4109,9 @@ Singleton {
             return false;
         }
         const serial = ++epoch;
-        const modelPrompt = (route.inChatDirective && isPlusIqModel(targetModel, targetModelObj) && !prompt.includes("{REASON:")) ? (route.inChatDirective + "\n" + prompt).slice(0, 1200) : prompt;
         const isFixtureEnv = Boolean(Quickshell.env("AQUA_TEST_ENDPOINT") || Quickshell.env("AI_FIXTURE_URL") || Quickshell.env("COMPANION_PROVIDER_RESULT"));
+        const willWrapAutoThinking = (thinkingEffort === "auto") && !isFixtureEnv;
+        const modelPrompt = (!willWrapAutoThinking && route.inChatDirective && isPlusIqModel(targetModel, targetModelObj) && !prompt.includes("{REASON:")) ? (route.inChatDirective + "\n" + prompt).slice(0, 1200) : prompt;
         const historySliceLimit = isFixtureEnv ? 11 : 80;
         const priorRows = history.filter(entry => !entry.failed && !entry.pending && !(entry.role === "assistant" && /^\*\*🖥\s*[^\n*]*$/i.test(String(entry.content ?? "").trim()))).slice(-historySliceLimit).map(entry => entry.role === "assistant" ? Object.assign({}, entry, {
                 content: String(entry.content ?? "").replace(/^\*\*🖥[^\n]*\n+/, "").trim()
@@ -4299,7 +4311,7 @@ Singleton {
         const selectedEndpoint = String(targetModelObj?.endpoint ?? "");
         const cmdSeq = aiSession?.transport?.command;
         const cmdArr = (cmdSeq && typeof cmdSeq.length === "number" && cmdSeq.length > 0) ? Array.from(cmdSeq) : [];
-        const shouldWrapProvider = !isFixtureEnv && cmdArr.length > 0 && ((ModelPolicy.isLocal(targetModelObj) && (selectedEndpoint.includes(":1234/") || selectedEndpoint.includes(":11434/") || currentImages.length > 0 || currentFiles.length > 0 || route.category === "domain_rag" || route.roleLabel === "Domain RAG")) || rows.length > 12);
+        const shouldWrapProvider = !isFixtureEnv && cmdArr.length > 0 && (thinkingEffort === "auto" || (ModelPolicy.isLocal(targetModelObj) && (selectedEndpoint.includes(":1234/") || selectedEndpoint.includes(":11434/") || currentImages.length > 0 || currentFiles.length > 0 || route.category === "domain_rag" || route.roleLabel === "Domain RAG")) || rows.length > 12);
         if (shouldWrapProvider && String(cmdArr[2] ?? "") !== "--wrap-provider") {
             aiSession.transport.command = ["/usr/bin/python3", AlisCompanion.packageRoot + "/scripts/aqua/local_mind.py", "--wrap-provider"].concat(cmdArr);
         }
@@ -4309,6 +4321,14 @@ Singleton {
             aiSession.payload.companionProvider = String(targetModelObj?.provider_id ?? "");
             if (Number(targetModelObj?.context_window ?? 0) > 0) {
                 aiSession.payload.companionContextWindow = Number(targetModelObj.context_window);
+            }
+            if (thinkingEffort === "auto") {
+                aiSession.payload.companionAutoThinking = true;
+                aiSession.payload.companionAutoThinkingPrompt = String(prompt ?? "");
+                aiSession.payload.companionAutoThinkingFromVoice = Boolean(turnFromVoice);
+                aiSession.payload.companionAutoThinkingCategory = String(route.category ?? "");
+                aiSession.payload.companionAutoThinkingPrevEffort = String(lastAutoResolvedEffort ?? "");
+                aiSession.payload.companionAutoThinkingApiFormat = String(aiSession.modelSnapshot?.api_format ?? targetModelObj?.api_format ?? "");
             }
         }
         pending = {
@@ -5068,6 +5088,7 @@ Singleton {
                 if (root.liveModelAutoDetectAllowed) {
                     root.refreshAvailableModels(true);
                     root.refreshAgentStatus();
+                    root.refreshThinkingRouterStatus();
                 } else {
                     root.reconcileAvailableModels();
                 }
@@ -5080,6 +5101,7 @@ Singleton {
                 Qt.callLater(() => {
                     root.refreshAvailableModels(true);
                     root.refreshAgentStatus();
+                    root.refreshThinkingRouterStatus();
                 });
             } else {
                 root.reconcileAvailableModels();
@@ -6250,6 +6272,55 @@ Singleton {
                 cancelledPrefixWorker.requestPayload = nextReq;
                 cancelledPrefixWorker.running = true;
             }
+        }
+    }
+    FileView {
+        id: thinkingRouterTelemetryView
+        path: root.liveModelAutoDetectAllowed ? Qt.resolvedUrl("file://" + root.thinkingRouterStatePath) : ""
+        watchChanges: root.liveModelAutoDetectAllowed
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: {
+            try {
+                const raw = String(thinkingRouterTelemetryView.text() ?? "").trim();
+                if (!raw)
+                    return;
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === "object" && parsed.effort) {
+                    if (root.thinkingEffort === "auto")
+                        root.lastAutoResolvedEffort = String(parsed.effort);
+                    root.lastAutoRouterSource = String(parsed.source ?? "");
+                    root.lastAutoRouterDetail = parsed;
+                }
+            } catch (e) {}
+        }
+    }
+    Process {
+        id: _thinkingRouterStatusProc
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const info = JSON.parse((text ?? "").trim() || "{}");
+                    root.thinkingRouterInstalled = Boolean(info.installed);
+                    if (info.modelLabel)
+                        root.thinkingRouterModelLabel = String(info.modelLabel);
+                } catch (e) {}
+            }
+        }
+    }
+    Process {
+        id: _thinkingRouterInstallProc
+        onExited: (exitCode) => {
+            root.thinkingRouterInstalling = false;
+            root.thinkingRouterStatusError = exitCode === 0 ? "" : "Install failed (check uv / network)";
+            root.refreshThinkingRouterStatus();
+        }
+    }
+    Process {
+        id: _thinkingRouterUninstallProc
+        onExited: () => {
+            root.thinkingRouterStatusError = "";
+            root.refreshThinkingRouterStatus();
         }
     }
     Process {

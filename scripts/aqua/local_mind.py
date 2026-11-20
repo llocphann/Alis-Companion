@@ -647,6 +647,12 @@ if sys.argv[1:2] == ['--wrap-provider'] and len(sys.argv) >= 3:
     try:
         payload_obj = json.loads(raw_line)
         changed_payload = False
+        auto_thinking_enabled = False
+        auto_thinking_prompt = ''
+        auto_thinking_from_voice = False
+        auto_thinking_category = ''
+        auto_thinking_prev_effort = ''
+        auto_thinking_api_format = ''
         if isinstance(payload_obj, dict):
             if 'companionSessionId' in payload_obj:
                 popped_sid = str(payload_obj.pop('companionSessionId') or '').strip()
@@ -655,6 +661,24 @@ if sys.argv[1:2] == ['--wrap-provider'] and len(sys.argv) >= 3:
                 changed_payload = True
             route_provider = str(payload_obj.pop('companionProvider', None) or wrap_prov_env or '').strip()
             explicit_ctx_win = payload_obj.pop('companionContextWindow', None)
+            if 'companionAutoThinking' in payload_obj:
+                auto_thinking_enabled = bool(payload_obj.pop('companionAutoThinking'))
+                changed_payload = True
+            if 'companionAutoThinkingPrompt' in payload_obj:
+                auto_thinking_prompt = str(payload_obj.pop('companionAutoThinkingPrompt') or '')
+                changed_payload = True
+            if 'companionAutoThinkingFromVoice' in payload_obj:
+                auto_thinking_from_voice = bool(payload_obj.pop('companionAutoThinkingFromVoice'))
+                changed_payload = True
+            if 'companionAutoThinkingCategory' in payload_obj:
+                auto_thinking_category = str(payload_obj.pop('companionAutoThinkingCategory') or '')
+                changed_payload = True
+            if 'companionAutoThinkingPrevEffort' in payload_obj:
+                auto_thinking_prev_effort = str(payload_obj.pop('companionAutoThinkingPrevEffort') or '')
+                changed_payload = True
+            if 'companionAutoThinkingApiFormat' in payload_obj:
+                auto_thinking_api_format = str(payload_obj.pop('companionAutoThinkingApiFormat') or '')
+                changed_payload = True
             if route_provider or explicit_ctx_win is not None:
                 changed_payload = True
         else:
@@ -794,9 +818,32 @@ if sys.argv[1:2] == ['--wrap-provider'] and len(sys.argv) >= 3:
                     os.environ.pop('AI_LOCAL_FINGERPRINT', None)
             model_lower = str(payload_obj.get('model') or '').lower()
             is_plusiq = any(k in model_lower for k in ('plusiq', 'davidau', 'defiant-fable', 'heretic', 'neo-imatrix'))
-            if 'reasoning' not in payload_obj and (not payload_obj.get('reasoning_effort') or is_plusiq):
+            if not auto_thinking_enabled and 'reasoning' not in payload_obj and (not payload_obj.get('reasoning_effort') or is_plusiq):
                 payload_obj['reasoning_effort'] = 'none'
                 changed_payload = True
+        if auto_thinking_enabled and isinstance(payload_obj, dict):
+            try:
+                sys.path.insert(0, str(Path(__file__).resolve().parent))
+                import thinking_router
+                raw_q = auto_thinking_prompt or last_user_text
+                route_res = thinking_router.route_thinking_effort(
+                    raw_q,
+                    {'fromVoice': auto_thinking_from_voice, 'prevEffort': auto_thinking_prev_effort},
+                    {'category': auto_thinking_category},
+                    persist_state=not bool(os.environ.get('AQUA_TEST_ENDPOINT') or os.environ.get('AI_FIXTURE_URL') or os.environ.get('ALIS_TEST_ISOLATED')),
+                )
+                resolved_eff = str(route_res.get('effort') or 'off')
+                thinking_router.apply_effort_to_payload(
+                    payload_obj,
+                    resolved_eff,
+                    api_format=auto_thinking_api_format,
+                    model_name=str(payload_obj.get('model') or os.environ.get('AI_LOCAL_MODEL') or ''),
+                    provider_id=route_provider or str(os.environ.get('AI_LOCAL_PROVIDER') or ''),
+                    endpoint=str(os.environ.get('AI_ENDPOINT') or ''),
+                )
+                changed_payload = True
+            except Exception:
+                pass
         if changed_payload:
             raw_line = (json.dumps(payload_obj) + '\n').encode('utf-8')
     except SystemExit:
@@ -1101,8 +1148,9 @@ def thinking_effort(value,prompt='',from_voice=False):
     effort=str(value or 'off').strip().lower()
     if effort=='instant':return 'off'
     if effort=='auto':
-        import agent_runtime
-        resolved=agent_runtime.resolve_auto_thinking_effort(prompt,{'fromVoice':bool(from_voice)})
+        import thinking_router
+        res=thinking_router.route_thinking_effort(prompt,{'fromVoice':bool(from_voice)})
+        resolved=str(res.get('effort') or 'off')
         return resolved if resolved in THINKING_EFFORTS else 'off'
     if effort not in THINKING_EFFORTS:raise MindError('invalid_thinking_effort','Thinking effort must be off, low, medium, high, xhigh, max or auto')
     return effort

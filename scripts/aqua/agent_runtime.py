@@ -2709,92 +2709,28 @@ def _is_mtp_model(model_id: str) -> bool:
 _CASUAL_OR_MIC_RE = re.compile(
     r"\b(?:can you hear me|do you hear me|hear me|are you listening|listening to me|mic test|test mic|testing mic|alo+|nghe ro khong|nghe thay khong|co nghe khong|ban nghe khong|how are you|how is your day|how's your day|how is it going|how's it going|what's up|whats up|what is your name|who are you|good morning|good afternoon|good evening|ban ten la gi|ban la ai|ban khoe khong|hom nay the nao)\b"
 )
-_EXHAUSTIVE_THINKING_RE = re.compile(
-    r"\b(?:exhaustive|exhaustively|deepest|maximum effort|formal proof|mathematical proof|no spoon|einstein|cuc sau|chuyen sau nhat|toan dien)\b"
-)
-_DEEP_AUTO_THINKING_RE = re.compile(
-    r"\b(?:suy luan|suy nghi sau|phan tich sau|phan tich ky|phan tich nguyen nhan|giai thich chi tiet|giai thich sau|kien truc|thuat toan|debug sau|go loi|tim nguyen nhan|root cause|deadlock|race condition|lock-free|concurrency|de quy|quy hoach dong|dynamic programming|len ke hoach|lap ke hoach|ke hoach chi tiet|create a plan|make a plan|build a plan|help me plan|step by step|tung buoc|chung minh|danh gia kien truc|thiet ke he thong|system design|architecture|algorithm|complexity|big-o|trade-off|tradeoff|deep dive|deep thinking|reason about|analyze deeply|explain why|under the hood|multi-step plan|refactor strategy|triet hoc|philosophy|philosophical|sang tao sau|out of the box|lateral thinking)\b"
-)
-_MODERATE_AUTO_THINKING_RE = re.compile(
-    r"\b(?:compare|so sanh|difference between|khac nhau|khac biet|debug|fix bug|sua loi|refactor|optimize|toi uu|explain how|explain|giai thich|script|function|regex|sql|systemd|niri|quickshell|python|qml|typescript|rust|bash|arch|pacman|error|exception|traceback|multiple workers|multi-file)\b"
-)
-_SIMPLE_QA_THINKING_RE = re.compile(
-    r"\b(?:what is|what are|who is|when|where|how much|how many|translate|dich|summarize|tom tat|rewrite|define|dinh nghia|capital of|la gi|nghia la gi)\b"
-)
+def resolve_auto_thinking_detail(
+    prompt: str, options: dict | None = None, route_meta: dict | None = None
+) -> dict:
+    """Adaptively classify prompt complexity via local mmBERT ONNX router + weighted sigmoid fallback."""
+    opts = options if isinstance(options, dict) else {}
+    meta = route_meta if isinstance(route_meta, dict) else {}
+    import thinking_router
+
+    persist = bool(opts.get("persistRouterState")) and not bool(
+        os.environ.get("AQUA_TEST_ENDPOINT")
+        or os.environ.get("AI_FIXTURE_URL")
+        or os.environ.get("ALIS_TEST_ISOLATED")
+    )
+    return thinking_router.route_thinking_effort(prompt, opts, meta, persist_state=persist)
 
 
 def resolve_auto_thinking_effort(
     prompt: str, options: dict | None = None, route_meta: dict | None = None
 ) -> str:
     """Adaptively choose thinking effort ('off', 'low', 'medium', 'high', 'max') by prompt complexity & efficiency."""
-    opts = options if isinstance(options, dict) else {}
-    meta = route_meta if isinstance(route_meta, dict) else {}
-    raw = str(prompt or "").strip()
-    if not raw:
-        return "off"
-    folded = _fold_ascii(raw)
-    from_voice = bool(opts.get("fromVoice"))
-    category = str(meta.get("category") or "").strip()
-    is_domain_cap = bool(meta.get("is_domain_cap"))
-
-    if is_domain_cap or _CASUAL_OR_MIC_RE.search(folded):
-        return "off"
-    if re.match(r"^(?:hi|hello|hey|yo|alo+|chao|xin chao|ok|okay|thanks|thank you|cam on)[!.,?\s]*$", folded):
-        return "off"
-    if category in (
-        "slash_action",
-        "desktop_ui_action",
-        "screen_observe",
-        "screen_inspect",
-        "gui_action",
-        "desktop_control",
-        "system_control",
-        "file_task",
-        "shell_task",
-        "git_task",
-        "mcp_manage",
-        "web_task",
-        "voice_task",
-        "permission_manage",
-        "rule_manage",
-        "memory_manage",
-        "pocket_manage",
-        "skill_manage",
-        "confirmation_response",
-        "stop",
-        "resume",
-    ):
-        return "off"
-
-    has_code_block = "```" in raw or len(re.findall(r"[;{}=<>]{2,}", raw)) >= 2
-    deep_hits = len(_DEEP_AUTO_THINKING_RE.findall(folded))
-    exhaustive_hit = bool(_EXHAUSTIVE_THINKING_RE.search(folded))
-    moderate_hit = bool(_MODERATE_AUTO_THINKING_RE.search(folded))
-
-    if exhaustive_hit or (len(raw) >= 650 and (deep_hits >= 2 or has_code_block)):
-        effort = "high" if from_voice else "max"
-    elif (
-        deep_hits >= 1
-        or category in ("slash_thinking", "deep_reasoning")
-        or bool(re.match(r"^/(?:plan|diagnostics|learn|workflow|reflect|swarm)\b", folded))
-        or has_code_block
-        or (len(raw) >= 320 and (moderate_hit or "?" in raw))
-    ):
-        effort = "medium" if from_voice else "high"
-    elif (
-        category in ("rag_synthesis", "complex_analysis", "plan_and_code", "self_learn", "domain_rag")
-        or moderate_hit
-        or (len(raw) >= 120 and ("?" in raw or bool(_SIMPLE_QA_THINKING_RE.search(folded))))
-    ):
-        effort = "medium"
-    elif category == "knowledge_qa" or bool(_SIMPLE_QA_THINKING_RE.search(folded)) or ("?" in raw and len(raw) >= 36):
-        effort = "low"
-    elif len(raw) < 48:
-        effort = "off"
-    else:
-        effort = "low"
-
-    return effort
+    res = resolve_auto_thinking_detail(prompt, options, route_meta)
+    return str(res.get("effort") or "off")
 
 
 def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict:
@@ -3056,8 +2992,9 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
         and not deep_thinking_match
     )
 
+    auto_router_detail: dict | None = None
     if user_effort == "auto":
-        auto_effort = resolve_auto_thinking_effort(
+        auto_router_detail = resolve_auto_thinking_detail(
             raw,
             opts,
             {
@@ -3066,6 +3003,7 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
                 "is_domain_cap": bool(is_domain_cap or is_domain_concept or is_config_check),
             },
         )
+        auto_effort = str(auto_router_detail.get("effort") or "off")
         if not auto_enabled:
             selected_model = base_model
             selected_endpoint = base_endpoint
@@ -3205,6 +3143,10 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
         "recommendedTemperature": 0.7 if mtp_active else 0.65,
         "recommendedRepetitionPenalty": 1.0 if mtp_active else None,
         "inChatDirective": in_chat_directive,
+        "autoRouterSource": str(auto_router_detail.get("source") or "") if auto_router_detail else "",
+        "autoRouterScore": float(auto_router_detail.get("score") or 0.0) if auto_router_detail else 0.0,
+        "autoRouterTask": str(auto_router_detail.get("task") or "") if auto_router_detail else "",
+        "autoRouterConfidence": float(auto_router_detail.get("confidence") or 0.0) if auto_router_detail else 0.0,
     }
 
 
@@ -5597,7 +5539,10 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
     except Exception:
         pass
 
-    route_info = classify_prompt_model_role(str(options.get("prompt") or ""), options)
+    route_opts = dict(options)
+    if str(options.get("thinkingEffort") or "").strip().lower() == "auto":
+        route_opts["persistRouterState"] = True
+    route_info = classify_prompt_model_role(str(options.get("prompt") or ""), route_opts)
     effective_options = dict(options)
     if route_info.get("selectedModel"):
         effective_options["model"] = route_info["selectedModel"]

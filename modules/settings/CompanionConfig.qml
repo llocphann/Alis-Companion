@@ -21,8 +21,10 @@ ContentPage {
     onActiveSectionChanged: {
         if (activeSection === "ai") {
             Ai.ensureInitialized();
-            if (AquaMind.liveModelAutoDetectAllowed)
+            if (AquaMind.liveModelAutoDetectAllowed) {
                 AquaMind.refreshAvailableModels(false);
+                AquaMind.refreshThinkingRouterStatus();
+            }
             if (!Quickshell.env("AQUA_TEST_ENDPOINT") && !Quickshell.env("AI_FIXTURE_URL"))
                 AquaMind.refreshAgentStatus();
         }
@@ -31,6 +33,7 @@ ContentPage {
         if (AquaMind.liveModelAutoDetectAllowed) {
             AquaMind.refreshAvailableModels(false);
             AquaMind.refreshAgentStatus();
+            AquaMind.refreshThinkingRouterStatus();
         }
     }
     readonly property string companionActiveModelLabel: AquaMind.currentModelLabel
@@ -1907,9 +1910,40 @@ ContentPage {
                         StyledText {
                             visible: AquaMind.thinkingSupported
                             Layout.fillWidth: false
+                            Layout.minimumWidth: 0
                             text: "Thinking effort"
                             color: Appearance.colors.colSubtext
                             font.pixelSize: Appearance.font.pixelSize.smaller
+                        }
+                        RippleButton {
+                            id: settingsEffortAutoBtn
+                            objectName: "aquaSettingsEffortAuto"
+                            visible: AquaMind.thinkingSupported
+                            enabled: AquaMind.thinkingSupported && !AquaMind.busy
+                            implicitWidth: 44
+                            implicitHeight: 26
+                            buttonRadius: 7
+                            toggled: AquaMind.thinkingEffort === "auto"
+                            colBackground: Appearance.colors.colLayer2
+                            colBackgroundHover: Qt.alpha(Appearance.colors.colPrimary, 0.14)
+                            colBackgroundToggled: Qt.alpha(Appearance.colors.colPrimary, 0.22)
+                            colBackgroundToggledHover: Qt.alpha(Appearance.colors.colPrimary, 0.28)
+                            onClicked: AquaMind.setThinkingEffort(AquaMind.thinkingEffort === "auto" ? "off" : "auto")
+                            StyledToolTip {
+                                extraVisibleCondition: settingsEffortAutoBtn.buttonHovered
+                                text: AquaMind.thinkingRouterInstalled
+                                    ? "Auto-adjust effort via local " + AquaMind.thinkingRouterModelLabel + " (ONNX CPU)"
+                                    : "Auto-adjust effort via weighted prompt scoring (install mmBERT ONNX below)"
+                            }
+                            contentItem: Item {
+                                StyledText {
+                                    anchors.centerIn: parent
+                                    text: "Auto"
+                                    font.pixelSize: Appearance.font.pixelSize.smallest - 1
+                                    font.weight: settingsEffortAutoBtn.toggled ? Font.DemiBold : Font.Normal
+                                    color: settingsEffortAutoBtn.toggled ? Appearance.colors.colPrimary : Appearance.colors.colSubtext
+                                }
+                            }
                         }
                         Rectangle {
                             id: settingsEffortSlider
@@ -1922,6 +1956,7 @@ ContentPage {
                             implicitHeight: 38
                             radius: 10
                             color: Appearance.colors.colLayer2
+                            opacity: AquaMind.thinkingEffort === "auto" ? 0.55 : 1.0
                             enabled: AquaMind.thinkingSupported && !AquaMind.busy
                             readonly property int stepCount: Math.max(1, settingsEffortRepeater.count)
                             readonly property real stepSlotWidth: Math.max(16, (width - 12) / stepCount)
@@ -1961,7 +1996,7 @@ ContentPage {
                             Rectangle {
                                 x: settingsEffortTrackBg.x
                                 y: settingsEffortTrackBg.y
-                                width: settingsEffortSlider.stepCount > 1 ? Math.round(settingsEffortTrackBg.width * (settingsEffortSlider.animatedStepIndex / (settingsEffortSlider.stepCount - 1))) : 0
+                                width: AquaMind.thinkingEffort === "auto" ? 0 : (settingsEffortSlider.stepCount > 1 ? Math.round(settingsEffortTrackBg.width * (settingsEffortSlider.animatedStepIndex / (settingsEffortSlider.stepCount - 1))) : 0)
                                 height: 4
                                 radius: 2
                                 color: Appearance.colors.colPrimary
@@ -1969,6 +2004,7 @@ ContentPage {
                             Rectangle {
                                 id: settingsEffortThumb
                                 objectName: "aquaSettingsEffortThumb"
+                                visible: AquaMind.thinkingEffort !== "auto"
                                 z: 5
                                 width: 12
                                 height: 12
@@ -1987,8 +2023,8 @@ ContentPage {
                                     required property var modelData
                                     required property int index
                                     objectName: "aquaSettingsEffortOption-" + String(modelData.value)
-                                    readonly property string shortLabel: modelData.value === "instant" || modelData.value === "off" ? "Inst" : modelData.value === "low" ? "Low" : modelData.value === "medium" ? "Med" : modelData.value === "high" ? "High" : modelData.value === "xhigh" ? "XHigh" : "Max"
-                                    readonly property bool isSelected: index === settingsEffortSlider.activeStepIndex
+                                    readonly property string shortLabel: modelData.value === "auto" ? "Auto" : (modelData.value === "instant" || modelData.value === "off") ? "Inst" : modelData.value === "low" ? "Low" : modelData.value === "medium" ? "Med" : modelData.value === "high" ? "High" : modelData.value === "xhigh" ? "XHigh" : "Max"
+                                    readonly property bool isSelected: AquaMind.thinkingEffort !== "auto" && index === settingsEffortSlider.activeStepIndex
                                     x: 6 + Math.round(index * settingsEffortSlider.stepSlotWidth)
                                     y: 3
                                     width: Math.max(16, Math.round(settingsEffortSlider.stepSlotWidth))
@@ -2017,7 +2053,7 @@ ContentPage {
                                             height: 8
                                             radius: 4
                                             visible: !settingsEffortStep.isSelected
-                                            color: settingsEffortStep.index <= settingsEffortSlider.activeStepIndex ? Qt.alpha(Appearance.colors.colPrimary, 0.68) : Appearance.colors.colLayer3
+                                            color: (AquaMind.thinkingEffort !== "auto" && settingsEffortStep.index <= settingsEffortSlider.activeStepIndex) ? Qt.alpha(Appearance.colors.colPrimary, 0.68) : Appearance.colors.colLayer3
                                             border.width: 1
                                             border.color: Qt.alpha(Appearance.colors.colOnLayer1, 0.28)
                                         }
@@ -2162,6 +2198,80 @@ ContentPage {
                                         verticalAlignment: Text.AlignVCenter
                                         font.pixelSize: Appearance.font.pixelSize.smallest - 1
                                         color: Appearance.colors.colSubtext
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: autoThinkingRouterRow
+                    objectName: "aquaAutoThinkingRouterRow"
+                    visible: AquaMind.thinkingSupported && AquaMind.thinkingEffort === "auto"
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    implicitHeight: 38
+                    radius: 10
+                    color: Appearance.colors.colLayer2
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 10
+                        spacing: 8
+                        MaterialSymbol {
+                            text: AquaMind.thinkingRouterInstalling ? "downloading" : (AquaMind.thinkingRouterInstalled ? "neurology" : "tune")
+                            iconSize: 17
+                            color: Appearance.colors.colPrimary
+                            Layout.alignment: Qt.AlignVCenter
+                        }
+                        StyledText {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            elide: Text.ElideRight
+                            font.pixelSize: Appearance.font.pixelSize.smaller
+                            color: Appearance.colors.colSubtext
+                            text: AquaMind.thinkingRouterInstalling
+                                ? "Installing mmBERT ONNX router…"
+                                : AquaMind.thinkingRouterStatusError.length > 0
+                                    ? AquaMind.thinkingRouterStatusError
+                                    : AquaMind.thinkingRouterInstalled
+                                        ? "Auto router · mmBERT ONNX ready (CPU)"
+                                        : "Auto router · Weighted fallback (mmBERT optional)"
+                        }
+                        RippleButton {
+                            id: thinkingRouterActionBtn
+                            objectName: "aquaAutoThinkingRouterAction"
+                            visible: !AquaMind.thinkingRouterInstalling
+                            enabled: !AquaMind.thinkingRouterInstalling
+                            implicitWidth: actionBtnContent.implicitWidth + 18
+                            implicitHeight: 26
+                            buttonRadius: 7
+                            colBackground: AquaMind.thinkingRouterInstalled ? Appearance.colors.colLayer3 : Qt.alpha(Appearance.colors.colPrimary, 0.16)
+                            colBackgroundHover: AquaMind.thinkingRouterInstalled ? Appearance.colors.colLayer3Hover : Qt.alpha(Appearance.colors.colPrimary, 0.24)
+                            onClicked: {
+                                if (AquaMind.thinkingRouterInstalled)
+                                    AquaMind.uninstallThinkingRouter();
+                                else
+                                    AquaMind.installThinkingRouter();
+                            }
+                            contentItem: Item {
+                                Row {
+                                    id: actionBtnContent
+                                    anchors.centerIn: parent
+                                    spacing: 4
+                                    MaterialSymbol {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: AquaMind.thinkingRouterInstalled ? "delete" : "download"
+                                        iconSize: 14
+                                        color: AquaMind.thinkingRouterInstalled ? Appearance.colors.colSubtext : Appearance.colors.colPrimary
+                                    }
+                                    StyledText {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: AquaMind.thinkingRouterInstalled ? "Remove" : "Install ML (~260 MB)"
+                                        font.pixelSize: Appearance.font.pixelSize.smallest - 1
+                                        font.weight: Font.DemiBold
+                                        color: AquaMind.thinkingRouterInstalled ? Appearance.colors.colSubtext : Appearance.colors.colPrimary
                                     }
                                 }
                             }

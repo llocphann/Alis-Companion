@@ -3665,7 +3665,7 @@ Item {
                                             height: 10
                                             radius: 5
                                             visible: !effortOption.toggled
-                                            color: effortOption.index <= effortMenu.activeStepIndex ? Qt.alpha(AbyssStyle.accent, 0.72) : Appearance.colors.colLayer2
+                                            color: (!effortMenu.autoActive && effortOption.index <= effortMenu.activeStepIndex) ? Qt.alpha(AbyssStyle.accent, 0.72) : Appearance.colors.colLayer2
                                             border.width: 1
                                             border.color: Qt.alpha(AbyssStyle.textColor, 0.28)
                                         }
