@@ -15,6 +15,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 from sandbox_runner import run_user_command
@@ -187,7 +188,7 @@ def manage_processes(
         if q in protected_names:
             raise DesktopControlError("protected_process", f"Refusing to terminate core session process '{q}'.")
 
-        ran = run_user_command(["/usr/bin/pgrep", "-u", str(os.getuid()), "-f", q], shell=False)
+        ran = run_user_command(["/usr/bin/pgrep", "-u", str(os.getuid()), "-f", "--", q], shell=False)
         pids = [int(x.strip()) for x in ran["lines"] if x.strip().isdigit() and int(x.strip()) not in (os.getpid(), os.getppid())]
         if not pids:
             raise DesktopControlError("process_not_found", f"No user process matching '{query}' was found.")
@@ -465,6 +466,16 @@ def manage_desktop(action: str, target: str = "", value: str = "") -> dict:
     if act == "launch_app":
         if not tgt:
             raise DesktopControlError("missing_app", "Specify an application, file, or URL to open.")
+        from permission_store import check_permission
+        perm = check_permission("shell_run", target_path="", source="agent_step")
+        if not perm.get("allowed"):
+            raise DesktopControlError("permission_denied", f"Launching apps is blocked by permission store: {perm.get('reason')}")
+        parts = tgt.split()
+        exe_base = Path(parts[0]).name.lower()
+        if exe_base in ("sh", "bash", "zsh", "dash", "fish", "python", "python3", "perl", "ruby", "node") and any(
+            a in ("-c", "-e", "--eval") or a.startswith("-c") for a in parts[1:]
+        ):
+            raise DesktopControlError("unsafe_launch_blocked", "Refusing raw interpreter inline execution via launch_app.")
         if _is_test_or_isolated_env():
             return {
                 "action": "launch_app",
@@ -488,7 +499,6 @@ def manage_desktop(action: str, target: str = "", value: str = "") -> dict:
                 "summary": f"Opened '{tgt}' with xdg-open.",
                 "lines": [f"Opened: {tgt}"],
             }
-        parts = tgt.split()
         bin_path = shutil.which(parts[0])
         if bin_path:
             subprocess.Popen(
@@ -731,9 +741,13 @@ def execute_git_task(workspace: str, subaction: str = "status", args: str = "", 
 
     combined_extra = str(extra_args or args or "").strip()
     if combined_extra:
-        for tok in combined_extra.split()[:8]:
-            if re.match(r"^[A-Za-z0-9_.\-/~:@]+$", tok):
-                cmd.append(tok)
+        safe_tokens = [
+            tok for tok in combined_extra.split()[:8]
+            if not tok.startswith("-") and re.match(r"^[A-Za-z0-9_./~:@][A-Za-z0-9_.\-/~:@]*$", tok)
+        ]
+        if safe_tokens:
+            cmd.append("--")
+            cmd.extend(safe_tokens)
 
     ran = run_user_command(cmd, cwd=ws, shell=False, timeout_sec=8.0)
     return {
@@ -941,8 +955,27 @@ _VOICE_KEYRING_CACHE: dict[str, object] = {"ts": 0.0, "keys": {}}
 def _voice_state_dir() -> Path:
     base = os.environ.get("XDG_STATE_HOME", "").strip()
     root = (Path(base) if base else (Path.home() / ".local" / "state")) / "alis-companion" / "voice"
-    root.mkdir(parents=True, exist_ok=True)
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        os.chmod(root, 0o700)
+    except OSError:
+        pass
     return root
+
+
+def _confine_voice_path(raw_path: str, default_name: str, vdir: Path) -> Path:
+    raw = str(raw_path or "").strip()
+    if not raw:
+        return vdir / default_name
+    cand = Path(raw).expanduser().resolve(strict=False)
+    allowed_roots = [
+        vdir.resolve(strict=False),
+        Path(tempfile.gettempdir()).resolve(strict=False),
+        Path("/tmp").resolve(strict=False),
+    ]
+    if not any(cand == root or cand.is_relative_to(root) for root in allowed_roots):
+        raise DesktopControlError("invalid_voice_path", f"Voice file path must reside under voice state or temp directory: {raw}")
+    return cand
 
 
 def _candidate_local_whisper_models(explicit_model: str = "") -> list[Path]:
@@ -1204,8 +1237,7 @@ def _transcribe_gemini_inline(
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
             + urllib.parse.quote(cur_model, safe="-._")
-            + ":generateContent?key="
-            + urllib.parse.quote(api_key)
+            + ":generateContent"
         )
         gen_cfg: dict = {"temperature": 0}
         if "2.5" in cur_model or "thinking" in cur_model:
@@ -1225,7 +1257,11 @@ def _transcribe_gemini_inline(
             req = urllib.request.Request(
                 url,
                 data=json.dumps(payload).encode("utf-8"),
-                headers={"Content-Type": "application/json", "User-Agent": "Alis-Companion/Voice"},
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": "Alis-Companion/Voice",
+                    "x-goog-api-key": api_key,
+                },
                 method="POST",
             )
             with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -1320,7 +1356,7 @@ def voice_stt(audio_path: str = "", duration_sec: float = 4.0, lang: str = "auto
     """Record or transcribe speech audio using local Whisper CLI or configured cloud STT providers (with deterministic test fixture support)."""
     eff_lang = str(language or lang or "auto").strip() or "auto"
     vdir = _voice_state_dir()
-    target_wav = Path(audio_path).expanduser().resolve(strict=False) if str(audio_path or "").strip() else (vdir / "voice_input.wav")
+    target_wav = _confine_voice_path(audio_path, "voice_input.wav", vdir)
     fixture_text = (os.environ.get("AQUA_TEST_VOICE_TEXT") or os.environ.get("AQUA_TEST_VOICE_TRANSCRIPT") or "").strip()
     if fixture_text or _is_test_or_isolated_env(target_wav):
         if not target_wav.exists():
@@ -1402,7 +1438,7 @@ def voice_stt(audio_path: str = "", duration_sec: float = 4.0, lang: str = "auto
             eff_lang = cfg_lang
     configured_provider = str(cfg_voice.get("provider") or "auto").strip().lower()
     if configured_provider == "local":
-        provider_order = ["local", "groq", "gemini", "openai"]
+        provider_order = ["local"]
     elif configured_provider == "groq":
         provider_order = ["groq", "gemini", "openai", "local"]
     elif configured_provider == "gemini":
@@ -1662,6 +1698,37 @@ def _tts_pid_file() -> Path:
     return root / "tts_pid.json"
 
 
+def _proc_starttime(pid: int) -> str:
+    try:
+        raw_stat = Path(f"/proc/{int(pid)}/stat").read_text(encoding="utf-8", errors="replace")
+        rparen = raw_stat.rfind(")")
+        if rparen >= 0:
+            fields = raw_stat[rparen + 2:].split()
+            if len(fields) > 19:
+                return fields[19]
+    except OSError:
+        pass
+    return ""
+
+
+def _pid_matches_tts(pid: int, expected_starttime: str = "") -> bool:
+    try:
+        proc_dir = Path(f"/proc/{int(pid)}")
+        if not proc_dir.is_dir() or proc_dir.stat().st_uid != os.getuid():
+            return False
+        if expected_starttime:
+            cur_start = _proc_starttime(pid)
+            if not cur_start or cur_start != str(expected_starttime):
+                return False
+        cmd_raw = (proc_dir / "cmdline").read_bytes().replace(b"\x00", b" ").decode("utf-8", errors="replace").lower()
+        allowed_bins = ("tts_stream_player", "pw-play", "paplay", "aplay", "ffplay")
+        if _is_test_or_isolated_env() and not expected_starttime:
+            allowed_bins = allowed_bins + ("sleep",)
+        return any(tok in cmd_raw for tok in allowed_bins)
+    except OSError:
+        return False
+
+
 def voice_tts_stop() -> dict:
     """Terminate any active TTS playback process group and clean temporary chunk files."""
     pid_candidates = [_tts_pid_file(), _voice_state_dir() / "tts_pid.json"]
@@ -1673,7 +1740,8 @@ def voice_tts_stop() -> dict:
             raw = pf.read_text(encoding="utf-8").strip()
             data = json.loads(raw) if raw.startswith("{") else {"pid": int(raw)}
             pid = int(data.get("pid") or 0) if isinstance(data, dict) else 0
-            if pid > 0:
+            exp_start = str(data.get("starttime") or "") if isinstance(data, dict) else ""
+            if pid > 0 and _pid_matches_tts(pid, exp_start):
                 try:
                     os.killpg(pid, signal.SIGTERM)
                 except (ProcessLookupError, PermissionError, OSError):
@@ -1976,8 +2044,15 @@ def voice_tts(
     raw_rate = str(rate or "").strip()
     edge_rate = raw_rate if (raw_rate.startswith(("+", "-")) and raw_rate.endswith("%")) else "+4%"
     vdir = _voice_state_dir()
-    out_wav = Path(out_path).expanduser().resolve(strict=False) if str(out_path or "").strip() else (vdir / "tts_output.wav")
-    out_wav.parent.mkdir(parents=True, exist_ok=True)
+    raw_out_path = str(out_path or "").strip()
+    run_dir: Path | None = None
+    if raw_out_path:
+        out_wav = _confine_voice_path(raw_out_path, "tts_output.wav", vdir)
+        out_wav.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    else:
+        run_dir = vdir / f"tts_run_{int(time.time() * 1000)}_{os.getpid()}"
+        run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        out_wav = run_dir / "tts_output.wav"
 
     if _is_test_or_isolated_env(out_wav):
         try:
@@ -2068,21 +2143,27 @@ def voice_tts(
     spawned_pid = 0
     spawned_proc: subprocess.Popen | None = None
     try:
+        chunk_target_dir = run_dir or out_wav.parent
         if len(chunks) >= 2:
-            manifest_path = vdir / f"tts_manifest_{int(time.time() * 1000)}.json"
+            manifest_path = chunk_target_dir / f"tts_manifest_{int(time.time() * 1000)}.json"
             manifest_payload = {
                 "firstAudioPath": str(first_audio),
                 "firstMp3Path": str(out_mp3) if first_audio != out_mp3 else "",
                 "remainingChunks": chunks[1:],
                 "voice": neural_voice,
                 "rate": edge_rate,
-                "chunkDir": str(vdir),
+                "chunkDir": str(chunk_target_dir),
+                "pidFile": str(_tts_pid_file()),
                 "playBin": play_bin or "",
                 "ffmpegBin": ffmpeg_bin or "",
                 "ffplayBin": ffplay_bin or "",
                 "edgeCli": edge_cli,
             }
             manifest_path.write_text(json.dumps(manifest_payload, ensure_ascii=False), encoding="utf-8")
+            try:
+                os.chmod(manifest_path, 0o600)
+            except OSError:
+                pass
             stream_script = Path(__file__).resolve().parent / "tts_stream_player.py"
             proc = subprocess.Popen(
                 [sys.executable, str(stream_script), str(manifest_path)],
@@ -2122,7 +2203,13 @@ def voice_tts(
     if spawned_pid > 0:
         try:
             _tts_pid_file().write_text(
-                json.dumps({"pid": spawned_pid, "backend": "edge-tts", "voice": neural_voice, "timestamp": int(time.time() * 1000)}),
+                json.dumps({
+                    "pid": spawned_pid,
+                    "starttime": _proc_starttime(spawned_pid),
+                    "backend": "edge-tts",
+                    "voice": neural_voice,
+                    "timestamp": int(time.time() * 1000),
+                }),
                 encoding="utf-8",
             )
         except OSError:

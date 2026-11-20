@@ -60,6 +60,7 @@ Item {
     property bool companionMotionSettled:false
     property string previewAmbientProp:""
     property bool previewLaptopActive:false
+    property int _contextRevision:0
     function evaluateContext(): void {
         if(contextConnected && !contextConnection) {
             if(!root.companionEnabled || !root.companionSessionVisible || !root.companionPreferences.contextEnabled
@@ -104,9 +105,7 @@ Item {
             readingFocusActive=false
         }
         if(coworkController) {
-            coworkController.character=root.companionCharacter
-            coworkController.directorState=contextState.director
-            coworkController.hostContext=coworkHostContext()
+            root._contextRevision += 1
             coworkController.step()
             if(coworkController.phase==="loop" && coworkController.hostContext
                     && Director.pollNeedsInput(contextState.director,coworkController.hostContext,Date.now()).eligible)
@@ -305,8 +304,8 @@ Item {
         id:coworkController
         objectName:"companionCoworkController"
         character:root.companionCharacter
-        directorState:root.contextState.director
-        hostContext:root.coworkHostContext()
+        directorState:root._contextRevision >= 0 ? root.contextState.director : null
+        hostContext:root._contextRevision >= 0 ? root.coworkHostContext() : null
         quietSettled:root.companionMotionSettled
         onActiveChanged:root.syncQuietIdle()
         onPhaseChanged:root.syncQuietIdle()

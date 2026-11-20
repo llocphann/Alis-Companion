@@ -155,7 +155,7 @@ function validResult(action, result) {
     if (action === "agent_turn") return typeof result.handled === "boolean"
         && string(result.intent, 64, false)
         && ["vi", "en"].includes(result.language)
-        && (!result.handled || (string(result.text, 6000, false) && string(result.status, 64, false)))
+        && (!result.handled || (string(result.text, 16000, false) && string(result.status, 64, false)))
     if (action === "agent_cancel") return result.cancelled === true && Array.isArray(result.cancelledRunIds)
     if (action === "agent_permissions") return integer(result.schemaVersion, 1, 10)
         && typeof result.networkAllowed === "boolean"
@@ -233,7 +233,7 @@ function invalid() { return {ok:false, malformed:true, error:{message:invalidMes
 function parse(action, raw, exitCode) {
     if (typeof raw !== "string" || raw.length > (["memory_list", "agent_file_op", "file_receipt_rollback", "read_spill", "context_enqueue", "context_drain", "primary_selection_get", "export_finetune", "pocket_save_item", "agent_turn", "rag_action", "mcp_action", "skill_action", "swarm_action", "agent_status", "chat_threads", "history", "history_append", "history_append_cancelled", "history_clear"].includes(action) ? 786432 : 32768) || exitCode !== 0) return invalid()
     const cleaned = raw.indexOf("__AQUA_") !== -1
-        ? raw.split("\n").filter(ln => !ln.startsWith("__AQUA_CURSOR__:") && !ln.startsWith("__AQUA_STEP__:") && !ln.startsWith("__AQUA_SWARM__:")).join("\n")
+        ? raw.split("\n").filter(ln => !ln.startsWith("__AQUA_CURSOR__:") && !ln.startsWith("__AQUA_STEP__:") && !ln.startsWith("__AQUA_SWARM__:") && !ln.startsWith("__AQUA_PROGRESS__:")).join("\n")
         : raw
     let envelope
     try { envelope = JSON.parse(cleaned) } catch (e) { return invalid() }

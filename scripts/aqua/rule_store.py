@@ -14,6 +14,7 @@ Safety invariants:
     fullscreen apps, quiet hours, and global stop.
 """
 from datetime import datetime
+import fcntl
 import hashlib
 import json
 import os
@@ -181,22 +182,28 @@ def load_rules_state(now_ms=None):
 
 def save_rules_state(state):
     path = _state_file()
+    lock_path = path.with_suffix(".lock")
     payload = (json.dumps(state, ensure_ascii=True, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    fd, tmp_name = tempfile.mkstemp(prefix=".agent_rules_", dir=str(path.parent))
-    try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp_name, path)
-        os.chmod(path, 0o600)
-    finally:
-        if os.path.exists(tmp_name):
+    with open(lock_path, "a+") as lock_f:
+        fcntl.flock(lock_f, fcntl.LOCK_EX)
+        try:
+            fd, tmp_name = tempfile.mkstemp(prefix=".agent_rules_", dir=str(path.parent))
             try:
-                os.unlink(tmp_name)
-            except OSError:
-                pass
+                os.fchmod(fd, 0o600)
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(payload)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(tmp_name, path)
+                os.chmod(path, 0o600)
+            finally:
+                if os.path.exists(tmp_name):
+                    try:
+                        os.unlink(tmp_name)
+                    except OSError:
+                        pass
+        finally:
+            fcntl.flock(lock_f, fcntl.LOCK_UN)
 
 
 def create_or_update_rule(
@@ -300,9 +307,11 @@ def set_rule_enabled(rule_id="", enabled=False, disable_all=False, global_stop=N
     state = load_rules_state(ts)
     if isinstance(global_stop, bool):
         state["globalStop"] = global_stop
+    rid = str(rule_id or "").strip()
+    rid_low = rid.lower()
     changed = []
     for r in state["rules"]:
-        if disable_all or (rule_id and (r["ruleId"] == rule_id or rule_id.lower() in r["title"].lower())):
+        if disable_all or (rid and (r["ruleId"] == rid or r["title"].strip().lower() == rid_low)):
             r["enabled"] = bool(enabled)
             changed.append(r["ruleId"])
     state["updatedAtMs"] = ts
@@ -317,10 +326,19 @@ def set_rule_enabled(rule_id="", enabled=False, disable_all=False, global_stop=N
 def delete_rule(rule_id, now_ms=None):
     ts = _now_ms(now_ms)
     state = load_rules_state(ts)
+    rid = str(rule_id or "").strip()
+    if not rid:
+        return {
+            "deleted": False,
+            "rules": state["rules"],
+            "rulesText": state.get("rulesText", DEFAULT_RULES_TEXT),
+            "defaultRulesText": DEFAULT_RULES_TEXT,
+        }
+    rid_low = rid.lower()
     before = len(state["rules"])
     state["rules"] = [
         r for r in state["rules"]
-        if r["ruleId"] != rule_id and rule_id.lower() not in r["title"].lower()
+        if r["ruleId"] != rid and r["title"].strip().lower() != rid_low
     ]
     state["updatedAtMs"] = ts
     save_rules_state(state)

@@ -368,8 +368,20 @@ _SECRET_KV_RE = re.compile(
     r"""(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|bot[_-]?token|token|secret|client[_-]?secret|password|passwd|private[_-]?key|authorization)\b(\s*[:=]\s*)(?:["']([^"'\n]{4,})["']|([^\s"',;}\]\n]{4,}))"""
 )
 
+_SECRET_KDL_ENV_RE = re.compile(
+    r"""(?i)\b([A-Z0-9_]*(?:API_?KEY|TOKEN|SECRET|PASS(?:WORD)?|AUTH|CREDENTIAL|COOKIE|PRIVATE)[A-Z0-9_]*)([ \t]+)(?:"([^"\n]{4,})"|'([^'\n]{4,})')"""
+)
+
 _SECRET_TOKEN_PREFIX_RE = re.compile(
-    r"\b(?:sk-[A-Za-z0-9_\-]{12,}|ghp_[A-Za-z0-9]{16,}|gho_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|AIza[0-9A-Za-z_\-]{20,}|xox[baprs]-[A-Za-z0-9\-]{10,}|Bearer\s+[A-Za-z0-9._\-]{12,})\b"
+    r"\b(?:sk-[A-Za-z0-9_\-]{12,}|ghp_[A-Za-z0-9]{16,}|gho_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|AIza[0-9A-Za-z_\-]{20,}|xox[baprs]-[A-Za-z0-9\-]{10,}|AKIA[0-9A-Z]{16}|Bearer\s+[A-Za-z0-9._\-]{12,}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b"
+)
+
+_SECRET_PEM_RE = re.compile(
+    r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----"
+)
+
+_SECRET_URI_CREDS_RE = re.compile(
+    r"(https?|postgres(?:ql)?|mysql|redis|amqps?|mongodb(?:\+srv)?|ftp)://([^:\s/@]+):([^@\s/]{3,})@"
 )
 
 
@@ -504,7 +516,10 @@ def scrub_secrets(text: str) -> str:
             return f'{key}{sep}"<REDACTED_SECRET>"'
         return f"{key}{sep}<REDACTED_SECRET>"
 
-    scrubbed = _SECRET_KV_RE.sub(_replace_kv, raw)
+    scrubbed = _SECRET_PEM_RE.sub("<REDACTED_PRIVATE_KEY>", raw)
+    scrubbed = _SECRET_URI_CREDS_RE.sub(r"\1://\2:<REDACTED_SECRET>@", scrubbed)
+    scrubbed = _SECRET_KV_RE.sub(_replace_kv, scrubbed)
+    scrubbed = _SECRET_KDL_ENV_RE.sub(lambda m: f'{m.group(1)}{m.group(2)}"<REDACTED_SECRET>"', scrubbed)
     scrubbed = _SECRET_TOKEN_PREFIX_RE.sub("<REDACTED_SECRET>", scrubbed)
     return scrubbed
 
@@ -673,10 +688,15 @@ def _resolve_niri_config_files(home_dir: Path | None = None, config_home: Path |
     seen: set[str] = set()
     queue: list[Path] = [main_cfg]
 
+    from permission_store import is_symlink_raw
+    niri_dir = main_cfg.parent.resolve(strict=False)
     while queue and len(found) < 24:
-        cur = queue.pop(0)
-        cur_str = str(cur.resolve(strict=False))
-        if cur_str in seen or not cur.is_file() or cur.is_symlink() or is_sensitive_personal_path(cur):
+        cur_raw = queue.pop(0)
+        if is_symlink_raw(cur_raw, root_dir=niri_dir):
+            continue
+        cur = cur_raw.resolve(strict=False)
+        cur_str = str(cur)
+        if cur_str in seen or not cur.is_relative_to(niri_dir) or not cur.is_file() or cur.is_symlink() or is_sensitive_personal_path(cur):
             continue
         seen.add(cur_str)
         found.append(cur)
@@ -688,11 +708,14 @@ def _resolve_niri_config_files(home_dir: Path | None = None, config_home: Path |
             inc_raw = match.group(1).strip()
             if not inc_raw:
                 continue
-            inc_path = Path(inc_raw).expanduser()
-            if not inc_path.is_absolute():
-                inc_path = (cur.parent / inc_path).resolve(strict=False)
-            else:
-                inc_path = inc_path.resolve(strict=False)
+            inc_cand = Path(inc_raw).expanduser()
+            if not inc_cand.is_absolute():
+                inc_cand = cur.parent / inc_cand
+            if is_symlink_raw(inc_cand, root_dir=niri_dir):
+                continue
+            inc_path = inc_cand.resolve(strict=False)
+            if not inc_path.is_relative_to(niri_dir):
+                continue
             if inc_path.is_file() and not inc_path.is_symlink() and not is_sensitive_personal_path(inc_path):
                 queue.append(inc_path)
     return found

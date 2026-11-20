@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
@@ -142,6 +143,9 @@ def main() -> int:
     signal.signal(signal.SIGINT, _handle_signal)
 
     to_unlink: list[Path] = [manifest_path]
+    run_dir_to_clean: Path | None = None
+    pid_file_path: Path | None = None
+    pool: ThreadPoolExecutor | None = None
     try:
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
         first_audio = Path(str(data.get("firstAudioPath") or ""))
@@ -150,6 +154,11 @@ def main() -> int:
         voice = str(data.get("voice") or "en-US-AvaMultilingualNeural")
         rate = str(data.get("rate") or "+4%")
         chunk_dir = Path(str(data.get("chunkDir") or manifest_path.parent))
+        if chunk_dir.name.startswith("tts_run_") and chunk_dir.is_dir():
+            run_dir_to_clean = chunk_dir
+        raw_pid_file = str(data.get("pidFile") or "").strip()
+        if raw_pid_file:
+            pid_file_path = Path(raw_pid_file)
         play_bin = str(data.get("playBin") or "")
         ffmpeg_bin = str(data.get("ffmpegBin") or "")
         ffplay_bin = str(data.get("ffplayBin") or "")
@@ -161,39 +170,53 @@ def main() -> int:
             to_unlink.append(first_mp3)
 
         futures = []
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            for i, chunk_txt in enumerate(remaining, start=1):
-                futures.append(
-                    pool.submit(
-                        _prepare_chunk,
-                        i,
-                        chunk_txt,
-                        chunk_dir,
-                        voice,
-                        rate,
-                        edge_cli,
-                        play_bin,
-                        ffmpeg_bin,
-                    )
+        pool = ThreadPoolExecutor(max_workers=1)
+        for i, chunk_txt in enumerate(remaining, start=1):
+            futures.append(
+                pool.submit(
+                    _prepare_chunk,
+                    i,
+                    chunk_txt,
+                    chunk_dir,
+                    voice,
+                    rate,
+                    edge_cli,
+                    play_bin,
+                    ffmpeg_bin,
                 )
+            )
 
-            if first_audio.is_file() and not _STOPPING:
-                _play_file(first_audio, play_bin, ffplay_bin)
+        if first_audio.is_file() and not _STOPPING:
+            _play_file(first_audio, play_bin, ffplay_bin)
 
-            for fut in futures:
-                if _STOPPING:
-                    break
-                audio_file, temps = fut.result()
-                to_unlink.extend(temps)
-                if audio_file and audio_file.is_file() and not _STOPPING:
-                    _play_file(audio_file, play_bin, ffplay_bin)
+        for fut in futures:
+            if _STOPPING:
+                break
+            audio_file, temps = fut.result()
+            to_unlink.extend(temps)
+            if audio_file and audio_file.is_file() and not _STOPPING:
+                _play_file(audio_file, play_bin, ffplay_bin)
         return 0
     finally:
+        if pool is not None:
+            pool.shutdown(wait=False, cancel_futures=True)
         _cleanup_child()
         for p in to_unlink:
             try:
                 p.unlink(missing_ok=True)
             except OSError:
+                pass
+        if run_dir_to_clean is not None:
+            try:
+                shutil.rmtree(run_dir_to_clean, ignore_errors=True)
+            except OSError:
+                pass
+        if pid_file_path is not None and pid_file_path.is_file():
+            try:
+                pdata = json.loads(pid_file_path.read_text(encoding="utf-8"))
+                if isinstance(pdata, dict) and int(pdata.get("pid") or 0) == os.getpid():
+                    pid_file_path.unlink(missing_ok=True)
+            except (OSError, ValueError):
                 pass
 
 

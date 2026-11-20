@@ -1,12 +1,14 @@
 """Persistent RAG knowledge base sources and cited retrieval for Alis-Companion."""
 from __future__ import annotations
+import hashlib
 import json
 import os
 from pathlib import Path
 import tempfile
 import time
+import unicodedata
 
-from permission_store import is_forbidden_path
+from permission_store import is_forbidden_path, is_sensitive_path, is_symlink_raw
 
 
 class RagStoreError(Exception):
@@ -149,7 +151,7 @@ def remove_source(target_path: str) -> bool:
     return removed
 
 
-def active_source_paths(extra_dirs: list[str] | None = None, include_pocket: bool = True) -> list[str]:
+def active_source_paths(extra_dirs: list[str] | None = None, include_pocket: bool = False) -> list[str]:
     seen = []
     for s in list_sources():
         if s.get("enabled") is not False and s.get("path") and s["path"] not in seen:
@@ -749,8 +751,10 @@ def extract_document_markdown(path: Path | str, max_chars: int = 120000) -> str:
     """Convert PDF, DOCX, XLSX, PPTX, ODT, EPUB, CSV/TSV, HTML, JSON, or text into clean Markdown."""
     from web_tools import html_to_markdown
 
+    if is_symlink_raw(path) or is_sensitive_path(path):
+        return ""
     p = Path(path).expanduser().resolve(strict=False)
-    if not p.is_file() or p.is_symlink() or is_forbidden_path(p):
+    if not p.is_file() or p.is_symlink() or is_forbidden_path(p) or is_sensitive_path(p):
         return ""
     suffix = p.suffix.lower()
     text = ""
@@ -811,28 +815,52 @@ def storage_info() -> dict:
 _LAST_INDEX_SIGNATURE: tuple | None = None
 
 
+def _fold_vi(text: str) -> str:
+    s = unicodedata.normalize("NFD", str(text or ""))
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+    return s.replace("đ", "d").replace("Đ", "d").lower()
+
+
 def sync_fts5_chunks(chunks: list[dict]) -> bool:
     """Synchronize parsed RAG document chunks into a local SQLite FTS5 index."""
     global _LAST_INDEX_SIGNATURE
     import sqlite3
 
-    sig = tuple((c.get("source", ""), c.get("heading", ""), len(c.get("text", ""))) for c in chunks)
+    sig = hashlib.sha256(
+        "\x00".join(
+            f"{c.get('source', '')}\x01{c.get('heading', '')}\x01{c.get('text', '')}"
+            for c in chunks
+        ).encode("utf-8", errors="replace")
+    ).hexdigest()
     db_path = _rag_db_path()
     if _LAST_INDEX_SIGNATURE == sig and db_path.is_file():
         return True
 
     try:
-        conn = sqlite3.connect(str(db_path), timeout=3.0)
+        db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(db_path), timeout=5.0)
         try:
+            try:
+                os.chmod(db_path, 0o600)
+            except OSError:
+                pass
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             conn.execute(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS rag_fts USING fts5(source, heading, body, tokenize='unicode61')"
             )
             conn.execute("DELETE FROM rag_fts")
             conn.executemany(
-                "INSERT INTO rag_fts(source, heading, body) VALUES (?, ?, ?)",
+                "INSERT INTO rag_fts(rowid, source, heading, body) VALUES (?, ?, ?, ?)",
                 [
-                    (str(c.get("source") or ""), str(c.get("heading") or ""), str(c.get("text") or ""))
-                    for c in chunks
+                    (
+                        idx + 1,
+                        str(c.get("source") or ""),
+                        str(c.get("heading") or ""),
+                        _fold_vi(str(c.get("text") or "")),
+                    )
+                    for idx, c in enumerate(chunks)
                 ],
             )
             conn.commit()
@@ -845,7 +873,7 @@ def sync_fts5_chunks(chunks: list[dict]) -> bool:
 
 
 def _char_trigrams(text: str) -> set[str]:
-    cleaned = "".join(ch for ch in text.lower() if ch.isalnum() or ch == " ").strip()
+    cleaned = "".join(ch for ch in _fold_vi(text) if ch.isalnum() or ch == " ").strip()
     if len(cleaned) < 3:
         return {cleaned} if cleaned else set()
     return {cleaned[i:i + 3] for i in range(min(180, len(cleaned) - 2))}
@@ -865,7 +893,7 @@ def query_hybrid_rag(
     if not chunks:
         return []
 
-    raw_prompt = str(query or "").strip().lower()
+    raw_prompt = _fold_vi(str(query or "").strip())
     default_sw = {
         "the", "and", "how", "does", "what", "with", "for", "from", "search", "find",
         "rag", "doc", "docs", "tai", "lieu", "tim", "kiem", "tra", "cuu",
@@ -884,25 +912,28 @@ def query_hybrid_rag(
     if not q_words:
         return []
 
-    # 1. Synchronize and query SQLite FTS5 BM25
-    fts_scores: dict[str, float] = {}
+    # 1. Synchronize and query SQLite FTS5 BM25 keyed by chunk index (rowid - 1)
+    fts_scores: dict[int, float] = {}
     if q_words and sync_fts5_chunks(chunks):
         db_path = _rag_db_path()
         try:
-            conn = sqlite3.connect(str(db_path), timeout=2.0)
+            conn = sqlite3.connect(str(db_path), timeout=5.0)
             try:
+                conn.execute("PRAGMA busy_timeout=5000")
                 safe_terms = [re.sub(r"[^a-zA-Z0-9_\u00C0-\u1EF9]", "", w) for w in q_words[:10]]
-                safe_terms = [ f'"{t}"*' for t in safe_terms if len(t) >= 2 ]
+                safe_terms = [f'"{t}"*' for t in safe_terms if len(t) >= 2]
                 if safe_terms:
                     fts_query = " OR ".join(safe_terms)
                     rows = conn.execute(
-                        "SELECT source, bm25(rag_fts, 1.8, 2.5, 1.0) AS rank "
-                        "FROM rag_fts WHERE rag_fts MATCH ? ORDER BY rank LIMIT 40",
+                        "SELECT rowid, bm25(rag_fts, 1.8, 2.5, 1.0) AS rank "
+                        "FROM rag_fts WHERE rag_fts MATCH ? ORDER BY rank LIMIT 60",
                         (fts_query,),
                     ).fetchall()
-                    for src, rank in rows:
-                        # bm25() in SQLite FTS5 returns negative values where more negative is better
-                        fts_scores[str(src)] = max(0.5, -float(rank or 0.0) * 2.2)
+                    for rid, rank in rows:
+                        idx = int(rid) - 1
+                        sc = max(0.5, -float(rank or 0.0) * 2.2)
+                        if idx not in fts_scores or sc > fts_scores[idx]:
+                            fts_scores[idx] = sc
             finally:
                 conn.close()
         except Exception:
@@ -910,23 +941,28 @@ def query_hybrid_rag(
 
     # 2. Compute IDF + semantic character trigram / subword similarity
     n_chunks = max(1, len(chunks))
+    folded_chunks = [
+        (
+            _fold_vi(ch["heading"]),
+            _fold_vi(ch["text"]),
+            _fold_vi(ch["source"]),
+        )
+        for ch in chunks
+    ]
     doc_freq = {}
     for w in set(q_words):
         doc_freq[w] = sum(
-            1 for ch in chunks
-            if w in (ch["heading"] + " " + ch["text"] + " " + ch["source"]).lower()
+            1 for h_f, t_f, s_f in folded_chunks
+            if w in f"{h_f} {t_f} {s_f}"
         )
     q_trigrams = _char_trigrams(" ".join(q_words) if q_words else raw_prompt)
 
     scored: list[tuple[float, dict]] = []
-    for ch in chunks:
-        src = ch["source"]
-        h_low = ch["heading"].lower()
-        t_low = ch["text"].lower()
-        s_low = src.lower()
+    for idx, ch in enumerate(chunks):
+        h_low, t_low, s_low = folded_chunks[idx]
         hay = f"{h_low} {t_low} {s_low}"
 
-        score = float(fts_scores.get(src, 0.0))
+        score = float(fts_scores.get(idx, 0.0))
         exact_hits = 0
         stem_hits = 0
         for w in set(q_words):
@@ -947,7 +983,7 @@ def query_hybrid_rag(
             if phrase in hay:
                 score += 3.0
 
-        if (exact_hits > 0 or fts_scores.get(src, 0.0) > 0 or stem_hits >= 2) and q_trigrams:
+        if (exact_hits > 0 or fts_scores.get(idx, 0.0) > 0 or stem_hits >= 2) and q_trigrams:
             c_trigrams = _char_trigrams(f"{h_low} {t_low[:160]}")
             if c_trigrams:
                 overlap = len(q_trigrams & c_trigrams) / math.sqrt(len(q_trigrams) * len(c_trigrams))

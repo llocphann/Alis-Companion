@@ -879,15 +879,6 @@ ContentPage {
                         }
 
                         CompactToggle {
-                            objectName: "companionSoundEnabled"
-                            buttonIcon: "volume_up"
-                            text: "Subtle sounds"
-                            tooltipText: "Play soft water and interaction sound cues."
-                            checked: root.preferences.soundEnabled
-                            onToggledByUser: checked => root.setPreference("soundEnabled", checked)
-                        }
-
-                        CompactToggle {
                             objectName: "companionAmbientReactions"
                             buttonIcon: "sensors"
                             text: "Ambient reactions"
@@ -1370,8 +1361,8 @@ ContentPage {
                         CompactToggle {
                             objectName: "companionFocusContext"
                             buttonIcon: "self_improvement"
-                            text: "Share Focus state"
-                            tooltipText: "Share active Focus timer state with Companion reactions."
+                            text: "Share active window app"
+                            tooltipText: "Share the focused application category (editor, terminal, browser) with Companion."
                             checked: root.preferences.contextFocusEnabled
                             onToggledByUser: checked => root.setPreference("contextFocusEnabled", checked)
                         }

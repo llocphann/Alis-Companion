@@ -130,11 +130,35 @@ def main() -> None:
 
         gem25 = thinking_router.apply_effort_to_payload({"model": "gemini-2.5-pro"}, "medium", api_format="gemini")
         assert gem25["generationConfig"]["thinkingConfig"]["thinkingBudget"] == 4096
-        gem25_off = thinking_router.apply_effort_to_payload({"model": "gemini-2.5-pro"}, "off", api_format="gemini")
-        assert gem25_off["generationConfig"]["thinkingConfig"]["thinkingBudget"] == 0
+        gem25_pro_off = thinking_router.apply_effort_to_payload({"model": "gemini-2.5-pro"}, "off", api_format="gemini")
+        assert gem25_pro_off["generationConfig"]["thinkingConfig"]["thinkingBudget"] == 128
+        gem25_flash_off = thinking_router.apply_effort_to_payload({"model": "gemini-2.5-flash"}, "off", api_format="gemini")
+        assert gem25_flash_off["generationConfig"]["thinkingConfig"]["thinkingBudget"] == 0
 
+        gem3_pro_off = thinking_router.apply_effort_to_payload({"model": "gemini-3-pro"}, "off", api_format="gemini")
+        assert gem3_pro_off["generationConfig"]["thinkingConfig"]["thinkingLevel"] == "low"
         gem3 = thinking_router.apply_effort_to_payload({"model": "gemini-3-flash"}, "high", api_format="gemini")
         assert gem3["generationConfig"]["thinkingConfig"]["thinkingLevel"] == "high"
+        gem3_flash_off = thinking_router.apply_effort_to_payload({"model": "gemini-3-flash"}, "off", api_format="gemini")
+        assert gem3_flash_off["generationConfig"]["thinkingConfig"]["thinkingLevel"] == "minimal"
+
+        # Verify Anthropic dot-notation + top_p/top_k removal and OpenAI legacy/cloud guards
+        anth_dot = thinking_router.apply_effort_to_payload(
+            {"model": "claude-opus-4.6", "temperature": 0.5, "top_p": 0.9, "top_k": 40}, "high", api_format="anthropic"
+        )
+        assert anth_dot["thinking"] == {"type": "adaptive"} and "top_p" not in anth_dot and "top_k" not in anth_dot
+        gpt4o = thinking_router.apply_effort_to_payload({"model": "gpt-4o"}, "medium", api_format="openai")
+        assert "reasoning_effort" not in gpt4o
+        o3_off = thinking_router.apply_effort_to_payload({"model": "o3-mini"}, "off", api_format="openai")
+        assert "reasoning_effort" not in o3_off
+        qwen_cloud = thinking_router.apply_effort_to_payload(
+            {"model": "qwen3-32b"}, "high", api_format="openai", endpoint="https://openrouter.ai/api/v1/chat/completions"
+        )
+        assert "chat_template_kwargs" not in qwen_cloud
+
+        # Verify conversational phrase inside real prompt does NOT short-circuit to off
+        non_sc = thinking_router.route_thinking_effort("Explain how neural networks hear me vs see images")
+        assert non_sc["source"] != "short_circuit", non_sc
 
         qwen3 = thinking_router.apply_effort_to_payload(
             {"model": "qwen3-14b-instruct"}, "off", api_format="openai"
@@ -152,6 +176,12 @@ def main() -> None:
         )
         assert plusiq["reasoning_effort"] == "none"
         assert plusiq["messages"][0]["content"].startswith("{REASON:einstein}\n")
+        plusiq_mm = thinking_router.apply_effort_to_payload(
+            {"model": "Qwen3.5-27B-PlusIQ", "messages": [{"role": "user", "content": [{"type": "text", "text": "Inspect this"}]}]},
+            "high",
+            api_format="openai",
+        )
+        assert plusiq_mm["messages"][0]["content"][0]["text"].startswith("{REASON:ihigh}\n")
 
         oai_resp = thinking_router.apply_effort_to_payload({"model": "gpt-5"}, "medium", api_format="openai-response")
         assert oai_resp["reasoning"]["effort"] == "medium"

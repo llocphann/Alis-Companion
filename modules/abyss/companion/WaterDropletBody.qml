@@ -53,8 +53,6 @@ Item {
     readonly property real thinkingOrbitAngle: thinkingDriftPhase * Math.PI * 2
     readonly property real effectiveOrbitAngle: orbitAngle + thinkingOrbitAngle
     readonly property real orbitSpeedFactor: root.thinking ? 1.25 : 1.0
-    readonly property real orbitBaseCos: Math.cos(effectiveOrbitAngle)
-    readonly property real orbitBaseSin: Math.sin(effectiveOrbitAngle)
     readonly property int bubbleCount: !root.bubblesEnabled ? 0 : root.qualityLevel > 1 ? 8 : root.qualityLevel > 0 ? 6 : 3
     readonly property color thinkingBubbleColor: thinkingStage === "tool" ? "#68f5ff" : (thinkingStage === "deep" ? "#b89cff" : (thinkingStage === "drafting" ? "#ffe394" : Qt.lighter(liquidAccent, 1.38)))
     readonly property color thinkingSparkColor: thinkingStage === "tool" ? "#e0ffff" : (thinkingStage === "deep" ? "#f4eeff" : (thinkingStage === "drafting" ? "#fff8d6" : "#f5fdff"))

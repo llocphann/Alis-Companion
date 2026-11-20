@@ -522,6 +522,7 @@ def search_files_in_home(
                 "--max-results",
                 str(max(150, max_results * 8)),
                 "-F",
+                "--",
                 q_name,
                 *[str(r) for r in priority_roots],
             ]
@@ -548,6 +549,7 @@ def search_files_in_home(
             "--max-results",
             str(max(300, max_results * 12)),
             "-F",
+            "--",
             q_name,
             str(home),
         ]
@@ -582,6 +584,7 @@ def search_files_in_home(
                         "-i",
                         "--max-results",
                         str(max(100, max_results * 4)),
+                        "--",
                         sep_pattern,
                         *sep_roots,
                     ]
@@ -838,6 +841,10 @@ def rollback_file_receipt(
 ) -> dict:
     """Restore a file to its pre-mutation state using its receiptId."""
     req_id = str(receipt_id or "").strip()
+    if req_id and not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", req_id):
+        if raise_on_missing:
+            raise ToolError("invalid_receipt_id", "Invalid file receipt ID.")
+        return {"ok": False, "error": "Invalid file receipt ID."}
     own_store = store is None
     st = _load_store() if store is None else store
     file_receipts = st.get("fileReceipts", [])
@@ -849,8 +856,11 @@ def rollback_file_receipt(
             matched = r
             break
 
-    rcpt_file = (_file_receipt_dir() / f"{req_id}.json") if req_id else None
-    if matched is None and rcpt_file is not None and rcpt_file.is_file():
+    rcpt_root = _file_receipt_dir().resolve(strict=False)
+    rcpt_file = (rcpt_root / f"{req_id}.json") if req_id else None
+    if rcpt_file is not None and not rcpt_file.resolve(strict=False).is_relative_to(rcpt_root):
+        rcpt_file = None
+    if matched is None and rcpt_file is not None and rcpt_file.is_file() and not rcpt_file.is_symlink():
         try:
             loaded_rcpt = json.loads(rcpt_file.read_text(encoding="utf-8"))
             if isinstance(loaded_rcpt, dict) and not loaded_rcpt.get("rolledBack"):
@@ -863,10 +873,16 @@ def rollback_file_receipt(
             raise ToolError("receipt_missing", "No matching recoverable file receipt found.")
         return {"ok": False, "error": f"Receipt not found: {req_id}"}
 
+    from permission_store import is_forbidden_path
     rop = str(matched.get("op") or "edit")
     raw_tpath = matched.get("targetPath") or matched.get("path") or ""
+    if not raw_tpath or is_forbidden_path(raw_tpath):
+        raise ToolError("forbidden_path", "Target path in file receipt is not permitted.")
     tpath = Path(raw_tpath)
-    dpath = Path(matched["destPath"]) if matched.get("destPath") else None
+    raw_dpath = matched.get("destPath") or ""
+    if raw_dpath and is_forbidden_path(raw_dpath):
+        raise ToolError("forbidden_path", "Destination path in file receipt is not permitted.")
+    dpath = Path(raw_dpath) if raw_dpath else None
     existed_before = bool(matched.get("beforeExisted", matched.get("existedBefore", False)))
     backup = matched.get("backupText") if "backupText" in matched else matched.get("oldContent")
 

@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 from pathlib import Path
 import re
 import sys
+import tempfile
 import time
 import uuid
 
@@ -290,9 +292,26 @@ def save_state(state: dict, *, emit: bool = True, now_ms: int | None = None) -> 
         state["board"] = state["board"][-MAX_BOARD_MESSAGES:]
     state["graph"] = _rebuild_graph(state)
     fpath = _state_file()
-    tmp = fpath.with_name(f".swarm_state.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, fpath)
+    lock_path = fpath.with_suffix(".lock")
+    payload = (json.dumps(state, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    with open(lock_path, "a+") as lock_f:
+        fcntl.flock(lock_f, fcntl.LOCK_EX)
+        try:
+            fd, tmp_name = tempfile.mkstemp(prefix=".swarm_state.", dir=str(fpath.parent))
+            tmp = Path(tmp_name)
+            try:
+                os.fchmod(fd, 0o600)
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(payload)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(tmp, fpath)
+                os.chmod(fpath, 0o600)
+            except OSError:
+                tmp.unlink(missing_ok=True)
+                raise
+        finally:
+            fcntl.flock(lock_f, fcntl.LOCK_UN)
     if emit:
         emit_swarm_state(state)
     return state

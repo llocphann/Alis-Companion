@@ -350,7 +350,11 @@ def read_skill_reference(name: str, reference_file: str, companion_root: Path | 
     if not ref_clean or ref_clean in (".", ".."):
         raise SkillError("invalid_reference_path", "Specify a reference file name inside references/.")
     refs_dir = (Path(skill["folder"]) / "references").resolve()
-    target = (refs_dir / ref_clean).resolve()
+    raw_target = refs_dir / ref_clean
+    from permission_store import is_symlink_raw
+    if is_symlink_raw(raw_target, root_dir=refs_dir):
+        raise SkillError("reference_not_found", f"Reference '{ref_clean}' is a symlink and cannot be read.")
+    target = raw_target.resolve()
     if not target.is_relative_to(refs_dir) or not target.is_file() or target.is_symlink():
         raise SkillError("reference_not_found", f"Reference '{ref_clean}' not found in skill '{skill['name']}'.")
     content = target.read_text(encoding="utf-8", errors="replace")[:8000]
@@ -628,11 +632,15 @@ def learn_skill(
     cand_path: Path | None = None
     path_token = raw.split()[0] if raw else ""
     if path_token and (path_token.startswith(("/", "~", "./", "../")) or "/" in path_token):
-        p = Path(path_token).expanduser()
-        if not p.is_absolute() and workspace:
-            p = (Path(workspace).expanduser() / p).resolve(strict=False)
-        else:
-            p = p.resolve(strict=False)
+        from permission_store import is_sensitive_path, is_symlink_raw
+        p_raw = Path(path_token).expanduser()
+        if not p_raw.is_absolute() and workspace:
+            p_raw = Path(workspace).expanduser() / p_raw
+        if is_symlink_raw(p_raw) or is_sensitive_path(p_raw):
+            raise SkillError("sensitive_path_blocked", f"Refusing to learn from restricted path '{path_token}'.")
+        p = p_raw.resolve(strict=False)
+        if is_sensitive_path(p):
+            raise SkillError("sensitive_path_blocked", f"Refusing to learn from restricted path '{path_token}'.")
         if p.exists():
             cand_path = p
 
@@ -930,23 +938,47 @@ def run_skill(
     script_ok = True
 
     if cmd_script:
-        cand = (folder / "scripts" / cmd_script).resolve() if not (folder / cmd_script).is_file() else (folder / cmd_script).resolve()
-        if cand.is_file() and cand.is_relative_to(folder):
+        from permission_store import check_permission, is_symlink_raw
+        scripts_dir = (folder / "scripts").resolve()
+        raw_script_rel = str(cmd_script).replace("\\", "/").lstrip("/")
+        if raw_script_rel.startswith("scripts/"):
+            raw_script_rel = raw_script_rel[len("scripts/"):]
+        cand_raw = scripts_dir / Path(raw_script_rel).name
+        if ".." in Path(raw_script_rel).parts or "/" in raw_script_rel or is_symlink_raw(cand_raw, root_dir=scripts_dir):
+            raise SkillError("invalid_script_path", f"Skill script '{cmd_script}' must live inside scripts/ without symlinks.")
+        cand = cand_raw.resolve()
+        if cand.is_file() and cand.is_relative_to(scripts_dir):
+            home_resolved = Path.home().resolve(strict=False)
+            cwd_dir = Path(workspace).expanduser().resolve(strict=False) if workspace else home_resolved
+            if not cwd_dir.is_dir():
+                cwd_dir = home_resolved
+            if skill.get("source") != "builtin":
+                perm = check_permission("shell_run", target_path=str(cwd_dir))
+                if not perm.get("allowed"):
+                    raise SkillError("permission_denied", f"Permission denied to run external skill '{skill['name']}': {perm.get('reason')}")
             runner = ["python3", str(cand)] if cand.suffix == ".py" else ["sh", str(cand)]
             if prompt:
                 runner.append(prompt[:400])
-            cwd_dir = Path(workspace).expanduser().resolve(strict=False) if workspace else Path.home()
-            if not cwd_dir.is_dir():
-                cwd_dir = Path.home()
             try:
-                res = run_sandboxed(
-                    runner,
-                    cwd=cwd_dir,
-                    writable_dirs=[cwd_dir],
-                    readonly_dirs=[folder, comp_root, cwd_dir],
-                    allow_network=False,
-                    timeout_sec=10.0,
-                )
+                if cwd_dir == home_resolved:
+                    with tempfile.TemporaryDirectory(prefix="aqua-skill-sb-") as sb_tmp:
+                        res = run_sandboxed(
+                            runner,
+                            cwd=cwd_dir,
+                            writable_dirs=[sb_tmp],
+                            readonly_dirs=[folder, comp_root, cwd_dir],
+                            allow_network=False,
+                            timeout_sec=10.0,
+                        )
+                else:
+                    res = run_sandboxed(
+                        runner,
+                        cwd=cwd_dir,
+                        writable_dirs=[cwd_dir],
+                        readonly_dirs=[folder, comp_root, cwd_dir],
+                        allow_network=False,
+                        timeout_sec=10.0,
+                    )
                 executed_script = cand.name
                 output_lines.extend(res.get("lines") or [])
             except SandboxError as exc:

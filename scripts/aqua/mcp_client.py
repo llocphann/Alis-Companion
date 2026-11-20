@@ -18,11 +18,13 @@ import platform
 import re
 import select
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 _THIS_DIR = str(Path(__file__).resolve().parent)
@@ -1308,11 +1310,15 @@ def _execute_builtin_tool(tool_name: str, arguments: dict, companion_root: Path 
             "structured": res,
         }
     if tool_name == "shell_exec":
+        from permission_store import check_permission
         from sandbox_runner import SandboxError, run_user_command
         cmd = str(arguments.get("command") or "").strip()
         cwd = str(arguments.get("cwd") or Path.home()).strip()
         if not cmd:
             raise McpError("invalid_arguments", "shell_exec requires a non-empty 'command' argument.")
+        perm = check_permission("shell_run", target_path=cwd, source="agent_step")
+        if not perm.get("allowed"):
+            raise McpError("permission_denied", f"Shell execution blocked by permission store: {perm.get('reason')}")
         try:
             res = run_user_command(cmd, cwd, timeout_sec=15.0)
         except SandboxError as exc:
@@ -1717,13 +1723,18 @@ def _execute_curated_tool(
         if tool_name == "list_processes":
             return _execute_builtin_tool("process_list", arguments, companion_root=comp_root)
         if tool_name == "read_file_excerpt":
-            from permission_store import is_forbidden_path
+            from permission_store import check_permission, is_forbidden_path, is_sensitive_path, is_symlink_raw
             raw_path = str(arguments.get("path") or arguments.get("file") or arguments.get("query") or "").strip()
             if not raw_path:
                 raise McpError("invalid_arguments", "read_file_excerpt requires a non-empty 'path'.")
+            if is_symlink_raw(raw_path) or is_sensitive_path(raw_path):
+                raise McpError("file_unavailable", f"File '{raw_path}' is unavailable or restricted.")
             fpath = Path(raw_path).expanduser().resolve(strict=False)
-            if is_forbidden_path(fpath) or not fpath.is_file():
+            if is_forbidden_path(fpath) or is_sensitive_path(fpath) or not fpath.is_file():
                 raise McpError("file_unavailable", f"File '{raw_path}' is unavailable or not permitted.")
+            perm = check_permission("file_read", target_path=str(fpath), source="agent_step")
+            if not perm.get("allowed"):
+                raise McpError("permission_denied", f"File read blocked by permission store: {perm.get('reason')}")
             try:
                 lines = fpath.read_text(encoding="utf-8", errors="replace").splitlines()[:40]
             except OSError as exc:
@@ -1765,16 +1776,29 @@ def _execute_curated_tool(
 
     if server_name == "sqlite-mcp":
         import sqlite3
-        from permission_store import is_forbidden_path
+        from permission_store import check_permission, is_forbidden_path, is_sensitive_path, is_symlink_raw
         raw_db = str(arguments.get("db_path") or "").strip()
         if not raw_db:
             state_base = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "alis-companion"
             cand_dbs = sorted(state_base.glob("*.db")) + sorted(state_base.glob("*.sqlite*"))
             db_path = cand_dbs[0] if cand_dbs else (state_base / "history.db")
         else:
+            if is_symlink_raw(raw_db) or is_sensitive_path(raw_db):
+                raise McpError("db_forbidden", f"Database path '{raw_db}' is restricted.")
             db_path = Path(raw_db).expanduser().resolve(strict=False)
-        if is_forbidden_path(db_path):
+        if is_forbidden_path(db_path) or is_sensitive_path(db_path):
             raise McpError("db_forbidden", f"Database path '{db_path}' is restricted.")
+        if raw_db:
+            hist_db_env = os.environ.get("ALIS_AQUA_HISTORY_DB", "").strip()
+            xdg_state_env = os.environ.get("XDG_STATE_HOME", "").strip()
+            is_configured_state_db = bool(
+                (hist_db_env and db_path == Path(hist_db_env).expanduser().resolve(strict=False))
+                or (xdg_state_env and db_path.is_relative_to(Path(xdg_state_env).expanduser().resolve(strict=False)))
+            )
+            if not is_configured_state_db:
+                perm = check_permission("file_read", target_path=str(db_path), source="agent_step")
+                if not perm.get("allowed"):
+                    raise McpError("permission_denied", f"Database access blocked by permission store: {perm.get('reason')}")
         if not db_path.is_file():
             return {
                 "server": server_name,
@@ -1784,7 +1808,8 @@ def _execute_curated_tool(
                 "structured": {"dbPath": str(db_path), "rows": []},
             }
         try:
-            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=3.0)
+            quoted_db = urllib.parse.quote(str(db_path), safe="/")
+            conn = sqlite3.connect(f"file:{quoted_db}?mode=ro", uri=True, timeout=3.0)
             conn.row_factory = sqlite3.Row
             try:
                 if tool_name == "list_tables":
@@ -1836,7 +1861,6 @@ def _execute_curated_tool(
         import desktop_control
         if tool_name == "media_control":
             act = str(arguments.get("action") or "status").strip().lower()
-            desk_act = "media_next" if act == "next" else ("media_prev" if act == "previous" else "media_play_pause")
             if act == "status":
                 if shutil.which("playerctl"):
                     proc = subprocess.run(["playerctl", "metadata", "--format", "{{playerName}}: {{artist}} - {{title}} ({{status}})"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2.0, check=False, text=True)
@@ -1850,7 +1874,8 @@ def _execute_curated_tool(
                     "content": [{"type": "text", "text": status_txt}],
                     "structured": {"status": status_txt},
                 }
-            res = desktop_control.manage_desktop(action=desk_act)
+            media_val = "next" if act == "next" else ("previous" if act == "previous" else ("pause" if act == "pause" else ("play" if act == "play" else "play-pause")))
+            res = desktop_control.manage_desktop(action="media", value=media_val)
             return {
                 "server": server_name,
                 "tool": tool_name,
@@ -1874,8 +1899,8 @@ def _execute_curated_tool(
                     "content": [{"type": "text", "text": vol_txt}],
                     "structured": {"volume": vol_txt},
                 }
-            desk_map = {"up": "volume_up", "down": "volume_down", "set": "volume_set", "mute": "volume_mute"}
-            res = desktop_control.manage_desktop(action=desk_map.get(act, "volume_up"), value=val)
+            vol_val = val if act == "set" and val else ("mute" if act == "mute" else ("down" if act == "down" else "up"))
+            res = desktop_control.manage_desktop(action="volume", value=vol_val)
             return {
                 "server": server_name,
                 "tool": tool_name,
@@ -1887,7 +1912,7 @@ def _execute_curated_tool(
             act = str(arguments.get("action") or "read").strip().lower()
             if act == "write":
                 txt = str(arguments.get("text") or "")
-                res = desktop_control.manage_desktop(action="clipboard_write", value=txt)
+                res = desktop_control.manage_desktop(action="clipboard_set", value=txt)
                 return {
                     "server": server_name,
                     "tool": tool_name,
@@ -1968,7 +1993,7 @@ def _load_or_build_graphify_data(project_root: Path) -> dict:
     links: list[dict] = []
     file_ids: dict[str, str] = {}
     for idx, entry in enumerate(rmap.get("entries", [])[:40]):
-        rel_path = str(entry.get("path") or f"file_{idx}")
+        rel_path = str(entry.get("file") or entry.get("path") or f"file_{idx}")
         comm_id = idx % max(1, min(6, len(rmap.get("entries", [])) // 3 or 1))
         fid = f"file:{rel_path}"
         file_ids[rel_path] = fid
@@ -2732,7 +2757,7 @@ def _stdio_rpc_exchange(server: dict, method: str, params: dict | None = None, t
     cmd_str = str(server.get("command") or "").strip()
     if not cmd_str:
         raise McpError("invalid_server_config", f"MCP server '{server['name']}' has no command.")
-    if not Path(cmd_str).is_Absolute() if hasattr(Path(cmd_str), "is_Absolute") else not Path(cmd_str).is_absolute():
+    if not Path(cmd_str).is_absolute():
         resolved_bin = shutil.which(cmd_str)
         if not resolved_bin:
             for cand in (
@@ -2745,7 +2770,9 @@ def _stdio_rpc_exchange(server: dict, method: str, params: dict | None = None, t
         if resolved_bin:
             cmd_str = resolved_bin
     args = [str(a) for a in (server.get("args") or [])]
-    env = os.environ.copy()
+    safe_env_keys = ("PATH", "HOME", "LANG", "LC_ALL", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "TERM")
+    env = {k: os.environ[k] for k in safe_env_keys if k in os.environ}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     for k, v in (server.get("env") or {}).items():
         env[str(k)] = str(v)
 
@@ -2754,10 +2781,11 @@ def _stdio_rpc_exchange(server: dict, method: str, params: dict | None = None, t
             [cmd_str] + args,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
             env=env,
             text=True,
             bufsize=1,
+            start_new_session=True,
         )
     except OSError as exc:
         raise McpError("server_spawn_failed", f"Failed to start MCP server '{server['name']}': {exc}") from exc
@@ -2820,19 +2848,31 @@ def _stdio_rpc_exchange(server: dict, method: str, params: dict | None = None, t
         return _recv(2, deadline)
     finally:
         try:
-            proc.terminate()
+            os.killpg(proc.pid, signal.SIGTERM)
+        except Exception:
+            pass
+        try:
             proc.wait(timeout=1.0)
         except Exception:
             try:
-                proc.kill()
+                os.killpg(proc.pid, signal.SIGKILL)
             except Exception:
-                pass
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
 
 
 def _http_rpc_exchange(server: dict, method: str, params: dict | None = None, timeout_sec: float = 6.0) -> dict:
+    from web_tools import build_safe_opener, validate_external_url
     url = str(server.get("url") or "").strip()
     if not url.startswith(("http://", "https://")):
         raise McpError("invalid_server_config", f"MCP server '{server['name']}' has an invalid HTTP URL.")
+    parsed_host = (urllib.parse.urlsplit(url).hostname or "").strip().lower()
+    explicit_loopback = parsed_host in ("127.0.0.1", "localhost", "::1")
+    ok_url, reason = validate_external_url(url, allow_local=explicit_loopback)
+    if not ok_url:
+        raise McpError("ssrf_blocked", f"MCP server '{server['name']}' HTTP target blocked ({reason}).")
     payload = json.dumps({
         "jsonrpc": "2.0",
         "id": 1,
@@ -2840,8 +2880,9 @@ def _http_rpc_exchange(server: dict, method: str, params: dict | None = None, ti
         "params": params or {},
     }).encode("utf-8")
     req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+    opener = build_safe_opener(allow_local=explicit_loopback)
     try:
-        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+        with opener.open(req, timeout=timeout_sec) as resp:
             raw = resp.read(256 * 1024)
         parsed = json.loads(raw.decode("utf-8", errors="replace"))
         if not isinstance(parsed, dict):
@@ -2908,13 +2949,13 @@ def call_tool(
         target = next((s for s in servers if s["name"] == sname), None)
         if not target:
             raise McpError("server_not_found", f"MCP server '{sname}' is not enabled or registered.")
-        if target["name"] in CURATED_TOOLS and target["name"] != "companion-system":
+        if target["name"] in CURATED_TOOLS and target["name"] != "companion-system" and tname not in ("shell_exec", "execute_command"):
             c_tools = CURATED_TOOLS.get(target["name"]) or []
             if not any(t["name"] == tname for t in c_tools):
                 fallback_srv = next(
                     (
                         s for s in servers
-                        if s["name"] in CURATED_TOOLS and any(t["name"] == tname for t in (CURATED_TOOLS.get(s["name"]) or []))
+                        if s["name"] in CURATED_TOOLS and s["name"] != "companion-system" and any(t["name"] == tname for t in (CURATED_TOOLS.get(s["name"]) or []))
                     ),
                     None,
                 )

@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 import time
 
@@ -276,13 +277,118 @@ def is_system_path(target_path):
     return not is_inside_user_home(target_path)
 
 
-def is_forbidden_path(target_path):
+_SENSITIVE_DIR_SEGMENTS = frozenset((
+    ".gnupg",
+    ".aws",
+    ".kube",
+    ".docker",
+    ".password-store",
+))
+_AUTONOMOUS_SENSITIVE_DIR_SEGMENTS = _SENSITIVE_DIR_SEGMENTS | frozenset((
+    ".ssh",
+    ".mozilla",
+    ".zen",
+    "google-chrome",
+    "chromium",
+    "bravesoftware",
+))
+_SENSITIVE_FILE_NAMES = frozenset((
+    "id_rsa",
+    "id_ed25519",
+    "id_ecdsa",
+    "id_dsa",
+    "authorized_keys",
+    ".netrc",
+    ".bash_history",
+    ".zsh_history",
+    ".git-credentials",
+    "key4.db",
+    "logins.json",
+    "cookies.sqlite",
+    "login data",
+    "mcp_servers.json",
+    "mcp.json",
+    "agent_permissions.json",
+))
+_SAFE_ENV_NAMES = frozenset((
+    ".env.example",
+    ".env.sample",
+    ".env.template",
+    ".env.dist",
+    ".env.test",
+))
+_SENSITIVE_EXTENSIONS = frozenset((".pem", ".key", ".p12", ".pfx", ".kdbx"))
+_SYSTEM_FORBIDDEN_EXACT = frozenset(("/etc/shadow", "/etc/gshadow", "/etc/sudoers"))
+_PROC_SECRET_RE = re.compile(r"^/proc/(?:\d+|self|thread-self)/(?:environ|mem|maps)$")
+
+
+def is_symlink_raw(target_path, root_dir=None) -> bool:
+    """Inspect whether target_path (or intermediate segments below root_dir) is a symlink BEFORE resolving."""
+    if not target_path:
+        return False
+    raw = str(target_path).strip()
+    if not raw or "\x00" in raw or "\r" in raw or "\n" in raw:
+        return True
+    try:
+        expanded = Path(raw).expanduser()
+        if expanded.is_symlink():
+            return True
+        if root_dir is not None:
+            root_p = Path(root_dir).expanduser().resolve(strict=False)
+            cur = expanded
+            for _ in range(16):
+                if cur == root_p or cur == cur.parent:
+                    break
+                if cur.is_symlink():
+                    return True
+                cur = cur.parent
+        return False
+    except OSError:
+        return True
+
+
+def _check_sensitive_impl(target_path, *, include_autonomous_dirs: bool) -> bool:
     if not target_path:
         return False
     raw = str(target_path).strip()
     if "\x00" in raw or "\r" in raw or "\n" in raw:
         return True
+    try:
+        home = Path.home().resolve(strict=False)
+        expanded = Path(raw).expanduser()
+        if not expanded.is_absolute():
+            expanded = home / expanded
+        candidates = (expanded, expanded.resolve(strict=False))
+    except OSError:
+        return True
+
+    dir_set = _AUTONOMOUS_SENSITIVE_DIR_SEGMENTS if include_autonomous_dirs else _SENSITIVE_DIR_SEGMENTS
+    for cand in candidates:
+        s = str(cand)
+        if s in _SYSTEM_FORBIDDEN_EXACT or s.startswith("/etc/sudoers.d/") or s == "/etc/sudoers.d":
+            return True
+        if _PROC_SECRET_RE.match(s):
+            return True
+        low_parts = [p.lower() for p in cand.parts]
+        if any(seg in dir_set for seg in low_parts):
+            return True
+        fname = cand.name.lower()
+        if fname in _SENSITIVE_FILE_NAMES:
+            return True
+        if (fname == ".env" or fname.startswith(".env.")) and fname not in _SAFE_ENV_NAMES:
+            return True
+        if cand.suffix.lower() in _SENSITIVE_EXTENSIONS:
+            return True
     return False
+
+
+def is_forbidden_path(target_path):
+    return _check_sensitive_impl(target_path, include_autonomous_dirs=False)
+
+
+def is_sensitive_path(target_path):
+    """Stricter check for autonomous LLM tools, auto-RAG indexing, MCP file/SQLite reads, and skill learning."""
+    return _check_sensitive_impl(target_path, include_autonomous_dirs=True)
 
 
 def _active_entry(entry, ts):
@@ -396,8 +502,8 @@ def check_permission(
 
         # Check if user explicitly revoked this directory inside $HOME
         for rev in state.get("revokedDirectories", []):
-            rev_resolved = str(Path(rev).expanduser().resolve(strict=False))
-            if resolved == rev_resolved or resolved.startswith(rev_resolved + "/"):
+            rev_path = Path(rev).expanduser().resolve(strict=False)
+            if resolved_path == rev_path or resolved_path.is_relative_to(rev_path):
                 return {
                     "allowed": False,
                     "requiresConfirmation": True,
@@ -411,8 +517,8 @@ def check_permission(
         for d in state.get("directories", []):
             if not _active_entry(d, ts):
                 continue
-            dpath = str(Path(d["path"]).expanduser().resolve(strict=False))
-            if (resolved == dpath or resolved.startswith(dpath + "/")) and needed_level in (d.get("levels") or []):
+            dpath_obj = Path(d["path"]).expanduser().resolve(strict=False)
+            if (resolved_path == dpath_obj or resolved_path.is_relative_to(dpath_obj)) and needed_level in (d.get("levels") or []):
                 return {
                     "allowed": True,
                     "requiresConfirmation": bool(tool_cfg.get("requiresConfirm", False)),
@@ -553,6 +659,7 @@ def revoke_permission(scope_type="", target="", revoke_all=False, now_ms=None):
     ts = _now_ms(now_ms)
     state = load_state(ts)
     if revoke_all:
+        state["homeFullAccess"] = False
         state["directories"] = []
         state["apps"] = []
         state["networkAllowed"] = False

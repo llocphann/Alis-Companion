@@ -6,7 +6,7 @@ import re
 import shutil
 import subprocess
 
-from permission_store import is_forbidden_path
+from permission_store import is_forbidden_path, is_sensitive_path, is_symlink_raw
 from sandbox_runner import run_sandboxed
 
 
@@ -138,8 +138,10 @@ def search_code(workspace_dir, query, max_results=20):
 
 
 def extract_file_symbols(file_path, root_dir=None):
+    if is_symlink_raw(file_path, root_dir=root_dir) or is_sensitive_path(file_path):
+        return []
     fpath = Path(file_path).resolve(strict=False)
-    if fpath.is_symlink() or not fpath.is_file():
+    if fpath.is_symlink() or not fpath.is_file() or is_forbidden_path(fpath) or is_sensitive_path(fpath):
         return []
     rel = str(fpath.relative_to(root_dir)) if root_dir and fpath.is_relative_to(root_dir) else fpath.name
     try:
@@ -445,19 +447,24 @@ def _collect_doc_chunks(companion_root, extra_dirs=None, include_builtin_docs=Tr
     merged_dirs = list(extra_dirs or [])
     try:
         import rag_store
-        for p in rag_store.active_source_paths(extra_dirs=merged_dirs, include_pocket=True):
+        for p in rag_store.active_source_paths(extra_dirs=merged_dirs, include_pocket=False):
             if p not in merged_dirs:
                 merged_dirs.append(p)
     except Exception:
         pass
 
+    home_resolved = Path.home().resolve(strict=False)
     for d in merged_dirs:
+        if is_symlink_raw(d) or is_sensitive_path(d):
+            continue
         dp = Path(d).expanduser().resolve(strict=False)
-        if dp.is_file() and not dp.is_symlink() and not is_forbidden_path(dp):
+        if dp == home_resolved:
+            continue
+        if dp.is_file() and not dp.is_symlink() and not is_forbidden_path(dp) and not is_sensitive_path(dp):
             if str(dp) not in seen_paths and dp.suffix.lower() in RAG_EXTENSIONS:
                 sources.append((dp.name, dp))
                 seen_paths.add(str(dp))
-        elif dp.is_dir() and not is_forbidden_path(dp):
+        elif dp.is_dir() and not is_forbidden_path(dp) and not is_sensitive_path(dp):
             stop_dir = False
             for dirpath, dirnames, filenames in os.walk(dp, followlinks=False):
                 dirnames[:] = sorted(
@@ -776,6 +783,23 @@ def read_file(file_path, max_chars=24000, start_line=1, end_line=250):
         paragraphs = [ln.strip() for ln in full_text.splitlines() if ln.strip()]
     else:
         try:
+            max_raw = 16 * 1024 * 1024
+            if p.stat().st_size > max_raw:
+                return {
+                    "ok": False,
+                    "error": "file_too_large",
+                    "path": str(p),
+                    "name": p.name,
+                    "format": fmt,
+                    "text": "",
+                    "content": "",
+                    "paragraphs": [],
+                    "tables": [],
+                    "markdownTables": [],
+                    "lines": [],
+                    "totalLines": 0,
+                    "metadata": {},
+                }
             raw_bytes = p.read_bytes()
         except OSError:
             return {
@@ -1066,6 +1090,8 @@ def _eval_simple_excel_formula(formula_expr: str, numeric_grid: dict[tuple[int, 
                 if rc1 and rc2:
                     r_lo, r_hi = min(rc1[0], rc2[0]), max(rc1[0], rc2[0])
                     c_lo, c_hi = min(rc1[1], rc2[1]), max(rc1[1], rc2[1])
+                    if (r_hi - r_lo + 1) * (c_hi - c_lo + 1) > 10000:
+                        continue
                     for rr in range(r_lo, r_hi + 1):
                         for cc in range(c_lo, c_hi + 1):
                             if (rr, cc) in numeric_grid:

@@ -60,6 +60,8 @@ from permission_store import (
     grant_permission,
     inspect_permissions,
     is_forbidden_path,
+    is_sensitive_path,
+    is_symlink_raw,
     is_system_path,
     resolve_pending_confirmation,
     revoke_permission,
@@ -446,8 +448,11 @@ def record_step_start(run_id, seq, tool_name, side_effect=False, target_path="",
 
 
 def record_step_finish(step_id, status="completed", target_path="", receipt_id="", detail=None, **kwargs):
+    eff_detail = dict(detail) if isinstance(detail, dict) else ({} if detail is None else {"raw": str(detail)})
+    if kwargs.get("error_text") and "error" not in eff_detail:
+        eff_detail["error"] = str(kwargs["error_text"])[:500]
     res = _store_record_step_finish(
-        step_id, status=status, target_path=target_path, receipt_id=receipt_id, detail=detail
+        step_id, status=status, target_path=target_path, receipt_id=receipt_id, detail=eff_detail or None
     )
     t_name, t_target = _ACTIVE_STEP_META.get(str(step_id), ("tool", str(target_path or "")))
     if not t_target and target_path:
@@ -880,6 +885,15 @@ def _ensure_lmstudio_runtime_ready(
     return True
 
 
+def _urlopen_local(url_or_req, timeout: float = 5.0):
+    target_url = url_or_req.full_url if hasattr(url_or_req, "full_url") else str(url_or_req or "")
+    host = (urllib.parse.urlsplit(target_url).hostname or "").strip().lower()
+    if host in ("127.0.0.1", "localhost", "::1"):
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        return opener.open(url_or_req, timeout=timeout)
+    return urllib.request.urlopen(url_or_req, timeout=timeout)
+
+
 def _resolve_live_llm(options: dict) -> tuple[str, str]:
     _ensure_lmstudio_runtime_ready()
     llm_ep = str(options.get("endpoint") or os.environ.get("AQUA_LLM_ENDPOINT") or "").strip()
@@ -901,7 +915,7 @@ def _resolve_live_llm(options: dict) -> tuple[str, str]:
     ):
         _ensure_lmstudio_server_listening()
         try:
-            with urllib.request.urlopen("http://127.0.0.1:1234/api/v0/models", timeout=1.2) as v0_resp:
+            with _urlopen_local("http://127.0.0.1:1234/api/v0/models", timeout=1.2) as v0_resp:
                 v0_data = json.loads(v0_resp.read().decode("utf-8", errors="replace"))
             v0_items = [
                 it for it in (v0_data.get("data") if isinstance(v0_data, dict) else [])
@@ -925,7 +939,7 @@ def _resolve_live_llm(options: dict) -> tuple[str, str]:
         except Exception:
             if need_probe:
                 try:
-                    with urllib.request.urlopen("http://127.0.0.1:1234/v1/models", timeout=1.2) as m_resp:
+                    with _urlopen_local("http://127.0.0.1:1234/v1/models", timeout=1.2) as m_resp:
                         m_data = json.loads(m_resp.read().decode("utf-8", errors="replace"))
                         m_items = [
                             str(item.get("id") or "").strip()
@@ -1026,7 +1040,7 @@ def _call_chat_completion_text(
 
     watchdog_stop = _start_lmstudio_gtt_watchdog() if is_live_lms else None
     try:
-        with urllib.request.urlopen(req, timeout=chunk_timeout) as resp:
+        with _urlopen_local(req, timeout=chunk_timeout) as resp:
             first_raw = resp.readline()
             if not first_raw:
                 return ""
@@ -1039,7 +1053,7 @@ def _call_chat_completion_text(
                 choices = data.get("choices") or []
                 if choices and isinstance(choices[0], dict):
                     msg_obj = choices[0].get("message") or choices[0].get("delta") or {}
-                    text = str(msg_obj.get("content") or msg_obj.get("reasoning_content") or "").strip()
+                    text = str(msg_obj.get("content") or "").strip()
                     text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE).strip()
                     text = re.sub(r"^\{REASON:[^}]+\}\s*", "", text, flags=re.IGNORECASE).strip()
                     if text:
@@ -1228,7 +1242,7 @@ def _call_chat_completion_text(
                 pass
         return cleaned_partial
 
-    text = "".join(content_parts).strip() or "".join(reasoning_parts).strip()
+    text = "".join(content_parts).strip()
     text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE).strip()
     text = re.sub(r"^\{REASON:[^}]+\}\s*", "", text, flags=re.IGNORECASE).strip()
     text = re.sub(r"\n+(?:1[.)][ \t]+[^\n]*\n+)?[ \t]*\d+[.)][ \t]*$", "", text).strip()
@@ -1849,7 +1863,15 @@ def is_hypothetical_or_negated(prompt: str) -> bool:
     folded = _fold_ascii(raw)
 
     if re.match(r"^(?:giai thich|explain|what does|y nghia cua|dich cau|translate|phan tich cau)\b", folded):
-        return True
+        has_quoted = bool(re.search(r"""['"`].+['"`]""", raw))
+        has_action_or_path_cue = bool(
+            re.search(
+                r"""(?:\b(?:rm|delete|xoa|wipe|format|chmod|chown|sudo|kill|pkill|systemctl|mv|cp|dd|mkfs)\b|~/|\./|\.\./|/(?:home|etc|var|usr|tmp|root)/)""",
+                folded,
+            )
+        )
+        if has_quoted or has_action_or_path_cue:
+            return True
     if re.search(r"""(?:giai thich|explain|phrase|command|lenh|cau)\s+['"`].+['"`]""", folded):
         return True
 
@@ -2172,18 +2194,32 @@ def resolve_file_attachments_and_mentions(
     candidate_paths: list[Path] = []
     seen_str: set[str] = set()
 
+    home_dir = Path.home().resolve(strict=False)
+
+    def _safe_resolved_attachment(raw_p: Path, *, check_sensitive: bool = False) -> Path | None:
+        resolved = raw_p.resolve(strict=False)
+        if is_symlink_raw(raw_p, root_dir=home_dir):
+            if not (resolved == home_dir or resolved.is_relative_to(home_dir)):
+                return None
+            if is_forbidden_path(resolved) or is_sensitive_path(resolved):
+                return None
+        if not resolved.is_file() or is_forbidden_path(resolved):
+            return None
+        if check_sensitive and (is_sensitive_path(raw_p) or is_sensitive_path(resolved)):
+            return None
+        return resolved
+
     for raw_f in (attached_files or []):
         f_str = str(raw_f or "").strip()
         if f_str.startswith("file://"):
             f_str = f_str[7:]
         if not f_str:
             continue
-        p = Path(f_str).expanduser()
-        if not p.is_absolute():
-            p = (Path(last_dir) / p).resolve(strict=False)
-        else:
-            p = p.resolve(strict=False)
-        if p.is_file() and not p.is_symlink() and not is_forbidden_path(p) and str(p) not in seen_str:
+        raw_p = Path(f_str).expanduser()
+        if not raw_p.is_absolute():
+            raw_p = Path(last_dir) / raw_p
+        p = _safe_resolved_attachment(raw_p)
+        if p is not None and str(p) not in seen_str:
             seen_str.add(str(p))
             candidate_paths.append(p)
 
@@ -2227,9 +2263,10 @@ def resolve_file_attachments_and_mentions(
                     p_items = pocket_store.dispatch({"version": 1, "consent": True, "action": "list"}).get("items", [])
                     p_lines = []
                     for item in p_items[:6]:
-                        ip = Path(str(item.get("path") or ""))
-                        p_lines.append(f"- `{item.get('name')}` (`{ip}`)")
-                        if ip.is_file() and not ip.is_symlink() and not is_forbidden_path(ip) and str(ip) not in seen_str:
+                        raw_ip = Path(str(item.get("path") or ""))
+                        p_lines.append(f"- `{item.get('name')}` (`{raw_ip}`)")
+                        ip = _safe_resolved_attachment(raw_ip, check_sensitive=True)
+                        if ip is not None and str(ip) not in seen_str:
                             seen_str.add(str(ip))
                             candidate_paths.append(ip)
                     special_mention_sections.append(
@@ -2255,17 +2292,15 @@ def resolve_file_attachments_and_mentions(
             continue
         resolved_match: Path | None = None
         if token.startswith(("~/", "/", "./", "../")):
-            cand = Path(token).expanduser()
-            if not cand.is_absolute():
-                cand = (Path(last_dir) / cand).resolve(strict=False)
-            else:
-                cand = cand.resolve(strict=False)
-            if cand.is_file() and not cand.is_symlink() and not is_forbidden_path(cand):
-                resolved_match = cand
+            raw_cand = Path(token).expanduser()
+            if not raw_cand.is_absolute():
+                raw_cand = Path(last_dir) / raw_cand
+            resolved_match = _safe_resolved_attachment(raw_cand, check_sensitive=True)
         else:
             for sdir in search_dirs:
-                cand = (sdir / token).resolve(strict=False)
-                if cand.is_file() and not cand.is_symlink() and not is_forbidden_path(cand):
+                raw_cand = sdir / token
+                cand = _safe_resolved_attachment(raw_cand, check_sensitive=True)
+                if cand is not None:
                     resolved_match = cand
                     break
         if resolved_match:
@@ -2771,17 +2806,17 @@ def classify_intent(prompt: str, session_ctx: dict | None = None) -> dict:
     )
     if (
         re.search(
-            r"\b(?:chay lenh|chay script|chay file|thuc thi lenh|run command|run script|execute command|doc thu muc|liet ke|xem thu muc|mo thu muc|kiem tra thu muc|truy cap|xem tat ca|xem het|danh sach file|danh sach tep|danh sach thu muc|co nhung file nao|co gi trong thu muc|tim tep|tim file|tim kiem file|tim kiem tep|tim thu muc|kiem file|kiem tep|kiem thu muc|tim giup.*(?:file|tep|thu muc)|kiem giup.*(?:file|tep|thu muc)|(?:file|tep|thu muc).*(?:nam o dau|o dau)|doc tep|doc file|xem file|xem tep|kiem tra file|kiem tra tep|tom tat tep|tom tat file|phan tich tep|phan tich file|sua tep|sua file|chinh sua tep|chinh sua file|sua code|chinh sua code|mo trinh sua|de sua|ghi vao|viet vao|them vao|them dong|tao tep|tao file|sao chep|di chuyen|chuyen doi|cat file|cat tep|doi ten file|doi ten tep|xoa tep|xoa file|read folder|list directory|list files|list all|list folders|list everything|list items|show files|show all|show folders|show directory|what files|what is in|find file|find the file|find a file|find folder|find the folder|locate file|locate the file|locate folder|where is.*(?:file|folder)|search for.*(?:file|folder)|search file|look for.*(?:file|folder)|read file|inspect file|check file|summarize|summarize file|analyze file|edit file|edit code|edit this|edit that|open in editor|open editor|create file|copy file|move file|convert file|cut file|rename file|delete file)\b",
+            r"\b(?:chay lenh|chay script|chay file|thuc thi lenh|run command|run script|execute command|doc thu muc|liet ke|xem thu muc|mo thu muc|kiem tra thu muc|truy cap|xem tat ca|xem het|danh sach file|danh sach tep|danh sach thu muc|co nhung file nao|co gi trong thu muc|tim tep|tim file|tim kiem file|tim kiem tep|tim thu muc|kiem file|kiem tep|kiem thu muc|tim giup.*(?:file|tep|thu muc)|kiem giup.*(?:file|tep|thu muc)|(?:file|tep|thu muc).*(?:nam o dau|o dau)|doc tep|doc file|xem file|xem tep|kiem tra file|kiem tra tep|tom tat tep|tom tat file|phan tich tep|phan tich file|sua tep|sua file|chinh sua tep|chinh sua file|sua code|chinh sua code|mo trinh sua|de sua|ghi vao|viet vao|them vao|them dong|tao tep|tao file|sao chep|di chuyen|chuyen doi|cat file|cat tep|doi ten file|doi ten tep|xoa tep|xoa file|read folder|list directory|list files|list all|list folders|list everything|list items|show files|show all|show folders|show directory|what files|what is in (?:the |that |this )?(?:folder|directory|file)|find file|find the file|find a file|find folder|find the folder|locate file|locate the file|locate folder|where is.*(?:file|folder)|search for.*(?:file|folder)|search file|look for.*(?:file|folder)|read file|inspect file|check file|summarize (?:the |that |this )?(?:file|folder|directory|document|code)|summarize file|analyze file|edit file|edit code|edit this|edit that|open in editor|open editor|create file|copy file|move file|write file|write to file|convert file|cut file|rename file|delete file)\b",
             folded,
         )
         or re.match(
-            r"^(?:/agent\s+|/)?(?:(?:hay|vui long|lam on|giup toi|giup minh|toi muon|minh muon|please|can you|could you|help me|i want to)\s+)*(?:access|list|ls|dir|tree|cd|edit|write|append|create|copy|cp|sao chep|cut|cat|move|mv|di chuyen|chuyen doi|chuyen|convert|doi ten|rename|delete|rm|xoa|run|exec|execute|chay|thuc thi)\b",
+            r"^(?:/agent\s+|/)?(?:(?:hay|vui long|lam on|giup toi|giup minh|toi muon|minh muon|please|can you|could you|help me|i want to)\s+)*(?:access|list|ls|dir|tree|cd|edit|append|create|copy|cp|sao chep|cut|cat|move|mv|di chuyen|chuyen doi|chuyen|doi ten|rename|delete|rm|xoa|run|exec|execute|chay|thuc thi)\b",
             folded,
         )
         or (
             has_file_or_path_ref
             and re.match(
-                r"^(?:/agent\s+|/)?(?:(?:hay|vui long|lam on|giup toi|giup minh|toi muon|minh muon|please|can you|could you|help me|i want to)\s+)*(?:open|find|locate|read|inspect|check|show)\b",
+                r"^(?:/agent\s+|/)?(?:(?:hay|vui long|lam on|giup toi|giup minh|toi muon|minh muon|please|can you|could you|help me|i want to)\s+)*(?:open|find|locate|read|inspect|check|show|summarize|write|convert|what is in)\b",
                 folded,
             )
         )
@@ -3338,6 +3373,7 @@ def _call_local_model_tool_turn(
     tools: list[dict] | None = None,
     provider: str = "",
     context_window: int | None = None,
+    turn_idx: int = 0,
 ) -> dict | None:
     """Optional structured tool-call query against the active local OpenAI/Ollama endpoint.
 
@@ -3377,7 +3413,7 @@ def _call_local_model_tool_turn(
                     provider=provider,
                     model=effective_model_name,
                     endpoint=endpoint_url,
-                    reserved_output=512 if enable_thinking else 320,
+                    reserved_output=2048 if enable_thinking else 1536,
                     context_window=context_window,
                 )
             else:
@@ -3391,7 +3427,7 @@ def _call_local_model_tool_turn(
                 "tools": tools if isinstance(tools, list) else AGENT_TOOL_SCHEMAS,
                 "tool_choice": "auto",
                 "temperature": eff_temp,
-                "max_tokens": 512 if enable_thinking else 320,
+                "max_tokens": 2048 if enable_thinking else 1536,
                 "reasoning_effort": "high" if enable_thinking else "none",
                 "chat_template_kwargs": {"enable_thinking": bool(enable_thinking)},
                 "stream": False,
@@ -3405,7 +3441,7 @@ def _call_local_model_tool_turn(
                 headers={"Content-Type": "application/json"},
             )
             req_timeout = 90 if is_live_lms else 25
-            with urllib.request.urlopen(req, timeout=req_timeout) as resp:
+            with _urlopen_local(req, timeout=req_timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8", errors="replace"))
             choice = (data.get("choices") or [{}])[0]
             msg = choice.get("message") or {}
@@ -3442,7 +3478,7 @@ def _call_local_model_tool_turn(
                     args_error = "Unsupported tool arguments format."
                 if name:
                     tc_entry = {
-                        "toolCallId": str(tc.get("id") or f"call_{len(tool_calls)+1}"),
+                        "toolCallId": str(tc.get("id") or f"call_t{int(turn_idx)}_{len(tool_calls)+1}"),
                         "name": name,
                         "args": args,
                     }
@@ -3594,7 +3630,9 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
     if name in ("file_inspect", "read_file"):
         target = str(args.get("path") or args.get("targetPath") or args.get("file") or last_dir)
         resolved = str(resolve_candidate_path(target, last_dir=last_dir))
-        perm = check_permission("file_read", target_path=resolved, explicit_prompt_target=True, now_ms=now_ms)
+        if is_sensitive_path(target) or is_sensitive_path(resolved):
+            return f"[{name} blocked: sensitive path {resolved}]"
+        perm = check_permission("file_read", target_path=resolved, source="agent_step", now_ms=now_ms)
         if not perm["allowed"]:
             return f"[{name} blocked: {perm['reason']} on {resolved}]"
         op_opts: dict = {
@@ -3616,12 +3654,27 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
         return spill_store.maybe_spill_tool_output(joined, session_id=active_sid, call_id=tc_id, tool_name=name)[0]
 
     if name in ("file_mutate", "edit_file", "write_file"):
-        op = str(args.get("op") or "edit")
+        op = str(args.get("op") or "edit").strip().lower()
+        if op not in {"edit", "write", "create", "patch", "append", "replace_lines", "apply_patch", "delete", "copy", "cut", "move"}:
+            return f"[{name} blocked: unsupported operation '{op}']"
         target = str(args.get("path") or args.get("targetPath") or args.get("file") or "")
+        if not target.strip():
+            return f"[{name} error: missing target path]"
         resolved = str(resolve_candidate_path(target, last_dir=last_dir))
-        perm = check_permission("file_write", target_path=resolved, explicit_prompt_target=True, now_ms=now_ms)
+        if is_sensitive_path(target) or is_sensitive_path(resolved):
+            return f"[{name} blocked: sensitive path {resolved}]"
+        perm_cat = "file_delete" if op == "delete" else "file_write"
+        perm = check_permission(perm_cat, target_path=resolved, source="agent_step", now_ms=now_ms)
         if not perm["allowed"]:
             return f"[{name} blocked: {perm['reason']} on {resolved}]"
+        dest_raw = str(args.get("destPath") or "").strip()
+        if op in ("copy", "cut", "move") and dest_raw:
+            dest_resolved = str(resolve_candidate_path(dest_raw, last_dir=last_dir))
+            if is_sensitive_path(dest_raw) or is_sensitive_path(dest_resolved):
+                return f"[{name} blocked: sensitive destination path {dest_resolved}]"
+            dest_perm = check_permission("file_write", target_path=dest_resolved, source="agent_step", now_ms=now_ms)
+            if not dest_perm["allowed"]:
+                return f"[{name} blocked: {dest_perm['reason']} on {dest_resolved}]"
         resolved_p = Path(resolved)
         existed_before = resolved_p.is_file()
         was_valid_syntax, _ = _check_file_syntax_valid(resolved_p) if existed_before else (True, "")
@@ -3660,7 +3713,9 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
         if not dst_raw:
             return f"[{name} error: missing destination path]"
         dst_resolved = str(resolve_candidate_path(dst_raw, last_dir=last_dir))
-        perm_w = check_permission("file_write", target_path=dst_resolved, explicit_prompt_target=True, now_ms=now_ms)
+        if is_sensitive_path(dst_raw) or is_sensitive_path(dst_resolved):
+            return f"[{name} blocked: sensitive path {dst_resolved}]"
+        perm_w = check_permission("file_write", target_path=dst_resolved, source="agent_step", now_ms=now_ms)
         if not perm_w["allowed"]:
             return f"[{name} blocked: {perm_w['reason']} on {dst_resolved}]"
         if name == "create_document" or not src_raw or src_raw == dst_raw:
@@ -3676,7 +3731,9 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
             conv_meta = convert_or_create_document(dst_resolved, dst_resolved)
             return f"{edited['summary']} ({conv_meta.get('bytes', 0)} bytes)"
         src_resolved = str(resolve_candidate_path(src_raw, last_dir=last_dir))
-        perm_r = check_permission("file_read", target_path=src_resolved, explicit_prompt_target=True, now_ms=now_ms)
+        if is_sensitive_path(src_raw) or is_sensitive_path(src_resolved):
+            return f"[{name} blocked: sensitive source path {src_resolved}]"
+        perm_r = check_permission("file_read", target_path=src_resolved, source="agent_step", now_ms=now_ms)
         if not perm_r["allowed"]:
             return f"[{name} blocked: {perm_r['reason']} on {src_resolved}]"
         src_info = code_tools.read_file(src_resolved, max_chars=200000)
@@ -3694,7 +3751,9 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
     if name in ("shell_run", "run_command"):
         cmd = str(args.get("command") or args.get("cmd") or "").strip()
         cwd = str(args.get("cwd") or last_dir)
-        perm = check_permission("shell_run", target_path=cwd, explicit_prompt_target=True, now_ms=now_ms)
+        if is_sensitive_path(cwd):
+            return f"[{name} blocked: sensitive working directory {cwd}]"
+        perm = check_permission("shell_run", target_path=cwd, explicit_prompt_target=False, source="agent_step", now_ms=now_ms)
         if not perm["allowed"]:
             return f"[{name} blocked: {perm['reason']} in {cwd}]"
         res = agent_file_op({
@@ -3725,6 +3784,10 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
 
     if name == "desktop_control":
         act_dc = str(args.get("action") or args.get("action_type") or "list_windows").strip()
+        if act_dc == "launch_app":
+            perm_launch = check_permission("shell_run", source="agent_step", now_ms=now_ms)
+            if not perm_launch["allowed"]:
+                return f"[desktop_control blocked: {perm_launch['reason']} for launch_app]"
         if act_dc in (
             "gui_click",
             "gui_fill",
@@ -3825,15 +3888,23 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
         ctx_md = str(drag.get("contextMarkdown") or "").strip()
         if ctx_md:
             return ctx_md[:1200]
-        chunks = drag.get("chunks") or []
+        chunks = (
+            (drag.get("canonicalChunks") or []) + (drag.get("personalChunks") or [])
+            or (drag.get("chunks") or [])
+        )
         return "\n".join(
             f"- {c.get('title') or c.get('source')}: {str(c.get('content') or '')[:240]}"
             for c in chunks[:5]
         ) or f"Domain RAG queried ({', '.join(doms or ['general'])}): 0 chunks matched."
 
     if name == "process_manage":
+        proc_act = str(args.get("action") or "list").strip().lower()
+        if proc_act == "kill":
+            perm_proc = check_permission("shell_run", source="agent_step", now_ms=now_ms)
+            if not perm_proc["allowed"]:
+                return f"[process_manage blocked: {perm_proc['reason']} for kill]"
         res = desktop_control.manage_processes(
-            action=str(args.get("action") or "list"),
+            action=proc_act,
             query=str(args.get("query") or ""),
             pid=int(args.get("pid") or 0),
             signal_name=str(args.get("signal") or "TERM"),
@@ -3875,9 +3946,14 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
         return spill_store.maybe_spill_tool_output(raw_rag, session_id=active_sid, call_id=tc_id, tool_name=name)[0]
 
     if name == "mcp_call":
+        mcp_tool_name = str(args.get("tool") or "").strip()
+        if mcp_tool_name in ("shell_exec", "execute_command"):
+            perm_mcp = check_permission("shell_run", source="agent_step", now_ms=now_ms)
+            if not perm_mcp["allowed"]:
+                return f"[mcp_call blocked: {perm_mcp['reason']} for {mcp_tool_name}]"
         called = mcp_client.call_tool(
             str(args.get("server") or ""),
-            str(args.get("tool") or ""),
+            mcp_tool_name,
             args.get("arguments") if isinstance(args.get("arguments"), dict) else {},
             companion_root=companion_root,
         )
@@ -4297,13 +4373,19 @@ def delegate_subagent(
             {"role": "user", "content": sub_user},
         ]
 
-        role_tool_schemas = [
-            schema
-            for schema in (AGENT_TOOL_SCHEMAS + _SUBAGENT_EXTRA_TOOL_SCHEMAS)
-            if schema.get("function", {}).get("name") in allowed_set
-            and schema.get("function", {}).get("name") != "delegate_subagent"
-            and not (read_only_role and schema.get("function", {}).get("name") in _PRIVILEGED_MUTATE_EXEC_TOOLS)
-        ]
+        role_tool_schemas: list[dict] = []
+        _seen_sub_tools: set[str] = set()
+        for schema in (AGENT_TOOL_SCHEMAS + _SUBAGENT_EXTRA_TOOL_SCHEMAS):
+            t_schema_name = str(schema.get("function", {}).get("name") or "")
+            if (
+                t_schema_name
+                and t_schema_name not in _seen_sub_tools
+                and t_schema_name in allowed_set
+                and t_schema_name != "delegate_subagent"
+                and not (read_only_role and t_schema_name in _PRIVILEGED_MUTATE_EXEC_TOOLS)
+            ):
+                _seen_sub_tools.add(t_schema_name)
+                role_tool_schemas.append(schema)
 
         sub_steps: list[dict] = []
         findings: list[str] = []
@@ -4349,9 +4431,14 @@ def delegate_subagent(
                             blocked_tools.append(tc_name)
                         sub_steps.append({"tool": tc_name, "status": "blocked_privilege_isolation"})
                         continue
-                    obs = _execute_llm_tool_call(tc, ctx, comp_root, ts_ms)
-                    sub_steps.append({"tool": tc_name, "observation": obs[:360]})
-                    findings.append(f"[{tc_name}] {obs[:360]}")
+                    try:
+                        obs = _execute_llm_tool_call(tc, ctx, comp_root, ts_ms)
+                        sub_steps.append({"tool": tc_name, "status": "completed", "observation": obs[:360]})
+                        findings.append(f"[{tc_name}] {obs[:360]}")
+                    except Exception as exc:
+                        obs_err = f"[{tc_name} error: {exc}]"
+                        sub_steps.append({"tool": tc_name, "status": "failed", "error": str(exc)[:200]})
+                        findings.append(obs_err[:360])
                 llm_txt = str(llm_turn.get("text") or "").strip()
                 if llm_txt:
                     findings.append(llm_txt[:700])
@@ -4375,9 +4462,13 @@ def delegate_subagent(
                             companion_root=comp_root,
                             token_budget=260,
                         )
-                        snippets = [c.get("title") or c.get("source") or "" for c in (drag.get("chunks") or [])[:3]]
+                        dom_chunks = (
+                            (drag.get("canonicalChunks") or []) + (drag.get("personalChunks") or [])
+                            or (drag.get("chunks") or [])
+                        )
+                        snippets = [c.get("title") or c.get("source") or "" for c in dom_chunks[:3]]
                         msg_s = (
-                            f"Domain RAG ({', '.join(doms)}): matched {len(drag.get('chunks') or [])} reference(s)"
+                            f"Domain RAG ({', '.join(doms)}): matched {len(dom_chunks)} reference(s)"
                             + (f" ({', '.join(s for s in snippets if s)})" if any(snippets) else "")
                         )
                         return {"tool": "domain_rag", "domains": doms}, msg_s
@@ -4438,9 +4529,9 @@ def delegate_subagent(
                     + "."
                 )
             elif role_key == "verifier":
-                sub_steps.append({"tool": "verify_state", "task": task_str[:120]})
+                sub_steps.append({"tool": "verify_state", "task": task_str[:120], "status": "skipped"})
                 findings.append(
-                    f"Independently cross-verified task requirements, permissions, and state consistency for '{task_str[:200]}'."
+                    f"Verifier skipped automated execution (no live LLM/check backend ran) for '{task_str[:200]}'."
                 )
 
         header = f"[{role_title} {idx}/{tot}]"
@@ -4486,6 +4577,7 @@ def delegate_subagent(
             "subagentIndex": idx,
             "subagentTotal": tot,
             "toolSteps": sub_steps,
+            "toolCount": len(sub_steps),
             "elapsedMs": elapsed_ms,
         }
         _ACTIVE_SUBAGENT_RUNS.append(record)
@@ -4789,6 +4881,9 @@ def run_swarm_mission(
     worker_bullets: list[str] = []
 
     for idx, worker in enumerate(workers, start=1):
+        fresh_state = swarm_store.load_state(int(time.time() * 1000))
+        if fresh_state.get("status") == "stopped":
+            return fresh_state, swarm_store.format_swarm_markdown(fresh_state, lang=lang)
         wid = str(worker.get("id") or f"worker-{idx}")
         wrole = str(worker.get("role") or "researcher")
         wtask = str(worker.get("task") or clean_goal)
@@ -4804,6 +4899,9 @@ def run_swarm_mission(
             subagent_total=total_w,
             now_ms=int(time.time() * 1000),
         )
+        fresh_after = swarm_store.load_state(int(time.time() * 1000))
+        if fresh_after.get("status") == "stopped":
+            return fresh_after, swarm_store.format_swarm_markdown(fresh_after, lang=lang)
         swarm_store.record_worker_completion(state, wid, sub_res, now_ms=int(time.time() * 1000), emit=True)
         raw_sum = str(sub_res.get("rawSummary") or sub_res.get("summary") or "").strip()
         if raw_sum:
@@ -4854,7 +4952,7 @@ def execute_swarm_action(payload: dict, companion_root: Path, host_root: Path | 
     if op == "clear":
         return {"op": "clear", "swarm": swarm_store.clear_swarm_state(model=model_name, now_ms=now_ms, emit=True)}
     if op == "stop":
-        cancel_active_runs(now_ms)
+        cancel_active_runs(reason="cancelled_by_user", now_ms=now_ms)
         return {"op": "stop", "swarm": swarm_store.stop_swarm_state(now_ms=now_ms, emit=True)}
     if op == "add_member":
         role = str(payload.get("role") or "researcher").strip().lower()
@@ -5220,6 +5318,18 @@ def run_react_tool_loop(
     rules_txt = str(opts.get("rulesText") or "").strip()
     if rules_txt and rules_txt not in sys_prompt:
         sys_prompt = f"{sys_prompt}\n\n## Active Rules\n{rules_txt[:1000]}"
+    if opts.get("memoryEnabled") is True:
+        try:
+            vis_mems = memory_store.list_visible()
+            mem_lines = [
+                f"- [{m.get('category', 'note')}] {str(m.get('content') or '')[:160]}"
+                for m in (vis_mems or [])[:6]
+                if isinstance(m, dict) and str(m.get("content") or "").strip()
+            ]
+            if mem_lines and "## Active Memories" not in sys_prompt:
+                sys_prompt = f"{sys_prompt}\n\n## Active Memories\n" + "\n".join(mem_lines)
+        except Exception:
+            pass
 
     messages: list[dict] = [
         {"role": "system", "content": sys_prompt[:2400]},
@@ -5241,6 +5351,8 @@ def run_react_tool_loop(
     final_synthesis = ""
     step_counter = 0
     max_iters = max(1, min(6, int(max_steps or 4)))
+    loop_budget_exhausted = False
+    loop_stop_status = "completed"
 
     for turn_idx in range(1, max_iters + 1):
         messages, _ = context_policy.compact_messages_for_route(
@@ -5248,7 +5360,7 @@ def run_react_tool_loop(
             provider=eff_provider,
             model=eff_model,
             endpoint=eff_endpoint,
-            reserved_output=512 if eff_thinking else 320,
+            reserved_output=2048 if eff_thinking else 1536,
             context_window=eff_ctx_window,
         )
         llm_turn = _call_local_model_turn_react_step(
@@ -5263,6 +5375,7 @@ def run_react_tool_loop(
             temperature=eff_temp,
             provider=eff_provider,
             context_window=eff_ctx_window,
+            turn_idx=turn_idx,
         )
         if not llm_turn:
             break
@@ -5320,23 +5433,30 @@ def run_react_tool_loop(
             "tool_calls": assistant_tc_payload,
         })
 
-        for tc in turn_tcs[:4]:
+        for tc_idx, tc in enumerate(turn_tcs[:4]):
             step_counter += 1
             t_name = tc["name"]
             tool_chain.append(t_name)
             _emit_activity_step(f"Step {step_counter}: `{t_name}` ›", kind="tool", status="running")
             step_id = record_step_start(run_id, step_counter, t_name, side_effect=True, now_ms=ts_ms)
+            err_sig = ""
             try:
                 out_str = _execute_llm_tool_call(tc, ctx, comp_root, ts_ms)
                 record_step_finish(step_id, status="completed", detail={"output": out_str[:400]})
                 tool_outputs.append(f"### `{t_name}`\n{out_str}")
                 tool_steps.append({"step": step_counter, "name": t_name, "args": tc.get("args") or {}, "status": "completed", "observation": out_str})
             except Exception as exc:
+                err_sig = f"{t_name}:{str(exc)[:100]}"
                 out_str = f"[{t_name} error: {exc}]"
                 record_step_finish(step_id, status="failed", detail={"error": str(exc)})
                 tool_outputs.append(f"### `{t_name}` (error)\n{exc}")
                 tool_steps.append({"step": step_counter, "name": t_name, "args": tc.get("args") or {}, "status": "failed", "observation": out_str})
-            advance_turn(run_id, now_ms=ts_ms)
+            turn_check = advance_turn(
+                run_id,
+                error_signature=err_sig,
+                token_delta=llm_turn.get("tokenUsage") if tc_idx == 0 else None,
+                now_ms=ts_ms,
+            )
             spilled_tool_content, _ = spill_store.maybe_spill_tool_output(
                 out_str,
                 session_id=active_sid,
@@ -5349,20 +5469,32 @@ def run_react_tool_loop(
                 "name": t_name,
                 "content": spilled_tool_content,
             })
+            if not turn_check.get("allowed", True):
+                loop_budget_exhausted = True
+                loop_stop_status = str((turn_check.get("run") or {}).get("status") or "stopped_budget_exhausted")
+                break
 
         # Next-step boundary: drain any non-waking context updates queued during tool execution
         messages, _ = context_policy.drain_and_inject_context(messages, active_sid)
+        if loop_budget_exhausted:
+            break
 
     if not tool_outputs or not run_id:
         return None
 
     observations_joined = "\n\n".join(tool_outputs)
-    if final_synthesis:
+    if final_synthesis and len(final_synthesis.strip()) >= 80:
+        combined_msg = final_synthesis
+        synthesized = True
+    elif final_synthesis:
         combined_msg = f"{final_synthesis}\n\n{observations_joined}"
         synthesized = True
     else:
         synth_try = _synthesize_observations_with_llm(eff_prompt, observations_joined, lang, opts)
-        if synth_try:
+        if synth_try and len(synth_try.strip()) >= 80:
+            combined_msg = synth_try
+            synthesized = True
+        elif synth_try:
             combined_msg = f"{synth_try}\n\n{observations_joined}"
             synthesized = True
         else:
@@ -5373,7 +5505,7 @@ def run_react_tool_loop(
     clean_final = combined_msg.strip()
     finish_run(
         run_id,
-        status="completed",
+        status=loop_stop_status if loop_budget_exhausted else "completed",
         checkpoint={"remainingSteps": [], "completedSteps": tool_steps, "finalReply": clean_final[:12000]},
         now_ms=ts_ms,
         final_reply=clean_final,
@@ -5407,6 +5539,7 @@ def _call_local_model_turn_react_step(
     temperature: float | None = None,
     provider: str = "",
     context_window: int | None = None,
+    turn_idx: int = 0,
 ) -> dict | None:
     return _call_local_model_tool_turn(
         endpoint_url,
@@ -5420,6 +5553,7 @@ def _call_local_model_turn_react_step(
         temperature=temperature,
         provider=provider,
         context_window=context_window,
+        turn_idx=turn_idx,
     )
 
 
@@ -5872,7 +6006,7 @@ def _run_screen_observe_core(
                 "qwen3_6",
                 "qwen3.5",
                 "qwen3_5",
-                "qwen3",
+                "qwen3-vl",
                 "qwen2-vl",
                 "qwen2.5-vl",
                 "-vl",
@@ -6639,7 +6773,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
         or domain_rag.is_domain_concept_or_command_query(prompt)
         or domain_rag.is_domain_capability_query(prompt)
     ):
-        detected_domains = ["niri", "quickshell", "arch"]
+        detected_domains = ["niri", "quickshell", "archlinux"]
     if detected_domains and options.get("enableDomainRag") is not False:
         try:
             domain_rag_info = domain_rag.query_domain_rag(
@@ -6675,7 +6809,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
             st = swarm_store.load_state(now_ms)
             reply_md = swarm_store.format_swarm_markdown(st, lang=lang)
         elif folded_arg in ("stop", "kill", "cancel"):
-            cancel_active_runs(now_ms)
+            cancel_active_runs(reason="cancelled_by_user", now_ms=now_ms)
             st = swarm_store.stop_swarm_state(now_ms=now_ms, emit=True)
             reply_md = swarm_store.format_swarm_markdown(st, lang=lang)
         elif folded_arg in ("clear", "reset"):
@@ -8811,7 +8945,12 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 )
             else:
                 query_text = re.sub(r"^(?:search|query|tim|tìm|tra cuu|tra cứu)\s+", "", raw_clean, flags=re.IGNORECASE).strip() or prompt
-                extra = [d["path"] for d in inspect_permissions({"nowMs": now_ms})["directories"]]
+                home_resolved = Path.home().resolve(strict=False)
+                extra = [
+                    d["path"]
+                    for d in inspect_permissions({"nowMs": now_ms})["directories"]
+                    if Path(str(d.get("path") or "")).expanduser().resolve(strict=False) != home_resolved
+                ]
                 rag = retrieve_rag(query_text, companion_root=companion_root, extra_dirs=extra, token_budget=480, page=1, page_size=3)
                 rag_synthesized = False
                 if rag["snippets"]:

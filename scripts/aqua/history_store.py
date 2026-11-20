@@ -62,7 +62,103 @@ def _gen_id(prefix: str) -> str:
     return f"{prefix}_{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:12]}"
 
 
-def _ensure_schema_and_migrate(db: sqlite3.Connection) -> None:
+def _maybe_repair_missed_sep_rows(db: sqlite3.Connection) -> None:
+    max_msg_row = db.execute("SELECT COALESCE(MAX(id), 0) FROM messages").fetchone()
+    max_msg_id = int(max_msg_row[0] or 0) if max_msg_row else 0
+    if max_msg_id <= 0:
+        return
+
+    stub_wm_row = db.execute("SELECT value FROM state_kv WHERE key='stub_repair_max_id'").fetchone()
+    try:
+        stub_wm_id = int(stub_wm_row[0]) if (stub_wm_row and stub_wm_row[0] is not None) else 0
+    except (TypeError, ValueError):
+        stub_wm_id = 0
+    if max_msg_id > stub_wm_id:
+        broken_stubs = db.execute(
+            "SELECT id, content FROM messages WHERE id > ? AND role='assistant' AND content LIKE '**🖥%' AND instr(content, char(10)) = 0",
+            (stub_wm_id,),
+        ).fetchall()
+        for stub_id, stub_content in broken_stubs:
+            raw_stub = str(stub_content or "").strip()
+            if raw_stub.startswith("**🖥") and not raw_stub[3:].endswith("**") and "**" not in raw_stub[3:]:
+                prev_user = db.execute(
+                    """SELECT m.content FROM messages m
+                       LEFT JOIN thread_messages tm ON tm.message_id = m.id
+                       WHERE m.id < ? AND m.role='user'
+                         AND COALESCE(tm.thread_id, ?) = COALESCE(
+                             (SELECT thread_id FROM thread_messages WHERE message_id = ?),
+                             ?
+                         )
+                       ORDER BY m.id DESC LIMIT 1""",
+                    (stub_id, DEFAULT_THREAD_ID, stub_id, DEFAULT_THREAD_ID),
+                ).fetchone()
+                prev_text = str(prev_user[0] if prev_user and prev_user[0] else "").strip()
+                repaired_text = ""
+                m_fname = re.search(r"\b([A-Za-z0-9_.\-]+\.[A-Za-z0-9]{1,10})\b", prev_text)
+                if m_fname:
+                    target_fname = m_fname.group(1)
+                    try:
+                        from tool_store import search_files_in_home
+                        matches = search_files_in_home(target_fname, max_results=10, timeout_sec=1.5)
+                        if matches:
+                            lines_md = "\n".join(f"- `{p}`" for p in matches)
+                            repaired_text = f"Found **{len(matches)}** matching path(s) for `{target_fname}`:\n{lines_md}"
+                    except Exception:
+                        repaired_text = ""
+                if not repaired_text:
+                    repaired_text = (
+                        f"Could not complete the previous reply for: `{prev_text[:80]}`. Please resend if needed."
+                        if prev_text
+                        else "*(Previous reply was interrupted.)*"
+                    )
+                db.execute("UPDATE messages SET content=? WHERE id=?", (repaired_text, stub_id))
+        db.execute(
+            "INSERT OR REPLACE INTO state_kv(key,value) VALUES('stub_repair_max_id',?)",
+            (str(max_msg_id),),
+        )
+        db.commit()
+
+    sep_wm_row = db.execute("SELECT value FROM state_kv WHERE key='sep_repair_max_id'").fetchone()
+    try:
+        sep_wm_id = int(sep_wm_row[0]) if (sep_wm_row and sep_wm_row[0] is not None) else 0
+    except (TypeError, ValueError):
+        sep_wm_id = 0
+    if max_msg_id > sep_wm_id:
+        sep_missed_rows = db.execute(
+            "SELECT id, content FROM messages WHERE id > ? AND role='assistant' AND (content LIKE 'Could not find any file or folder matching `%` in `%' OR content LIKE 'Không tìm thấy tệp hoặc thư mục nào khớp với `%` trong `%')",
+            (sep_wm_id,),
+        ).fetchall()
+        for miss_id, miss_content in sep_missed_rows:
+            m_miss = re.search(r"`([^`]+)`", str(miss_content or ""))
+            if m_miss:
+                miss_q = m_miss.group(1).strip()
+                if miss_q and re.search(r"[._\-\s]+", miss_q):
+                    try:
+                        from tool_store import search_files_in_home
+                        matches = search_files_in_home(miss_q, max_results=10, timeout_sec=1.5)
+                        if matches:
+                            lines_md = "\n".join(f"- `{p}`" for p in matches)
+                            is_vi = str(miss_content or "").startswith("Không tìm thấy")
+                            repaired_miss = (
+                                f"Tìm thấy **{len(matches)}** đường dẫn khớp với `{miss_q}`:\n{lines_md}"
+                                if is_vi
+                                else f"Found **{len(matches)}** matching path(s) for `{miss_q}`:\n{lines_md}"
+                            )
+                            db.execute("UPDATE messages SET content=? WHERE id=?", (repaired_miss, miss_id))
+                    except Exception:
+                        pass
+        db.execute(
+            "INSERT OR REPLACE INTO state_kv(key,value) VALUES('sep_repair_max_id',?)",
+            (str(max_msg_id),),
+        )
+        db.commit()
+
+
+def _ensure_schema_and_migrate(db: sqlite3.Connection) -> bool:
+    uv_row = db.execute("PRAGMA user_version").fetchone()
+    uv = int(uv_row[0] or 0) if uv_row else 0
+    if uv >= 2:
+        return False
     db.execute(
         """CREATE TABLE IF NOT EXISTS messages(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -221,80 +317,8 @@ def _ensure_schema_and_migrate(db: sqlite3.Connection) -> None:
             "INSERT OR REPLACE INTO state_kv(key,value) VALUES('active_thread_id',?)",
             (chosen,),
         )
-
-    broken_stubs = db.execute(
-        "SELECT id, content FROM messages WHERE role='assistant' AND content LIKE '**🖥%' AND instr(content, char(10)) = 0"
-    ).fetchall()
-    for stub_id, stub_content in broken_stubs:
-        raw_stub = str(stub_content or "").strip()
-        if raw_stub.startswith("**🖥") and not raw_stub[3:].endswith("**") and "**" not in raw_stub[3:]:
-            prev_user = db.execute(
-                """SELECT m.content FROM messages m
-                   LEFT JOIN thread_messages tm ON tm.message_id = m.id
-                   WHERE m.id < ? AND m.role='user'
-                     AND COALESCE(tm.thread_id, ?) = COALESCE(
-                         (SELECT thread_id FROM thread_messages WHERE message_id = ?),
-                         ?
-                     )
-                   ORDER BY m.id DESC LIMIT 1""",
-                (stub_id, DEFAULT_THREAD_ID, stub_id, DEFAULT_THREAD_ID),
-            ).fetchone()
-            prev_text = str(prev_user[0] if prev_user and prev_user[0] else "").strip()
-            repaired_text = ""
-            m_fname = re.search(r"\b([A-Za-z0-9_.\-]+\.[A-Za-z0-9]{1,10})\b", prev_text)
-            if m_fname:
-                target_fname = m_fname.group(1)
-                try:
-                    from tool_store import search_files_in_home
-                    matches = search_files_in_home(target_fname, max_results=10, timeout_sec=1.5)
-                    if matches:
-                        lines_md = "\n".join(f"- `{p}`" for p in matches)
-                        repaired_text = f"Found **{len(matches)}** matching path(s) for `{target_fname}`:\n{lines_md}"
-                except Exception:
-                    repaired_text = ""
-            if not repaired_text:
-                repaired_text = (
-                    f"Could not complete the previous reply for: `{prev_text[:80]}`. Please resend if needed."
-                    if prev_text
-                    else "*(Previous reply was interrupted.)*"
-                )
-            db.execute("UPDATE messages SET content=? WHERE id=?", (repaired_text, stub_id))
-
-    sep_wm_row = db.execute("SELECT value FROM state_kv WHERE key='sep_repair_max_id'").fetchone()
-    try:
-        sep_wm_id = int(sep_wm_row[0]) if (sep_wm_row and sep_wm_row[0] is not None) else 0
-    except (TypeError, ValueError):
-        sep_wm_id = 0
-    max_msg_row = db.execute("SELECT COALESCE(MAX(id), 0) FROM messages").fetchone()
-    max_msg_id = int(max_msg_row[0] or 0) if max_msg_row else 0
-    if max_msg_id > sep_wm_id:
-        sep_missed_rows = db.execute(
-            "SELECT id, content FROM messages WHERE id > ? AND role='assistant' AND (content LIKE 'Could not find any file or folder matching `%` in `%' OR content LIKE 'Không tìm thấy tệp hoặc thư mục nào khớp với `%` trong `%')",
-            (sep_wm_id,),
-        ).fetchall()
-        for miss_id, miss_content in sep_missed_rows:
-            m_miss = re.search(r"`([^`]+)`", str(miss_content or ""))
-            if m_miss:
-                miss_q = m_miss.group(1).strip()
-                if miss_q and re.search(r"[._\-\s]+", miss_q):
-                    try:
-                        from tool_store import search_files_in_home
-                        matches = search_files_in_home(miss_q, max_results=10, timeout_sec=1.5)
-                        if matches:
-                            lines_md = "\n".join(f"- `{p}`" for p in matches)
-                            is_vi = str(miss_content or "").startswith("Không tìm thấy")
-                            repaired_miss = (
-                                f"Tìm thấy **{len(matches)}** đường dẫn khớp với `{miss_q}`:\n{lines_md}"
-                                if is_vi
-                                else f"Found **{len(matches)}** matching path(s) for `{miss_q}`:\n{lines_md}"
-                            )
-                            db.execute("UPDATE messages SET content=? WHERE id=?", (repaired_miss, miss_id))
-                    except Exception:
-                        pass
-        db.execute(
-            "INSERT OR REPLACE INTO state_kv(key,value) VALUES('sep_repair_max_id',?)",
-            (str(max_msg_id),),
-        )
+    db.execute("PRAGMA user_version = 2")
+    return True
 
 
 def _connect() -> sqlite3.Connection:
@@ -312,12 +336,12 @@ def _connect() -> sqlite3.Connection:
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
             raise HistoryError("history_file_unsafe")
         os.chmod(target, 0o600)
-        db = sqlite3.connect(target, timeout=1.5)
+        db = sqlite3.connect(target, timeout=5.0)
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA synchronous=NORMAL")
-        db.execute("PRAGMA busy_timeout=1500")
-        _ensure_schema_and_migrate(db)
-        db.commit()
+        db.execute("PRAGMA busy_timeout=5000")
+        if _ensure_schema_and_migrate(db):
+            db.commit()
         return db
     except HistoryError:
         raise
@@ -539,6 +563,7 @@ def _has_more_messages(db: sqlite3.Connection, thread_id: str, msgs: list[dict])
 def load(limit: int = 60, before_id: int = 0, thread_id: str | None = None) -> list[dict]:
     db = _connect()
     try:
+        _maybe_repair_missed_sep_rows(db)
         tid = _resolve_active_thread_id(db, thread_id)
         return _query_messages(db, tid, limit=limit, before_id=before_id)
     except sqlite3.Error as exc:
@@ -552,6 +577,7 @@ def load_with_workspace(
 ) -> dict:
     db = _connect()
     try:
+        _maybe_repair_missed_sep_rows(db)
         tid = _resolve_active_thread_id(db, thread_id)
         msgs = _query_messages(db, tid, limit=limit, before_id=before_id)
         return {

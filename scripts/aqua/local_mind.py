@@ -521,37 +521,55 @@ def _encode_image_data_uri(img_path_str: str, max_raw_bytes: int = 48000) -> str
     mime, _ = mimetypes.guess_type(p.name)
     if not mime or not mime.startswith('image/'):
         mime = 'image/png'
-    if len(raw_bytes) > max_raw_bytes and shutil.which('ffmpeg'):
-        try:
-            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-                tmp_path = Path(tmp.name)
-            try:
-                subprocess.run(
-                    [
-                        shutil.which('ffmpeg'),
-                        '-y',
-                        '-i',
-                        str(p),
-                        '-vf',
-                        'scale=min(768\\,iw):-2',
-                        '-q:v',
-                        '6',
-                        str(tmp_path),
-                    ],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=5,
-                    check=False,
-                )
-                if tmp_path.is_file() and 0 < tmp_path.stat().st_size <= max_raw_bytes:
-                    raw_bytes = tmp_path.read_bytes()
-                    mime = 'image/jpeg'
-            finally:
-                tmp_path.unlink(missing_ok=True)
-        except Exception:
-            pass
     if len(raw_bytes) > max_raw_bytes:
-        raw_bytes = raw_bytes[:max_raw_bytes]
+        compressed = False
+        ffmpeg_bin = shutil.which('ffmpeg')
+        if ffmpeg_bin:
+            for vf_arg, q_arg in (
+                ('scale=min(768\\,iw):-2', '6'),
+                ('scale=min(512\\,iw):-2', '10'),
+                ('scale=min(384\\,iw):-2', '14'),
+            ):
+                try:
+                    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                        tmp_path = Path(tmp.name)
+                    try:
+                        subprocess.run(
+                            [ffmpeg_bin, '-y', '-i', str(p), '-vf', vf_arg, '-q:v', q_arg, str(tmp_path)],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=5,
+                            check=False,
+                        )
+                        if tmp_path.is_file() and 0 < tmp_path.stat().st_size <= max_raw_bytes:
+                            raw_bytes = tmp_path.read_bytes()
+                            mime = 'image/jpeg'
+                            compressed = True
+                            break
+                    finally:
+                        tmp_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+        if not compressed:
+            try:
+                import io
+                from PIL import Image
+                with Image.open(p) as im:
+                    rgb = im.convert('RGB')
+                    for max_dim, qual in ((768, 75), (512, 65), (384, 55)):
+                        copy_im = rgb.copy()
+                        copy_im.thumbnail((max_dim, max_dim))
+                        buf = io.BytesIO()
+                        copy_im.save(buf, format='JPEG', quality=qual)
+                        if 0 < buf.tell() <= max_raw_bytes:
+                            raw_bytes = buf.getvalue()
+                            mime = 'image/jpeg'
+                            compressed = True
+                            break
+            except Exception:
+                pass
+        if not compressed:
+            return ''
     b64 = base64.b64encode(raw_bytes).decode('ascii')
     return f'data:{mime};base64,{b64}'
 
@@ -711,7 +729,7 @@ if sys.argv[1:2] == ['--wrap-provider'] and len(sys.argv) >= 3:
                             run_store.load_session_context(),
                         )
                         ctx_md = str(att_info.get('contextMarkdown') or '').strip()
-                    if not is_test_fixture and '## 3-Stage Domain RAG Context' not in ctx_md:
+                    if not is_test_fixture and '## Grounded 3-Stage Domain RAG' not in ctx_md and '## 3-Stage Domain RAG Context' not in ctx_md:
                         sys.path.insert(0, str(Path(__file__).resolve().parent))
                         import domain_rag
                         doms = domain_rag.detect_domains(last_user_text)
@@ -740,12 +758,14 @@ if sys.argv[1:2] == ['--wrap-provider'] and len(sys.argv) >= 3:
                 if drained_block:
                     payload_obj['messages'] = drained_msgs
                     changed_payload = True
+                img_peek = payload_obj.get('attachedImages') if isinstance(payload_obj.get('attachedImages'), list) else []
+                reserved_img_tokens = min(len(img_peek), 4) * 768
                 compacted_msgs, comp_meta = context_policy.compact_messages_for_route(
                     payload_obj['messages'],
                     provider=route_provider,
                     model=str(payload_obj.get('model') or ''),
                     endpoint=str(os.environ.get('AI_ENDPOINT') or ''),
-                    reserved_output=int(payload_obj.get('max_tokens') or payload_obj.get('max_completion_tokens') or 1024),
+                    reserved_output=int(payload_obj.get('max_tokens') or payload_obj.get('max_completion_tokens') or 1024) + reserved_img_tokens,
                     context_window=explicit_ctx_win,
                 )
                 if comp_meta.get('compacted') or len(compacted_msgs) != len(payload_obj['messages']):
@@ -1345,11 +1365,24 @@ def append_chat_history(options):
     """Persist a reply produced by the shared AI service; no inference here."""
     prompt=options.get('prompt')
     reply=options.get('reply')
+    preserve_full=options.get('preserveFull') is True
+    max_reply_len=6000
     if not isinstance(prompt,str) or not isinstance(reply,str) or not prompt.strip() or not reply.strip():
         raise MindError('invalid_request','A chat exchange needs two text messages')
-    if len(prompt)>1200 or len(reply)>6000:
+    if len(prompt)>1200 or len(reply)>max_reply_len:
         raise MindError('request_too_large','Chat exchange exceeded the history limit')
-    try:reply=public_text(reply)
+    try:
+        if preserve_full:
+            import re
+            from reply_guard import _CONTROL, _SENTINEL
+            cleaned = re.sub(r"\r?\n?__ALIS_HTTP_STATUS__:\d+\s*$", "", _CONTROL.sub("", reply))
+            if _SENTINEL.search(cleaned):
+                raise UnsafeReply("internal_protocol")
+            reply = re.sub(r"\r\n?", "\n", cleaned).strip()[:6000]
+            if not reply:
+                raise UnsafeReply("empty_text")
+        else:
+            reply=public_text(reply)
     except UnsafeReply:raise MindError('unsafe_reply','The model returned an invalid reply')
     notice=privacy_reply(prompt)
     if notice:reply=notice['text']
@@ -1489,6 +1522,7 @@ def chat(options):
             options.get('enableDomainRag') is not False
             and not os.environ.get('AQUA_TEST_ENDPOINT')
             and not os.environ.get('AI_FIXTURE_URL')
+            and '## Grounded 3-Stage Domain RAG' not in att_md
             and '## 3-Stage Domain RAG Context' not in att_md
         ):
             import domain_rag
@@ -1528,8 +1562,10 @@ def chat(options):
     else:
         ollama_opts={'num_ctx':2048,'num_predict':effort_profile['num_predict'],'temperature':eff_temp}
         if mtp_active:ollama_opts['repeat_penalty']=1.0
+        idle_mins=options.get('llmIdleUnloadMinutes')
+        keep_alive_val=f"{int(idle_mins)}m" if isinstance(idle_mins,(int,float)) and int(idle_mins)>0 else 0
         answer=request_json(base,'/api/chat',{'model':model,'messages':messages,'stream':False,'format':'json',
-            'think':effort_profile['think'],'keep_alive':0,
+            'think':effort_profile['think'],'keep_alive':keep_alive_val,
             'options':ollama_opts},timeout=30)
     if answer.get('remote_host') or answer.get('remote_model'):raise MindError('remote_model_blocked','Provider returned a remote model')
     if answer.get('done') is not True:raise MindError('incomplete_reply','Local model returned an incomplete reply')

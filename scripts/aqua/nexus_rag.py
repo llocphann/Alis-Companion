@@ -19,7 +19,7 @@ import tempfile
 import time
 import unicodedata
 
-from permission_store import is_forbidden_path
+from permission_store import is_forbidden_path, is_sensitive_path, is_symlink_raw
 
 IGNORED_VAULT_DIRS = frozenset({
     ".git",
@@ -511,6 +511,9 @@ def _chunk_note_body(body: str, default_heading: str, max_chunk_chars: int = 950
 
 
 def _init_nexus_db(conn: sqlite3.Connection) -> None:
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("CREATE TABLE IF NOT EXISTS nexus_meta (key TEXT PRIMARY KEY, value TEXT)")
     conn.execute(
         "CREATE TABLE IF NOT EXISTS nexus_files ("
@@ -588,6 +591,10 @@ def sync_nexus_vault_index(
 
     conn = sqlite3.connect(str(db_path), timeout=5.0)
     try:
+        try:
+            os.chmod(db_path, 0o600)
+        except OSError:
+            pass
         _init_nexus_db(conn)
         meta = dict(conn.execute("SELECT key, value FROM nexus_meta").fetchall())
         prev_vault = meta.get("vault_path", "")
@@ -775,12 +782,16 @@ def search_nexus_knowledge(
             "indexedNotes": sync_info.get("indexedNotes", 0),
         }
 
-    conn = sqlite3.connect(str(db_path), timeout=3.0)
+    conn = sqlite3.connect(str(db_path), timeout=5.0)
     scored_rows: list[tuple[float, dict]] = []
     try:
+        conn.execute("PRAGMA busy_timeout=5000")
         seen_keys: set[tuple[str, str]] = set()
         fts_expr_and = " AND ".join(f'"{t}"*' for t in terms[:6]) if terms else ""
         fts_expr_or = " OR ".join(f'"{t}"*' for t in terms[:8]) if terms else ""
+
+        def _esc_like(s: str) -> str:
+            return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
         def _run_fts(expr: str, bonus: float) -> None:
             if not expr:
@@ -788,12 +799,12 @@ def search_nexus_knowledge(
             where_clauses = ["nexus_fts MATCH ?"]
             params: list[object] = [expr]
             if folder:
-                where_clauses.append("(lower(folder) LIKE ? OR lower(rel_path) LIKE ?)")
-                f_low = f"%{folder.strip().lower()}%"
+                where_clauses.append("(lower(folder) LIKE ? ESCAPE '\\' OR lower(rel_path) LIKE ? ESCAPE '\\')")
+                f_low = f"%{_esc_like(folder.strip().lower())}%"
                 params.extend([f_low, f_low])
             if tag:
-                where_clauses.append("lower(tags) LIKE ?")
-                params.append(f"%{tag.strip().lstrip('#').lower()}%")
+                where_clauses.append("lower(tags) LIKE ? ESCAPE '\\'")
+                params.append(f"%{_esc_like(tag.strip().lstrip('#').lower())}%")
             sql = (
                 "SELECT rel_path, title, folder, tags, heading, body, "
                 "bm25(nexus_fts, 1.5, 2.8, 1.2, 1.8, 2.0, 1.0, 0.9) AS rank "
@@ -867,20 +878,22 @@ def read_nexus_note(target: str, *, vault_path: str = "", max_chars: int = 6000)
     if not raw or "\x00" in raw or raw.startswith("/") or ".." in Path(raw).parts:
         raise NexusRagError("invalid_note_path", "Invalid or unsafe Nexus note path.")
 
-    cand = (vault / raw).resolve(strict=False)
+    raw_cand = vault / raw
+    cand = raw_cand.resolve(strict=False)
     try:
         cand.relative_to(vault)
     except ValueError as exc:
         raise NexusRagError("forbidden_note_path", "Note path resolves outside Nexus Vault.") from exc
 
     resolved_file: Path | None = None
-    if cand.is_file() and not cand.is_symlink() and not is_forbidden_path(cand):
+    if not is_symlink_raw(raw_cand, root_dir=vault) and cand.is_file() and not cand.is_symlink() and not is_forbidden_path(cand) and not is_sensitive_path(cand):
         resolved_file = cand
     elif not raw.endswith(".md"):
-        cand_md = (vault / f"{raw}.md").resolve(strict=False)
+        raw_cand_md = vault / f"{raw}.md"
+        cand_md = raw_cand_md.resolve(strict=False)
         try:
             cand_md.relative_to(vault)
-            if cand_md.is_file() and not cand_md.is_symlink() and not is_forbidden_path(cand_md):
+            if not is_symlink_raw(raw_cand_md, root_dir=vault) and cand_md.is_file() and not cand_md.is_symlink() and not is_forbidden_path(cand_md) and not is_sensitive_path(cand_md):
                 resolved_file = cand_md
         except ValueError:
             pass
@@ -891,10 +904,11 @@ def read_nexus_note(target: str, *, vault_path: str = "", max_chars: int = 6000)
         if cites:
             rp = str(cites[0].get("relPath") or "")
             if rp:
-                alt = (vault / rp).resolve(strict=False)
+                raw_alt = vault / rp
+                alt = raw_alt.resolve(strict=False)
                 try:
                     alt.relative_to(vault)
-                    if alt.is_file() and not alt.is_symlink():
+                    if not is_symlink_raw(raw_alt, root_dir=vault) and alt.is_file() and not alt.is_symlink() and not is_sensitive_path(alt):
                         resolved_file = alt
                 except ValueError:
                     pass
@@ -1022,17 +1036,19 @@ def save_rag_note(
         dst = target_dir / f"{slug}-{suffix_idx}.md"
         suffix_idx += 1
 
+    clean_title = re.sub(r"[\r\n\x00]+", " ", clean_title).strip()
     tag_list = ["system/rag", "alis/companion"]
     for t in (tags or []):
-        ts = str(t or "").strip().lstrip("#")
+        ts = re.sub(r"[\r\n\x00:#]+", " ", str(t or "")).strip().lstrip("#")
         if ts and ts not in tag_list:
             tag_list.append(ts)
 
     now_iso = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     fm_tags = "\n".join(f"  - {t}" for t in tag_list)
+    safe_title_yaml = clean_title.replace('"', "'").replace("---", "-")
     md_text = (
         "---\n"
-        f"title: \"{clean_title.replace(chr(34), chr(39))}\"\n"
+        f"title: \"{safe_title_yaml}\"\n"
         "tags:\n"
         f"{fm_tags}\n"
         f"created: {now_iso}\n"

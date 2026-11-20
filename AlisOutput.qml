@@ -764,9 +764,9 @@ Item {
                     transformOrigin: Item.TopLeft
                     motionEnabled: false
                     quietSettled: true
-                    effectsEnabled: Appearance.effectsEnabled && session.companionPreferences.renderQuality !== "performance"
+                    effectsEnabled: Appearance.effectsEnabled && AbyssRenderPolicy.aquaQuality !== "performance"
                     bubblesEnabled: false
-                    renderQuality: session.companionPreferences.renderQuality
+                    renderQuality: AbyssRenderPolicy.aquaQuality
                     translucency: session.companionPreferences.translucency
                     grounded: true
                 }

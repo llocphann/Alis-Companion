@@ -25,6 +25,9 @@ const COLUMNS: [&str; 7] = [
     "source",
 ];
 
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+compile_error!("pocket.rs raw libc_stat layout is Linux x86_64-only");
+
 // Linux x86_64 constants for openat/fstatat
 const O_RDONLY: c_int = 0;
 const O_RDWR: c_int = 2;

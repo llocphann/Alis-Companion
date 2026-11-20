@@ -19,7 +19,7 @@ def assemble(source, target, binary, sha):
     """Copy only product source. No Blender sources, tests, models or user data."""
     source, target, binary = Path(source), Path(target), Path(binary)
     for name in RUNTIME_DIRS:
-        shutil.copytree(source / name, target / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        shutil.copytree(source / name, target / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.frag"))
     for name in RUNTIME_FILES:
         path = target / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,6 +59,34 @@ def activate(data_root, release):
         temporary.unlink(missing_ok=True)
 
 
+def _prune_old_releases(releases, active_release, keep=5):
+    data_root = releases.parent
+    current = data_root / "current"
+    pinned = {active_release.resolve()}
+    if current.is_symlink():
+        try:
+            pinned.add(current.resolve())
+        except OSError:
+            pass
+    candidates = []
+    for entry in releases.iterdir():
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+        try:
+            mtime = entry.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        candidates.append((mtime, entry))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    kept = set(pinned)
+    for _mtime, entry in candidates:
+        if len(kept) < keep or entry.resolve() in pinned:
+            kept.add(entry.resolve())
+    for _mtime, entry in candidates:
+        if entry.resolve() not in kept:
+            shutil.rmtree(entry, ignore_errors=True)
+
+
 def install(data_root, source=ROOT, binary=None):
     source = Path(source).resolve()
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
@@ -84,6 +112,7 @@ def install(data_root, source=ROOT, binary=None):
             assemble(source, payload, binary, sha)
             os.replace(payload, release)
     activate(data_root, release)
+    _prune_old_releases(releases, release, keep=5)
     return release
 
 

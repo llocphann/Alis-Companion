@@ -62,6 +62,7 @@ def _connect():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS meta (
@@ -494,6 +495,21 @@ def get_run(run_id):
                 for s in steps
             ],
         }
+
+
+def list_recent_runs(limit=10):
+    cap = max(1, min(50, int(limit or 10)))
+    with closing(_connect()) as db:
+        rows = db.execute(
+            "SELECT run_id FROM agent_runs ORDER BY updated_ms DESC LIMIT ?",
+            (cap,),
+        ).fetchall()
+        out = []
+        for r in rows:
+            run_obj = get_run(r["run_id"])
+            if run_obj:
+                out.append(run_obj)
+        return out
 
 
 def latest_resumable_run():

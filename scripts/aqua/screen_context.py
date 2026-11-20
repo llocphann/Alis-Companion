@@ -129,10 +129,16 @@ def query_niri_state():
     }
 
 
-def _extract_output_scale(niri_state):
+def _extract_output_scale(niri_state, focused_output: str = ""):
     outputs = niri_state.get("outputs")
     if not isinstance(outputs, dict) or not outputs:
         return "", None
+    if focused_output and focused_output in outputs and isinstance(outputs[focused_output], dict):
+        logical = outputs[focused_output].get("logical")
+        if isinstance(logical, dict) and isinstance(logical.get("scale"), (int, float)):
+            scale = float(logical["scale"])
+            if scale > 0:
+                return str(focused_output), scale
     for out_name, out_info in outputs.items():
         if not isinstance(out_info, dict):
             continue
@@ -157,7 +163,7 @@ def _normalize_atspi_element(raw, index: int) -> dict:
         cx = int(raw.get("centerX", x + w // 2))
         cy = int(raw.get("centerY", y + h // 2))
         raw_states = [str(s).strip() for s in (raw.get("states") or []) if str(s).strip()]
-        if "editable" not in raw_states and role in ("entry", "text", "password text"):
+        if "editable" not in raw_states and role in ("entry", "text"):
             if raw.get("editable") is not False:
                 raw_states.append("editable")
         default_actions = ["fill", "focus"] if ("editable" in raw_states or role in ("entry", "password text")) else ["click"]
@@ -258,7 +264,7 @@ def _query_atspi_elements(app_id, title, max_nodes: int = 32) -> list[dict]:
         "seen = set()\n"
         "daemons = ('polkit-gnome-authentication-agent', 'xdg-desktop-portal', 'at-spi', 'gnome-keyring', 'gvfs')\n"
         "interactive_roles = {'push button', 'button', 'toggle button', 'check box', 'radio button', 'menu item', "
-        "'text', 'entry', 'password text', 'combo box', 'page tab', 'link', 'list item', 'tree item', 'slider'}\n"
+        "'text', 'entry', 'combo box', 'page tab', 'link', 'list item', 'tree item', 'slider'}\n"
         "state_map = [\n"
         "    ('editable', getattr(Atspi.StateType, 'EDITABLE', None)),\n"
         "    ('focused', getattr(Atspi.StateType, 'FOCUSED', None)),\n"
@@ -294,6 +300,8 @@ def _query_atspi_elements(app_id, title, max_nodes: int = 32) -> list[dict]:
         "    try:\n"
         "        nm = ' '.join((node.get_name() or '').split()).strip()\n"
         "        role = (node.get_role_name() or '').strip().lower()\n"
+        "        if 'password' in role:\n"
+        "            return\n"
         "        low = nm.lower()\n"
         "        if depth == 0 and (node.get_child_count() <= 0 or any(d in low for d in daemons)):\n"
         "            return\n"
@@ -319,7 +327,7 @@ def _query_atspi_elements(app_id, title, max_nodes: int = 32) -> list[dict]:
         "        except Exception:\n"
         "            pass\n"
         "        val_str = ''\n"
-        "        if 'editable' in states or role in ('entry', 'text', 'password text', 'slider', 'combo box'):\n"
+        "        if 'editable' in states or role in ('entry', 'text', 'slider', 'combo box'):\n"
         "            try:\n"
         "                ti = node.get_text_iface()\n"
         "                if ti:\n"
@@ -354,8 +362,8 @@ def _query_atspi_elements(app_id, title, max_nodes: int = 32) -> list[dict]:
         "    if app:\n"
         "        apps.append((app_priority(i, app), i, app))\n"
         "apps.sort(key=lambda item: item[0])\n"
-        "for _, app_idx, app in apps:\n"
-        "    walk(app, [app_idx], 0)\n"
+        "if apps and apps[0][0] < 50:\n"
+        "    walk(apps[0][2], [apps[0][1]], 0)\n"
         "print(json.dumps(out))\n"
     )
     try:
@@ -420,11 +428,12 @@ def _state_dir() -> Path:
     else:
         root = Path.home() / ".local" / "state" / "alis-companion"
     try:
-        root.mkdir(parents=True, exist_ok=True)
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(root, 0o700)
         return root
     except OSError:
-        fallback = Path(tempfile.gettempdir()) / "alis-companion-state"
-        fallback.mkdir(parents=True, exist_ok=True)
+        fallback = Path(tempfile.mkdtemp(prefix="alis-companion-state-"))
+        os.chmod(fallback, 0o700)
         return fallback
 
 
@@ -496,15 +505,16 @@ def _screenshots_dir():
     else:
         root = Path.home() / ".local" / "state" / "alis-companion" / "screenshots"
     try:
-        root.mkdir(parents=True, exist_ok=True)
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(root, 0o700)
         return root
     except OSError:
-        fallback = Path(tempfile.gettempdir()) / "alis-companion-screenshots"
-        fallback.mkdir(parents=True, exist_ok=True)
+        fallback = Path(tempfile.mkdtemp(prefix="alis-companion-screenshots-"))
+        os.chmod(fallback, 0o700)
         return fallback
 
 
-def capture_screenshot_file(now_ms=None, retention_days=None):
+def capture_screenshot_file(now_ms=None, retention_days=None, focused_output: str = ""):
     ts = _now_ms(now_ms)
     out_dir = _screenshots_dir()
     _prune_screenshots(out_dir, retention_days=retention_days, now_ms=ts)
@@ -516,24 +526,35 @@ def capture_screenshot_file(now_ms=None, retention_days=None):
             return fix_path
         try:
             target.write_bytes(_FALLBACK_1X1_PNG)
+            os.chmod(target, 0o600)
             _prune_screenshots(out_dir, retention_days=retention_days, now_ms=ts)
             return str(target)
         except OSError:
             return ""
     if shutil.which("grim"):
-        try:
-            proc = subprocess.run(
-                ["grim", str(target)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=3.0,
-                check=False,
-            )
-            if proc.returncode == 0 and target.is_file() and target.stat().st_size > 0:
-                _prune_screenshots(out_dir, retention_days=retention_days, now_ms=ts)
-                return str(target)
-        except (OSError, subprocess.SubprocessError):
-            pass
+        grim_cmds = (
+            [["grim", "-o", focused_output, str(target)], ["grim", str(target)]]
+            if focused_output
+            else [["grim", str(target)]]
+        )
+        for gcmd in grim_cmds:
+            try:
+                proc = subprocess.run(
+                    gcmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=3.0,
+                    check=False,
+                )
+                if proc.returncode == 0 and target.is_file() and target.stat().st_size > 0:
+                    try:
+                        os.chmod(target, 0o600)
+                    except OSError:
+                        pass
+                    _prune_screenshots(out_dir, retention_days=retention_days, now_ms=ts)
+                    return str(target)
+            except (OSError, subprocess.SubprocessError):
+                pass
     if shutil.which("spectacle"):
         try:
             proc = subprocess.run(
@@ -544,6 +565,10 @@ def capture_screenshot_file(now_ms=None, retention_days=None):
                 check=False,
             )
             if proc.returncode == 0 and target.is_file() and target.stat().st_size > 0:
+                try:
+                    os.chmod(target, 0o600)
+                except OSError:
+                    pass
                 _prune_screenshots(out_dir, retention_days=retention_days, now_ms=ts)
                 return str(target)
         except (OSError, subprocess.SubprocessError):
@@ -734,7 +759,23 @@ def observe_active_window(
     app_id = str(focused.get("app_id") or "desktop").strip()[:120]
     title = str(focused.get("title") or "").strip()[:160]
     pid = int(focused.get("pid") or 0) if isinstance(focused.get("pid"), int) else 0
-    output_name, output_scale = _extract_output_scale(niri)
+    focused_out = str(focused.get("output") or "").strip() if isinstance(focused, dict) else ""
+    if not focused_out and shutil.which("niri") and isinstance(niri.get("outputs"), dict) and len(niri["outputs"]) > 1:
+        try:
+            proc_fo = subprocess.run(
+                ["niri", "msg", "-j", "focused-output"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=1.0,
+                check=False,
+            )
+            if proc_fo.returncode == 0 and proc_fo.stdout:
+                fo_data = json.loads(proc_fo.stdout.decode("utf-8", errors="replace"))
+                if isinstance(fo_data, dict):
+                    focused_out = str(fo_data.get("name") or "").strip()
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+    output_name, output_scale = _extract_output_scale(niri, focused_output=focused_out)
 
     focus_changed = (
         previous_window_id is not None
@@ -746,9 +787,19 @@ def observe_active_window(
     if title:
         lines.append(f"Window: {title} ({app_id})"[:160])
 
-    # 1. Structured AT-SPI / DOM nodes + Set-of-Mark elements
+    # 1. Structured AT-SPI / DOM nodes + Set-of-Mark elements (single AT-SPI pass)
     atspi_elements = _query_atspi_elements(app_id, title)
-    atspi_lines = _query_atspi_nodes(app_id, title)
+    atspi_lines: list[str] = []
+    fixture = _load_fixture()
+    if isinstance(fixture, dict) and (isinstance(fixture.get("atspiLines"), list) or isinstance(fixture.get("domLines"), list)):
+        atspi_lines = _query_atspi_nodes(app_id, title)
+    elif atspi_elements:
+        for el in atspi_elements:
+            nm = str(el.get("name") or "").strip()
+            if nm and nm not in atspi_lines:
+                atspi_lines.append(nm[:160])
+                if len(atspi_lines) >= 14:
+                    break
     source = "niri_metadata"
     if atspi_lines or atspi_elements:
         source = "niri+atspi"
@@ -765,7 +816,7 @@ def observe_active_window(
         else bool(allow_screenshot and (capture_image or annotate_som))
     )
     if should_capture:
-        screenshot_path = capture_screenshot_file(now_ms=ts)
+        screenshot_path = capture_screenshot_file(now_ms=ts, focused_output=output_name)
         if annotate_som and screenshot_path:
             som_res = annotate_screenshot_som(screenshot_path, atspi_elements)
             som_screenshot_path = str(som_res.get("annotatedPath") or "")
@@ -1028,7 +1079,7 @@ def perform_gui_action(
     current_win_id = obs.get("windowId")
 
     if target_window_id is not None and str(target_window_id) != str(current_win_id):
-        if action_type != "focus_window" or int(target_window_id) < 0 or current_win_id is not None:
+        if action_type != "focus_window" or int(target_window_id) < 0:
             raise ScreenContextError(
                 "focus_changed_abort",
                 f"Active window changed (expected window {target_window_id}, found {current_win_id}); GUI action aborted safely.",

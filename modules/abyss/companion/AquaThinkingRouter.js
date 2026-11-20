@@ -27,7 +27,9 @@ var MECHANICAL_CATEGORIES = ({
     skill_manage: true,
     confirmation_response: true,
     stop: true,
-    resume: true
+    resume: true,
+    alis_local_info: true,
+    alis_service_control: true
 });
 
 function foldAscii(text) {
@@ -57,7 +59,7 @@ function classify(rawPrompt, options) {
         return { effort: "off", score: 0, confidence: 1.0, source: "short_circuit" };
     }
 
-    const greetingOrMicRe = /^(?:hi|hello|hey|yo|alo+|chao|xin chao|ok|okay|oke|thanks|thank you|cam on|bye|goodbye|tam biet)[!.,?\s]*$|\b(?:can you hear me|do you hear me|hear me|are you listening|listening to me|mic test|test mic|testing mic|nghe ro khong|nghe thay khong|co nghe khong|ban nghe khong|how are you|how is your day|how's your day|how is it going|how's it going|what's up|whats up|what is your name|who are you|good morning|good afternoon|good evening|ban ten la gi|ban la ai|ban khoe khong|hom nay the nao)\b/;
+    const greetingOrMicRe = /^(?:hi|hello|hey|yo|alo+|chao|xin chao|ok|okay|oke|thanks|thank you|cam on|bye|goodbye|tam biet)[!.,?\s]*$|^(?:can you hear me|do you hear me|hear me|are you listening|listening to me|mic test|test mic|testing mic|nghe ro khong|nghe thay khong|co nghe khong|ban nghe khong|how are you|how is your day|how's your day|how is it going|how's it going|what's up|whats up|what is your name|who are you|good morning|good afternoon|good evening|ban ten la gi|ban la ai|ban khoe khong|hom nay the nao)[?!.,\s]*$/;
     if (isDomainCap || greetingOrMicRe.test(folded) || Boolean(MECHANICAL_CATEGORIES[category])) {
         return { effort: "off", score: 0, confidence: 0.99, source: "short_circuit" };
     }

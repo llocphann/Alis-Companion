@@ -6,7 +6,7 @@ WITHOUT writing to chat history, SQLite databases, or TTS playback.
 
 Resource & Privacy Guarantees:
   1. Never cold-loads an unloaded local model (probes /api/v0/models or /api/ps first).
-  2. Tier 1 (default): single non-thinking micro-LLM text call (`max_tokens <= 55`)
+  2. Tier 1 (default): single non-thinking micro-LLM text call (`max_tokens <= 60`)
      using sanitized Niri active window, Pomodoro, media, weather, and mood cues.
   3. Tier 2 (opt-in `visualPeekEnabled`, default OFF): only fires when Tier 1 title
      is opaque and the warm model supports vision; resizes an ephemeral capture
@@ -30,6 +30,15 @@ import urllib.parse
 import urllib.request
 
 ALLOWED_EXPRESSIONS = ("calm", "happy", "curious", "sleepy", "excited", "working")
+_NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _urlopen_local(req_or_url, timeout: float = 5.0):
+    target_url = req_or_url.full_url if hasattr(req_or_url, "full_url") else str(req_or_url or "")
+    host = (urllib.parse.urlparse(target_url).hostname or "").lower()
+    if host in ("127.0.0.1", "localhost", "::1"):
+        return _NO_PROXY_OPENER.open(req_or_url, timeout=timeout)
+    return urllib.request.urlopen(req_or_url, timeout=timeout)
 
 _SENSITIVE_KEYWORDS = (
     "bitwarden",
@@ -247,7 +256,7 @@ def probe_warm_local_model(
     if host in ("127.0.0.1", "localhost") and (port == 1234 or hint == "lmstudio") and not allow_cold_load:
         try:
             v0_url = f"{parsed.scheme or 'http'}://{parsed.netloc}/api/v0/models"
-            with urllib.request.urlopen(v0_url, timeout=timeout) as resp:
+            with _urlopen_local(v0_url, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8", errors="replace"))
             items = data.get("data") if isinstance(data, dict) else []
             loaded = [
@@ -270,7 +279,7 @@ def probe_warm_local_model(
     if host in ("127.0.0.1", "localhost") and port == 11434 and not allow_cold_load:
         try:
             ps_url = f"{parsed.scheme or 'http'}://{parsed.netloc}/api/ps"
-            with urllib.request.urlopen(ps_url, timeout=timeout) as resp:
+            with _urlopen_local(ps_url, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8", errors="replace"))
             models = [m for m in (data.get("models") or []) if isinstance(m, dict) and str(m.get("name") or "").strip()]
             if not models:
@@ -363,7 +372,14 @@ def _parse_remark_response(raw_text: str) -> tuple[str, str]:
             except Exception:
                 pass
     if not remark:
-        remark = fenced
+        if fenced.lstrip().startswith("{"):
+            m_partial = re.search(r'"(?:remark|text|message)"\s*:\s*"([^"\n]+)"', fenced)
+            if m_partial:
+                remark = m_partial.group(1).strip()
+            else:
+                return "", expr
+        else:
+            remark = fenced
     remark = re.sub(r"[#*_`>|]+", " ", remark)
     remark = re.sub(r"https?://\S+", "", remark)
     remark = " ".join(remark.split()).strip(" \"'")
@@ -380,7 +396,7 @@ def _post_micro_completion(endpoint: str, body: dict, timeout: float = 8.0) -> s
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with _urlopen_local(req, timeout=timeout) as resp:
         data = json.loads(resp.read().decode("utf-8", errors="replace"))
     choices = data.get("choices") or []
     if choices and isinstance(choices[0], dict):
@@ -515,7 +531,7 @@ def generate_mascot_commentary(payload: dict) -> dict:
                 {"role": "user", "content": user_content},
             ],
             "temperature": 0.72,
-            "max_tokens": 55,
+            "max_tokens": 60,
             "reasoning_effort": "none",
             "chat_template_kwargs": {"enable_thinking": False},
         }

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+import time
 import unicodedata
 
 
@@ -56,11 +57,54 @@ def _snapshot_file() -> Path:
     return folder / "live_machine_snapshot.json"
 
 
+def _encode_bounded_snapshot(snapshot: dict, max_bytes: int = 131072) -> bytes:
+    def _dump(obj: dict) -> bytes:
+        return json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+    snap = dict(snapshot)
+    if "capturedAtMs" not in snap or not isinstance(snap.get("capturedAtMs"), (int, float)):
+        snap["capturedAtMs"] = int(time.time() * 1000)
+
+    encoded = _dump(snap)
+    if len(encoded) <= max_bytes:
+        return encoded
+
+    def _trim_obj(val, list_cap: int, str_cap: int):
+        if isinstance(val, str):
+            return val[:str_cap]
+        if isinstance(val, list):
+            return [_trim_obj(x, list_cap, str_cap) for x in val[:list_cap]]
+        if isinstance(val, dict):
+            return {k: _trim_obj(v, list_cap, str_cap) for k, v in list(val.items())[:40]}
+        return val
+
+    for list_cap, str_cap in ((10, 800), (4, 300), (2, 120)):
+        pruned = {k: _trim_obj(v, list_cap, str_cap) for k, v in snap.items()}
+        encoded = _dump(pruned)
+        if len(encoded) <= max_bytes:
+            return encoded
+
+    essential = ("capturedAtMs", "weather", "system", "desktop")
+    trimmed = {k: _trim_obj(snap[k], 2, 120) for k in essential if k in snap}
+    for k, v in snap.items():
+        if k in trimmed:
+            continue
+        cand = dict(trimmed)
+        cand[k] = _trim_obj(v, 1, 80)
+        cand_bytes = _dump(cand)
+        if len(cand_bytes) <= max_bytes:
+            trimmed = cand
+    encoded = _dump(trimmed)
+    if len(encoded) <= max_bytes:
+        return encoded
+    return _dump({"capturedAtMs": snap["capturedAtMs"], "truncated": True})
+
+
 def save_live_snapshot(snapshot: dict) -> None:
     if not isinstance(snapshot, dict) or not snapshot:
         return
     path = _snapshot_file()
-    payload = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")).encode("utf-8")[:131072]
+    payload = _encode_bounded_snapshot(snapshot, max_bytes=131072)
     fd, tmp_name = tempfile.mkstemp(prefix=".live-snap-", dir=str(path.parent))
     tmp = Path(tmp_name)
     try:
@@ -425,6 +469,15 @@ def _format_fitness(fit: dict, nx: dict, lang: str) -> tuple[str, dict]:
     return "\n".join(lines), {"completedExercises": done_ex, "totalExercises": tot_ex}
 
 
+def _scale_pct(raw_val, decimals: int = 1) -> float:
+    try:
+        val = float(raw_val or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    scaled = val * 100.0 if 0.0 < val < 1.0 else val
+    return round(scaled, decimals)
+
+
 def _format_system(sys_d: dict, desk: dict, lang: str) -> tuple[str, dict]:
     if not isinstance(sys_d, dict) or not sys_d:
         try:
@@ -435,52 +488,92 @@ def _format_system(sys_d: dict, desk: dict, lang: str) -> tuple[str, dict]:
             return ("Chưa đọc được thông số hệ thống." if lang == "vi" else "System telemetry unavailable."), {}
 
     lines: list[str] = []
-    cpu_p = sys_d.get("cpuPercent")
-    gpu_p = sys_d.get("gpuPercent")
+    cpu_val = _scale_pct(sys_d.get("cpuPercent"), 1)
+    gpu_val = _scale_pct(sys_d.get("gpuPercent"), 1)
     cpu_t = sys_d.get("cpuTemp")
     gpu_t = sys_d.get("gpuTemp")
     mem_u = sys_d.get("memUsedGb")
     mem_tot = sys_d.get("memTotalGb")
     mem_p = sys_d.get("memPercent")
     bat_p = sys_d.get("batteryPercent")
-    lines.append(
-        f"**Tài nguyên:** CPU {round(float(cpu_p or 0) * 100, 1) if float(cpu_p or 0) <= 1.0 else round(float(cpu_p or 0), 1)}%"
-        + (f" ({cpu_t}°C)" if cpu_t else "")
-        + f" · GPU {round(float(gpu_p or 0) * 100, 1) if float(gpu_p or 0) <= 1.0 else round(float(gpu_p or 0), 1)}%"
-        + (f" ({gpu_t}°C)" if gpu_t else "")
-        + (f" · RAM {mem_u}/{mem_tot} GB ({mem_p}%)" if mem_tot else "")
-    )
-    hw_parts = []
-    if sys_d.get("batteryAvailable"):
-        hw_parts.append(f"Pin **{bat_p}%** ({'Đang sạc' if sys_d.get('batteryCharging') else 'Dùng pin'})")
-    if sys_d.get("thinkfanAvailable"):
-        rpm = sys_d.get("thinkfanRpm")
-        prof = sys_d.get("thinkfanProfile") or "auto"
-        hw_parts.append(f"Quạt Thinkfan {'bật' if sys_d.get('thinkfanActive') else 'tắt'} ({rpm} RPM, {prof})")
-    if sys_d.get("tlpAvailable"):
-        lim = sys_d.get("tlpLimit")
-        st = sys_d.get("tlpStart")
-        hw_parts.append(f"TLP giới hạn sạc {st if st is not None and int(st) >= 0 else '?'}–{lim}%")
-    if hw_parts:
-        lines.append("- **Phần cứng:** " + " · ".join(hw_parts))
-    net_parts = []
-    if sys_d.get("networkName") or sys_d.get("networkType"):
-        net_parts.append(f"Mạng {sys_d.get('networkName') or sys_d.get('networkType')}")
-    if sys_d.get("bluetoothConnectedCount"):
-        devs = ", ".join(sys_d.get("bluetoothDeviceNames") or [])
-        net_parts.append(f"Bluetooth {sys_d['bluetoothConnectedCount']} thiết bị" + (f" ({devs})" if devs else ""))
-    if sys_d.get("nightLightActive") is not None:
-        net_parts.append(f"Night Light {'Bật' if sys_d.get('nightLightActive') else 'Tắt'}")
-    if sys_d.get("gameModeActive"):
-        net_parts.append("GameMode Đang bật")
-    if sys_d.get("updatesCount"):
-        net_parts.append(f"Có {sys_d['updatesCount']} gói hệ thống có thể cập nhật")
-    if int(sys_d.get("shellCommitsBehind") or 0) > 0:
-        net_parts.append(f"Alis mới hơn {sys_d['shellCommitsBehind']} commit")
-    if net_parts:
-        lines.append("- **Kết nối & Trạng thái:** " + " · ".join(net_parts))
-    if isinstance(desk, dict) and (desk.get("focusedApp") or desk.get("activeWorkspace")):
-        lines.append(f"- **Niri Desktop:** Màn hình `{desk.get('currentOutput', '')}`, cửa sổ `{desk.get('focusedApp', '')}` ({str(desk.get('focusedTitle') or '')[:60]})")
+    if lang == "vi":
+        lines.append(
+            f"**Tài nguyên:** CPU {cpu_val}%"
+            + (f" ({cpu_t}°C)" if cpu_t else "")
+            + f" · GPU {gpu_val}%"
+            + (f" ({gpu_t}°C)" if gpu_t else "")
+            + (f" · RAM {mem_u}/{mem_tot} GB ({mem_p}%)" if mem_tot else "")
+        )
+        hw_parts = []
+        if sys_d.get("batteryAvailable"):
+            hw_parts.append(f"Pin **{bat_p}%** ({'Đang sạc' if sys_d.get('batteryCharging') else 'Dùng pin'})")
+        if sys_d.get("thinkfanAvailable"):
+            rpm = sys_d.get("thinkfanRpm")
+            prof = sys_d.get("thinkfanProfile") or "auto"
+            hw_parts.append(f"Quạt Thinkfan {'bật' if sys_d.get('thinkfanActive') else 'tắt'} ({rpm} RPM, {prof})")
+        if sys_d.get("tlpAvailable"):
+            lim = sys_d.get("tlpLimit")
+            st = sys_d.get("tlpStart")
+            hw_parts.append(f"TLP giới hạn sạc {st if st is not None and int(st) >= 0 else '?'}–{lim}%")
+        if hw_parts:
+            lines.append("- **Phần cứng:** " + " · ".join(hw_parts))
+        net_parts = []
+        if sys_d.get("networkName") or sys_d.get("networkType"):
+            net_parts.append(f"Mạng {sys_d.get('networkName') or sys_d.get('networkType')}")
+        if sys_d.get("bluetoothConnectedCount"):
+            devs = ", ".join(sys_d.get("bluetoothDeviceNames") or [])
+            net_parts.append(f"Bluetooth {sys_d['bluetoothConnectedCount']} thiết bị" + (f" ({devs})" if devs else ""))
+        if sys_d.get("nightLightActive") is not None:
+            net_parts.append(f"Night Light {'Bật' if sys_d.get('nightLightActive') else 'Tắt'}")
+        if sys_d.get("gameModeActive"):
+            net_parts.append("GameMode Đang bật")
+        if sys_d.get("updatesCount"):
+            net_parts.append(f"Có {sys_d['updatesCount']} gói hệ thống có thể cập nhật")
+        if int(sys_d.get("shellCommitsBehind") or 0) > 0:
+            net_parts.append(f"Alis mới hơn {sys_d['shellCommitsBehind']} commit")
+        if net_parts:
+            lines.append("- **Kết nối & Trạng thái:** " + " · ".join(net_parts))
+        if isinstance(desk, dict) and (desk.get("focusedApp") or desk.get("activeWorkspace")):
+            lines.append(f"- **Niri Desktop:** Màn hình `{desk.get('currentOutput', '')}`, cửa sổ `{desk.get('focusedApp', '')}` ({str(desk.get('focusedTitle') or '')[:60]})")
+    else:
+        lines.append(
+            f"**Resources:** CPU {cpu_val}%"
+            + (f" ({cpu_t}°C)" if cpu_t else "")
+            + f" · GPU {gpu_val}%"
+            + (f" ({gpu_t}°C)" if gpu_t else "")
+            + (f" · RAM {mem_u}/{mem_tot} GB ({mem_p}%)" if mem_tot else "")
+        )
+        hw_parts = []
+        if sys_d.get("batteryAvailable"):
+            hw_parts.append(f"Battery **{bat_p}%** ({'Charging' if sys_d.get('batteryCharging') else 'On battery'})")
+        if sys_d.get("thinkfanAvailable"):
+            rpm = sys_d.get("thinkfanRpm")
+            prof = sys_d.get("thinkfanProfile") or "auto"
+            hw_parts.append(f"Thinkfan {'on' if sys_d.get('thinkfanActive') else 'off'} ({rpm} RPM, {prof})")
+        if sys_d.get("tlpAvailable"):
+            lim = sys_d.get("tlpLimit")
+            st = sys_d.get("tlpStart")
+            hw_parts.append(f"TLP charge limit {st if st is not None and int(st) >= 0 else '?'}–{lim}%")
+        if hw_parts:
+            lines.append("- **Hardware:** " + " · ".join(hw_parts))
+        net_parts = []
+        if sys_d.get("networkName") or sys_d.get("networkType"):
+            net_parts.append(f"Network {sys_d.get('networkName') or sys_d.get('networkType')}")
+        if sys_d.get("bluetoothConnectedCount"):
+            devs = ", ".join(sys_d.get("bluetoothDeviceNames") or [])
+            net_parts.append(f"Bluetooth {sys_d['bluetoothConnectedCount']} device(s)" + (f" ({devs})" if devs else ""))
+        if sys_d.get("nightLightActive") is not None:
+            net_parts.append(f"Night Light {'On' if sys_d.get('nightLightActive') else 'Off'}")
+        if sys_d.get("gameModeActive"):
+            net_parts.append("GameMode Active")
+        if sys_d.get("updatesCount"):
+            net_parts.append(f"{sys_d['updatesCount']} system package update(s) available")
+        if int(sys_d.get("shellCommitsBehind") or 0) > 0:
+            net_parts.append(f"Alis {sys_d['shellCommitsBehind']} commit(s) ahead")
+        if net_parts:
+            lines.append("- **Connectivity & Status:** " + " · ".join(net_parts))
+        if isinstance(desk, dict) and (desk.get("focusedApp") or desk.get("activeWorkspace")):
+            lines.append(f"- **Niri Desktop:** Output `{desk.get('currentOutput', '')}`, window `{desk.get('focusedApp', '')}` ({str(desk.get('focusedTitle') or '')[:60]})")
     return "\n".join(lines), sys_d
 
 
@@ -634,8 +727,7 @@ def _spoken_schedule(sched: dict, nx: dict, lang: str) -> str:
 def _spoken_system(sys_d: dict, desk: dict, lang: str) -> str:
     if not isinstance(sys_d, dict) or not sys_d:
         return "Chưa đọc được thông số hệ thống." if lang == "vi" else "System status is unavailable."
-    cpu_p = sys_d.get("cpuPercent")
-    cpu_val = round(float(cpu_p or 0) * 100, 0) if float(cpu_p or 0) <= 1.0 else round(float(cpu_p or 0), 0)
+    cpu_val = _scale_pct(sys_d.get("cpuPercent"), 0)
     mem_u = sys_d.get("memUsedGb")
     mem_tot = sys_d.get("memTotalGb")
     bat_p = sys_d.get("batteryPercent")
@@ -1083,38 +1175,55 @@ def detect_all_alis_local_intents(prompt: str) -> list[dict]:
             found.append({"kind": "alis_service_control", "action": "music_shuffle", "target": "", "value": "", "requiresConfirmation": False, "pos": m_ms.start()})
             controlled_topics.add("music")
 
+    _clause_split_re = re.compile(r"(?:[;,\n]+|\b(?:and then|and also|and|then|roi sau do|sau do|roi|va|dong thoi)\b)")
+
+    def _clause_for_match(m_obj) -> str:
+        c_start = 0
+        for b in _clause_split_re.finditer(folded, 0, m_obj.start()):
+            c_start = b.end()
+        after = _clause_split_re.search(folded, m_obj.end())
+        c_end = after.start() if after else len(folded)
+        return folded[c_start:c_end]
+
     m_pomo = re.search(r"\b(?:pomodoro|bo dem tap trung|focus timer)\b", folded)
     if m_pomo:
-        if re.search(r"\b(?:bat dau|chay|start|bat|mo)\b", folded):
+        pomo_clause = _clause_for_match(m_pomo)
+        if re.search(r"\b(?:bat dau|chay|start|bat|mo)\b", pomo_clause):
             found.append({"kind": "alis_service_control", "action": "pomodoro_start", "target": "", "value": "", "requiresConfirmation": False, "pos": m_pomo.start()})
             controlled_topics.add("timers")
-        elif re.search(r"\b(?:tam dung|pause|dung)\b", folded):
+        elif re.search(r"\b(?:tam dung|pause|dung)\b", pomo_clause):
             found.append({"kind": "alis_service_control", "action": "pomodoro_pause", "target": "", "value": "", "requiresConfirmation": False, "pos": m_pomo.start()})
             controlled_topics.add("timers")
-        elif re.search(r"\b(?:reset|dat lai|tat)\b", folded):
+        elif re.search(r"\b(?:reset|dat lai|tat)\b", pomo_clause):
             found.append({"kind": "alis_service_control", "action": "pomodoro_reset", "target": "", "value": "", "requiresConfirmation": False, "pos": m_pomo.start()})
             controlled_topics.add("timers")
 
     m_nl = re.search(r"\b(?:night\s*light|loc anh sang xanh|che do ban dem|hyprsunset)\b", folded)
-    if m_nl and re.search(r"\b(?:bat|mo|tat|chuyen|enable|disable|turn\s+on|turn\s+off|toggle)\b", folded):
-        val = "off" if re.search(r"\b(?:tat|disable|turn\s+off)\b", folded) else ("on" if re.search(r"\b(?:bat|mo|enable|turn\s+on)\b", folded) else "toggle")
-        act = "night_light_toggle" if val == "toggle" else "night_light_set"
-        found.append({"kind": "alis_service_control", "action": act, "target": "", "value": val, "requiresConfirmation": False, "pos": m_nl.start()})
-        controlled_topics.add("system")
+    if m_nl:
+        nl_clause = _clause_for_match(m_nl)
+        if re.search(r"\b(?:bat|mo|tat|chuyen|enable|disable|turn\s+on|turn\s+off|toggle)\b", nl_clause):
+            val = "off" if re.search(r"\b(?:tat|disable|turn\s+off)\b", nl_clause) else ("on" if re.search(r"\b(?:bat|mo|enable|turn\s+on)\b", nl_clause) else "toggle")
+            act = "night_light_toggle" if val == "toggle" else "night_light_set"
+            found.append({"kind": "alis_service_control", "action": act, "target": "", "value": val, "requiresConfirmation": False, "pos": m_nl.start()})
+            controlled_topics.add("system")
 
     m_gm = re.search(r"\b(?:game\s*mode|che do choi game|che do game)\b", folded)
-    if m_gm and re.search(r"\b(?:bat|mo|tat|chuyen|enable|disable|turn\s+on|turn\s+off|toggle)\b", folded):
-        val = "off" if re.search(r"\b(?:tat|disable|turn\s+off)\b", folded) else ("on" if re.search(r"\b(?:bat|mo|enable|turn\s+on)\b", folded) else "toggle")
-        act = "gamemode_toggle" if val == "toggle" else "gamemode_set"
-        found.append({"kind": "alis_service_control", "action": act, "target": "", "value": val, "requiresConfirmation": False, "pos": m_gm.start()})
-        controlled_topics.add("system")
+    if m_gm:
+        gm_clause = _clause_for_match(m_gm)
+        if re.search(r"\b(?:bat|mo|tat|chuyen|enable|disable|turn\s+on|turn\s+off|toggle)\b", gm_clause):
+            val = "off" if re.search(r"\b(?:tat|disable|turn\s+off)\b", gm_clause) else ("on" if re.search(r"\b(?:bat|mo|enable|turn\s+on)\b", gm_clause) else "toggle")
+            act = "gamemode_toggle" if val == "toggle" else "gamemode_set"
+            found.append({"kind": "alis_service_control", "action": act, "target": "", "value": val, "requiresConfirmation": False, "pos": m_gm.start()})
+            controlled_topics.add("system")
 
     m_dnd = re.search(r"\b(?:dnd|do not disturb|khong lam phien|che do im lang)\b", folded)
-    if m_dnd and re.search(r"\b(?:bat|mo|tat|chuyen|enable|disable|turn\s+on|turn\s+off|toggle)\b", folded):
-        val = "off" if re.search(r"\b(?:tat|disable|turn\s+off)\b", folded) else ("on" if re.search(r"\b(?:bat|mo|enable|turn\s+on)\b", folded) else "toggle")
-        act = "dnd_toggle" if val == "toggle" else "dnd_set"
-        found.append({"kind": "alis_service_control", "action": act, "target": "", "value": val, "requiresConfirmation": False, "pos": m_dnd.start()})
-        controlled_topics.add("notifications")
+    if m_dnd:
+        dnd_clause = _clause_for_match(m_dnd)
+        if re.search(r"\b(?:bat|mo|tat|chuyen|enable|disable|turn\s+on|turn\s+off|toggle)\b", dnd_clause):
+            val = "off" if re.search(r"\b(?:tat|disable|turn\s+off)\b", dnd_clause) else ("on" if re.search(r"\b(?:bat|mo|enable|turn\s+on)\b", dnd_clause) else "toggle")
+            act = "dnd_toggle" if val == "toggle" else "dnd_set"
+            found.append({"kind": "alis_service_control", "action": act, "target": "", "value": val, "requiresConfirmation": False, "pos": m_dnd.start()})
+            controlled_topics.add("notifications")
 
     def _mask_span(buf: str, start: int, end: int) -> str:
         s = max(0, int(start))

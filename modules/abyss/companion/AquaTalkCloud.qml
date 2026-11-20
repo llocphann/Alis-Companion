@@ -1100,8 +1100,11 @@ Item {
     Connections {
         target: AquaMind
         function onContextOpenChanged(): void {
-            if (AquaMind.contextOpen && !root.editing)
-                Qt.callLater(() => root.forceActiveFocus());
+            if (AquaMind.contextOpen) {
+                AquaPocket.close();
+                if (!root.editing)
+                    Qt.callLater(() => root.forceActiveFocus());
+            }
         }
         function onHistoryChanged(): void {
             if (root.pendingJumpTurnIndex >= 0 && (!root.pendingJumpThreadId || root.pendingJumpThreadId === AquaMind.activeThreadId)) {
@@ -5570,6 +5573,8 @@ Item {
     Connections {
         target: AquaMind
         function onSwarmOpenRequested(): void {
+            if (root.embeddedMode !== AquaMind.sidebarChatOpen)
+                return;
             root.openSwarm();
         }
         function onConversationOpenChanged(): void {
@@ -5584,10 +5589,6 @@ Item {
             if (AquaMind.sidebarChatOpen && root.editing) {
                 Qt.callLater(() => root.scrollToLatestMessage());
             }
-        }
-        function onContextOpenChanged(): void {
-            if (AquaMind.contextOpen)
-                AquaPocket.close();
         }
         function onActiveThreadIdChanged(): void {
             root.resetSelectionState();

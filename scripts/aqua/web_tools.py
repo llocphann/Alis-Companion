@@ -14,11 +14,13 @@ from __future__ import annotations
 from html.parser import HTMLParser
 from pathlib import Path
 import html
+import ipaddress
 import json
 import os
 import re
 import select
 import shutil
+import socket
 import subprocess
 import time
 import urllib.error
@@ -365,6 +367,77 @@ def _format_dom_snapshot_lines(elements: list[dict], base_url: str = "") -> list
     return lines
 
 
+def _is_public_ip(ip_obj) -> bool:
+    mapped = getattr(ip_obj, "ipv4_mapped", None)
+    if mapped is not None:
+        return bool(mapped.is_global)
+    return bool(ip_obj.is_global)
+
+
+def validate_external_url(url: str, allow_local: bool = False) -> tuple[bool, str]:
+    raw = str(url or "").strip()
+    try:
+        parts = urllib.parse.urlsplit(raw)
+    except ValueError:
+        return False, "invalid_url"
+    if parts.scheme.lower() not in ("http", "https"):
+        return False, "unsupported_scheme"
+    host = (parts.hostname or "").strip()
+    if not host:
+        return False, "missing_host"
+    if allow_local:
+        return True, ""
+    low_host = host.lower()
+    if low_host in ("localhost", "localhost.localdomain") or low_host.endswith((".local", ".internal")):
+        return False, "loopback_or_local_blocked"
+    bare_host = host.strip("[]")
+    try:
+        direct_ip = ipaddress.ip_address(bare_host)
+    except ValueError:
+        direct_ip = None
+    if direct_ip is not None:
+        if not _is_public_ip(direct_ip):
+            return False, "private_or_loopback_ip_blocked"
+        return True, ""
+    port = parts.port or (443 if parts.scheme.lower() == "https" else 80)
+    try:
+        infos = socket.getaddrinfo(bare_host, port, type=socket.SOCK_STREAM)
+    except OSError:
+        return True, ""
+    for info in infos:
+        sockaddr = info[4] if len(info) > 4 else ()
+        ip_str = str(sockaddr[0]).split("%")[0] if sockaddr else ""
+        if not ip_str:
+            continue
+        try:
+            resolved_ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return False, "invalid_resolved_ip"
+        if not _is_public_ip(resolved_ip):
+            return False, "private_or_loopback_ip_blocked"
+    return True, ""
+
+
+class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def __init__(self, allow_local: bool = False, max_hops: int = 3):
+        self.allow_local = allow_local
+        self.max_hops = max_hops
+        self._hops = 0
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        self._hops += 1
+        if self._hops > self.max_hops:
+            raise urllib.error.HTTPError(newurl, code, "Too many HTTP redirects", headers, fp)
+        ok, reason = validate_external_url(newurl, allow_local=self.allow_local)
+        if not ok:
+            raise WebToolError("ssrf_blocked", f"Blocked redirect to unsafe target ({reason}): {newurl}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def build_safe_opener(allow_local: bool = False) -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(_SafeRedirectHandler(allow_local=allow_local, max_hops=3))
+
+
 def fetch_url_excerpt(url: str, max_chars: int = 3600, timeout_sec: float = 8.0) -> dict:
     """Fetch a web URL and return clean readable text, headings, links, and interactive DOM elements."""
     raw_u = str(url or "").strip().strip("'\"`<>")
@@ -406,6 +479,11 @@ def fetch_url_excerpt(url: str, max_chars: int = 3600, timeout_sec: float = 8.0)
         except Exception:
             pass
 
+    allow_local = os.environ.get("ALIS_TEST_ALLOW_LOCAL_WEB") == "1"
+    ok_url, ssrf_reason = validate_external_url(norm_url, allow_local=allow_local)
+    if not ok_url:
+        raise WebToolError("ssrf_blocked", f"Refusing unsafe URL target ({ssrf_reason}): {norm_url}")
+
     req = urllib.request.Request(
         norm_url,
         headers={
@@ -414,11 +492,14 @@ def fetch_url_excerpt(url: str, max_chars: int = 3600, timeout_sec: float = 8.0)
             "Accept-Language": "vi,en-US;q=0.9,en;q=0.8",
         },
     )
+    opener = build_safe_opener(allow_local=allow_local)
     try:
-        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+        with opener.open(req, timeout=timeout_sec) as resp:
             final_url = str(resp.geturl() or norm_url)
             ctype = str(resp.headers.get("Content-Type") or "text/html").lower()
             raw_bytes = resp.read(384 * 1024)
+    except WebToolError:
+        raise
     except urllib.error.HTTPError as exc:
         raise WebToolError("http_error", f"HTTP {exc.code} when fetching {norm_url}") from exc
     except Exception as exc:

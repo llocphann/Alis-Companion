@@ -48,6 +48,10 @@ def _build_bwrap_args(bwrap_bin, cwd, writable_dirs=None, readonly_dirs=None, al
         "--proc", "/proc",
         "--dev", "/dev",
         "--tmpfs", "/tmp",
+        "--unshare-pid",
+        "--unshare-ipc",
+        "--unshare-uts",
+        "--cap-drop", "ALL",
         "--die-with-parent",
         "--new-session",
     ])

@@ -65,10 +65,10 @@ MECHANICAL_CATEGORIES = frozenset({
 
 _GREETING_OR_MIC_RE = re.compile(
     r"^(?:hi|hello|hey|yo|alo+|chao|xin chao|ok|okay|oke|thanks|thank you|cam on|bye|goodbye|tam biet)[!.,?\s]*$"
-    r"|\b(?:can you hear me|do you hear me|hear me|are you listening|listening to me|mic test|test mic|testing mic"
+    r"|^(?:can you hear me|do you hear me|hear me|are you listening|listening to me|mic test|test mic|testing mic"
     r"|nghe ro khong|nghe thay khong|co nghe khong|ban nghe khong|how are you|how is your day|how's your day"
     r"|how is it going|how's it going|what's up|whats up|what is your name|who are you|good morning|good afternoon"
-    r"|good evening|ban ten la gi|ban la ai|ban khoe khong|hom nay the nao)\b"
+    r"|good evening|ban ten la gi|ban la ai|ban khoe khong|hom nay the nao)[?!.,\s]*$"
 )
 
 _DEEP_SLASH_RE = re.compile(r"^/(?:plan|diagnostics|learn|workflow|reflect|swarm)\b")
@@ -680,9 +680,23 @@ def apply_effort_to_payload(
         if isinstance(msgs, list):
             for idx in range(len(msgs) - 1, -1, -1):
                 m = msgs[idx]
-                if isinstance(m, dict) and m.get("role") == "user" and isinstance(m.get("content"), str):
-                    if "{REASON:" not in m["content"]:
-                        m["content"] = f"{tag}\n{m['content']}"
+                if not isinstance(m, dict) or m.get("role") != "user":
+                    continue
+                content = m.get("content")
+                if isinstance(content, str):
+                    if "{REASON:" not in content:
+                        m["content"] = f"{tag}\n{content}"
+                    break
+                if isinstance(content, list):
+                    injected = False
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
+                            if "{REASON:" not in part["text"]:
+                                part["text"] = f"{tag}\n{part['text']}"
+                            injected = True
+                            break
+                    if not injected:
+                        content.insert(0, {"type": "text", "text": tag})
                     break
         return payload_obj
 
@@ -695,18 +709,22 @@ def apply_effort_to_payload(
                 oc.pop("effort", None)
                 if not oc:
                     payload_obj.pop("output_config", None)
-        elif re.search(r"claude-(?:opus|sonnet)-(?:4-[6-9]|[5-9])", mdl):
+        elif re.search(r"claude-(?:opus|sonnet)-(?:4[.-][6-9]|[5-9])", mdl):
             payload_obj["thinking"] = {"type": "adaptive"}
             oc = payload_obj.get("output_config")
             oc = dict(oc) if isinstance(oc, dict) else {}
             oc["effort"] = canonical
             payload_obj["output_config"] = oc
             payload_obj.pop("temperature", None)
+            payload_obj.pop("top_p", None)
+            payload_obj.pop("top_k", None)
         else:
             budget = CANONICAL_BUDGET.get(eff, 4096)
             payload_obj["thinking"] = {"type": "enabled", "budget_tokens": budget}
             payload_obj["max_tokens"] = max(int(payload_obj.get("max_tokens") or 4096), budget + 1024)
             payload_obj["temperature"] = 1
+            payload_obj.pop("top_p", None)
+            payload_obj.pop("top_k", None)
         return payload_obj
 
     # 3. Google Gemini (2.5 thinkingBudget / 3+ thinkingLevel)
@@ -715,9 +733,10 @@ def apply_effort_to_payload(
         t_cfg = dict(gen_cfg.get("thinkingConfig") or {})
         if "gemini-3" in mdl:
             t_cfg.pop("thinkingBudget", None)
-            t_cfg["thinkingLevel"] = "minimal" if not enable_thinking else canonical
+            t_cfg["thinkingLevel"] = ("low" if "pro" in mdl else "minimal") if not enable_thinking else canonical
         elif "gemini-2.5" in mdl:
-            t_cfg["thinkingBudget"] = 0 if not enable_thinking else CANONICAL_BUDGET.get(eff, 4096)
+            off_budget = 128 if "pro" in mdl else 0
+            t_cfg["thinkingBudget"] = off_budget if not enable_thinking else CANONICAL_BUDGET.get(eff, 4096)
         if t_cfg:
             gen_cfg["thinkingConfig"] = t_cfg
             payload_obj["generationConfig"] = gen_cfg
@@ -746,15 +765,56 @@ def apply_effort_to_payload(
         return payload_obj
 
     # 7. OpenAI Chat Completions + vLLM / llama.cpp reasoning_families
-    payload_obj["reasoning_effort"] = canonical
-    if "qwen3" in mdl:
-        kwargs = dict(payload_obj.get("chat_template_kwargs") or {})
-        kwargs["enable_thinking"] = bool(enable_thinking)
-        payload_obj["chat_template_kwargs"] = kwargs
-    elif "deepseek" in mdl and ("r1" in mdl or "reasoner" in mdl or "v3.1" in mdl):
-        kwargs = dict(payload_obj.get("chat_template_kwargs") or {})
-        kwargs["thinking"] = bool(enable_thinking)
-        payload_obj["chat_template_kwargs"] = kwargs
+    is_legacy_o_series = bool(re.match(r"^o[134](?:$|-)", mdl))
+    is_reasoning_openai = bool(
+        not mdl
+        or is_legacy_o_series
+        or any(
+            k in mdl
+            for k in (
+                "gpt-5",
+                "gpt-oss",
+                "qwen3",
+                "qwq",
+                "deepseek",
+                "reason",
+                "think",
+                "kimi-k2",
+                "glm-",
+                "r1",
+            )
+        )
+    )
+    if is_reasoning_openai:
+        if is_legacy_o_series and canonical == "none":
+            payload_obj.pop("reasoning_effort", None)
+        else:
+            payload_obj["reasoning_effort"] = canonical
+    is_cloud_ep = bool(
+        ep.startswith("https://")
+        or any(
+            h in ep
+            for h in (
+                "api.openai.com",
+                "openrouter.ai",
+                "api.deepseek.com",
+                "generativelanguage.googleapis.com",
+                "api.anthropic.com",
+                "api.groq.com",
+                "api.together.xyz",
+                "api.mistral.ai",
+            )
+        )
+    )
+    if not is_cloud_ep:
+        if "qwen3" in mdl:
+            kwargs = dict(payload_obj.get("chat_template_kwargs") or {})
+            kwargs["enable_thinking"] = bool(enable_thinking)
+            payload_obj["chat_template_kwargs"] = kwargs
+        elif "deepseek" in mdl and ("r1" in mdl or "reasoner" in mdl or "v3.1" in mdl):
+            kwargs = dict(payload_obj.get("chat_template_kwargs") or {})
+            kwargs["thinking"] = bool(enable_thinking)
+            payload_obj["chat_template_kwargs"] = kwargs
     return payload_obj
 
 
