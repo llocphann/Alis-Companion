@@ -3,12 +3,12 @@
 Ambient liquid companions (**Aqua** and **Octo**) and a local-first AI assistant for the [**Alis**](https://github.com/llocphann/Alis) Wayland desktop shell.
 
 <p align="center">
-  <img src="assets/screenshots/companion-cast-thinking.png" alt="Aqua and Octo companions with Celestial Abyss Orrery thinking aura" width="100%" />
+  <img src="assets/screenshots/companion-cast-thinking.png" alt="Aqua and Octo companions with Bubble-Integrated Thinking" width="100%" />
 </p>
 
 ## Highlights
 
-- **Expressive Dual Cast (Aqua & Octo)** — Switch between **Aqua** and **Octo** with smooth skeletal & shader-driven expressions, perimeter edge attachment, reading-book & cowork-laptop animations, and the Celestial Abyss Orrery thinking aura that blends cleanly with active idle poses.
+- **Expressive Dual Cast (Aqua & Octo)** — Switch between **Aqua** and **Octo** with smooth skeletal & shader-driven expressions, perimeter edge attachment, reading-book & cowork-laptop animations, and **Bubble-Integrated Thinking** (slow liquid bubbles while idle that transform into a luminous harmonic orbit while thinking).
 - **Floating Chat & Edgebar Pocket** — Summon `AquaTalkCloud` on demand to pin conversations, filter threads, stage files in the inline Left Edgebar **Pocket**, and click **Mood**, **Energy**, and **Weight** chips synchronized with your Nexus Journal check-ins.
 - **Standalone `/swarm` Multi-Agent Workspace** — Trigger `/swarm` right from the Chatbox composer or toggle the collapsible Right Sidebar (`Board` | `Members` | `Graph`) to follow coordinated sub-tasks visually without leaving your chat flow.
 - **Local Tools & Unified Nexus Vault RAG** — Query local desktop state (including Alis weather updates and system context) under strict local-only defaults, and index Markdown knowledge notes in your Nexus Vault (`90_System/99_RAG/`) backed by an external SQLite FTS5 store (`nexus_rag.db`) that avoids vault sync conflicts.

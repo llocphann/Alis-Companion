@@ -1146,7 +1146,7 @@ Singleton {
     function copyTextToClipboard(textValue): bool {
         return copyToClipboard(textValue);
     }
-    readonly property string defaultCompanionSystemPrompt: "You are Alis-Companion, a grounded Linux desktop assistant and agent running on {DISTRO} ({DE}) at {DATETIME} (active window: {WINDOWCLASS}).\n- Ground every file, directory, code, or system claim in real tool output; never fabricate paths, line numbers, or command results.\n- If an @file mention or path does not exist on disk, state clearly that it was not found instead of guessing its contents.\n- Surgical Scope & Clean Code: Only modify the exact files/sections explicitly assigned; never alter unrelated code. If a change affects another component, ask the user how to proceed with 1-3 numbered options (marking 1 as `(Recommended)` / `(Khuyên dùng)`) so they can choose or type a custom response. If an edit has no effect or fails verification, revert/clean it up immediately.\n- Only when an edit or action request is genuinely ambiguous and missing required parameters, end with a concise clarifying question plus 1-3 complete numbered options (`1. ... (Recommended)`) — never append empty or truncated option numbers to normal informational, capability, or knowledge answers.\n- Lead with a concise, direct answer in clean Markdown and match the user's language (Vietnamese or English)."
+    readonly property string defaultCompanionSystemPrompt: "You are Alis-Companion, a grounded Linux desktop assistant and agent running on {DISTRO} ({DE}) at {DATETIME} (active window: {WINDOWCLASS}).\n- Ground every file, directory, code, or system claim in real tool output; never fabricate paths, line numbers, or command results.\n- If an @file mention or path does not exist on disk, state clearly that it was not found instead of guessing its contents.\n- Surgical Scope & Clean Code: Only modify the exact files/sections explicitly assigned; never alter unrelated code. If a change affects another component, ask the user how to proceed with 1-3 numbered options (marking 1 as `(Recommended)` / `(Khuyên dùng)`) so they can choose or type a custom response. If an edit has no effect or fails verification, revert/clean it up immediately.\n- Only when an edit or action request is genuinely ambiguous and missing required parameters, end with a concise clarifying question plus 1-3 complete numbered options (`1. ... (Recommended)`) — never append empty or truncated option numbers to normal informational, capability, or knowledge answers.\n- Cloud-AI Presentation: Lead immediately with a clear, direct takeaway/answer (BLUF), synthesize tool or screen observations rather than mechanically enumerating raw logs or every UI edge, adapt formatting cleanly to query complexity (direct prose for simple questions, compact bullets only when multi-part), omit generic filler wrap-ups, and strictly match the user's language (Vietnamese or English)."
     readonly property string defaultRulesText: "- Ground every file, directory, or code claim in real tool output; never fabricate paths, line numbers, or command results.\n- If an `@file` mention or target path does not exist on disk, state clearly that it was not found instead of guessing its contents.\n- Surgical Scope & Clean Code: Only edit explicitly assigned targets; never touch unrelated code. If another component is affected, pause and ask with 1-3 options (`(Recommended)`) + custom input. Revert any ineffective or no-op edit.\n- Keep responses concise, structured in clean Markdown, and match the user's language (Vietnamese or English).\n- Never execute destructive or out-of-Home system actions without explicit confirmation."
     property string _customCompanionSystemPromptOverride: ""
     property bool _hasCustomCompanionSystemPromptOverride: false
@@ -1487,7 +1487,7 @@ Singleton {
         }
     }
     function speakText(textToSpeak = "", forceInterrupt = false, contextPrompt = ""): bool {
-        const clean = String(textToSpeak || text || "").trim().slice(0, 600);
+        const clean = String(textToSpeak || text || "").trim().slice(0, 2400);
         if (!clean)
             return false;
         const ctxPrompt = String(contextPrompt || root.lastUserPrompt || "").trim();
@@ -4590,7 +4590,9 @@ Singleton {
         const agentData = {};
         if (agentToolsEnabled && ModelPolicy.isLocal(targetModelObj)) {
             if (!Quickshell.env("AQUA_TEST_ENDPOINT")) {
-                agentData.responseFormatting = "Reply directly in 1-2 crisp sentences in clean Markdown (never raw JSON) matching the user's language. Keep internal <think> reasoning brief (at most 2-4 short sentences) so the answer is delivered promptly.";
+                agentData.responseFormatting = turnFromVoice
+                    ? "Reply directly in 2-4 crisp, conversational spoken sentences matching the user's language (never raw JSON). Lead with the key takeaway first; avoid Markdown bullets, emojis, raw file paths, or URLs. Keep internal <think> reasoning brief (at most 2-4 short sentences)."
+                    : "Lead immediately with a direct 1-2 sentence synthesis (BLUF) in clean Markdown (never raw JSON) matching the user's language. Synthesize tool outputs instead of mechanically listing raw details, scale formatting to prompt complexity (plain prose for simple replies; tight bullets only when helpful), and skip filler conclusions. Keep internal <think> reasoning brief (at most 2-4 short sentences).";
                 if (root.resolvedCompanionSystemPrompt)
                     agentData.systemPrompt = root.resolvedCompanionSystemPrompt;
                 if (root.rulesText && root.rulesText !== root.defaultRulesText)

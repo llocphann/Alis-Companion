@@ -1830,6 +1830,10 @@ def detect_language(prompt: str) -> str:
         "giup toi", "man hinh", "thu muc", "tep ", "cua so", "du an", "kiem tra",
         "xoa ", "sua ", "doc ", "nho rang", "quen ", "quy tac", "quyen ", "tiep tuc",
         "dung lai", "huy ", "lam tiep", "vua mo", "liet ke", "tat ca",
+        "chup anh", "chup man hinh", "mo ta", "thay gi", "ban thay", "thoi tiet",
+        "hom nay", "ngay mai", "bay gio", "cho toi", "giup minh", "noi cho",
+        "nhin xem", "dang mo", "nhu the nao", "the nao", "tai sao", "tom tat",
+        "giai thich",
     )
     if any(m in folded for m in vi_markers):
         return "vi"
@@ -4902,24 +4906,45 @@ def _synthesize_observations_with_llm(
     try:
         custom_sys = str(options.get("systemPrompt") or "").strip()
         rules_txt = str(options.get("rulesText") or "").strip()
+        is_voice = bool(
+            options.get("fromVoice")
+            or options.get("fromVoiceInput")
+            or options.get("voiceMode")
+            or options.get("voiceInputTurn")
+        )
         effort = str(options.get("thinkingEffort") or "medium").strip().lower()
-        synth_max_tokens = 1600 if effort in ("max", "xhigh", "high") else (1200 if effort == "medium" else 700)
-        if lang == "vi":
+        synth_max_tokens = 320 if is_voice else (1600 if effort in ("max", "xhigh", "high") else (1200 if effort == "medium" else 700))
+        if is_voice:
+            if lang == "vi":
+                sys_msg = (
+                    "Bạn là Alis-Companion. Hãy đọc dữ liệu công cụ bên dưới rồi trả lời trực tiếp bằng 2-4 câu nói tiếng Việt tự nhiên, súc tích như trợ lý giọng nói. "
+                    "Nêu thẳng kết luận cốt lõi ngay câu đầu tiên. Không dùng gạch đầu dòng Markdown, không đọc tên file thô/URL/emoji, không thêm câu kết luận sáo rỗng. Không sinh thẻ <think>. {REASON:none}"
+                )
+            else:
+                sys_msg = (
+                    "You are Alis-Companion. Read the gathered tool observations below and answer directly in 2-4 natural, conversational spoken sentences. "
+                    "Lead with the key takeaway in the very first sentence. Never use Markdown bullet lists, emojis, raw file paths, or URLs, and omit filler conclusions. Do not output <think>. {REASON:none}"
+                )
+        elif lang == "vi":
             sys_msg = (
-                "Bạn là Alis-Companion. Hãy đọc kỹ dữ liệu tìm kiếm và nội dung chi tiết các trang web/công cụ bên dưới để tổng hợp thành câu trả lời Markdown "
-                "đầy đủ, có cấu trúc rõ ràng (dùng tiêu đề ###, danh sách gạch đầu dòng), thực tế và hữu ích (~220-320 từ). Trích dẫn nguồn gọn gàng dạng ([tên-miền](url)) hoặc `[tệp#dòng]`. "
+                "Bạn là Alis-Companion. Hãy tổng hợp dữ liệu công cụ và trang web bên dưới thành câu trả lời ngắn gọn, sắc bén theo chuẩn Cloud AI (BLUF): "
+                "mở đầu ngay bằng 1-2 câu kết luận trực tiếp, điều chỉnh độ dài theo độ phức tạp câu hỏi (đoạn văn ngắn cho câu đơn giản; chỉ dùng danh sách gạch đầu dòng gọn hoặc tiêu đề ### khi cần cấu trúc nhiều ý). "
+                "Không sao chép thô log/cấu trúc và không viết câu kết chung chung vô nghĩa. Trích dẫn nguồn gọn gàng dạng ([tên-miền](url)) hoặc `[tệp#dòng]`. "
                 "Không sinh thẻ <think>. {REASON:none}"
             )
+        else:
+            sys_msg = (
+                "You are Alis-Companion. Synthesize the gathered tool observations and webpage excerpts into a crisp, high-signal Cloud-AI style answer (BLUF): "
+                "lead immediately with a 1-2 sentence direct takeaway, scale structure to prompt complexity (plain prose for simple queries; tight bullets or ### sections only when genuinely multi-part), "
+                "and never echo raw logs or append generic wrap-up filler. Cite sources compactly as ([domain](url)) or `[file#line]`. "
+                "Do not output <think>. {REASON:none}"
+            )
+        if lang == "vi":
             usr_msg = (
                 f"{{REASON:none}}\nCâu hỏi / Yêu cầu của người dùng: {prompt[:500]}\n\n"
                 f"Dữ liệu thu thập được từ công cụ & trang web:\n{observations_text[:4200]}"
             )
         else:
-            sys_msg = (
-                "You are Alis-Companion. Carefully read the gathered tool observations and webpage excerpts below and synthesize them into a complete, well-structured, "
-                "actionable Markdown response (~220-320 words, using ### headings and bullet points where appropriate). Cite sources compactly as ([domain](url)) or `[file#line]`. "
-                "Do not output <think>. {REASON:none}"
-            )
             usr_msg = (
                 f"{{REASON:none}}\nUser Request: {prompt[:500]}\n\n"
                 f"Gathered Tool & Webpage Observations:\n{observations_text[:4200]}"
@@ -5851,7 +5876,7 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
                 effective_options,
             )
             if synth_txt:
-                result["text"] = f"{synth_txt}\n\n{result['text']}"
+                result["text"] = synth_txt
                 result["synthesized"] = True
         if from_voice and str(result.get("text") or "").strip():
             try:
@@ -5864,7 +5889,7 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
                 else:
                     tts_res = desktop_control.voice_tts(
                         text=str(result.get("text") or ""),
-                        language=str(result.get("language") or "auto"),
+                        language="auto",
                         context_prompt=str(options.get("prompt") or ""),
                     )
                 result["voiceReply"] = {
@@ -6161,10 +6186,20 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
         if endpoint_url and model_name and options.get("useModelTools") is True:
             custom_sys = str(options.get("systemPrompt") or "").strip()
             rules_txt = str(options.get("rulesText") or "").strip() or str(load_rules_state(now_ms).get("rulesText") or "").strip()
+            is_voice_react = bool(
+                options.get("fromVoice")
+                or options.get("fromVoiceInput")
+                or options.get("voiceMode")
+                or options.get("voiceInputTurn")
+            )
             base_react_sys = (
-                "You are Alis-Companion, a full-authority Linux desktop agent. "
+                "You are Alis-Companion, a full-authority Linux desktop agent running on Arch Linux with Niri Wayland and the Alis Desktop Shell. "
                 "You can chain multiple tool calls across steps (Thought -> Tool Call -> Observation -> Next Tool Call -> Final Synthesis). "
-                "Present responses neatly: lead with a concise summary, use compact bullet points or code blocks for details, and avoid filler."
+                + (
+                    "Voice Turn Style: Lead immediately with the direct answer in 2-4 natural, conversational spoken sentences matching the user's language. Never use Markdown bullet lists, emojis, raw file paths, or URLs."
+                    if is_voice_react
+                    else "Cloud-AI BLUF Style: Lead immediately with a 1-2 sentence direct answer/takeaway, synthesize tool outputs instead of echoing raw logs or long lists, scale structure to prompt complexity (plain prose for simple answers; tight bullets only when multi-part), omit generic filler wrap-ups, and strictly match the user's language."
+                )
             )
             active_turn_sid = str(options.get("threadId") or (globals().get("_CURRENT_TURN_THREAD_ID") or "") or session_ctx.get("activeThreadId") or "chat_default")
             context_policy.enqueue_context_update(
@@ -7317,6 +7352,13 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     folded_p,
                 )
             )
+            turn_from_voice = bool(
+                options.get("fromVoice")
+                or options.get("fromVoiceInput")
+                or options.get("voiceMode")
+                or options.get("voiceInputTurn")
+            )
+            vlm_succeeded = False
             if allow_vlm_call and ep_url and mdl_name and "/v1/" in ep_url and (ep_url.startswith("http://127.0.0.1:") or ep_url.startswith("http://localhost:")):
                 try:
                     if has_live_vlm and vlm_img_path and Path(vlm_img_path).is_file():
@@ -7339,33 +7381,46 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                             else ""
                         )
                         if lang == "vi":
-                            if wants_detail:
+                            if turn_from_voice:
                                 sys_vlm = (
-                                    "Bạn là Alis-Companion. Hãy phân tích trực tiếp ảnh chụp màn hình bằng tính năng Vision của mô hình "
-                                    "và mô tả chi tiết, đầy đủ tất cả các vùng giao diện đang hiển thị (thanh điều hướng/URL trên cùng, thanh bên trái, nội dung chính/bài đăng ở giữa kèm tiêu đề & số lượt tương tác, cửa sổ chat nổi ở góc dưới phải, danh sách tab bên phải, và thanh trạng thái hệ thống) "
-                                    "bằng 5-6 gạch đầu dòng Markdown chi tiết, hoàn chỉnh câu (không dùng đường kẻ ngang --- hay tiêu đề ###). Nếu thấy khung giao diện tối màu của Alis-Companion ở góc dưới trái (gồm hộp thoại chat và các nút Focus 25:00 / Today / Stop), chỉ gộp chung trong tối đa 1 gạch đầu dòng ngắn và không tách thành công cụ quay màn hình riêng. Tuyệt đối không đoán mò chữ nhỏ không đọc được. Không sinh thẻ <think>."
+                                    "Bạn là Alis-Companion. Hãy xem ảnh chụp màn hình và trả lời trực tiếp cho người dùng bằng 2-4 câu nói tiếng Việt tự nhiên, dễ nghe như đang trò chuyện. "
+                                    "Mở đầu bằng ý chính người dùng đang mở/làm gì trên màn hình, chỉ thêm 1-2 chi tiết nổi bật nhất nếu cần. "
+                                    "Không dùng gạch đầu dòng Markdown, không emoji, không đọc tên file thô/mã log, không viết câu kết sáo rỗng, và không gọi thanh Alis Bar là macOS hay Windows. Tuyệt đối không đoán mò chữ nhỏ không đọc được. Không sinh thẻ <think>."
+                                )
+                            elif wants_detail:
+                                sys_vlm = (
+                                    "Bạn là Alis-Companion. Hãy phân tích ảnh chụp màn hình và mở đầu bằng 1 câu tóm tắt ngắn gọn bức tranh tổng thể người dùng đang làm gì, "
+                                    "rồi trình bày các vùng giao diện chính thực sự đáng chú ý bằng 3-5 gạch đầu dòng Markdown súc tích (câu hoàn chỉnh; không dùng --- hay ###). "
+                                    "Nếu thấy khung Alis-Companion chỉ nhắc tối đa 1 ý ngắn, không gọi thanh Alis Bar trên cùng là macOS/Windows, không thêm câu kết luận chung chung vô nghĩa. Tuyệt đối không đoán mò chữ nhỏ không đọc được. Không sinh thẻ <think>."
                                 )
                             else:
                                 sys_vlm = (
-                                    "Bạn là Alis-Companion. Hãy phân tích trực tiếp ảnh chụp màn hình bằng tính năng Vision của mô hình "
-                                    "để mô tả/trả lời chính xác những ứng dụng, cửa sổ và nội dung đang hiển thị trên màn hình "
-                                    "bằng 3-5 gạch đầu dòng Markdown ngắn gọn, hoàn chỉnh câu. Tuyệt đối không đoán mò chữ nhỏ không đọc được. Không sinh thẻ <think>."
+                                    "Bạn là Alis-Companion. Hãy tổng hợp nội dung màn hình theo phong cách Cloud AI: mở đầu ngay bằng 1-2 câu trực diện trả lời đúng trọng tâm câu hỏi của người dùng; "
+                                    "chỉ thêm tối đa 2-3 gạch đầu dòng ngắn gọn nếu thật sự cần tách ý (bỏ gạch đầu dòng nếu 2 câu văn đã đủ rõ). "
+                                    "Không liệt kê máy móc từng thanh công cụ hay mọi góc màn hình, không gọi Alis Bar là macOS/Windows, không viết câu kết sáo rỗng. Tuyệt đối không đoán mò chữ nhỏ không đọc được. Không sinh thẻ <think>."
                                 )
                         else:
-                            if wants_detail:
+                            if turn_from_voice:
                                 sys_vlm = (
-                                    "You are Alis-Companion. Analyze the captured screenshot directly using your Vision capability "
-                                    "and answer the user's request by describing all visible regions on screen in detail (top bar/URL, left navigation sidebar & shortcuts, main central feed posts/articles with exact titles and engagement counts, bottom-right chat popups/messages, right browser tab sidebar, and system bar) "
-                                    "in 5-6 detailed Markdown bullet points with complete sentences (do not use --- horizontal dividers or ### subheadings). If the dark Alis-Companion widget appears in the bottom-left corner (including its chat bubble and Focus 25:00 / Today / Stop pill buttons), mention it in at most one brief bullet and do not mistake its Focus timer/Stop buttons for a separate screen recording tool. Never guess unreadable small text. Do not output <think>."
+                                    "You are Alis-Companion. Analyze the captured screenshot and answer in 2-4 natural, conversational spoken sentences matching the user's request. "
+                                    "Lead with the core takeaway of what the user is working on, mentioning only 1-2 key visible highlights if helpful. "
+                                    "Never use Markdown bullets, emojis, raw filenames/log strings, or generic wrap-up filler, and never call the Alis top bar macOS or Windows. Never guess unreadable small text. Do not output <think>."
+                                )
+                            elif wants_detail:
+                                sys_vlm = (
+                                    "You are Alis-Companion. Analyze the captured screenshot and lead with a crisp 1-sentence overview of what the user is doing, "
+                                    "followed by 3-5 tight Markdown bullets covering only the meaningful visible regions (complete sentences; no --- or ###; mention Alis-Companion briefly at most once). "
+                                    "Never call the Alis Bar macOS or Windows, omit generic filler conclusions, and never guess unreadable small text. Do not output <think>."
                                 )
                             else:
                                 sys_vlm = (
-                                    "You are Alis-Companion. Analyze the captured screenshot directly using your Vision capability "
-                                    "and answer the user's request by accurately describing the visible applications, windows, and content on screen in 3-5 concise "
-                                    "Markdown bullet points with complete sentences. Never guess unreadable small text. Do not output <think>."
+                                    "You are Alis-Companion. Synthesize what is on screen in Cloud-AI BLUF style: lead directly with a concise 1-2 sentence summary answering the user's question, "
+                                    "then optionally add at most 2-3 short highlight bullets ONLY if distinct visual details add clear value (omit bullets if prose suffices). "
+                                    "Do not mechanically inventory every screen bar or edge, never call the Alis Bar macOS or Windows, omit filler wrap-up sentences, and never guess unreadable small text. Do not output <think>."
                                 )
                         usr_vlm_text = (
                             f"{{REASON:instant}}\n"
+                            f"Desktop environment: Arch Linux · Niri Wayland · Alis Desktop Shell (the top bar is the Alis Bar, NEVER call it macOS or Windows; the dark floating chat/companion widget is Alis-Companion).\n"
                             f"Active window: {obs.get('title') or ''} ({obs.get('appId') or 'desktop'}){ground_truth_block}\n"
                             f"User request: {prompt[:400]}"
                         )
@@ -7388,7 +7443,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                                 if isinstance(options.get("temperature"), (int, float))
                                 else 0.2
                             ),
-                            "max_tokens": 680 if wants_detail else 380,
+                            "max_tokens": 280 if turn_from_voice else (640 if wants_detail else 360),
                         }
                         if _is_mtp_model(mdl_name):
                             screen_body["repetition_penalty"] = 1.0
@@ -7406,6 +7461,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                             if som_lines:
                                 lines_preview = f"{lines_preview}\n" + "\n".join(som_lines)
                             source_badge = "niri+vision"
+                            vlm_succeeded = True
                         elif _LAST_LMSTUDIO_ERROR in ("gpu_oom", "gpu_fit_failed", "low_memory"):
                             lines_preview = f"{lines_preview}\n\n{_lmstudio_error_user_message(lang)}".strip()
                 except Exception:
@@ -7423,8 +7479,9 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     else ""
                 )
                 msg = (
-                    f"**🖥 {win_label}** · `{source_badge}`{changed_note}\n"
-                    f"{lines_preview}{shot_note_vi}{guide_vi}"
+                    f"{lines_preview}{guide_vi}"
+                    if vlm_succeeded
+                    else f"**🖥 {win_label}** · `{source_badge}`{changed_note}\n{lines_preview}{shot_note_vi}{guide_vi}"
                 ).strip()
             else:
                 guide_en = (
@@ -7433,8 +7490,9 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     else ""
                 )
                 msg = (
-                    f"**🖥 {win_label}** · `{source_badge}`{changed_note}\n"
-                    f"{lines_preview}{shot_note_en}{guide_en}"
+                    f"{lines_preview}{guide_en}"
+                    if vlm_succeeded
+                    else f"**🖥 {win_label}** · `{source_badge}`{changed_note}\n{lines_preview}{shot_note_en}{guide_en}"
                 ).strip()
             finish_run(run_id, status="completed", now_ms=now_ms)
             res = _format_reply(

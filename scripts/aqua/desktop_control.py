@@ -1757,16 +1757,102 @@ def _strip_decorative_icons_for_tts(raw_text: str, context_prompt: str = "") -> 
     return _TTS_EMOJI_CLUSTER_RE.sub(_keep_or_drop, raw_text)
 
 
-def _clean_text_for_tts(raw_text: str, context_prompt: str = "") -> str:
+_TTS_PATH_OR_NOISE_RE = re.compile(
+    r"^(?:niri\+vision|desktop_control|at-spi|screenshot-\d+\.(?:png|jpe?g|webp))$|[\\/]|\.(?:png|jpe?g|webp|log|json|lock|qml|py|js|ts|sh)$",
+    re.IGNORECASE,
+)
+_TTS_VI_DIACRITIC_RE = re.compile(
+    r"[àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]",
+    re.IGNORECASE,
+)
+_TTS_PATH_INTENT_RE = re.compile(
+    r"\b(?:file|path|filename|extension|log|json|screenshot|đường dẫn|tên tệp|tệp tin)\b",
+    re.IGNORECASE,
+)
+
+
+def _detect_tts_language(clean_txt: str, requested: str = "") -> str:
+    req = str(requested or "").strip()
+    if req and req.lower() not in ("", "default", "auto"):
+        return req
+    words = re.findall(r"[^\W\d_]+", clean_txt or "", re.UNICODE)
+    if not words:
+        return "en"
+    vi_words = sum(1 for w in words if _TTS_VI_DIACRITIC_RE.search(w))
+    if vi_words >= 2 or (vi_words == 1 and len(words) <= 8) or (vi_words / len(words)) >= 0.12:
+        return "vi"
+    return "en"
+
+
+def _clean_text_for_tts(raw_text: str, context_prompt: str = "", max_chars: int = 520) -> str:
     txt = str(raw_text or "").strip()
-    txt = _strip_decorative_icons_for_tts(txt, context_prompt=context_prompt)
+    if not txt:
+        return ""
+    ctx = str(context_prompt or "").strip()
+    wants_paths = bool(_TTS_PATH_INTENT_RE.search(ctx))
+
+    # Strip leading telemetry banners like `**🖥 Alis - ...** · `niri+vision` *(refreshed)*`
+    txt = re.sub(r"^\s*\*{0,2}\s*🖥[^\n]*(?:\n|$)", "", txt, count=1)
+    # Strip screenshot/source/guide footers at line start
+    txt = re.sub(
+        r"(?im)^[ \t]*(?:📷\s*(?:Screenshot captured|Đã chụp màn hình)|📚\s*\*{0,2}(?:Sources|Nguồn tra cứu)\b|💡\s*\*{0,2}(?:MCP Eyes & Hands|Mắt & Tay MCP)\b)[^\n]*$",
+        "",
+        txt,
+    )
     txt = re.sub(r"```[\s\S]*?```", " ", txt)
-    txt = re.sub(r"`([^`]+)`", r"\1", txt)
+    txt = re.sub(r"!\[[^\]]*\]\([^)]+\)", " ", txt)
+    txt = re.sub(r"https?://\S+", " ", txt)
+    txt = re.sub(r"\[[^\]\n]{1,120}#L?\d+(?:-L?\d+)?\]", "", txt)
+    txt = re.sub(r"\(\s*`?screenshot-\d+\.(?:png|jpe?g|webp)`?\s*\)", "", txt, flags=re.IGNORECASE)
+    txt = re.sub(r"`?screenshot-\d+\.(?:png|jpe?g|webp)`?", "", txt, flags=re.IGNORECASE)
+
+    txt = _strip_decorative_icons_for_tts(txt, context_prompt=ctx)
     txt = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", txt)
-    txt = re.sub(r"[#*_~>|]+", " ", txt)
-    txt = " ".join(txt.split())
-    txt = re.sub(r"\s+([,.!?;:])", r"\1", txt)
-    return txt[:600]
+
+    def _unwrap_code(match: re.Match) -> str:
+        inner = match.group(1).strip()
+        if not wants_paths and _TTS_PATH_OR_NOISE_RE.search(inner):
+            return " "
+        return inner
+
+    txt = re.sub(r"`([^`]+)`", _unwrap_code, txt)
+    txt = re.sub(r"\s*[·|]\s*", ", ", txt)
+    txt = re.sub(r"\s+—\s+", ", ", txt)
+
+    spoken_lines: list[str] = []
+    for raw_ln in txt.splitlines():
+        ln = raw_ln.strip()
+        ln = re.sub(r"^(?:[-*•]+|\d+[.)])\s*", "", ln).strip()
+        ln = re.sub(r"[#*_~>|]+", " ", ln)
+        ln = " ".join(ln.split()).strip(" ,;:-")
+        if not ln:
+            continue
+        if ln[-1] not in ".!?;:…":
+            ln += "."
+        spoken_lines.append(ln)
+
+    cleaned = " ".join(spoken_lines)
+    if not cleaned:
+        fallback = re.sub(r"[#*_~>|`]+", " ", _strip_decorative_icons_for_tts(str(raw_text or ""), context_prompt=ctx))
+        cleaned = " ".join(fallback.split())
+    cleaned = re.sub(r"\s+([,.!?;:…])", r"\1", cleaned)
+    cleaned = re.sub(r"\(\s*\)", "", cleaned)
+    cleaned = re.sub(r",{2,}", ",", cleaned)
+    cleaned = " ".join(cleaned.split()).strip()
+
+    limit = max(80, int(max_chars or 520))
+    if len(cleaned) > limit:
+        head = cleaned[:limit]
+        last_sent = max(head.rfind(". "), head.rfind("! "), head.rfind("? "), head.rfind("… "))
+        if last_sent == -1 and head and head[-1] in ".!?…":
+            last_sent = len(head) - 1
+        if last_sent >= int(limit * 0.4):
+            cleaned = head[: last_sent + 1].strip()
+        else:
+            sp = head.rfind(" ")
+            part = (head[:sp] if sp >= int(limit * 0.4) else head).rstrip(" ,;:-")
+            cleaned = (part + ".") if (part and part[-1] not in ".!?…") else part
+    return cleaned
 
 
 def voice_tts(
@@ -1782,15 +1868,15 @@ def voice_tts(
 ) -> dict:
     """Synthesize speech using natural Neural TTS (edge-tts) first, with Piper, espeak-ng, or spd-say fallback (safe dry-run in test environments)."""
     voice_tts_stop()
-    eff_voice = str(voice or language or lang or "").strip()
+    eff_voice = _detect_tts_language("", requested=str(voice or language or lang or "").strip())
     req_engine = str(engine or "").strip().lower()
     clean_txt = _clean_text_for_tts(text, context_prompt=context_prompt)
     if not clean_txt:
         raise DesktopControlError("empty_tts_text", "Provide non-empty text to synthesize with local TTS.")
-    if eff_voice in ("", "default", "auto"):
-        if re.search(r"[àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]", clean_txt, re.IGNORECASE):
-            eff_voice = "vi"
+    eff_voice = _detect_tts_language(clean_txt, requested=str(voice or language or lang or "").strip())
     neural_voice = _resolve_edge_tts_neural_voice(eff_voice)
+    raw_rate = str(rate or "").strip()
+    edge_rate = raw_rate if (raw_rate.startswith(("+", "-")) and raw_rate.endswith("%")) else "+4%"
     vdir = _voice_state_dir()
     out_wav = Path(out_path).expanduser().resolve(strict=False) if str(out_path or "").strip() else (vdir / "tts_output.wav")
     out_wav.parent.mkdir(parents=True, exist_ok=True)
@@ -1848,7 +1934,7 @@ def voice_tts(
             import edge_tts
 
             async def _synth_edge():
-                comm = edge_tts.Communicate(clean_txt, neural_voice)
+                comm = edge_tts.Communicate(clean_txt, neural_voice, rate=edge_rate)
                 await asyncio.wait_for(comm.save(str(out_mp3)), timeout=7.5)
 
             asyncio.run(_synth_edge())
@@ -1861,7 +1947,7 @@ def voice_tts(
             if edge_cli:
                 try:
                     subprocess.run(
-                        [edge_cli, "--voice", neural_voice, "--text", clean_txt, "--write-media", str(out_mp3)],
+                        [edge_cli, "--voice", neural_voice, "--rate", edge_rate, "--text", clean_txt, "--write-media", str(out_mp3)],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         timeout=8.0,

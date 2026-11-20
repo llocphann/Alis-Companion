@@ -49,10 +49,45 @@ Item {
     property real orbitPhase: 0
     readonly property int orbitStep: Math.floor((((orbitPhase % 1) + 1) % 1) * 720)
     readonly property real orbitAngle: orbitStep * (Math.PI * 2 / 720)
-    readonly property real thinkingOrbitAngle: thinking ? (thinkingPhase * Math.PI * 2) : 0
+    readonly property real thinkingOrbitAngle: thinking ? (thinkingPhase * Math.PI * 2 * (thinkingStage === "tool" ? 2.0 : 1.0)) : 0
     readonly property real effectiveOrbitAngle: orbitAngle + thinkingOrbitAngle
     readonly property real orbitBaseCos: Math.cos(effectiveOrbitAngle)
     readonly property real orbitBaseSin: Math.sin(effectiveOrbitAngle)
+    readonly property int bubbleCount: !root.bubblesEnabled ? 0 : root.qualityLevel > 1 ? 8 : root.qualityLevel > 0 ? 6 : 3
+    readonly property color thinkingBubbleColor: thinkingStage === "tool" ? "#68f5ff" : (thinkingStage === "drafting" ? "#ffe394" : Qt.lighter(liquidAccent, 1.38))
+    readonly property color thinkingSparkColor: thinkingStage === "tool" ? "#e0ffff" : (thinkingStage === "drafting" ? "#fff8d6" : "#f5fdff")
+    function mixColor(a: color, b: color, t: real): color {
+        const w = Math.max(0, Math.min(1, t))
+        return Qt.rgba(a.r + (b.r - a.r) * w, a.g + (b.g - a.g) * w, a.b + (b.b - a.b) * w, a.a + (b.a - a.a) * w)
+    }
+    function bubbleOrbitPoint(index: int, lagRad: real): var {
+        const count = Math.max(1, root.bubbleCount)
+        const idlePhase = Expressions.bubblePhase[index] ?? 0
+        const harmonicPhase = (index / count) * Math.PI * 2
+        const phaseDelta = Math.atan2(Math.sin(harmonicPhase - idlePhase), Math.cos(harmonicPhase - idlePhase))
+        const blend = Math.max(0, Math.min(1, root.thinkingBlend))
+        const blendedPhase = idlePhase + phaseDelta * blend
+        const angle = root.bubble2DMode ? (blendedPhase - lagRad) : (root.effectiveOrbitAngle + blendedPhase - lagRad)
+        const oc = Math.cos(angle)
+        const os = Math.sin(angle)
+        const wavePulse = blend > 0.001
+            ? (0.5 + 0.5 * Math.sin(root.thinkingPhase * Math.PI * 2 - index * (Math.PI * 2 / count)))
+            : 0
+        const rx = blend > 0.001 ? (47 - blend * 0.8 + (wavePulse - 0.5) * 2.2 * blend) : 47
+        const idleY = 4.14 - 37 * os
+        const thinkCy = root.octopus ? 13.0 : 8.5
+        const thinkY = thinkCy + (wavePulse - 0.5) * 6.5 - 36.5 * os
+        const localX = rx * oc
+        const localY = blend > 0.001 ? (idleY + (thinkY - idleY) * blend) : idleY
+        const localZ = root.bubble2DMode ? 0 : (25 + blend * 2.5) * os
+        const depth = root.bubble2DMode ? 1 : root.projectZ(localX, localY, localZ)
+        return {
+            x: root.bubble2DMode ? (38 + localX * 0.92) : (38 + root.projectX(localX, localY, localZ)),
+            y: root.bubble2DMode ? (46.14 - localY * 0.92) : (46.14 - root.projectY(localX, localY, localZ)),
+            depth: depth,
+            wavePulse: wavePulse
+        }
+    }
     property real stateSquash: 0
     property real stateStretch: 0
     property real stateLean: 0
@@ -396,25 +431,19 @@ Item {
             // Decorative droplets fit the enclosing host; the body hitbox stays 76x92.
             Repeater {
                 objectName: "aquaExternalDroplets"
-                model: !root.bubblesEnabled ? 0 : root.qualityLevel > 1 ? 8 : root.qualityLevel > 0 ? 6 : 3
+                model: root.bubbleCount
                 Item {
                     id: floatingDroplet
                     required property int index
-                    readonly property real phaseCos: Expressions.bubbleCos[index]
-                    readonly property real phaseSin: Expressions.bubbleSin[index]
-                    readonly property real orbitCos: root.bubble2DMode ? phaseCos : (root.orbitBaseCos * phaseCos - root.orbitBaseSin * phaseSin)
-                    readonly property real orbitSin: root.bubble2DMode ? phaseSin : (root.orbitBaseSin * phaseCos + root.orbitBaseCos * phaseSin)
-                    readonly property real thinkRadiusScale: 1 - root.thinkingBlend * (0.14 - root.thinkingWave * 0.08)
-                    readonly property real thinkLiftY: root.thinkingBlend * (8.5 + Math.sin((root.thinkingPhase + index * 0.125) * Math.PI * 2) * 3.2)
-                    readonly property real localX: 47 * thinkRadiusScale * orbitCos
-                    readonly property real localY: 4.14 + thinkLiftY - 37 * thinkRadiusScale * orbitSin
-                    readonly property real localZ: root.bubble2DMode ? 0 : 25 * thinkRadiusScale * orbitSin
-                    readonly property real depth: root.bubble2DMode ? 1 : root.projectZ(localX, localY, localZ)
-                    x: (root.bubble2DMode ? (38 + localX * 0.92) : (38 + root.projectX(localX, localY, localZ))) - width / 2
-                    y: (root.bubble2DMode ? (46.14 - localY * 0.92) : (46.14 - root.projectY(localX, localY, localZ))) - height / 2
+                    readonly property var orbitPt: root.bubbleOrbitPoint(index, 0)
+                    readonly property real depth: orbitPt.depth
+                    readonly property real thinkPulse: orbitPt.wavePulse
+                    x: orbitPt.x - width / 2
+                    y: orbitPt.y - height / 2
                     z: root.bubble2DMode ? 1 : (depth < 0 ? -1 : 2)
-                    opacity: root.bubble2DMode ? 0.9 : (depth < 0 ? 0.78 : 1)
+                    opacity: root.bubble2DMode ? 0.9 : (depth < 0 ? (0.78 + root.thinkingBlend * 0.10) : 1)
                     width: Expressions.dropletSize[index]; height: width
+                    scale: 1 + root.thinkingBlend * (0.04 + thinkPulse * 0.24)
                     Rectangle {
                         objectName: "aquaDroplet2D"
                         anchors.fill: parent
@@ -442,8 +471,12 @@ Item {
                         objectName: "aquaDroplet3D"
                         anchors.fill: parent
                         visible: !root.bubble2DMode && !root.softwareFallback && status !== ShaderEffect.Error && material.status !== ShaderEffect.Error
-                        property color accent: root.liquidAccent
-                        property color specular: root.reflectionColor
+                        property color accent: root.thinkingBlend > 0.001 && root.effectsEnabled
+                            ? root.mixColor(root.liquidAccent, root.thinkingBubbleColor, root.thinkingBlend * (0.35 + 0.50 * floatingDroplet.thinkPulse))
+                            : root.liquidAccent
+                        property color specular: root.thinkingBlend > 0.001 && root.effectsEnabled
+                            ? root.mixColor(root.reflectionColor, "#ffffff", root.thinkingBlend * (0.30 + 0.55 * floatingDroplet.thinkPulse))
+                            : root.reflectionColor
                         property vector4d motion: root.dropletMotionUniform
                         property vector4d optics: root.dropletOpticsUniform
                         property vector4d rendering: root.smallMaterialRenderingUniform
@@ -469,6 +502,44 @@ Item {
                                 PathArc { x: floatingDroplet.width; y: floatingDroplet.height / 2; radiusX: floatingDroplet.width / 2; radiusY: floatingDroplet.height / 2 }
                                 PathArc { x: 0; y: floatingDroplet.height / 2; radiusX: floatingDroplet.width / 2; radiusY: floatingDroplet.height / 2 }
                             }
+                        }
+                    }
+                    Rectangle {
+                        objectName: "aquaBubbleThinkingRim"
+                        visible: root.effectsEnabled && root.thinkingBlend > 0.04
+                        anchors.centerIn: parent
+                        width: parent.width + 2.4
+                        height: width
+                        radius: width * 0.5
+                        color: "transparent"
+                        border.width: 1.05
+                        border.color: Qt.alpha(root.thinkingBubbleColor, root.thinkingBlend * (0.28 + 0.58 * floatingDroplet.thinkPulse))
+                    }
+                    Shape {
+                        id: bubbleSpark
+                        objectName: "aquaBubbleThinkingSpark"
+                        visible: root.effectsEnabled && root.thinkingBlend > 0.06 && (floatingDroplet.index < 4 || floatingDroplet.thinkPulse > 0.58)
+                        anchors.centerIn: parent
+                        width: Math.max(5.5, floatingDroplet.width * 0.72)
+                        height: width
+                        opacity: root.thinkingBlend * (0.45 + 0.55 * floatingDroplet.thinkPulse)
+                        scale: 0.55 + 0.45 * floatingDroplet.thinkPulse
+                        rotation: root.thinkingPhase * 180 * (floatingDroplet.index % 2 === 0 ? 1 : -1)
+                        antialiasing: true
+                        preferredRendererType: Shape.CurveRenderer
+                        ShapePath {
+                            strokeWidth: 0.65
+                            strokeColor: Qt.alpha(root.thinkingBubbleColor, 0.85)
+                            fillColor: root.thinkingSparkColor
+                            startX: bubbleSpark.width * 0.5; startY: bubbleSpark.width * 0.08
+                            PathLine { x: bubbleSpark.width * 0.61; y: bubbleSpark.width * 0.39 }
+                            PathLine { x: bubbleSpark.width * 0.92; y: bubbleSpark.width * 0.5 }
+                            PathLine { x: bubbleSpark.width * 0.61; y: bubbleSpark.width * 0.61 }
+                            PathLine { x: bubbleSpark.width * 0.5; y: bubbleSpark.width * 0.92 }
+                            PathLine { x: bubbleSpark.width * 0.39; y: bubbleSpark.width * 0.61 }
+                            PathLine { x: bubbleSpark.width * 0.08; y: bubbleSpark.width * 0.5 }
+                            PathLine { x: bubbleSpark.width * 0.39; y: bubbleSpark.width * 0.39 }
+                            PathLine { x: bubbleSpark.width * 0.5; y: bubbleSpark.width * 0.08 }
                         }
                     }
                 }

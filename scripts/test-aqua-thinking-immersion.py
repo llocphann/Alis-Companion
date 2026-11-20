@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Silent offscreen verification for Companion immersive composable thinking animation."""
+"""Silent offscreen verification for Companion bubble-integrated composable thinking animation."""
 import json
 import os
 from pathlib import Path
@@ -25,6 +25,7 @@ ShellRoot {
     property int bootTicks: 0
     property int waitTicks: 0
     property real savedThinkingPhase: -1
+    property string savedIdlePositions: ""
 
     function fail(msg) {
         console.error("AQUA_THINKING_IMMERSION_FAIL:" + msg)
@@ -42,6 +43,14 @@ ShellRoot {
             if (match) return match
         }
         return null
+    }
+    function snapshotDroplets(droplets) {
+        const list = []
+        for (let i = 0; i < droplets.count; ++i) {
+            const d = droplets.itemAt(i)
+            list.push([Math.round(d.x * 100), Math.round(d.y * 100), Math.round(d.scale * 100)])
+        }
+        return JSON.stringify(list)
     }
 
     Window {
@@ -76,23 +85,40 @@ ShellRoot {
                 return
             }
             const body = root.find(actor, "aquaLiquidBody")
+            const droplets = root.find(body, "aquaExternalDroplets")
             const auraLoader = root.find(body, "aquaThinkingAuraLoader")
             const ambientLoader = root.find(body, "aquaAmbientPropLoader")
             const laptopLoader = root.find(body, "aquaLaptopPropLoader")
             const mark = root.find(body, "aquaExpressionMark")
             const glint = root.find(body, "aquaEyeThinkingGlint")
-            root.require(body !== null && auraLoader !== null && ambientLoader !== null && laptopLoader !== null && mark !== null && glint !== null,
+            root.require(body !== null && droplets !== null && auraLoader !== null && ambientLoader !== null && laptopLoader !== null && mark !== null && glint !== null,
                 "missing companion internal nodes")
 
             const tag = "[" + actor.character + "] "
 
             if (root.phaseStep === 0) {
-                // 1. Idle state: zero aura nodes instantiated & eye glint hidden
+                // 1. Idle state: zero aura nodes instantiated, bubbles plain & stationary when settled
+                root.require(droplets.count === 6, tag + "expected 6 balanced/quality droplets, got " + droplets.count)
                 root.require(auraLoader.active === false && auraLoader.item === null, tag + "aura must be inactive while idle")
-                root.require(body.thinkingPhase === 0, tag + "thinkingPhase must be 0 when idle")
+                root.require(body.thinkingPhase === 0 && body.thinkingBlend === 0, tag + "thinking state must be 0 when idle")
                 root.require(glint.visible === false, tag + "eye thinking glint must be hidden while idle")
+                for (let i = 0; i < droplets.count; ++i) {
+                    const item = droplets.itemAt(i)
+                    const rim = root.find(item, "aquaBubbleThinkingRim")
+                    const spark = root.find(item, "aquaBubbleThinkingSpark")
+                    root.require(item.scale === 1, tag + "idle droplet scale must remain 1")
+                    root.require(rim === null || rim.visible === false, tag + "thinking rim must be hidden while idle")
+                    root.require(spark === null || spark.visible === false, tag + "thinking spark must be hidden while idle")
+                }
+                if (++root.waitTicks < 15) return
+                root.savedIdlePositions = root.snapshotDroplets(droplets)
+                root.waitTicks = 0
+                root.phaseStep = 10
+            } else if (root.phaseStep === 10) {
+                if (++root.waitTicks < 3) return
+                root.require(root.snapshotDroplets(droplets) === root.savedIdlePositions, tag + "idle settled bubbles must stay calm/unchanged")
 
-                // 2. Enable thinking (no prop)
+                // 2. Enable thinking (no prop): transitions into bubble-integrated thinking (no overhead hoop clutter)
                 actor.thinking = true
                 actor.thinkingPhase = "thinking"
                 actor.activity = "thinking"
@@ -101,25 +127,34 @@ ShellRoot {
                 root.phaseStep = 1
             } else if (root.phaseStep === 1) {
                 root.require(auraLoader.active === true && auraLoader.item !== null, tag + "aura did not activate for thinking")
-                for (const objName of [
-                    "aquaThinkingOuterRing",
-                    "aquaThinkingInnerRing",
-                    "aquaThinkingHeroStar",
-                    "aquaThinkingTwinStar",
-                    "aquaThinkingPulseWave"
-                ]) {
-                    const node = root.find(auraLoader.item, objName)
-                    root.require(node !== null && node.visible === true, tag + "missing/invisible " + objName)
+                const trails = root.find(auraLoader.item, "aquaThinkingBubbleTrails")
+                root.require(trails !== null && trails.visible === true, tag + "missing/invisible aquaThinkingBubbleTrails")
+                for (const retiredName of ["aquaThinkingOuterRing", "aquaThinkingInnerRing", "aquaThinkingPulseWave", "aquaThinkingHeroStar", "aquaThinkingTwinStar"]) {
+                    root.require(root.find(auraLoader.item, retiredName) === null, tag + "cluttered overhead node must stay removed: " + retiredName)
                 }
                 root.require(glint.visible === true, tag + "eye thinking glint did not appear during thinking")
                 root.require(actor.motionAction === "inspect", tag + "expected inspect motion when thinking without laptop")
                 root.require(mark.visible === false, tag + "static '?' expression mark should hide during active thinking")
                 root.savedThinkingPhase = body.thinkingPhase
+                root.waitTicks = 0
                 root.phaseStep = 2
             } else if (root.phaseStep === 2) {
-                if (++root.waitTicks < 3) return
+                if (++root.waitTicks < 9) return
                 root.require(body.thinkingPhase !== root.savedThinkingPhase, tag + "thinkingPhase animation did not advance")
+                root.require(body.thinkingBlend > 0.5, tag + "thinkingBlend did not ramp up smoothly")
                 root.require(body.thinkingFloatY < 0, tag + "companion body did not float up while thinking")
+                root.require(root.snapshotDroplets(droplets) !== root.savedIdlePositions, tag + "bubbles did not animate/transform into thinking orbit")
+                let visibleRims = 0
+                let visibleSparks = 0
+                for (let i = 0; i < droplets.count; ++i) {
+                    const item = droplets.itemAt(i)
+                    const rim = root.find(item, "aquaBubbleThinkingRim")
+                    const spark = root.find(item, "aquaBubbleThinkingSpark")
+                    if (rim && rim.visible) visibleRims++
+                    if (spark && spark.visible) visibleSparks++
+                }
+                root.require(visibleRims === droplets.count, tag + "expected all bubbles to gain subtle luminous thinking rim, got " + visibleRims)
+                root.require(visibleSparks >= 4, tag + "expected lead bubbles to ignite starlight cores during thinking, got " + visibleSparks)
 
                 // 3. Stage accent checks: tool -> drafting
                 actor.thinkingPhase = "tool"
@@ -174,11 +209,14 @@ ShellRoot {
                 actor.thinkingPhase = ""
                 actor.activity = "idle"
                 actor.expression = "idle"
+                root.waitTicks = 0
                 root.phaseStep = 8
             } else if (root.phaseStep === 8) {
                 root.require(auraLoader.active === false && auraLoader.item === null, tag + "aura did not unload after thinking ended")
                 root.require(body.thinkingPhase === 0, tag + "thinkingPhase must reset to 0 after thinking")
                 root.require(glint.visible === false, tag + "eye thinking glint must hide after thinking ended")
+                if (body.thinkingBlend > 0.01 && ++root.waitTicks < 14) return
+                root.require(body.thinkingBlend <= 0.01, tag + "thinkingBlend did not blend cleanly back to idle")
 
                 if (root.charIndex + 1 < root.castList.length) {
                     root.charIndex++
