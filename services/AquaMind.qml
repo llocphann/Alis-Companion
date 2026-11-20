@@ -1334,7 +1334,7 @@ Singleton {
         if (liveModelAutoDetectAllowed) {
             if (voiceCaptureWorker.running) {
                 voiceCaptureWorker.restartQueued = true;
-                voiceCaptureWorker.signal(2);
+                voiceCaptureWorker.signal(15);
             } else {
                 voiceCaptureWorker.restartQueued = false;
                 voiceCaptureWorker.running = true;
@@ -1350,10 +1350,11 @@ Singleton {
         const wasActive = voiceModeOpen || voiceRecording || voiceTranscribing || voiceCaptureWorker.running || (voiceWorker.running && voiceWorker.opKind === "stt");
         voiceSessionSerial += 1;
         voiceElapsedTimer.stop();
+        voiceCaptureStopTimeout.stop();
         voiceCaptureWorker.restartQueued = false;
         voiceCaptureWorker.transcribeQueued = false;
         if (voiceCaptureWorker.running) {
-            voiceCaptureWorker.signal(2);
+            voiceCaptureWorker.signal(15);
             voiceCaptureWorker.running = false;
         }
         if (voiceWorker.running && voiceWorker.opKind === "stt") {
@@ -1373,6 +1374,7 @@ Singleton {
             return false;
         const shouldAutoSend = (autoSendOverride !== null && autoSendOverride !== undefined) ? Boolean(autoSendOverride) : voiceAutoSend;
         voiceElapsedTimer.stop();
+        voiceCaptureStopTimeout.stop();
         voiceCaptureWorker.restartQueued = false;
         if (voiceSessionSerial <= 0)
             voiceSessionSerial = 1;
@@ -1387,17 +1389,30 @@ Singleton {
             voiceCaptureWorker.queuedAutoSend = shouldAutoSend;
             voiceCaptureWorker.queuedAudioPath = targetAudio;
             voiceCaptureWorker.queuedSerial = voiceSessionSerial;
-            voiceCaptureWorker.signal(2);
+            voiceCaptureWorker.signal(15);
+            voiceCaptureStopTimeout.restart();
             touchConversation();
             return true;
         }
         voiceCaptureWorker.transcribeQueued = false;
         if (voiceCaptureWorker.running) {
-            voiceCaptureWorker.signal(2);
+            voiceCaptureWorker.signal(15);
         }
         _startVoiceSttWorker(targetAudio, shouldAutoSend, voiceSessionSerial);
         touchConversation();
         return true;
+    }
+    property string _queuedTtsText: ""
+    Timer {
+        id: ttsRestartTimer
+        interval: 60
+        repeat: false
+        onTriggered: {
+            const next = root._queuedTtsText;
+            root._queuedTtsText = "";
+            if (next)
+                root.speakText(next, true);
+        }
     }
     function speakText(textToSpeak = "", forceInterrupt = false): bool {
         const clean = String(textToSpeak || text || "").trim().slice(0, 600);
@@ -1408,9 +1423,15 @@ Singleton {
                 return false;
             voiceWorker.cancelled = true;
             voiceWorker.running = false;
+            root._queuedTtsText = clean;
+            ttsRestartTimer.restart();
+            return true;
         }
+        ttsRestartTimer.stop();
+        root._queuedTtsText = "";
         lastSpokenText = clean;
         ttsSpeaking = true;
+        voiceWorker.environment = ({});
         voiceWorker.cancelled = false;
         voiceWorker.autoSend = false;
         voiceWorker.opKind = "tts";
@@ -1425,6 +1446,8 @@ Singleton {
         return true;
     }
     function stopVoiceTts(): bool {
+        ttsRestartTimer.stop();
+        root._queuedTtsText = "";
         if (voiceWorker.running && voiceWorker.opKind === "tts") {
             voiceWorker.cancelled = true;
             voiceWorker.running = false;
@@ -1694,6 +1717,7 @@ Singleton {
     readonly property string currentDay: Qt.formatDateTime(DateTime.todayDate ?? DateTime.clock.date, "yyyy-MM-dd")
     readonly property string userMood: Persistent.states.aquaCheckIn.date === currentDay ? Persistent.states.aquaCheckIn.mood : ""
     readonly property string userEnergy: Persistent.states.aquaCheckIn.date === currentDay ? Persistent.states.aquaCheckIn.energy : ""
+    readonly property string userWeight: (Persistent.states.aquaCheckIn.date === currentDay && ("weight" in Persistent.states.aquaCheckIn)) ? String(Persistent.states.aquaCheckIn.weight ?? "") : ""
     readonly property bool checkInComplete: userMood.length > 0 && userEnergy.length > 0
     property string checkInStage: ""
     property string checkInDate: ""
@@ -4339,9 +4363,11 @@ Singleton {
         }
         connectionStatus = "ready";
         say(value, "ai");
-        if (isVoiceTurn && value) {
+        const shouldSpeak = Boolean((isVoiceTurn || root.voiceTtsEnabled) && value);
+        if (shouldSpeak) {
             root.speakText(value, true);
-            voiceTranscriptRevealTimer.restart();
+            if (isVoiceTurn)
+                voiceTranscriptRevealTimer.restart();
         }
         if (hostVisible)
             reactionRequested(guarded.expression);
@@ -4407,39 +4433,47 @@ Singleton {
         const nexus = (typeof AlisIntergration !== "undefined" && AlisIntergration?.nexus) ? AlisIntergration.nexus : null;
         const queueBefore = Array.isArray(nexus?._docQueue) ? nexus._docQueue.length : -1;
         const busyBefore = Boolean(nexus?.docBusy);
-        const prevDate = String(Persistent.states.aquaCheckIn.date ?? "");
-        const prevVal = String(field === "mood" ? (Persistent.states.aquaCheckIn.mood ?? "") : (Persistent.states.aquaCheckIn.energy ?? ""));
+        const ci = Persistent.states.aquaCheckIn;
+        const hasWeightField = ("weight" in ci);
+        const prevDate = String(ci.date ?? "");
+        const prevVal = String(field === "mood" ? (ci.mood ?? "") : field === "energy" ? (ci.energy ?? "") : (hasWeightField ? (ci.weight ?? "") : ""));
         if (prevDate !== checkInDate) {
-            Persistent.states.aquaCheckIn.mood = "";
-            Persistent.states.aquaCheckIn.energy = "";
-            Persistent.states.aquaCheckIn.date = checkInDate;
+            ci.mood = "";
+            ci.energy = "";
+            if (hasWeightField)
+                ci.weight = "";
+            ci.date = checkInDate;
         }
         if (field === "mood")
-            Persistent.states.aquaCheckIn.mood = value;
-        else
-            Persistent.states.aquaCheckIn.energy = value;
+            ci.mood = value;
+        else if (field === "energy")
+            ci.energy = value;
+        else if (field === "weight" && hasWeightField)
+            ci.weight = value;
         journal = Object.assign({}, journal, {
             [field]: value
         });
         enqueueContextUpdate("mood_checkin", {
             date: checkInDate,
-            mood: String(Persistent.states.aquaCheckIn.mood ?? ""),
-            energy: String(Persistent.states.aquaCheckIn.energy ?? "")
+            mood: String(ci.mood ?? ""),
+            energy: String(ci.energy ?? ""),
+            weight: hasWeightField ? String(ci.weight ?? "") : ""
         }, "mood_checkin");
-        const syncToken = String(checkInDate ?? "") + "|" + String(Persistent.states.aquaCheckIn.mood ?? "") + "|" + String(Persistent.states.aquaCheckIn.energy ?? "");
+        const syncToken = String(checkInDate ?? "") + "|" + String(ci.mood ?? "") + "|" + String(ci.energy ?? "") + "|" + (hasWeightField ? String(ci.weight ?? "") : "");
         const reactiveHandled = nexus !== null && ((queueBefore >= 0 && Array.isArray(nexus._docQueue) && nexus._docQueue.length > queueBefore) || (!busyBefore && Boolean(nexus.docBusy)));
         const authoritativeMatch = Boolean(nexus?.todayJournalInfo?.exists && String(nexus.todayJournalInfo.date ?? "") === String(checkInDate ?? "") && String(nexus.todayJournalInfo[field] ?? "").trim().toLowerCase() === String(value ?? "").trim().toLowerCase());
         if (typeof nexus?.syncCompanionCheckIn === "function" && !reactiveHandled && !(authoritativeMatch && _lastCheckInSyncToken === syncToken && prevDate === checkInDate && prevVal === value)) {
             nexus.syncCompanionCheckIn(
                 checkInDate,
                 field === "mood" ? value : undefined,
-                field === "energy" ? value : undefined
+                field === "energy" ? value : undefined,
+                field === "weight" ? value : undefined
             );
         }
         _lastCheckInSyncToken = syncToken;
         if (checkInStage !== field)
             return;
-        if (conversationOpen) {
+        if (conversationOpen || field === "weight") {
             checkInStage = "";
             lastCheckIn = Date.now();
             reactionRequested("happy");
@@ -4456,6 +4490,31 @@ Singleton {
     }
     function checkInChoices(field): var {
         return field === "mood" ? ["terrible", "bad", "okay", "good", "great"] : field === "energy" ? ["drained", "low", "medium", "high", "peak"] : [];
+    }
+    function normalizeWeightInput(raw): string {
+        let s = String(raw ?? "").trim().replace(/,/g, ".").replace(/\s*(?:kg|lbs?)$/i, "").trim();
+        if (!/^\d{1,3}(?:\.\d{1,2})?$/.test(s))
+            return "";
+        const num = Number(s);
+        if (!Number.isFinite(num) || num < 10 || num > 500)
+            return "";
+        return s.indexOf(".") >= 0 ? s.replace(/0+$/, "").replace(/\.$/, "") : s;
+    }
+    function setChatWeight(rawValue): bool {
+        const clean = normalizeWeightInput(rawValue);
+        if (!clean || busy || !talkEnabled)
+            return false;
+        acknowledgeAutomatic();
+        checkInDate = today();
+        checkInStage = "";
+        if (obsidianEnabled)
+            return dispatch("check_in", {
+                field: "weight",
+                value: clean,
+                date: checkInDate
+            });
+        choiceSaved("weight", clean);
+        return true;
     }
     function setCheckInChoice(field, value): bool {
         if (!checkInChoices(field).includes(value) || field !== checkInStage || busy)
@@ -4768,6 +4827,13 @@ Singleton {
             journal = result;
             lastContext = Date.now();
             lastContextAttempt = lastContext;
+            if (result.date === currentDay && ("weight" in Persistent.states.aquaCheckIn)) {
+                const parsedWeight = root.normalizeWeightInput(result.weight ?? "");
+                if (parsedWeight.length > 0 && Persistent.states.aquaCheckIn.weight !== parsedWeight) {
+                    Persistent.states.aquaCheckIn.date = currentDay;
+                    Persistent.states.aquaCheckIn.weight = parsedWeight;
+                }
+            }
             if (result.date === currentDay && ["terrible", "bad", "okay", "good", "great"].includes(String(result.mood).toLowerCase()) && ["drained", "low", "medium", "high", "peak"].includes(String(result.energy).toLowerCase()) && !checkInComplete) {
                 Persistent.states.aquaCheckIn.date = currentDay;
                 Persistent.states.aquaCheckIn.mood = String(result.mood).toLowerCase();
@@ -4779,7 +4845,8 @@ Singleton {
             if (contextOpen && !checkInComplete)
                 askCheckIn(userMood ? "energy" : "mood");
         } else if (job.action === "check_in") {
-            if (result?.saved === true && result.field === job.request.field && result.value === job.request.value && checkInChoices(result.field).includes(result.value) && result.date === job.request.date && result.date === checkInDate && typeof result.journalPath === "string" && result.journalPath.length > 0 && result.journalPath.length <= 4096 && !/[\u0000\r\n]/.test(result.journalPath)) {
+            const validChoice = (result?.field === "weight" && root.normalizeWeightInput(result?.value ?? "") === result?.value) || checkInChoices(result?.field).includes(result?.value);
+            if (result?.saved === true && result.field === job.request.field && result.value === job.request.value && validChoice && result.date === job.request.date && result.date === checkInDate && typeof result.journalPath === "string" && result.journalPath.length > 0 && result.journalPath.length <= 4096 && !/[\u0000\r\n]/.test(result.journalPath)) {
                 journal = Object.assign({}, journal, {
                     journalPath: result.journalPath,
                     date: result.date
@@ -5408,14 +5475,16 @@ Singleton {
             } : {});
             root.history = root.history.concat([assistantTurnEntry]).slice(-2000);
             root.say(replyText, "ai");
-            if (isVoiceTurn && replyText) {
+            const shouldSpeak = Boolean((isVoiceTurn || root.voiceTtsEnabled) && replyText);
+            if (shouldSpeak) {
                 if (res.voiceReply?.spoken === true) {
                     root.lastSpokenText = String(res.voiceReply.spokenText || replyText).slice(0, 600);
                     root.ttsSpeaking = true;
                 } else {
                     root.speakText(replyText, true);
                 }
-                voiceTranscriptRevealTimer.restart();
+                if (isVoiceTurn)
+                    voiceTranscriptRevealTimer.restart();
             }
             if (root.hostVisible)
                 root.reactionRequested(String(res.expression ?? "happy"));
@@ -5707,12 +5776,30 @@ Singleton {
     }
     Timer {
         id: voiceTranscriptRevealTimer
-        interval: 220
+        interval: 1200
         repeat: false
         onTriggered: {
             root.revealPendingVoiceTranscript();
             if (root.ttsSpeaking && !voiceWorker.running)
                 root.ttsSpeaking = false;
+        }
+    }
+    Timer {
+        id: voiceCaptureStopTimeout
+        interval: 1500
+        repeat: false
+        onTriggered: {
+            if (!voiceCaptureWorker.transcribeQueued)
+                return;
+            const targetAudio = voiceCaptureWorker.queuedAudioPath || voiceCaptureWorker.captureFilePath;
+            const shouldAutoSend = voiceCaptureWorker.queuedAutoSend;
+            const serial = voiceCaptureWorker.queuedSerial;
+            voiceCaptureWorker.transcribeQueued = false;
+            if (voiceCaptureWorker.running) {
+                voiceCaptureWorker.signal(9);
+                voiceCaptureWorker.running = false;
+            }
+            root._startVoiceSttWorker(targetAudio, shouldAutoSend, serial);
         }
     }
     Process {
@@ -5729,6 +5816,7 @@ Singleton {
             onRead: line => root._handleVoiceCaptureLine(line)
         }
         onExited: (code, status) => {
+            voiceCaptureStopTimeout.stop();
             root.voiceInputLevel = 0.0;
             if (voiceCaptureWorker.restartQueued) {
                 voiceCaptureWorker.restartQueued = false;
@@ -5747,6 +5835,17 @@ Singleton {
             }
         }
     }
+    Timer {
+        id: voiceWorkerFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (voiceWorker._exited && !voiceWorker._finalized) {
+                voiceWorker._stdoutDone = true;
+                voiceWorker._maybeFinalize();
+            }
+        }
+    }
     Process {
         id: voiceWorker
         running: false
@@ -5756,14 +5855,45 @@ Singleton {
         property bool cancelled: false
         property string opKind: ""
         property int sessionSerial: 0
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
         command: ["/usr/bin/python3", AlisCompanion.packageRoot + "/scripts/aqua/local_mind.py", "--host-root", Quickshell.shellPath("")]
         stdout: StdioCollector {
             id: voiceReply
+            onStreamFinished: {
+                voiceWorker._stdoutDone = true;
+                voiceWorker._maybeFinalize();
+            }
         }
         onStarted: {
+            voiceWorker._exited = false;
+            voiceWorker._exitCode = 0;
+            voiceWorker._stdoutDone = false;
+            voiceWorker._finalized = false;
+            voiceWorkerFlushTimer.stop();
             write(JSON.stringify(voiceWorker.requestPayload) + "\n");
         }
+        function _maybeFinalize(): void {
+            if (!voiceWorker._exited || voiceWorker._finalized)
+                return;
+            if (!voiceWorker._stdoutDone)
+                return;
+            voiceWorker._finalized = true;
+            voiceWorkerFlushTimer.stop();
+            voiceWorker._finalize(voiceWorker._exitCode);
+        }
         onExited: (code, status) => {
+            voiceWorker._exited = true;
+            voiceWorker._exitCode = code;
+            if (voiceWorker._stdoutDone) {
+                voiceWorker._maybeFinalize();
+            } else {
+                voiceWorkerFlushTimer.restart();
+            }
+        }
+        function _finalize(code): void {
             const wasCancelled = voiceWorker.cancelled;
             const isStt = (voiceWorker.opKind === "stt" || voiceWorker.requestPayload?.op === "stt");
             const isTts = (voiceWorker.opKind === "tts" || voiceWorker.requestPayload?.op === "tts");
@@ -5808,7 +5938,9 @@ Singleton {
                         root.lastSpokenText = res.text.trim();
                     root.toolNotice = "Voice spoken via " + String(res.backend || "tts");
                 } else if (res.summary) {
-                    const noticeText = isStt ? "No speech detected — try speaking closer to the microphone." : String(res.summary).slice(0, 120);
+                    const noticeText = (isStt && res.status !== "stt_error" && !res.error)
+                        ? "No speech detected — try speaking closer to the microphone."
+                        : String(res.summary).slice(0, 140);
                     root.toolNotice = noticeText;
                     if (isStt) {
                         root.voiceErrorNotice = noticeText;

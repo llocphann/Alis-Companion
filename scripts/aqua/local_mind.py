@@ -1177,9 +1177,16 @@ def check_in(options,now=None):
     from a model or write the reference vault.
     """
     day=(now or datetime.now()).date()
-    field=options.get('field');value=options.get('value')
+    field=options.get('field');value=str(options.get('value') or '').strip()
     choices={'mood':{'terrible','bad','okay','good','great'},'energy':{'drained','low','medium','high','peak'}}
-    if field not in choices or value not in choices[field]:raise MindError('invalid_choice','Invalid journal choice')
+    if field=='weight':
+        if not re.fullmatch(r'\d{1,3}(?:\.\d{1,2})?',value):raise MindError('invalid_choice','Invalid journal choice')
+        w_num=float(value)
+        if w_num<10.0 or w_num>500.0:raise MindError('invalid_choice','Invalid journal choice')
+        if '.' in value:
+            value=value.rstrip('0').rstrip('.')
+    elif field not in choices or value not in choices[field]:
+        raise MindError('invalid_choice','Invalid journal choice')
     if options.get('date')!=day.isoformat():raise MindError('date_changed','The day changed. Please start a new check-in.')
     vault=str(options.get('vault','')).strip()
     if not vault:raise MindError('vault_unavailable','Connect your Obsidian journal first.')
@@ -1212,7 +1219,7 @@ def context(options,now=None):
     now=now or datetime.now();day=now.date()
     primary=str(options.get('vault','')).strip()
     secondary=str(options.get('referenceVault','')).strip()
-    result={'date':day.isoformat(),'mood':'','energy':'','schedule':[],'journalPath':'','vaults':[]}
+    result={'date':day.isoformat(),'mood':'','energy':'','weight':'','schedule':[],'journalPath':'','vaults':[]}
     if not primary:return result
     journal_modules()
     seen=set();daily_schedule=[];recurring=[]
@@ -1237,6 +1244,13 @@ def context(options,now=None):
                 for field in ('mood','energy'):
                     value=re.search(r'^'+field+r':[ \t]*([^\n]*)$',front[1],re.M)
                     if value:result[field]=clean(value[1].strip(' "\''),60)
+                for w_key in ('weight','body_weight','bodyweight'):
+                    w_val=re.search(r'^'+w_key+r':[ \t]*([^\n]*)$',front[1],re.M|re.I)
+                    if w_val:
+                        w_cleaned=clean(w_val[1].strip(' "\''),24)
+                        if w_cleaned:
+                            result['weight']=w_cleaned
+                            break
             headings=[str(options.get('plannerHeading') or 'Day Planner'),'Agenda','Schedule','Tasks']
             for heading in dict.fromkeys(headings):
                 daily_schedule+=schedule_rows(section(raw,heading),vault.name)

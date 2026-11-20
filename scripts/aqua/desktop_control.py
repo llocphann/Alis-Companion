@@ -978,8 +978,8 @@ def _load_voice_config_and_keys() -> tuple[dict, dict[str, str]]:
     cfg_voice: dict = {}
     xdg_cfg = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     for cfg_path in (
-        xdg_cfg / "illogical-impulse" / "config.json",
         xdg_cfg / "alis" / "config.json",
+        xdg_cfg / "illogical-impulse" / "config.json",
     ):
         if cfg_path.is_file():
             try:
@@ -1020,7 +1020,7 @@ def _load_voice_config_and_keys() -> tuple[dict, dict[str, str]]:
     else:
         secret_tool = shutil.which("secret-tool")
         if secret_tool:
-            for app_id in ("illogical-impulse", "alis"):
+            for app_id in ("alis", "illogical-impulse"):
                 try:
                     proc = subprocess.run(
                         [secret_tool, "lookup", "application", app_id],
@@ -1195,9 +1195,10 @@ def _transcribe_gemini_inline(
         "If the audio contains only silence or background noise with no speech, output nothing."
     )
     models_to_try = [model or "gemini-2.5-flash"]
-    if "gemini-2.0-flash" not in models_to_try:
-        models_to_try.append("gemini-2.0-flash")
+    if "gemini-2.5-flash-lite" not in models_to_try:
+        models_to_try.append("gemini-2.5-flash-lite")
 
+    last_err = ""
     for cur_model in models_to_try:
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -1238,8 +1239,19 @@ def _transcribe_gemini_inline(
                 if not p.get("thought") and str(p.get("text") or "").strip()
             ]
             return _clean_stt_transcript(" ".join(non_thought))
-        except Exception:
+        except urllib.error.HTTPError as exc:
+            body = ""
+            try:
+                body = exc.read().decode("utf-8", errors="replace")[:200]
+            except Exception:
+                pass
+            last_err = f"Gemini HTTP {exc.code} ({cur_model}): {body or exc.reason}"
             continue
+        except Exception as exc:
+            last_err = f"Gemini error ({cur_model}): {exc}"
+            continue
+    if last_err:
+        raise RuntimeError(last_err)
     return ""
 
 
@@ -1410,6 +1422,7 @@ def voice_stt(audio_path: str = "", duration_sec: float = 4.0, lang: str = "auto
     local_models = _candidate_local_whisper_models(str(cfg_voice.get("localModelPath") or ""))
     transcript = ""
     backend_used = Path(stt_bin).name if stt_bin else "whisper-cli"
+    last_provider_err = ""
 
     if target_wav.is_file() and target_wav.stat().st_size > 64:
         for prov in provider_order:
@@ -1466,8 +1479,8 @@ def voice_stt(audio_path: str = "", duration_sec: float = 4.0, lang: str = "auto
                     )
                     if transcript:
                         backend_used = "groq"
-                except Exception:
-                    pass
+                except Exception as exc:
+                    last_provider_err = f"groq: {exc}"
             elif prov == "gemini" and api_keys.get("gemini"):
                 try:
                     gemini_model = str(cfg_voice.get("geminiModel") or "gemini-2.5-flash").strip()
@@ -1479,8 +1492,8 @@ def voice_stt(audio_path: str = "", duration_sec: float = 4.0, lang: str = "auto
                     )
                     if transcript:
                         backend_used = "gemini"
-                except Exception:
-                    pass
+                except Exception as exc:
+                    last_provider_err = str(exc)
             elif prov == "openai" and api_keys.get("openai"):
                 try:
                     openai_model = str(cfg_voice.get("openaiModel") or "gpt-4o-mini-transcribe").strip()
@@ -1493,13 +1506,18 @@ def voice_stt(audio_path: str = "", duration_sec: float = 4.0, lang: str = "auto
                     )
                     if transcript:
                         backend_used = "openai"
-                except Exception:
-                    pass
+                except Exception as exc:
+                    last_provider_err = f"openai: {exc}"
 
     preview = (transcript[:180] + "...") if len(transcript) > 180 else transcript
-    return {
+    err_summary = (
+        f"Voice transcription error: {last_provider_err[:160]}"
+        if (not transcript and last_provider_err)
+        else ("No speech transcript returned from STT." if not transcript else f"Transcribed voice input: {preview}")
+    )
+    out_res = {
         "action": "voice_stt",
-        "status": "completed" if transcript else "no_speech_detected",
+        "status": "completed" if transcript else ("stt_error" if last_provider_err else "no_speech_detected"),
         "ok": bool(transcript),
         "text": transcript,
         "transcript": transcript,
@@ -1507,9 +1525,12 @@ def voice_stt(audio_path: str = "", duration_sec: float = 4.0, lang: str = "auto
         "backend": backend_used,
         "sttBackend": backend_used,
         "audioPath": str(target_wav),
-        "summary": f"Transcribed voice input: {preview}" if transcript else "No speech transcript returned from STT.",
-        "lines": [transcript] if transcript else ["(no speech transcript detected)"],
+        "summary": err_summary,
+        "lines": [transcript] if transcript else ([last_provider_err[:200]] if last_provider_err else ["(no speech transcript detected)"]),
     }
+    if not transcript and last_provider_err:
+        out_res["error"] = last_provider_err
+    return out_res
 
 
 def clipboard_get() -> dict:
@@ -1824,18 +1845,18 @@ def voice_tts(
                     except OSError:
                         pass
             try:
-                if ffplay_bin:
+                if play_bin and out_wav.is_file() and out_wav.stat().st_size > 64:
                     proc = subprocess.Popen(
-                        [ffplay_bin, "-nodisp", "-autoexit", "-loglevel", "quiet", str(out_mp3)],
+                        [play_bin, str(out_wav)],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         start_new_session=True,
                     )
                     spawned_proc = proc
                     spawned_pid = proc.pid
-                elif play_bin and out_wav.is_file() and out_wav.stat().st_size > 64:
+                elif ffplay_bin:
                     proc = subprocess.Popen(
-                        [play_bin, str(out_wav)],
+                        [ffplay_bin, "-nodisp", "-autoexit", "-loglevel", "quiet", str(out_mp3)],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         start_new_session=True,
