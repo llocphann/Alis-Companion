@@ -1821,21 +1821,23 @@ def _fold_ascii(text: str) -> str:
     return re.sub(r"\s+", " ", norm)
 
 
+_DETECT_VI_MARKER_RE = re.compile(
+    r"\b(?:giup toi|man hinh|thu muc|tep|cua so|du an|kiem tra"
+    r"|xoa|sua|doc\s+(?:tep|file|ghi chu|trang|du lieu|noi dung)|nho rang|quen|quy tac|quyen|tiep tuc"
+    r"|dung lai|huy|lam tiep|vua mo|liet ke|tat ca"
+    r"|chup anh|chup man hinh|mo ta|thay gi|ban thay|thoi tiet"
+    r"|hom nay|ngay mai|bay gio|cho toi|giup minh|noi cho"
+    r"|nhin xem|dang mo|nhu the nao|the nao|tai sao|tom tat"
+    r"|giai thich)\b"
+)
+
+
 def detect_language(prompt: str) -> str:
     text = str(prompt or "").strip()
     if re.search(r"[ăâđêôơưĂÂĐÊÔƠƯáàảãạéèẻẽẹíìỉĩịóòỏõọúùủũụýỳỷỹỵ]", text):
         return "vi"
     folded = _fold_ascii(text)
-    vi_markers = (
-        "giup toi", "man hinh", "thu muc", "tep ", "cua so", "du an", "kiem tra",
-        "xoa ", "sua ", "doc ", "nho rang", "quen ", "quy tac", "quyen ", "tiep tuc",
-        "dung lai", "huy ", "lam tiep", "vua mo", "liet ke", "tat ca",
-        "chup anh", "chup man hinh", "mo ta", "thay gi", "ban thay", "thoi tiet",
-        "hom nay", "ngay mai", "bay gio", "cho toi", "giup minh", "noi cho",
-        "nhin xem", "dang mo", "nhu the nao", "the nao", "tai sao", "tom tat",
-        "giai thich",
-    )
-    if any(m in folded for m in vi_markers):
+    if _DETECT_VI_MARKER_RE.search(folded):
         return "vi"
     return "en"
 
@@ -2940,8 +2942,23 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
             r"\b(?:explain why|why does|why is|tai sao|vi sao|phan tich sau|phan tich nguyen nhan|kien truc|thuat toan|algorithm|architecture|complexity|big-o|root cause|tim nguyen nhan|go loi|debug sau|deadlock|race condition|lock-free|step by step|tung buoc|system design|thiet ke he thong|triet hoc|philosophy|sang tao sau|out of the box|lateral thinking)\b",
             folded,
         )
+        local_screen_or_svc = bool(
+            _match_screen_observe_intent(folded, lang)
+            or alis_local_bridge.detect_all_alis_local_intents(raw)
+        )
+        has_local_or_screen_ui = bool(ui_action_match or local_screen_or_svc)
+        hybrid_ui_thinking = bool(has_local_or_screen_ui and (deep_thinking_match or strong_deep_cue))
 
-        if deep_thinking_match and (not ui_action_match or strong_deep_cue):
+        if hybrid_ui_thinking:
+            role = "thinking"
+            role_label = "UI + Deep Thinking"
+            category = "hybrid_ui_thinking"
+            reason = (
+                "Kết hợp hai pha: thu thập/thao tác UI-Desktop (Pha 1) và suy luận Deep Thinking (Pha 2)"
+                if lang == "vi"
+                else "Two-stage pipeline: Desktop/UI execution (Stage 1) followed by Deep Thinking synthesis (Stage 2)"
+            )
+        elif deep_thinking_match and (not ui_action_match or strong_deep_cue):
             role = "thinking"
             role_label = "Domain RAG" if domain_rag_domains else "Deep Thinking"
             category = "deep_reasoning"
@@ -3127,6 +3144,7 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
         user_effort = "off"
 
     dual_model_active = bool(auto_enabled and action_model and thinking_model and action_model != thinking_model)
+    hybrid_ui_thinking = (category == "hybrid_ui_thinking")
     is_light_knowledge = bool(
         category in ("domain_rag", "knowledge_qa")
         and not strong_deep_cue
@@ -3288,6 +3306,19 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
         "autoRouterScore": float(auto_router_detail.get("score") or 0.0) if auto_router_detail else 0.0,
         "autoRouterTask": str(auto_router_detail.get("task") or "") if auto_router_detail else "",
         "autoRouterConfidence": float(auto_router_detail.get("confidence") or 0.0) if auto_router_detail else 0.0,
+        "hybridUiThinking": bool(hybrid_ui_thinking),
+        "hybridStages": (
+            {
+                "uiModel": action_model,
+                "uiEndpoint": action_endpoint,
+                "uiEffort": "off",
+                "thinkingModel": thinking_model,
+                "thinkingEndpoint": thinking_endpoint,
+                "thinkingEffort": recommended_effort if recommended_effort not in ("off", "instant") else "medium",
+            }
+            if hybrid_ui_thinking
+            else None
+        ),
     }
 
 
@@ -5016,6 +5047,116 @@ def _synthesize_observations_with_llm(
     return ""
 
 
+def _run_deep_thinking_stage(
+    prompt: str,
+    stage1_observations: str,
+    lang: str,
+    options: dict,
+    images: list[str] | None = None,
+    client_actions: list[dict] | None = None,
+) -> str:
+    """Stage 2 of a Hybrid UI + Deep Thinking turn: reason deeply over Stage 1 UI/Screen/Desktop evidence."""
+    stages = ((options.get("modelRoute") or {}).get("hybridStages") or {}) if isinstance(options.get("modelRoute"), dict) else {}
+    stage_opts = dict(options)
+    if stages.get("thinkingModel"):
+        stage_opts["model"] = str(stages["thinkingModel"])
+    if stages.get("thinkingEndpoint"):
+        stage_opts["endpoint"] = str(stages["thinkingEndpoint"])
+    ep_url, mdl_name = _resolve_live_llm(stage_opts)
+    if not ep_url or "/v1/" not in ep_url:
+        return ""
+    if not (ep_url.startswith("http://127.0.0.1:") or ep_url.startswith("http://localhost:")):
+        return ""
+
+    raw_eff = str(stages.get("thinkingEffort") or options.get("thinkingEffort") or "medium").strip().lower()
+    if raw_eff in ("off", "instant", "auto", ""):
+        raw_eff = "medium"
+    t0_deep = int(time.time() * 1000)
+    _emit_activity_step(f"Stage 2/2 · Deep Thinking analysis ({raw_eff}) ›", kind="deep_thinking", status="running")
+    try:
+        custom_sys = str(options.get("systemPrompt") or "").strip()
+        rules_txt = str(options.get("rulesText") or "").strip()
+        is_voice = bool(
+            options.get("fromVoice")
+            or options.get("fromVoiceInput")
+            or options.get("voiceMode")
+            or options.get("voiceInputTurn")
+        )
+        obs_parts = [f"Stage 1 UI / Desktop observations:\n{str(stage1_observations or '').strip()[:3600]}"]
+        if client_actions:
+            obs_parts.append(
+                "Executed Stage 1 Desktop UI actions: "
+                + ", ".join(str(a.get("action") or "") for a in client_actions if isinstance(a, dict))
+            )
+        if images:
+            obs_parts.append(f"Captured screenshots: {len(images)}")
+        obs_blob = "\n\n".join(obs_parts)
+
+        if lang == "vi":
+            sys_msg = (
+                "Bạn là Alis-Companion ở Pha 2 (Deep Thinking). Pha 1 (UI / Desktop) đã thực thi và thu thập dữ liệu thực tế bên dưới. "
+                "Hãy phân tích chuyên sâu, suy luận từng bước chặt chẽ dựa trên bằng chứng từ Pha 1 để giải quyết trọn vẹn phần phân tích/kiến trúc/kế hoạch trong câu hỏi của người dùng. "
+                + (
+                    "Vì đây là lượt Voice, trình bày súc tích bằng 3-4 câu tiếng Việt tự nhiên, không Markdown gạch đầu dòng, không emoji hay đường dẫn thô."
+                    if is_voice
+                    else "Mở đầu bằng kết luận cốt lõi (BLUF) theo chuẩn Cloud AI, tiếp theo bằng phân tích rõ ràng, có cấu trúc hợp lý."
+                )
+            )
+            usr_msg = f"Yêu cầu của người dùng: {prompt[:600]}\n\n{obs_blob}"
+        else:
+            sys_msg = (
+                "You are Alis-Companion in Stage 2 (Deep Thinking). Stage 1 (UI / Desktop) has already gathered the factual runtime observations below. "
+                "Perform rigorous, grounded deep reasoning strictly over Stage 1 evidence to solve the analytical, debugging, architecture, or planning part of the user's request. "
+                + (
+                    "Since this is a Voice turn, answer in 3-4 crisp, natural spoken sentences with no Markdown bullets, emojis, or raw paths."
+                    if is_voice
+                    else "Lead with a direct BLUF takeaway (Cloud-AI style), then present well-structured, concise reasoning and recommendations."
+                )
+            )
+            usr_msg = f"User Request: {prompt[:600]}\n\n{obs_blob}"
+
+        if custom_sys:
+            sys_msg = f"{custom_sys[:1200]}\n\n{sys_msg}"
+        if rules_txt and rules_txt not in sys_msg:
+            sys_msg = f"{sys_msg}\n\n## Active Rules\n{rules_txt[:1000]}"
+
+        body = {
+            "model": mdl_name or "default",
+            "messages": [
+                {"role": "system", "content": sys_msg[:2800]},
+                {"role": "user", "content": usr_msg},
+            ],
+            "temperature": 0.6 if not is_voice else 0.45,
+            "max_tokens": 420 if is_voice else (2048 if raw_eff in ("high", "xhigh", "max") else 1400),
+        }
+        if _is_mtp_model(mdl_name):
+            body["repetition_penalty"] = 1.0
+            body["repeat_penalty"] = 1.0
+        try:
+            import thinking_router
+            body = thinking_router.apply_effort_to_payload(
+                body,
+                raw_eff,
+                api_format="openai",
+                model_name=mdl_name,
+                endpoint=ep_url,
+            )
+        except Exception:
+            body["reasoning_effort"] = "high" if raw_eff in ("xhigh", "max") else raw_eff
+            body["chat_template_kwargs"] = {"enable_thinking": True}
+
+        raw_deep = _call_chat_completion_text(ep_url, body, chunk_timeout=75.0, max_wall_sec=150.0)
+        if raw_deep:
+            cleaned = re.sub(r"<think(?:ing)?>[\s\S]*?</think(?:ing)?>", "", raw_deep, flags=re.IGNORECASE).strip()
+            return cleaned or raw_deep.strip()
+    except Exception:
+        return ""
+    finally:
+        dt_s = max(1, int(round((int(time.time() * 1000) - t0_deep) / 1000.0)))
+        _emit_activity_step(f"Deep analysis finished in {dt_s}s ›", kind="deep_thinking", status="completed")
+    return ""
+
+
 def run_react_tool_loop(
     prompt: str = "",
     session_ctx: dict | None = None,
@@ -6176,12 +6317,87 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
     effective_options["routedRole"] = route_info["role"]
     effective_options["modelRoute"] = route_info
 
+    is_hybrid = bool(route_info.get("hybridUiThinking") and isinstance(route_info.get("hybridStages"), dict))
+    orig_persist = effective_options.get("persistHistory") is not False
+    inner_options = dict(effective_options) if is_hybrid else effective_options
+    if is_hybrid:
+        hst = route_info["hybridStages"]
+        if hst.get("uiModel"):
+            inner_options["model"] = str(hst["uiModel"])
+        if hst.get("uiEndpoint"):
+            inner_options["endpoint"] = str(hst["uiEndpoint"])
+        inner_options["thinkingEffort"] = "off"
+        inner_options["hybridStage"] = "ui_action"
+        inner_options["persistHistory"] = False
+        _emit_activity_step("Stage 1/2 · Gathering UI & Desktop context ›", kind="step_hybrid_ui", status="running")
+
     prev_tid = _CURRENT_TURN_THREAD_ID
     _CURRENT_TURN_THREAD_ID = req_tid or None
     try:
-        result = _execute_agent_turn_inner(effective_options, companion_root, host_root)
+        result = _execute_agent_turn_inner(inner_options, companion_root, host_root)
     finally:
         _CURRENT_TURN_THREAD_ID = prev_tid
+        if is_hybrid:
+            for meta_key in ("_domainRag", "_taskScale"):
+                if meta_key in inner_options:
+                    effective_options[meta_key] = inner_options[meta_key]
+
+    if is_hybrid:
+        _emit_activity_step("Stage 1/2 · UI & Desktop context gathered ›", kind="step_hybrid_ui", status="completed")
+        stage1_text = str(result.get("text") or "").strip()
+        can_deep_stage2 = bool(
+            result.get("handled")
+            and stage1_text
+            and not result.get("requiresConfirmation")
+            and not result.get("requiresSudoPassword")
+            and result.get("intent") in (
+                "screen_observe",
+                "alis_local_info",
+                "alis_service_control",
+                "nexus_knowledge",
+                "gui_action",
+                "compound_task",
+                "file_task",
+                "shell_task",
+                "web_task",
+            )
+        )
+        deep_txt = ""
+        if can_deep_stage2:
+            deep_txt = _run_deep_thinking_stage(
+                str(options.get("prompt") or ""),
+                stage1_text,
+                str(result.get("language") or route_info.get("language") or "en"),
+                effective_options,
+                images=result.get("images") if isinstance(result.get("images"), list) else None,
+                client_actions=result.get("clientActions") if isinstance(result.get("clientActions"), list) else None,
+            )
+            if deep_txt:
+                result["stage1Observations"] = stage1_text
+                result["text"] = deep_txt
+                result["synthesized"] = True
+                result["spokenText"] = desktop_control._clean_text_for_tts(
+                    deep_txt,
+                    context_prompt=str(options.get("prompt") or ""),
+                )
+        if orig_persist and result.get("handled") and str(result.get("text") or "").strip() and not result.get("historySaved"):
+            u_id, a_id, saved = _persist_turn_to_history(
+                str(options.get("prompt") or ""),
+                str(result["text"]),
+                thread_id=req_tid or None,
+            )
+            result["userMessageId"] = u_id
+            result["assistantMessageId"] = a_id
+            result["historySaved"] = saved
+        hst = route_info["hybridStages"]
+        result["hybridPipeline"] = {
+            "stages": ["ui_action", "deep_thinking"],
+            "uiIntent": str(result.get("intent") or ""),
+            "uiModel": str(hst.get("uiModel") or ""),
+            "thinkingModel": str(hst.get("thinkingModel") or ""),
+            "thinkingEffort": str(hst.get("thinkingEffort") or "medium"),
+            "deepExecuted": bool(deep_txt),
+        }
     result["modelRoute"] = route_info
     result["routedModel"] = route_info.get("selectedModel", "")
     result["routedRole"] = route_info.get("role", "action")

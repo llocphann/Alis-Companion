@@ -1661,6 +1661,9 @@ def dispatch(payload):
         return agent_action(action,payload)
     if action=='open_storage_path':return open_storage_path_action(payload)
     if action=='unload_llm':return unload_llm_action(payload)
+    if action=='ambient_commentary':
+        import ambient_commentary
+        return ambient_commentary.generate_mascot_commentary(payload)
     if action=='voice_action':return voice_action(payload)
     if action=='voice_tts_stop':
         import desktop_control

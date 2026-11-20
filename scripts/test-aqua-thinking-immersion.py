@@ -156,11 +156,17 @@ ShellRoot {
                 root.require(visibleRims === droplets.count, tag + "expected all bubbles to gain subtle luminous thinking rim, got " + visibleRims)
                 root.require(visibleSparks >= 4, tag + "expected lead bubbles to ignite starlight cores during thinking, got " + visibleSparks)
 
-                // 3. Stage accent checks: tool -> drafting
+                // 3. Calm orbit speed check + stage accent checks: deep -> tool -> drafting
+                root.require(body.orbitSpeedFactor <= 1.35 && auraLoader.item !== null && auraLoader.item.orbitSpeedFactor <= 1.35,
+                    tag + "thinking orbit speed factor must remain calm (<= 1.35x idle), got " + body.orbitSpeedFactor)
+                actor.thinkingPhase = "deep"
+                root.phaseStep = 28
+            } else if (root.phaseStep === 28) {
+                root.require(auraLoader.item !== null && auraLoader.item.isDeep === true, tag + "deep stage did not activate")
                 actor.thinkingPhase = "tool"
                 root.phaseStep = 3
             } else if (root.phaseStep === 3) {
-                root.require(auraLoader.item !== null && auraLoader.item.orbitCycles === 2, tag + "tool stage did not double orbitCycles")
+                root.require(auraLoader.item !== null && auraLoader.item.isTool === true && auraLoader.item.orbitSpeedFactor <= 1.35, tag + "tool stage must stay calm")
                 actor.thinkingPhase = "drafting"
                 root.phaseStep = 4
             } else if (root.phaseStep === 4) {

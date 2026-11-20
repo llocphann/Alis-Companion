@@ -904,6 +904,24 @@ ContentPage {
                             checked: root.preferences.ambientMediaEnabled
                             onToggledByUser: checked => root.setPreference("ambientMediaEnabled", checked)
                         }
+
+                        CompactToggle {
+                            objectName: "companionAmbientMascotChat"
+                            buttonIcon: "forum"
+                            text: "Mascot desktop chat"
+                            tooltipText: "Show short ephemeral contextual remarks above Companion while using an already-loaded local model (never saved to chatbox)."
+                            checked: AquaMind.ambientMascotEnabled
+                            onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.ambientMascotEnabled", checked)
+                        }
+
+                        CompactToggle {
+                            objectName: "companionAmbientVisualPeek"
+                            buttonIcon: "visibility"
+                            text: "Visual mascot peek"
+                            tooltipText: "Optional (off by default): allow ephemeral downscaled visual peek when a window title has no detail; never saved to disk."
+                            checked: AquaMind.ambientVisualPeek
+                            onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.ambientVisualPeek", checked)
+                        }
                     }
                 }
             }

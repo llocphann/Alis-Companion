@@ -14,6 +14,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import time
 
 from sandbox_runner import run_user_command
@@ -1929,7 +1930,7 @@ def _synthesize_edge_chunk(chunk_text: str, out_mp3: Path, neural_voice: str, ed
 
             async def _synth_edge():
                 comm = edge_tts.Communicate(chunk_text, neural_voice, rate=attempt_rate)
-                await asyncio.wait_for(comm.save(str(out_mp3)), timeout=8.5)
+                await asyncio.wait_for(comm.save(str(out_mp3)), timeout=6.5)
 
             asyncio.run(_synth_edge())
             if out_mp3.is_file() and out_mp3.stat().st_size > 128:
@@ -1943,7 +1944,7 @@ def _synthesize_edge_chunk(chunk_text: str, out_mp3: Path, neural_voice: str, ed
                     [edge_cli, "--voice", neural_voice, "--rate", attempt_rate, "--text", chunk_text, "--write-media", str(out_mp3)],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    timeout=9.0,
+                    timeout=7.0,
                     check=False,
                 )
                 if out_mp3.is_file() and out_mp3.stat().st_size > 128:
@@ -2085,8 +2086,10 @@ def voice_tts(
             stream_script = Path(__file__).resolve().parent / "tts_stream_player.py"
             proc = subprocess.Popen(
                 [sys.executable, str(stream_script), str(manifest_path)],
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                close_fds=True,
                 start_new_session=True,
             )
             spawned_proc = proc
@@ -2094,8 +2097,10 @@ def voice_tts(
         elif first_audio.suffix.lower() == ".wav" and play_bin:
             proc = subprocess.Popen(
                 [play_bin, str(first_audio)],
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                close_fds=True,
                 start_new_session=True,
             )
             spawned_proc = proc
@@ -2103,8 +2108,10 @@ def voice_tts(
         elif ffplay_bin:
             proc = subprocess.Popen(
                 [ffplay_bin, "-nodisp", "-autoexit", "-loglevel", "quiet", str(first_audio)],
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                close_fds=True,
                 start_new_session=True,
             )
             spawned_proc = proc

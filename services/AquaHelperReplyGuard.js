@@ -139,6 +139,11 @@ function validResult(action, result) {
         && typeof result.dryRun === "boolean"
         && Array.isArray(result.providers)
         && string(result.summary, 320, false)
+    if (action === "ambient_commentary") return result.ok === true
+        && typeof result.skipped === "boolean"
+        && typeof result.remark === "string" && result.remark.length <= 240
+        && string(result.expression, 32, true)
+        && result.ephemeral === true
     if (action === "voice_action") return (typeof result.ok === "boolean" || ["completed", "failed"].includes(result.status))
         && (result.summary === undefined || string(result.summary, 400, false))
     if (action === "model_route") return ["action", "thinking"].includes(result.role)

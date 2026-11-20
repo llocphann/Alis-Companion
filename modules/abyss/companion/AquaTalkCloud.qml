@@ -37,6 +37,10 @@ Item {
         acceptedButtons: Qt.AllButtons
         onActiveChanged: {
             if (active && root.visible && !root.embeddedMode) {
+                if (!root.editing && AquaMind.source === "mascot") {
+                    AquaMind.dismissMascotRemark();
+                    return;
+                }
                 root.wantsKeyboardFocus = true;
                 Qt.callLater(() => {
                     if (root.visible && !root.embeddedMode && !root.hasActiveTextInputFocus)
@@ -49,6 +53,8 @@ Item {
         id: talkCloudHover
         blocking: false
     }
+    onCloudHoveredChanged: if (!root.editing && AquaMind.source === "mascot")
+        AquaMind.pauseMascotExpiry(cloudHovered)
     onHasSidebarInputFocusChanged: if (hasSidebarInputFocus)
         root.wantsKeyboardFocus = true
     onHasSwarmInputFocusChanged: if (hasSwarmInputFocus)
@@ -2846,7 +2852,7 @@ Item {
                             spacing: 3
                             MaterialSymbol {
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: AquaMind.workPhase === "tool" ? "terminal" : (AquaMind.workPhase === "drafting" ? "edit_note" : "psychology")
+                                text: AquaMind.workPhase === "tool" ? "terminal" : (AquaMind.workPhase === "drafting" ? "edit_note" : (AquaMind.workPhase === "deep" ? "psychology_alt" : "psychology"))
                                 iconSize: 14
                                 color: AbyssStyle.accent
                             }

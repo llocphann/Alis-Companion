@@ -20,14 +20,15 @@ Item {
     height: 92
 
     readonly property bool isTool: thinkingStage === "tool"
+    readonly property bool isDeep: thinkingStage === "deep"
     readonly property bool isDrafting: thinkingStage === "drafting"
-    readonly property real orbitCycles: isTool ? 2.0 : 1.0
+    readonly property real orbitSpeedFactor: body ? body.orbitSpeedFactor : 1.25
     readonly property color trailTint: isTool
         ? "#68f5ff"
-        : (isDrafting ? "#ffe394" : Qt.lighter(accentColor, 1.38))
+        : (isDeep ? "#b89cff" : (isDrafting ? "#ffe394" : Qt.lighter(accentColor, 1.38)))
     readonly property color trailCore: isTool
         ? "#e0ffff"
-        : (isDrafting ? "#fff8d6" : "#f5fdff")
+        : (isDeep ? "#f4eeff" : (isDrafting ? "#fff8d6" : "#f5fdff"))
     readonly property int trailBeadsTotal: body && body.bubblesEnabled ? Math.min(3, body.bubbleCount) * 2 : 0
 
     // Bubble-coupled micro comet trails replacing cluttered overhead rings.
@@ -47,7 +48,7 @@ Item {
                 required property int index
                 readonly property int bubbleIdx: Math.floor(index / 2)
                 readonly property int step: (index % 2) + 1
-                readonly property real lagRad: step * (root.isTool ? 0.24 : 0.18)
+                readonly property real lagRad: step * (root.isTool ? 0.14 : (root.isDeep ? 0.13 : 0.11))
                 readonly property var pt: root.body ? root.body.bubbleOrbitPoint(bubbleIdx, lagRad) : ({ x: 38, y: 46, depth: 0, wavePulse: 0.5 })
                 readonly property real leadSize: Expressions.dropletSize[bubbleIdx] ?? 11
                 width: Math.max(2.0, leadSize * (step === 1 ? 0.34 : 0.20))

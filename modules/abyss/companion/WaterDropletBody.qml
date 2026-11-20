@@ -49,13 +49,15 @@ Item {
     property real orbitPhase: 0
     readonly property int orbitStep: Math.floor((((orbitPhase % 1) + 1) % 1) * 720)
     readonly property real orbitAngle: orbitStep * (Math.PI * 2 / 720)
-    readonly property real thinkingOrbitAngle: thinking ? (thinkingPhase * Math.PI * 2 * (thinkingStage === "tool" ? 2.0 : 1.0)) : 0
+    property real thinkingDriftPhase: 0
+    readonly property real thinkingOrbitAngle: thinkingDriftPhase * Math.PI * 2
     readonly property real effectiveOrbitAngle: orbitAngle + thinkingOrbitAngle
+    readonly property real orbitSpeedFactor: root.thinking ? 1.25 : 1.0
     readonly property real orbitBaseCos: Math.cos(effectiveOrbitAngle)
     readonly property real orbitBaseSin: Math.sin(effectiveOrbitAngle)
     readonly property int bubbleCount: !root.bubblesEnabled ? 0 : root.qualityLevel > 1 ? 8 : root.qualityLevel > 0 ? 6 : 3
-    readonly property color thinkingBubbleColor: thinkingStage === "tool" ? "#68f5ff" : (thinkingStage === "drafting" ? "#ffe394" : Qt.lighter(liquidAccent, 1.38))
-    readonly property color thinkingSparkColor: thinkingStage === "tool" ? "#e0ffff" : (thinkingStage === "drafting" ? "#fff8d6" : "#f5fdff")
+    readonly property color thinkingBubbleColor: thinkingStage === "tool" ? "#68f5ff" : (thinkingStage === "deep" ? "#b89cff" : (thinkingStage === "drafting" ? "#ffe394" : Qt.lighter(liquidAccent, 1.38)))
+    readonly property color thinkingSparkColor: thinkingStage === "tool" ? "#e0ffff" : (thinkingStage === "deep" ? "#f4eeff" : (thinkingStage === "drafting" ? "#fff8d6" : "#f5fdff"))
     function mixColor(a: color, b: color, t: real): color {
         const w = Math.max(0, Math.min(1, t))
         return Qt.rgba(a.r + (b.r - a.r) * w, a.g + (b.g - a.g) * w, a.b + (b.b - a.b) * w, a.a + (b.a - a.a) * w)
@@ -105,7 +107,7 @@ Item {
     property real thinkingBlend: thinking ? 1 : 0
     Behavior on thinkingBlend { enabled: root.motionEnabled; NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
     readonly property bool propDampsInspect: thinking && (ambientProp === "book" || ambientProp === "coffee")
-    readonly property real thinkingFloatY: -thinkingBlend * (propDampsInspect || coworkPropVisible ? (0.8 + thinkingWave * 1.0) : (2.6 + thinkingWave * 2.4))
+    readonly property real thinkingFloatY: -thinkingBlend * (propDampsInspect || coworkPropVisible ? (0.8 + thinkingWave * 1.0) : (thinkingStage === "deep" ? (3.0 + thinkingWave * 2.6) : (2.6 + thinkingWave * 2.4)))
     readonly property real effectiveGaitLift: propDampsInspect ? gait.lift * 0.35 : gait.lift
     readonly property real effectiveGaitRoll: propDampsInspect ? gait.roll * 0.42 : gait.roll
     readonly property real effectiveGaitPitch: propDampsInspect ? gait.pitch * 0.42 : gait.pitch
@@ -524,7 +526,7 @@ Item {
                         height: width
                         opacity: root.thinkingBlend * (0.45 + 0.55 * floatingDroplet.thinkPulse)
                         scale: 0.55 + 0.45 * floatingDroplet.thinkPulse
-                        rotation: root.thinkingPhase * 180 * (floatingDroplet.index % 2 === 0 ? 1 : -1)
+                        rotation: root.thinkingPhase * 90 * (floatingDroplet.index % 2 === 0 ? 1 : -1)
                         antialiasing: true
                         preferredRendererType: Shape.CurveRenderer
                         ShapePath {
@@ -795,7 +797,7 @@ Item {
     onMotionEnabledChanged: {
         if (!motionEnabled) {
             squashBurst.stop(); reactionBounce.stop(); shineBurst.stop(); tapBurst.stop(); swallowBurst.stop()
-            squash = 0; bob = 0; sway = 0; orbitPhase = 0; thinkingPhase = 0; reactionPhase = 1; reactionRipple = 0; shine = 0; tapPhase = 1; tapPulse = 0; swallowPhase = 1; chompPhase = 0
+            squash = 0; bob = 0; sway = 0; orbitPhase = 0; thinkingPhase = 0; thinkingDriftPhase = 0; reactionPhase = 1; reactionRipple = 0; shine = 0; tapPhase = 1; tapPulse = 0; swallowPhase = 1; chompPhase = 0
         }
     }
     onThinkingChanged: if (!thinking) thinkingPhase = 0
@@ -853,7 +855,13 @@ Item {
     readonly property bool effectiveNearbyInteraction: root._windowVisible && (root.nearbyInteraction || root.thinking || root.hovered || root.dragging || root.walking || root.flying || root.traveling || root.pocketDragActive || root.burstActive)
     NumberAnimation on thinkingPhase {
         running: root.thinking && root.motionEnabled && root.visible && root._windowVisible
-        from: 0; to: 1; duration: 2200
+        from: 0; to: 1; duration: 3600
+        loops: Animation.Infinite
+    }
+    NumberAnimation on thinkingDriftPhase {
+        running: root.motionEnabled && root.visible && root.bubblesEnabled && !root.bubble2DMode
+        paused: running && (!root.thinking || !root._windowVisible || root.motionAmount <= 0.001)
+        from: 0; to: 1; duration: 96000
         loops: Animation.Infinite
     }
     SequentialAnimation on bob {

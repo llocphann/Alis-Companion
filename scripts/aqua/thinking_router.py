@@ -585,6 +585,8 @@ def route_thinking_effort(
     min_floor = "off"
     if category in ("slash_thinking", "deep_reasoning") or bool(_DEEP_SLASH_RE.match(folded)):
         min_floor = "high"
+    elif category == "hybrid_ui_thinking":
+        min_floor = "medium"
 
     result: dict | None = None
     if is_ml_installed():

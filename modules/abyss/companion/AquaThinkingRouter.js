@@ -63,7 +63,9 @@ function classify(rawPrompt, options) {
     }
 
     const deepSlashRe = /^\/(?:plan|diagnostics|learn|workflow|reflect|swarm)\b/;
-    const minFloor = (category === "slash_thinking" || category === "deep_reasoning" || deepSlashRe.test(folded)) ? "high" : "off";
+    const minFloor = (category === "slash_thinking" || category === "deep_reasoning" || deepSlashRe.test(folded))
+        ? "high"
+        : (category === "hybrid_ui_thinking" ? "medium" : "off");
 
     const words = folded.split(/\s+/).filter(Boolean);
     const wordCount = words.length;

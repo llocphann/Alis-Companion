@@ -280,6 +280,40 @@ def _assert_vlm_grounding_and_compound_voice(tmp_dir: Path) -> None:
         server.server_close()
 
 
+def _assert_tts_stream_player_cleanup(tmp_dir: Path) -> None:
+    assert hasattr(desktop_control, "sys") and bool(desktop_control.sys.executable), "desktop_control missing sys import"
+    import subprocess
+    chunk_wav = tmp_dir / "stream_chunk0.wav"
+    chunk_wav.write_bytes(desktop_control._EMPTY_WAV_HEADER)
+    manifest_file = tmp_dir / "stream_manifest.json"
+    manifest_file.write_text(
+        json.dumps(
+            {
+                "firstAudioPath": str(chunk_wav),
+                "firstMp3Path": "",
+                "remainingChunks": [],
+                "voice": "en-US-AvaMultilingualNeural",
+                "rate": "+4%",
+                "chunkDir": str(tmp_dir),
+                "playBin": "/usr/bin/true",
+                "ffmpegBin": "",
+                "ffplayBin": "",
+                "edgeCli": "",
+            }
+        ),
+        encoding="utf-8",
+    )
+    stream_res = subprocess.run(
+        [desktop_control.sys.executable, str(AQUA_DIR / "tts_stream_player.py"), str(manifest_file)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert stream_res.returncode == 0, f"tts_stream_player failed: rc={stream_res.returncode} err={stream_res.stderr}"
+    assert not manifest_file.exists() and not chunk_wav.exists(), "tts_stream_player must unlink temp manifest & wav"
+
+
 with tempfile.TemporaryDirectory(prefix="alis-companion-tts-") as tmp:
     tmp_dir = Path(tmp)
     os.environ["ALIS_TEST_ISOLATED"] = "1"
@@ -289,5 +323,6 @@ with tempfile.TemporaryDirectory(prefix="alis-companion-tts-") as tmp:
     _assert_single_fixed_multilingual_voice(tmp_dir)
     _assert_unaccented_vi_and_intent_guards()
     _assert_vlm_grounding_and_compound_voice(tmp_dir)
+    _assert_tts_stream_player_cleanup(tmp_dir)
 
 print("COMPANION_RESPONSE_AND_TTS_POLISH_PASS")

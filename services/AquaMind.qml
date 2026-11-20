@@ -817,6 +817,12 @@ Singleton {
             }
         })
     readonly property bool proactiveIdleEnabled: options.proactiveEnabled === true && proactiveProfiles[proactive] !== undefined && Persistent.ready && Persistent.states.aquaProactive !== undefined
+    readonly property bool ambientMascotEnabled: (options.ambientMascotEnabled !== undefined) ? (options.ambientMascotEnabled === true) : ((Config.options?.abyss?.companion?.ambientEnabled !== false) && talkEnabled && aiEnabled)
+    readonly property bool ambientVisualPeek: options.ambientVisualPeek === true
+    property var recentMascotComments: []
+    property double lastMascotRemarkMs: 0
+    property string _lastObservedAppKey: ""
+    property double _appDwellSinceMs: 0
     readonly property bool todoRemindersEnabled: options.todoRemindersEnabled === true
     readonly property bool plannerRemindersEnabled: options.plannerRemindersEnabled === true || options.calendarRemindersEnabled === true
     readonly property bool calendarRemindersEnabled: plannerRemindersEnabled
@@ -1828,6 +1834,7 @@ Singleton {
     property var workActivitySteps: []
     property string currentActivityLine: ""
     property string liveProgressStep: ""
+    property string agentLiveStage: ""
     property bool workActivityExpanded: false
     property int activeSubagentCount: 0
     property string activeSubagentRole: ""
@@ -2007,12 +2014,23 @@ Singleton {
             const deltaText = String(payload.streamDelta ?? payload.delta ?? "");
             if (deltaText.length > 0) {
                 simulatedStreamingText = String(simulatedStreamingText ?? "") + deltaText;
+                agentLiveStage = "drafting";
                 currentActivityLine = "Streaming response ›";
                 liveProgressStep = currentActivityLine;
             }
             return;
         }
         const phaseStr = String(payload?.phase ?? payload?.kind ?? "").trim().toLowerCase();
+        if (phaseStr === "deep" || phaseStr === "deep_thinking" || phaseStr.startsWith("deep_thinking")) {
+            agentLiveStage = "deep";
+        } else if (phaseStr === "drafting") {
+            agentLiveStage = "drafting";
+        } else if (phaseStr === "llm_think" || phaseStr === "thinking") {
+            if (agentLiveStage !== "deep")
+                agentLiveStage = "thinking";
+        } else if (phaseStr === "tool" || phaseStr === "vlm_vision" || phaseStr === "intent" || phaseStr.startsWith("step_")) {
+            agentLiveStage = "tool";
+        }
         if (phaseStr === "subagent" || phaseStr.startsWith("subagent")) {
             const rawRole = String(payload?.subagentRole ?? payload?.role ?? "researcher").trim().toLowerCase();
             const roleTitle = String(payload?.subagentTitle || (rawRole ? (rawRole.charAt(0).toUpperCase() + rawRole.slice(1)) : "Researcher"));
@@ -2168,10 +2186,13 @@ Singleton {
     readonly property string workPhase: {
         if (!isWorking)
             return "";
-        if (agentTurnWorker.running || agentFileWorker.running || String(pending?.action ?? "").startsWith("tool_") || String(pending?.action ?? "").startsWith("agent_"))
-            return "tool";
         if (streamingPreviewText.length > 0)
             return "drafting";
+        if (agentTurnWorker.running || agentFileWorker.running || String(pending?.action ?? "").startsWith("tool_") || String(pending?.action ?? "").startsWith("agent_"))
+            return agentLiveStage.length > 0 ? agentLiveStage : "tool";
+        const resolvedEff = effectiveThinkingEffort === "auto" ? lastAutoResolvedEffort : effectiveThinkingEffort;
+        if (reasoningSupported && ["high", "xhigh", "max"].includes(String(resolvedEff || "").toLowerCase()))
+            return "deep";
         return "thinking";
     }
     readonly property string workElapsedLabel: {
@@ -2183,6 +2204,11 @@ Singleton {
     readonly property string workStatusTitle: {
         if (!isWorking)
             return "";
+        if (workPhase === "deep") {
+            if (effectiveThinkingEffort !== "off" && effectiveThinkingEffort !== "instant" && reasoningSupported)
+                return "Deep Thinking (" + thinkingEffortShortLabel + ")...";
+            return "Deep Thinking...";
+        }
         if (workPhase === "tool") {
             if (agentFileWorker.running)
                 return "Running file operation...";
@@ -3892,6 +3918,7 @@ Singleton {
             lastAutoResolvedEffort = String(route.recommendedEffort || "off");
         const routedModelId = route.selectedModel || model;
         workActivityExpanded = false;
+        agentLiveStage = "";
         currentActivityLine = "Analyzing request & routing tools ›";
         workActivitySteps = [currentActivityLine];
         agentTurnWorker.cancelled = false;
@@ -4041,6 +4068,127 @@ Singleton {
             expiry.interval = 18000;
             expiry.restart();
         }
+    }
+    function showMascotRemark(remark, expr = "happy"): bool {
+        const clean = String(remark ?? "").trim();
+        if (!talkEnabled || !clean || conversationOpen || contextOpen || sidebarChatOpen)
+            return false;
+        text = clean.slice(0, 220);
+        source = "mascot";
+        lastMascotRemarkMs = Date.now();
+        recentMascotComments = recentMascotComments.concat([text]).slice(-8);
+        expiry.interval = 9500;
+        expiry.restart();
+        if (hostVisible)
+            reactionRequested(String(expr || "happy"));
+        return true;
+    }
+    function pauseMascotExpiry(paused: bool): void {
+        if (source !== "mascot")
+            return;
+        if (paused) {
+            expiry.stop();
+        } else if (text.length > 0 && !conversationOpen && !contextOpen) {
+            expiry.interval = 4500;
+            expiry.restart();
+        }
+    }
+    function dismissMascotRemark(): void {
+        if (source !== "mascot")
+            return;
+        expiry.stop();
+        text = "";
+        source = "built-in";
+    }
+    function _mascotCooldownMs(): int {
+        switch (proactive) {
+        case "often":
+            return 240000;
+        case "regular":
+            return 420000;
+        case "rare":
+            return 1200000;
+        default:
+            return 720000;
+        }
+    }
+    function requestAmbientMascotCommentary(force = false): bool {
+        if (!ambientMascotEnabled || !talkEnabled || !available || !hostVisible || hostBlocked)
+            return false;
+        if (conversationOpen || contextOpen || sidebarChatOpen || isWorking || busy || draining)
+            return false;
+        if (voiceModeOpen || voiceRecording || voiceTranscribing || ttsSpeaking || voiceReplySpeaking)
+            return false;
+        if (!force && proactive === "manual")
+            return false;
+        if (ambientCommentaryWorker.running)
+            return false;
+        if (text.length > 0 && source !== "mascot")
+            return false;
+        if (focusSessionActive || (typeof GameMode !== "undefined" && GameMode?.active === true) || (typeof Notifications !== "undefined" && Notifications?.silent === true))
+            return false;
+        if (typeof NiriService !== "undefined" && Boolean(NiriService.activeWindow?.is_fullscreen))
+            return false;
+        const now = new Date();
+        const nowMs = now.getTime();
+        if (!force && lastMascotRemarkMs > 0 && (nowMs - lastMascotRemarkMs) < _mascotCooldownMs())
+            return false;
+        if (Date.now() - startedAt < 45000 && !force)
+            return false;
+        const minuteOfDay = now.getHours() * 60 + now.getMinutes();
+        const qStart = options.proactiveQuietStart ?? 1320;
+        const qEnd = options.proactiveQuietEnd ?? 480;
+        const quietActive = (options.proactiveQuietEnabled !== false) && (qStart > qEnd ? (minuteOfDay >= qStart || minuteOfDay < qEnd) : (minuteOfDay >= qStart && minuteOfDay < qEnd));
+        if (quietActive && !force)
+            return false;
+        const hasBatt = (typeof Battery !== "undefined" && Battery?.available);
+        const battPct = hasBatt ? Math.round(Number(Battery.percentage ?? 1) * (Number(Battery.percentage ?? 1) <= 1.05 ? 100 : 1)) : 100;
+        const battChg = hasBatt ? Boolean(Battery.isCharging) : true;
+        if (battPct < 20 && !battChg)
+            return false;
+
+        const snap = buildLocalMachineSnapshot();
+        const focusApp = String(snap.desktop?.focusedApp ?? "").trim();
+        const focusTitle = String(snap.desktop?.focusedTitle ?? "").trim();
+        const dwellMin = (_appDwellSinceMs > 0) ? Math.max(0, Math.round((nowMs - _appDwellSinceMs) / 60000)) : 0;
+        const routeModelId = actionModel || model;
+        const modelObj = Ai.models[routeModelId] ?? Ai.models[model];
+        const reqEp = String(modelObj?.endpoint ?? options.endpoint ?? "");
+        const reqModel = String(modelObj?.model ?? routeModelId ?? "");
+        if (!reqEp)
+            return false;
+
+        ambientCommentaryWorker.requestPayload = {
+            action: "ambient_commentary",
+            endpoint: reqEp,
+            model: reqModel,
+            actionEndpoint: reqEp,
+            actionModel: reqModel,
+            localOnly: root.localOnly,
+            character: root.character === "octo" ? "octo" : "aqua",
+            personality: String(Config.options?.abyss?.companion?.personality ?? "balanced"),
+            language: "auto",
+            visualPeekEnabled: root.ambientVisualPeek,
+            powerProfile: String(Config.options?.abyss?.companion?.renderQuality ?? "") === "performance" ? "power-saver" : "balanced",
+            batteryPercent: battPct,
+            batteryCharging: battChg,
+            fullscreen: false,
+            desktopContext: {
+                focusedApp: focusApp,
+                focusedTitle: focusTitle,
+                dwellMinutes: dwellMin,
+                music: snap.music?.currentTitle ? String(snap.music.currentTitle) : (snap.music?.mprisTitle ? String(snap.music.mprisTitle) : ""),
+                pomodoro: snap.timers?.pomodoroRunning ? ("Focus " + Math.max(1, Math.round((Number(snap.timers.pomodoroSecondsLeft ?? 0)) / 60)) + "m left") : "",
+                weather: (snap.weather?.temp && snap.weather.temp !== "--°C") ? String(snap.weather.temp + " " + (snap.weather.description ?? "")).trim() : "",
+                battery: hasBatt ? (battPct + "%" + (battChg ? " charging" : "")) : "",
+                timeOfDay: snap.dateTime?.timeText ? String(snap.dateTime.timeText) : "",
+                mood: root.userMood,
+                energy: root.userEnergy
+            },
+            recentComments: root.recentMascotComments.slice(-6)
+        };
+        ambientCommentaryWorker.running = true;
+        return true;
     }
     function oldestHistoryId(): double {
         for (const entry of history) {
@@ -5268,9 +5416,9 @@ Singleton {
                     lastCheckIn = nowMs;
             } else if (Date.now() - lastPlayful > proactivePlayfulInterval) {
                 lastPlayful = Date.now();
-                const lines = ["I tried counting my bubbles. One escaped. Suspicious.", "Important announcement: I am approximately one sip tall.", "If I sit very still, do I become a puddle with opinions?", "My cardio today: three laps around this tiny corner.", "I have two feet and absolutely no shoes budget.", "Your cursor looks busy. Mine would probably just be a fish.", "I asked the edge for advice. It said: go with the flow.", "Tiny water break? I mean you. I'm already excellent at being water."];
-                playfulIndex = (playfulIndex + 1 + Math.floor(Math.random() * (lines.length - 1))) % lines.length;
-                sayAutomatic(lines[playfulIndex], "playful", nowMs);
+                if (ambientMascotEnabled && available) {
+                    requestAmbientMascotCommentary(true);
+                }
             }
         }
     }
@@ -5626,6 +5774,7 @@ Singleton {
         repeat: false
         onTriggered: if (!root.conversationOpen && !root.contextOpen) {
             root.text = "";
+            root.source = "built-in";
             root.checkInStage = "";
             root.activeReminderKey = "";
         }
@@ -5894,6 +6043,7 @@ Singleton {
             write(JSON.stringify(agentTurnWorker.requestPayload) + "\n");
         }
         onExited: (code, status) => {
+            root.agentLiveStage = "";
             if (agentTurnWorker.cancelled) {
                 agentTurnWorker.cancelled = false;
                 return;
@@ -6075,6 +6225,8 @@ Singleton {
                     root.lastSpokenText = String(res.voiceReply.spokenText || spokenReplyText).slice(0, 620);
                     root.ttsSpeaking = true;
                 } else {
+                    if (res.voiceReply?.error)
+                        root.toolNotice = "Voice fallback (" + String(res.voiceReply.error).slice(0, 80) + ")";
                     root.speakText(spokenReplyText, true, String(agentTurnWorker.requestPayload?.prompt ?? root.lastUserPrompt ?? ""));
                 }
                 if (isVoiceTurn)
@@ -6370,7 +6522,7 @@ Singleton {
     }
     Timer {
         id: voiceTranscriptRevealTimer
-        interval: 1200
+        interval: 2200
         repeat: false
         onTriggered: {
             root.revealPendingVoiceTranscript();
@@ -6531,6 +6683,8 @@ Singleton {
                     if (typeof res.text === "string" && res.text.trim().length > 0)
                         root.lastSpokenText = res.text.trim();
                     root.toolNotice = "Voice spoken via " + String(res.backend || "tts");
+                } else if (isTts && res.error) {
+                    root.toolNotice = "Voice TTS unavailable: " + String(res.error).slice(0, 80);
                 } else if (res.summary) {
                     const noticeText = (isStt && res.status !== "stt_error" && !res.error)
                         ? "No speech detected — try speaking closer to the microphone."
@@ -6808,6 +6962,59 @@ Singleton {
         onExited: (code, status) => {
             if (!root.available) {
                 root.refreshAvailableModels(true);
+            }
+        }
+    }
+    Timer {
+        id: mascotDwellTimer
+        interval: 45000
+        repeat: false
+        onTriggered: {
+            if (root.ambientMascotEnabled && !root.conversationOpen)
+                root.requestAmbientMascotCommentary(false);
+        }
+    }
+    Timer {
+        id: mascotCheckTimer
+        interval: 300000
+        repeat: true
+        running: root.ambientMascotEnabled && root.talkEnabled && root.available && root.hostVisible && !root.conversationOpen && !root.isWorking && !root.busy
+        onTriggered: root.requestAmbientMascotCommentary(false)
+    }
+    Connections {
+        target: typeof NiriService !== "undefined" ? NiriService : null
+        ignoreUnknownSignals: true
+        function onActiveWindowChanged(): void {
+            const win = NiriService?.activeWindow;
+            const appKey = String(win?.app_id ?? "").trim() + "|" + String(win?.title ?? "").slice(0, 48).trim();
+            if (appKey !== root._lastObservedAppKey) {
+                root._lastObservedAppKey = appKey;
+                root._appDwellSinceMs = Date.now();
+                if (root.ambientMascotEnabled && root.hostVisible && !root.conversationOpen && !root.isWorking && appKey.length > 1)
+                    mascotDwellTimer.restart();
+            }
+        }
+    }
+    Process {
+        id: ambientCommentaryWorker
+        running: false
+        stdinEnabled: true
+        property var requestPayload: ({})
+        command: ["/usr/bin/python3", AlisCompanion.packageRoot + "/scripts/aqua/local_mind.py", "--host-root", Quickshell.shellPath("")]
+        stdout: StdioCollector {
+            id: ambientCommentaryReply
+        }
+        onStarted: {
+            write(JSON.stringify(ambientCommentaryWorker.requestPayload) + "\n");
+        }
+        onExited: (code, status) => {
+            const parsed = AquaHelperReplyGuard.parse("ambient_commentary", String(ambientCommentaryReply.text ?? ""), code);
+            if (!parsed.ok || !parsed.result || parsed.result.skipped === true)
+                return;
+            const remark = String(parsed.result.remark ?? "").trim();
+            const expr = String(parsed.result.expression ?? "happy").trim();
+            if (remark.length > 0 && !root.conversationOpen && !root.contextOpen && !root.isWorking && !root.busy) {
+                root.showMascotRemark(remark, expr);
             }
         }
     }
