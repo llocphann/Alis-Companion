@@ -556,14 +556,43 @@ def retrieve_rag(prompt, companion_root, extra_dirs=None, token_budget=480, page
         })
         tokens += cost
 
+    nexus_extra = []
+    try:
+        import nexus_rag
+        if nexus_rag.resolve_nexus_vault_path() is not None:
+            nx_res = nexus_rag.search_nexus_knowledge(
+                raw_prompt,
+                top_k=max(3, p_size),
+                token_budget=max(120, budget - tokens if selected else budget),
+            )
+            seen_fmt = set(selected)
+            for idx, snip in enumerate(nx_res.get("snippets") or []):
+                if snip in seen_fmt:
+                    continue
+                cite = (nx_res.get("citations") or [])[idx] if idx < len(nx_res.get("citations") or []) else {}
+                cost = estimate_tokens(snip)
+                if tokens + cost > budget and selected:
+                    break
+                selected.append(snip)
+                citations.append({
+                    "source": cite.get("source") or "Nexus Vault",
+                    "heading": cite.get("heading") or "",
+                    "snippet": cite.get("snippet") or snip,
+                })
+                nexus_extra.append(cite)
+                seen_fmt.add(snip)
+                tokens += cost
+    except Exception:
+        nexus_extra = []
+
     return {
-        "snippets": selected[:3],
-        "citations": citations[:3],
+        "snippets": selected[:4],
+        "citations": citations[:4],
         "estimatedTokens": tokens,
         "tokenBudget": budget,
         "page": p_idx,
         "pageSize": p_size,
-        "totalMatches": len(matched_chunks),
+        "totalMatches": len(matched_chunks) + len(nexus_extra),
         "hasMore": (start + p_size) < len(matched_chunks),
         "engine": "sqlite-fts5-hybrid",
         "ragUsed": len(selected) > 0,

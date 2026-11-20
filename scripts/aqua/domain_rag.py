@@ -373,6 +373,33 @@ _SECRET_TOKEN_PREFIX_RE = re.compile(
 )
 
 
+_MIGRATED_KEY_DONE: str = ""
+
+
+def _nexus_rag():
+    try:
+        import nexus_rag
+        return nexus_rag
+    except Exception:
+        return None
+
+
+def _ensure_nexus_rag_migrated() -> Path | None:
+    global _MIGRATED_KEY_DONE
+    nr = _nexus_rag()
+    if nr is None:
+        return None
+    rag_dir = nr.resolve_rag_vault_dir()
+    if rag_dir is None:
+        return None
+    state_home = str(os.environ.get("XDG_STATE_HOME") or "")
+    key = f"{rag_dir}|{state_home}"
+    if _MIGRATED_KEY_DONE != key:
+        nr.migrate_legacy_rag_to_nexus()
+        _MIGRATED_KEY_DONE = key
+    return rag_dir
+
+
 def _domain_rag_root() -> Path:
     base = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
     folder = (base / "alis-companion" / "domain_rag").resolve()
@@ -381,22 +408,38 @@ def _domain_rag_root() -> Path:
 
 
 def _canonical_dir() -> Path:
+    rag_dir = _ensure_nexus_rag_migrated()
+    if rag_dir is not None:
+        d = rag_dir / "Canonical"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
     d = _domain_rag_root() / "canonical"
     d.mkdir(mode=0o700, parents=True, exist_ok=True)
     return d
 
 
 def _personal_dir() -> Path:
+    rag_dir = _ensure_nexus_rag_migrated()
+    if rag_dir is not None:
+        d = rag_dir / "Personal"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
     d = _domain_rag_root() / "personal"
     d.mkdir(mode=0o700, parents=True, exist_ok=True)
     return d
 
 
 def _manifest_path() -> Path:
+    nr = _nexus_rag()
+    if nr is not None and nr.resolve_rag_vault_dir() is not None:
+        return nr.external_manifests_dir() / "manifest.json"
     return _domain_rag_root() / "manifest.json"
 
 
 def _personal_manifest_path() -> Path:
+    nr = _nexus_rag()
+    if nr is not None and nr.resolve_rag_vault_dir() is not None:
+        return nr.external_manifests_dir() / "personal_manifest.json"
     return _domain_rag_root() / "personal_manifest.json"
 
 

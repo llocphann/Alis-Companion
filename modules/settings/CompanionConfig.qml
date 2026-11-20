@@ -3193,6 +3193,27 @@ ContentPage {
                                 value: String(AquaMind.storagePaths?.mcpConfigDir ?? "~/.config/alis-companion")
                             }
                         ];
+                        if (AquaMind.storagePaths?.ragStorageMode === "nexus" && AquaMind.storagePaths?.ragVaultDir) {
+                            rows.push({
+                                icon: "auto_stories",
+                                label: "Nexus RAG",
+                                value: String(AquaMind.storagePaths.ragVaultDir)
+                            });
+                            if (AquaMind.storagePaths?.ragIndexDbPath) {
+                                rows.push({
+                                    icon: "database",
+                                    label: "FTS5 Index",
+                                    value: String(AquaMind.storagePaths.ragIndexDbPath)
+                                });
+                            }
+                            if (Number(AquaMind.storagePaths?.nexusNoteCount ?? 0) > 0) {
+                                rows.push({
+                                    icon: "description",
+                                    label: "Vault Notes",
+                                    value: String(AquaMind.storagePaths.nexusNoteCount) + " notes indexed"
+                                });
+                            }
+                        }
                         const sources = Array.isArray(AquaMind.ragSources) ? AquaMind.ragSources : [];
                         for (let i = 0; i < sources.length; ++i) {
                             const s = sources[i];

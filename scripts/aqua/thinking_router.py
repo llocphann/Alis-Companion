@@ -59,6 +59,8 @@ MECHANICAL_CATEGORIES = frozenset({
     "confirmation_response",
     "stop",
     "resume",
+    "alis_local_info",
+    "alis_service_control",
 })
 
 _GREETING_OR_MIC_RE = re.compile(

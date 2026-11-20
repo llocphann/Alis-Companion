@@ -108,6 +108,9 @@ from tool_store import (
     search_files_in_home,
 )
 import web_tools
+import alis_local_bridge
+import nexus_rag
+from nexus_rag import NexusRagError
 
 
 AGENT_CONTRACT_VERSION = 1
@@ -119,6 +122,8 @@ _SUBAGENT_LOCK = threading.RLock()
 _ACTIVE_SUBAGENT_RUNS: list[dict] = []
 _SUBAGENT_MAX_SUMMARY_CHARS = 1200
 _LAST_CANCELLED_STREAM_PREFIX: dict | None = None
+_CURRENT_TURN_LIVE_SNAPSHOT: dict = {}
+_CURRENT_TURN_NEXUS_VAULT: str = ""
 
 
 def get_last_cancelled_stream_prefix() -> dict | None:
@@ -147,6 +152,8 @@ SUBAGENT_ROLES: dict[str, dict] = {
             "web_fetch",
             "system_telemetry",
             "git_inspect",
+            "alis_live_state",
+            "nexus_knowledge",
         ),
         "system_prompt": (
             "You are Companion Subagent [Researcher] (Explorer / Researcher). "
@@ -1713,6 +1720,89 @@ AGENT_TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "alis_live_state",
+            "description": (
+                "Inspect live Alis shell, hardware, and integration state on this machine: weather/AQI/forecast, "
+                "local music/MPRIS, Pomodoro/timers, Todo, planner schedule, QuickNotes, notifications, screen time, "
+                "Spaced Repetition flashcards, Exercises Tracker workouts, CPU/GPU/RAM/Battery/Thinkfan/TLP, and Niri desktop."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "enum": [
+                            "all",
+                            "weather",
+                            "music",
+                            "timers",
+                            "todos",
+                            "schedule",
+                            "quicknotes",
+                            "notifications",
+                            "screentime",
+                            "learning",
+                            "fitness",
+                            "system",
+                            "desktop",
+                        ],
+                    },
+                    "query": {"type": "string"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "nexus_knowledge",
+            "description": (
+                "Search, read, or inspect the user's Nexus/Obsidian Vault (notes, tags, daily journal, schedule, finance, "
+                "collections, and Markdown RAG notes in 90_System/99_RAG) or propose saving a RAG knowledge note."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["search", "read", "overview", "journal", "finance", "collections", "save_rag_note"],
+                    },
+                    "query": {"type": "string"},
+                    "path": {"type": "string"},
+                    "folder": {"type": "string"},
+                    "tag": {"type": "string"},
+                    "title": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "alis_service_control",
+            "description": (
+                "Control live Alis desktop services: playback & local music search (`music_toggle`, `music_next`, `music_prev`, "
+                "`music_shuffle`, `music_stop`, `music_play_query`), Pomodoro/stopwatch (`pomodoro_toggle`, `pomodoro_start`, "
+                "`pomodoro_pause`, `pomodoro_reset`, `stopwatch_toggle`, `stopwatch_reset`), display/power modes "
+                "(`night_light_set`, `night_light_toggle`, `gamemode_set`, `gamemode_toggle`, `dnd_set`, `dnd_toggle`), "
+                "`weather_refresh`, Nexus navigation (`nexus_open`, `nexus_open_note`, `nexus_open_daily`), "
+                "or confirmation-gated creation (`todo_add`, `quicknote_add`)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "target": {"type": "string"},
+                    "value": {"type": "string"},
+                },
+                "required": ["action"],
+            },
+        },
+    },
 ]
 
 _GENERIC_LIST_TARGETS = frozenset((
@@ -2297,7 +2387,7 @@ def classify_intent(prompt: str, session_ctx: dict | None = None) -> dict:
             return {"kind": "clarification_reply", "language": lang}
 
     perm_state = inspect_permissions()
-    if perm_state.get("latestPending") or ctx.get("pendingDeletePath") or ctx.get("pendingMemoryForget"):
+    if perm_state.get("latestPending") or ctx.get("pendingDeletePath") or ctx.get("pendingMemoryForget") or ctx.get("pendingClientAction"):
         latest = perm_state.get("latestPending")
         if latest and latest.get("actionKind") == "system_sudo_op" and not raw.startswith("/"):
             return {"kind": "sudo_password_reply", "language": lang}
@@ -2455,6 +2545,13 @@ def classify_intent(prompt: str, session_ctx: dict | None = None) -> dict:
         return {"kind": "rag_query", "subkind": "domain_concepts", "language": lang}
     if domain_rag.is_domain_capability_query(raw):
         return {"kind": "rag_query", "subkind": "domain_capability", "language": lang}
+
+    # Live Alis service telemetry, smart service controls & Nexus Vault knowledge
+    # (Placed before screen_observe/web_task so local ScreenTime, Now Playing, Local Music & Nexus queries aren't stolen.)
+    alis_intent = alis_local_bridge.detect_alis_local_intent(raw)
+    if isinstance(alis_intent, dict) and alis_intent.get("kind"):
+        alis_intent.setdefault("language", lang)
+        return alis_intent
 
     # Screen / window observation (including Set-of-Mark `/som` screenshot)
     if (
@@ -2882,6 +2979,8 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
                 "confirmation_response",
                 "stop",
                 "resume",
+                "alis_local_info",
+                "alis_service_control",
             ):
                 role = "action"
                 role_label = "UI Action"
@@ -2890,6 +2989,15 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
                     "Thao tác hệ thống / tệp / giao diện trực tiếp cần phản hồi tức thì"
                     if lang == "vi"
                     else "Direct desktop, file, or system action routed for instant execution"
+                )
+            elif kind == "nexus_knowledge":
+                role = "thinking"
+                role_label = "Domain RAG"
+                category = "nexus_knowledge"
+                reason = (
+                    "Tra cứu và tổng hợp tri thức từ Nexus Vault"
+                    if lang == "vi"
+                    else "Query and synthesize knowledge from Nexus Vault"
                 )
             elif (
                 not _CASUAL_OR_MIC_RE.search(folded)
@@ -3811,6 +3919,66 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
         )
         return str(sub_res.get("summary") or "")[:_SUBAGENT_MAX_SUMMARY_CHARS]
 
+    if name == "alis_live_state":
+        snap = _CURRENT_TURN_LIVE_SNAPSHOT or alis_local_bridge.load_live_snapshot()
+        topic = str(args.get("topic") or "all").strip().lower()
+        q = str(args.get("query") or "")
+        out = alis_local_bridge.format_live_state(snap, topic=topic, query=q, lang=detect_language(q or "vi"))
+        return str(out.get("markdown") or "")[:3000]
+
+    if name == "nexus_knowledge":
+        act = str(args.get("action") or "search").strip().lower()
+        v_override = _CURRENT_TURN_NEXUS_VAULT
+        q = str(args.get("query") or "")
+        if act == "read":
+            target_n = str(args.get("path") or args.get("target") or q or "").strip()
+            try:
+                note = nexus_rag.read_nexus_note(target_n, vault_path=v_override)
+                return alis_local_bridge.format_nexus_reply("read", note, query=q, lang=detect_language(q))
+            except NexusRagError as exc:
+                return f"[nexus_knowledge read error ({exc.code}): {exc.message}]"
+        if act in ("overview", "journal", "finance", "collections"):
+            ov = nexus_rag.get_nexus_overview(vault_path=v_override, topic=act)
+            return alis_local_bridge.format_nexus_reply(act, ov, query=q, lang=detect_language(q))
+        if act == "save_rag_note":
+            n_title = str(args.get("title") or "").strip() or "Companion RAG Note"
+            n_body = str(args.get("content") or q or "").strip()
+            session_ctx["pendingClientAction"] = {
+                "action": "rag_note_save",
+                "target": n_title,
+                "value": n_body,
+                "folder": str(args.get("folder") or "Knowledge"),
+                "vaultPath": v_override,
+            }
+            save_session_context(session_ctx, now_ms=now_ms)
+            return f"[Confirmation required before saving RAG note `{n_title}` to Nexus `90_System/99_RAG/`. Ask the user to confirm.]"
+        nx_res = nexus_rag.search_nexus_knowledge(
+            q,
+            vault_path=v_override,
+            folder=str(args.get("folder") or ""),
+            tag=str(args.get("tag") or ""),
+        )
+        return alis_local_bridge.format_nexus_reply("search", nx_res, query=q, lang=detect_language(q))
+
+    if name == "alis_service_control":
+        act = str(args.get("action") or "").strip().lower()
+        tgt = str(args.get("target") or "").strip()
+        val = str(args.get("value") or "").strip()
+        if act in alis_local_bridge.SAFE_INSTANT_CLIENT_ACTIONS:
+            pending_ca = session_ctx.setdefault("_pendingTurnClientActions", [])
+            pending_ca.append({"action": act, "target": tgt, "value": val})
+            return f"Queued instant Alis action `{act}` (target=`{tgt}`, value=`{val}`)."
+        if act in alis_local_bridge.WRITE_CONFIRM_CLIENT_ACTIONS:
+            session_ctx["pendingClientAction"] = {
+                "action": act,
+                "target": tgt,
+                "value": val,
+                "vaultPath": _CURRENT_TURN_NEXUS_VAULT,
+            }
+            save_session_context(session_ctx, now_ms=now_ms)
+            return f"[Confirmation required before executing `{act}` (`{tgt or val}`). Ask the user to confirm.]"
+        return f"[alis_service_control error: unsupported action `{act}`]"
+
     return f"[unknown tool: {name}]"
 
 
@@ -3945,6 +4113,35 @@ _SUBAGENT_EXTRA_TOOL_SCHEMAS = [
                     "cwd": {"type": "string"},
                 },
                 "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "alis_live_state",
+            "description": "Inspect live Alis shell, weather, music, schedule, notifications, and integration state.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string"},
+                    "query": {"type": "string"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "nexus_knowledge",
+            "description": "Search, read, or summarize notes and collections inside the Nexus/Obsidian Vault.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["search", "read", "overview", "journal", "finance", "collections"]},
+                    "query": {"type": "string"},
+                    "path": {"type": "string"},
+                },
             },
         },
     },
@@ -4986,6 +5183,7 @@ def run_react_tool_loop(
         now_ms=ts_ms,
         final_reply=clean_final,
     )
+    pending_ca = ctx.pop("_pendingTurnClientActions", [])
     return {
         "handled": True,
         "runId": run_id,
@@ -4998,6 +5196,7 @@ def run_react_tool_loop(
         "thoughts": thoughts,
         "synthesized": synthesized,
         "observations": tool_outputs,
+        "clientActions": pending_ca if isinstance(pending_ca, list) else [],
     }
 
 
@@ -5740,8 +5939,15 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
 
 def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Path) -> dict:
     """Core implementation of the natural-language desktop agent turn."""
-    global _LAST_LMSTUDIO_ERROR
+    global _LAST_LMSTUDIO_ERROR, _CURRENT_TURN_LIVE_SNAPSHOT, _CURRENT_TURN_NEXUS_VAULT
     _LAST_LMSTUDIO_ERROR = ""
+    snap_in = options.get("alisLocalSnapshot")
+    if isinstance(snap_in, dict) and snap_in:
+        alis_local_bridge.save_live_snapshot(snap_in)
+        _CURRENT_TURN_LIVE_SNAPSHOT = snap_in
+    else:
+        _CURRENT_TURN_LIVE_SNAPSHOT = alis_local_bridge.load_live_snapshot()
+    _CURRENT_TURN_NEXUS_VAULT = str(options.get("nexusVaultPath") or "").strip()
     now_ms = int(options.get("nowMs") or int(time.time() * 1000))
     _reset_activity_steps(now_ms)
     prompt = str(options.get("prompt") or "").strip()
@@ -6017,6 +6223,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     "synthesized": bool(react_res.get("synthesized", False)),
                     "attachedFiles": attached_info["files"],
                     "ponytailMode": ponytail_mode,
+                    "clientActions": react_res.get("clientActions") or [],
                     **res,
                     "userMessageId": u_id,
                     "assistantMessageId": a_id,
@@ -6076,6 +6283,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
         session_ctx["pendingClarification"] = None
         session_ctx["pendingDeletePath"] = ""
         session_ctx["pendingMemoryForget"] = None
+        session_ctx["pendingClientAction"] = None
         session_ctx["pendingSudoOp"] = None
         save_session_context(session_ctx, now_ms=now_ms)
         if lang == "vi":
@@ -6390,6 +6598,74 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
     # 5. Conversational Confirmation / Rejection for pending permission, delete, or memory forget
     if kind == "confirmation_response":
         decision = intent["decision"]
+        if session_ctx.get("pendingClientAction"):
+            pca = dict(session_ctx.get("pendingClientAction") or {})
+            session_ctx["pendingClientAction"] = None
+            save_session_context(session_ctx, now_ms=now_ms)
+            emitted_actions: list[dict] = []
+            if decision == "confirm":
+                p_act = str(pca.get("action") or "")
+                p_tgt = str(pca.get("target") or "")
+                p_val = str(pca.get("value") or "")
+                if p_act == "rag_note_save":
+                    saved_note = nexus_rag.save_rag_note(
+                        p_tgt or "Companion Note",
+                        p_val or p_tgt,
+                        folder=str(pca.get("folder") or "Knowledge"),
+                        vault_path=str(pca.get("vaultPath") or _CURRENT_TURN_NEXUS_VAULT),
+                    )
+                    msg = (
+                        f"Đã lưu ghi chú tri thức RAG `{saved_note['title']}` vào Nexus (`{saved_note['relPath']}`) và lập chỉ mục FTS5."
+                        if lang == "vi"
+                        else f"Saved RAG knowledge note `{saved_note['title']}` in Nexus (`{saved_note['relPath']}`) and indexed it."
+                    )
+                else:
+                    emitted_actions.append(pca)
+                    label_tgt = p_tgt or p_val
+                    if p_act == "todo_add":
+                        msg = (
+                            f"Đã xác nhận và thêm việc cần làm vào Todo: `{label_tgt}`."
+                            if lang == "vi"
+                            else f"Confirmed and added Todo task: `{label_tgt}`."
+                        )
+                    elif p_act == "quicknote_add":
+                        msg = (
+                            f"Đã xác nhận và lưu ghi chú vào QuickNotes (`{p_tgt or 'Companion Note'}`)."
+                            if lang == "vi"
+                            else f"Confirmed and saved note to QuickNotes (`{p_tgt or 'Companion Note'}`)."
+                        )
+                    else:
+                        msg = (
+                            f"Đã xác nhận và thực thi thao tác `{p_act}`."
+                            if lang == "vi"
+                            else f"Confirmed and executed `{p_act}`."
+                        )
+                res = _format_reply(
+                    msg,
+                    expression="happy",
+                    status="completed",
+                    language=lang,
+                    requires_confirmation=False,
+                    session_ctx=session_ctx,
+                )
+            else:
+                msg = (
+                    "Đã huỷ thao tác ghi đang chờ; dữ liệu Todo, QuickNotes và Nexus được giữ nguyên."
+                    if lang == "vi"
+                    else "Cancelled pending write action; Todo, QuickNotes, and Nexus remain unchanged."
+                )
+                res = _format_reply(msg, expression="idle", status="cancelled", language=lang, session_ctx=session_ctx)
+            u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+            return {
+                "handled": True,
+                "intent": kind,
+                "clientActions": emitted_actions,
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
+
         if session_ctx.get("pendingMemoryForget"):
             mem_target = session_ctx.get("pendingMemoryForget")
             session_ctx["pendingMemoryForget"] = None
@@ -7905,15 +8181,58 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 not raw_clean
                 or re.match(r"^(?:list|sources|status|danh sach|nguon)\b", _fold_ascii(raw_clean))
                 or any(k in folded for k in ("xem nguon rag", "danh sach nguon rag", "list rag sources", "rag sources"))
-            ) and not any(k in folded for k in ("them", "add", "xoa", "remove")):
+            ) and not any(k in folded for k in ("them", "add", "xoa", "remove", "save", "luu")):
                 sources = rag_store.list_sources()
                 active_paths = rag_store.active_source_paths(include_pocket=True)
+                sinfo = rag_store.storage_info()
+                nx_ov = nexus_rag.get_nexus_overview(vault_path=_CURRENT_TURN_NEXUS_VAULT) if sinfo.get("storageMode") == "nexus" else {}
+                nx_note_cnt = int((nx_ov.get("stats") or {}).get("noteCount") or nx_ov.get("indexedNotes") or 0)
                 rows = [f"- `{s['label']}` (`{s['path']}`)" for s in sources] or (["- (chưa có nguồn tuỳ chỉnh; đang dùng tài liệu tích hợp & AquaPocket)"] if lang == "vi" else ["- (no custom sources; using built-in docs & AquaPocket)"])
-                msg = (
-                    f"Nguồn tri thức RAG đang hoạt động ({len(active_paths)} đường dẫn + tài liệu tích hợp):\n" + "\n".join(rows)
-                    if lang == "vi"
-                    else f"Active RAG knowledge sources ({len(active_paths)} path(s) + built-in docs):\n" + "\n".join(rows)
+                storage_note = (
+                    (
+                        f"\n- Lưu trữ Nexus: `{sinfo['ragVaultDir']}` ({nx_note_cnt} ghi chú Vault)\n- Chỉ mục FTS5 ngoài Vault: `{sinfo['ragDbPath']}`"
+                        if lang == "vi"
+                        else f"\n- Nexus Storage: `{sinfo['ragVaultDir']}` ({nx_note_cnt} Vault notes)\n- External FTS5 Index: `{sinfo['ragDbPath']}`"
+                    )
+                    if sinfo.get("storageMode") == "nexus"
+                    else ""
                 )
+                msg = (
+                    f"Nguồn tri thức RAG đang hoạt động ({len(active_paths)} đường dẫn + tài liệu tích hợp):\n" + "\n".join(rows) + storage_note
+                    if lang == "vi"
+                    else f"Active RAG knowledge sources ({len(active_paths)} path(s) + built-in docs):\n" + "\n".join(rows) + storage_note
+                )
+            elif re.match(r"^(?:save|luu)\s+", _fold_ascii(raw_clean)):
+                body_raw = re.sub(r"^(?:save|luu|lưu)\s+", "", raw_clean, flags=re.IGNORECASE).strip()
+                if ":" in body_raw:
+                    t_part, b_part = body_raw.split(":", 1)
+                else:
+                    t_part, b_part = (body_raw[:48] or "Companion Note"), body_raw
+                session_ctx["pendingClientAction"] = {
+                    "action": "rag_note_save",
+                    "target": t_part.strip() or "Companion Note",
+                    "value": b_part.strip() or t_part.strip(),
+                    "folder": "Knowledge",
+                    "vaultPath": _CURRENT_TURN_NEXUS_VAULT,
+                }
+                save_session_context(session_ctx, now_ms=now_ms)
+                finish_run(run_id, status="awaiting_confirmation", now_ms=now_ms)
+                confirm_msg = (
+                    f"Xác nhận lưu ghi chú RAG **`{t_part.strip()}`** vào thư mục Nexus (`90_System/99_RAG/Knowledge/`)? Trả lời **đồng ý** hoặc **huỷ**."
+                    if lang == "vi"
+                    else f"Confirm saving RAG note **`{t_part.strip()}`** to Nexus (`90_System/99_RAG/Knowledge/`)? Reply **confirm** or **cancel**."
+                )
+                res = _format_reply(
+                    confirm_msg,
+                    expression="thinking",
+                    status="awaiting_confirmation",
+                    run_id=run_id,
+                    language=lang,
+                    requires_confirmation=True,
+                    session_ctx=session_ctx,
+                )
+                u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+                return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
             elif re.match(r"^(?:sync|update|refresh|dong bo|cap nhat)\b", _fold_ascii(raw_clean)) or any(k in folded for k in ("dong bo rag", "cap nhat rag", "sync rag", "update rag")):
                 canon = domain_rag.sync_canonical_docs(allow_network=True)
                 pers = domain_rag.sync_personal_context(force=True)
@@ -7965,6 +8284,224 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 "intent": kind,
                 "synthesized": locals().get("rag_synthesized", False),
                 "attachedContextMarkdown": attached_info["contextMarkdown"],
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
+
+        # 14a. Live Alis Local Service Telemetry (Weather, Music, Pomodoro, Todo, QuickNotes, Notifications, ScreenTime, Learning, Fitness)
+        if kind == "alis_local_info":
+            topic = str(intent.get("topic") or "all")
+            step_id = record_step_start(run_id, 1, f"alis_{topic}", side_effect=False, now_ms=now_ms)
+            live_res = alis_local_bridge.format_live_state(_CURRENT_TURN_LIVE_SNAPSHOT, topic=topic, query=prompt, lang=lang)
+            msg = str(live_res.get("markdown") or "")
+            if topic == "system":
+                try:
+                    tel_res = desktop_control.get_system_telemetry()
+                    tel_lines = "\n".join(tel_res.get("lines", [])[:6])
+                    if tel_lines and tel_lines not in msg:
+                        msg = f"{msg}\n\n{tel_lines}"
+                except Exception:
+                    pass
+            record_step_finish(step_id, status="completed", detail=live_res.get("data"))
+            advance_turn(run_id, now_ms=now_ms)
+            finish_run(run_id, status="completed", now_ms=now_ms)
+            res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
+            u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+            return {
+                "handled": True,
+                "intent": kind,
+                "topic": topic,
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
+
+        # 14a2. Smart Alis Service Control (instant playback/toggles/navigation + confirmation-gated writes)
+        if kind == "alis_service_control":
+            act = str(intent.get("action") or "")
+            tgt = str(intent.get("target") or "")
+            val = str(intent.get("value") or "")
+            req_conf = bool(intent.get("requiresConfirmation", False))
+            if req_conf or act in alis_local_bridge.WRITE_CONFIRM_CLIENT_ACTIONS:
+                session_ctx["pendingClientAction"] = {
+                    "action": act,
+                    "target": tgt,
+                    "value": val,
+                    "vaultPath": _CURRENT_TURN_NEXUS_VAULT,
+                }
+                save_session_context(session_ctx, now_ms=now_ms)
+                finish_run(run_id, status="awaiting_confirmation", now_ms=now_ms)
+                desc_tgt = tgt or val
+                if act == "todo_add":
+                    msg = (
+                        f"Xác nhận thêm việc cần làm **`{desc_tgt}`** vào Todo? Trả lời **đồng ý** hoặc **huỷ**."
+                        if lang == "vi"
+                        else f"Confirm adding Todo task **`{desc_tgt}`**? Reply **confirm** or **cancel**."
+                    )
+                elif act == "quicknote_add":
+                    msg = (
+                        f"Xác nhận lưu ghi chú **`{tgt or 'Companion Note'}`** vào QuickNotes? Trả lời **đồng ý** hoặc **huỷ**."
+                        if lang == "vi"
+                        else f"Confirm saving QuickNote **`{tgt or 'Companion Note'}`**? Reply **confirm** or **cancel**."
+                    )
+                else:
+                    msg = (
+                        f"Xác nhận thực thi thao tác `{act}` (`{desc_tgt}`)? Trả lời **đồng ý** hoặc **huỷ**."
+                        if lang == "vi"
+                        else f"Confirm executing `{act}` (`{desc_tgt}`)? Reply **confirm** or **cancel**."
+                    )
+                res = _format_reply(
+                    msg,
+                    expression="thinking",
+                    status="awaiting_confirmation",
+                    run_id=run_id,
+                    language=lang,
+                    requires_confirmation=True,
+                    session_ctx=session_ctx,
+                )
+                u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+                return {
+                    "handled": True,
+                    "intent": kind,
+                    "clientActions": [],
+                    **res,
+                    "userMessageId": u_id,
+                    "assistantMessageId": a_id,
+                    "historySaved": saved,
+                }
+
+            step_id = record_step_start(run_id, 1, f"alis_ctrl_{act}", side_effect=True, now_ms=now_ms)
+            client_act = {"action": act, "target": tgt, "value": val}
+            action_labels_vi = {
+                "weather_refresh": "Đã kích hoạt làm mới dữ liệu Thời tiết & AQI.",
+                "music_toggle": "Đã chuyển trạng thái phát/tạm dừng Local Music.",
+                "music_next": "Đã chuyển sang bài tiếp theo.",
+                "music_prev": "Đã quay lại bài trước đó.",
+                "music_shuffle": "Đã bật/tắt chế độ trộn bài (Shuffle).",
+                "music_stop": "Đã dừng phát nhạc.",
+                "music_play_query": f"Đang tìm và phát bài `{tgt}` trong thư viện Local Music.",
+                "pomodoro_toggle": "Đã bật/tạm dừng bộ đếm Pomodoro.",
+                "pomodoro_start": "Đã bắt đầu phiên tập trung Pomodoro.",
+                "pomodoro_pause": "Đã tạm dừng Pomodoro.",
+                "pomodoro_reset": "Đã đặt lại Pomodoro.",
+                "night_light_set": f"Đã {'bật' if val == 'on' else 'tắt'} Night Light.",
+                "night_light_toggle": "Đã bật/tắt Night Light.",
+                "gamemode_set": f"Đã {'bật' if val == 'on' else 'tắt'} Game Mode.",
+                "gamemode_toggle": "Đã bật/tắt Game Mode.",
+                "dnd_set": f"Đã {'bật' if val == 'on' else 'tắt'} chế độ Không làm phiền (DND).",
+                "dnd_toggle": "Đã bật/tắt chế độ Không làm phiền (DND).",
+                "nexus_open": "Đang mở không gian làm việc Nexus.",
+                "nexus_open_daily": "Đang mở Daily Note hôm nay trong Nexus.",
+            }
+            action_labels_en = {
+                "weather_refresh": "Triggered Alis Weather & AQI refresh.",
+                "music_toggle": "Toggled Local Music playback.",
+                "music_next": "Skipped to the next track.",
+                "music_prev": "Returned to the previous track.",
+                "music_shuffle": "Toggled Local Music shuffle mode.",
+                "music_stop": "Stopped Local Music playback.",
+                "music_play_query": f"Searching Local Music library to play `{tgt}`.",
+                "pomodoro_toggle": "Toggled Pomodoro focus timer.",
+                "pomodoro_start": "Started Pomodoro focus timer.",
+                "pomodoro_pause": "Paused Pomodoro focus timer.",
+                "pomodoro_reset": "Reset Pomodoro focus timer.",
+                "night_light_set": f"Turned Night Light {val}.",
+                "night_light_toggle": "Toggled Night Light.",
+                "gamemode_set": f"Turned Game Mode {val}.",
+                "gamemode_toggle": "Toggled Game Mode.",
+                "dnd_set": f"Turned Do Not Disturb {val}.",
+                "dnd_toggle": "Toggled Do Not Disturb.",
+                "nexus_open": "Opening Nexus workspace.",
+                "nexus_open_daily": "Opening today's Daily Note in Nexus.",
+            }
+            msg = (action_labels_vi if lang == "vi" else action_labels_en).get(act, f"Executed `{act}`.")
+            record_step_finish(step_id, status="completed", detail=client_act)
+            advance_turn(run_id, now_ms=now_ms)
+            finish_run(run_id, status="completed", now_ms=now_ms)
+            res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
+            u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+            return {
+                "handled": True,
+                "intent": kind,
+                "clientActions": [client_act],
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
+
+        # 14a3. Unified Nexus Vault Knowledge & Collection Retrieval
+        if kind == "nexus_knowledge":
+            sub_k = str(intent.get("subkind") or "search").strip().lower()
+            q_nx = str(intent.get("query") or prompt).strip()
+            v_override = _CURRENT_TURN_NEXUS_VAULT
+            if sub_k == "save_rag_note":
+                if ":" in q_nx:
+                    t_part, b_part = q_nx.split(":", 1)
+                else:
+                    t_part, b_part = (q_nx[:48] or "Companion Note"), q_nx
+                session_ctx["pendingClientAction"] = {
+                    "action": "rag_note_save",
+                    "target": t_part.strip() or "Companion Note",
+                    "value": b_part.strip() or t_part.strip(),
+                    "folder": "Knowledge",
+                    "vaultPath": v_override,
+                }
+                save_session_context(session_ctx, now_ms=now_ms)
+                finish_run(run_id, status="awaiting_confirmation", now_ms=now_ms)
+                msg = (
+                    f"Xác nhận lưu ghi chú **`{t_part.strip()}`** vào thư mục RAG trong Nexus (`90_System/99_RAG/Knowledge/`)? Trả lời **đồng ý** hoặc **huỷ**."
+                    if lang == "vi"
+                    else f"Confirm saving note **`{t_part.strip()}`** into Nexus RAG (`90_System/99_RAG/Knowledge/`)? Reply **confirm** or **cancel**."
+                )
+                res = _format_reply(
+                    msg,
+                    expression="thinking",
+                    status="awaiting_confirmation",
+                    run_id=run_id,
+                    language=lang,
+                    requires_confirmation=True,
+                    session_ctx=session_ctx,
+                )
+                u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+                return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+
+            step_id = record_step_start(run_id, 1, f"nexus_{sub_k}", side_effect=False, now_ms=now_ms)
+            nx_synth = False
+            if sub_k == "read":
+                try:
+                    note_d = nexus_rag.read_nexus_note(q_nx, vault_path=v_override)
+                    msg = alis_local_bridge.format_nexus_reply("read", note_d, query=q_nx, lang=lang)
+                except NexusRagError as exc:
+                    msg = str(exc.message)
+                nx_detail = {"subkind": sub_k}
+            elif sub_k in ("overview", "journal", "finance", "collections"):
+                ov = nexus_rag.get_nexus_overview(vault_path=v_override, topic=sub_k)
+                msg = alis_local_bridge.format_nexus_reply(sub_k, ov, query=q_nx, lang=lang)
+                nx_detail = ov.get("stats")
+            else:
+                nx_res = nexus_rag.search_nexus_knowledge(q_nx, vault_path=v_override, top_k=5, token_budget=900)
+                raw_md = alis_local_bridge.format_nexus_reply("search", nx_res, query=q_nx, lang=lang)
+                msg = raw_md
+                if options.get("synthesizeWithLlm") is True and (nx_res.get("snippets") or nx_res.get("matchedCollections")):
+                    obs_txt = "\n".join(nx_res.get("snippets") or [])
+                    synth = _synthesize_observations_with_llm(prompt, obs_txt, lang, options)
+                    if synth:
+                        msg = f"{synth}\n\n{raw_md}"
+                        nx_synth = True
+                nx_detail = {"matches": len(nx_res.get("citations") or []), "indexedNotes": nx_res.get("indexedNotes", 0)}
+            record_step_finish(step_id, status="completed", detail=nx_detail)
+            advance_turn(run_id, now_ms=now_ms)
+            finish_run(run_id, status="completed", now_ms=now_ms)
+            res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
+            u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+            return {
+                "handled": True,
+                "intent": kind,
+                "synthesized": nx_synth,
                 **res,
                 "userMessageId": u_id,
                 "assistantMessageId": a_id,
@@ -8689,11 +9226,15 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 record_step_finish(step_id, status="completed", detail=tel_res)
                 advance_turn(run_id, now_ms=now_ms)
                 body = "\n".join(tel_res.get("lines", []))
+                live_sys = alis_local_bridge.format_live_state(_CURRENT_TURN_LIVE_SNAPSHOT, topic="system", query=prompt, lang=lang)
+                extra_sys = str(live_sys.get("markdown") or "").strip() if _CURRENT_TURN_LIVE_SNAPSHOT else ""
                 msg = (
                     f"Trạng thái hệ thống hiện tại ({tel_res['summary']}):\n{body}"
                     if lang == "vi"
                     else f"System telemetry ({tel_res['summary']}):\n{body}"
                 )
+                if extra_sys:
+                    msg += f"\n\n{extra_sys}"
             finish_run(run_id, status="completed", now_ms=now_ms)
             res = _format_reply(msg, expression="working", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)

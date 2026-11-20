@@ -1730,18 +1730,20 @@ def pocket_save_action(payload):
 
 def rag_action(payload):
     import code_tools
+    import nexus_rag
     import rag_store
     companion_root=Path(__file__).resolve().parents[2]
     op=str(payload.get('op') or 'list').strip()
+    explicit_vault=str(payload.get('vaultPath') or '').strip()
     try:
         if op=='list':
-            return {'op':'list','sources':rag_store.list_sources()}
+            return {'op':'list','sources':rag_store.list_sources(),'storageInfo':rag_store.storage_info()}
         if op=='add':
             added=rag_store.add_source(payload.get('path',''),label=payload.get('label',''),now_ms=payload.get('nowMs'))
-            return {'op':'add','source':added,'sources':rag_store.list_sources()}
+            return {'op':'add','source':added,'sources':rag_store.list_sources(),'storageInfo':rag_store.storage_info()}
         if op=='remove':
             removed=rag_store.remove_source(payload.get('path',''))
-            return {'op':'remove','removed':removed,'sources':rag_store.list_sources()}
+            return {'op':'remove','removed':removed,'sources':rag_store.list_sources(),'storageInfo':rag_store.storage_info()}
         if op=='query':
             res=code_tools.retrieve_rag(
                 payload.get('query',''),
@@ -1752,7 +1754,26 @@ def rag_action(payload):
                 page_size=int(payload.get('pageSize') or 3),
             )
             return {'op':'query',**res}
-    except (rag_store.RagStoreError,code_tools.CodeToolError) as exc:
+        if op=='nexus_status':
+            mig=nexus_rag.migrate_legacy_rag_to_nexus(explicit_vault)
+            ov=nexus_rag.get_nexus_overview(vault_path=explicit_vault)
+            return {'op':'nexus_status','migration':mig,'storageInfo':rag_store.storage_info(),**ov}
+        if op=='reindex_nexus':
+            mig=nexus_rag.migrate_legacy_rag_to_nexus(explicit_vault)
+            sync_res=nexus_rag.sync_nexus_vault_index(explicit_vault,force=True)
+            return {'op':'reindex_nexus','migration':mig,'storageInfo':rag_store.storage_info(),**sync_res}
+        if op=='save_note':
+            if payload.get('confirmed') is not True:
+                raise MindError('explicit_consent_required','Confirm before saving a RAG knowledge note to Nexus.')
+            saved=nexus_rag.save_rag_note(
+                str(payload.get('title') or ''),
+                str(payload.get('content') or ''),
+                folder=str(payload.get('folder') or 'Knowledge'),
+                tags=payload.get('tags') if isinstance(payload.get('tags'),list) else None,
+                vault_path=explicit_vault,
+            )
+            return {'op':'save_note',**saved}
+    except (rag_store.RagStoreError,code_tools.CodeToolError,nexus_rag.NexusRagError) as exc:
         raise MindError(exc.code,str(exc)) from exc
     raise MindError('invalid_rag_op','Unsupported RAG operation')
 
@@ -1914,6 +1935,7 @@ def agent_action(action, payload):
             }
         if action=='agent_status':
             import mcp_client
+            import nexus_rag
             import rag_store
             import skill_store
             if payload.get('screenshotRetentionDays') is not None:
@@ -1934,7 +1956,10 @@ def agent_action(action, payload):
             builtin_skills_dir=(companion_root / 'scripts/aqua/skills').resolve(strict=False)
             mcp_cfg=mcp_client._config_mcp_file()
             mcp_st=mcp_client._state_file()
-            rag_st=rag_store._state_file()
+            nexus_rag.migrate_legacy_rag_to_nexus()
+            rag_info=rag_store.storage_info()
+            rag_st=Path(rag_info['ragSourcesPath'])
+            nx_ov=nexus_rag.get_nexus_overview() if rag_info['storageMode']=='nexus' else {}
             rstate=rule_store.load_rules_state(payload.get('nowMs'))
             import swarm_store
             return {
@@ -1959,6 +1984,11 @@ def agent_action(action, payload):
                     'mcpStatePath':str(mcp_st),
                     'ragStateDir':str(rag_st.parent),
                     'ragStatePath':str(rag_st),
+                    'ragStorageMode':rag_info['storageMode'],
+                    'nexusVaultPath':rag_info['nexusVaultPath'],
+                    'ragVaultDir':rag_info['ragVaultDir'],
+                    'ragIndexDbPath':rag_info['ragDbPath'],
+                    'nexusNoteCount':int((nx_ov.get('stats') or {}).get('noteCount') or nx_ov.get('indexedNotes') or 0),
                     'stateDir':str(user_skills_dir.parent),
                     'screenshotsDir':str(screen_context._screenshots_dir()),
                 },

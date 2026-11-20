@@ -16,7 +16,21 @@ class RagStoreError(Exception):
         self.message = str(message)
 
 
+def _nexus_rag():
+    try:
+        import nexus_rag
+        return nexus_rag
+    except Exception:
+        return None
+
+
 def _state_file() -> Path:
+    nr = _nexus_rag()
+    if nr is not None:
+        rag_dir = nr.resolve_rag_vault_dir()
+        if rag_dir is not None:
+            nr.migrate_legacy_rag_to_nexus()
+            return rag_dir / "RAG_Sources.md"
     base = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
     folder = (base / "alis-companion").resolve()
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -34,6 +48,10 @@ def load_rag_state() -> dict:
     if not path.is_file():
         return {"version": 1, "sources": []}
     try:
+        if path.suffix.lower() == ".md":
+            nr = _nexus_rag()
+            if nr is not None:
+                return {"version": 1, "sources": nr.parse_rag_sources_markdown(path.read_text(encoding="utf-8", errors="replace"))}
         raw = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError()
@@ -56,17 +74,29 @@ def load_rag_state() -> dict:
 
 def save_rag_state(state: dict) -> None:
     path = _state_file()
-    payload = json.dumps(
-        {"version": 1, "sources": state.get("sources", [])[:64]},
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    fd, tmp_name = tempfile.mkstemp(prefix=".rag-sources-", dir=str(path.parent))
+    clean_sources = state.get("sources", [])[:64]
+    if path.suffix.lower() == ".md":
+        nr = _nexus_rag()
+        if nr is not None:
+            vault = nr.resolve_nexus_vault_path()
+            payload_bytes = nr.render_rag_sources_markdown(clean_sources, str(vault or "")).encode("utf-8")
+            file_mode = 0o644
+        else:
+            raise RagStoreError("rag_store_unavailable", "Nexus RAG helper unavailable.")
+    else:
+        payload_bytes = json.dumps(
+            {"version": 1, "sources": clean_sources},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        file_mode = 0o600
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}-", dir=str(path.parent))
     tmp = Path(tmp_name)
     try:
-        os.fchmod(fd, 0o600)
+        os.fchmod(fd, file_mode)
         with os.fdopen(fd, "wb") as handle:
-            handle.write(payload)
+            handle.write(payload_bytes)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp, path)
@@ -124,6 +154,13 @@ def active_source_paths(extra_dirs: list[str] | None = None, include_pocket: boo
     for s in list_sources():
         if s.get("enabled") is not False and s.get("path") and s["path"] not in seen:
             seen.append(s["path"])
+    nr = _nexus_rag()
+    if nr is not None:
+        rag_dir = nr.resolve_rag_vault_dir()
+        if rag_dir is not None:
+            k_dir = rag_dir / "Knowledge"
+            if k_dir.is_dir() and str(k_dir) not in seen:
+                seen.append(str(k_dir))
     if include_pocket:
         try:
             import pocket as pocket_store
@@ -748,10 +785,27 @@ def extract_document_markdown(path: Path | str, max_chars: int = 120000) -> str:
 
 
 def _rag_db_path() -> Path:
+    nr = _nexus_rag()
+    if nr is not None:
+        return nr.external_rag_db_path()
     base = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
     folder = (base / "alis-companion").resolve()
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     return folder / "rag_index.db"
+
+
+def storage_info() -> dict:
+    nr = _nexus_rag()
+    vault = nr.resolve_nexus_vault_path() if nr is not None else None
+    rag_dir = nr.resolve_rag_vault_dir() if nr is not None else None
+    sources_path = _state_file()
+    return {
+        "storageMode": "nexus" if rag_dir is not None else "standalone",
+        "nexusVaultPath": str(vault or ""),
+        "ragVaultDir": str(rag_dir or ""),
+        "ragSourcesPath": str(sources_path),
+        "ragDbPath": str(_rag_db_path()),
+    }
 
 
 _LAST_INDEX_SIGNATURE: tuple | None = None
