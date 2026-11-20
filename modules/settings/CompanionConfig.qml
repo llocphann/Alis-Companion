@@ -286,6 +286,23 @@ ContentPage {
         }
     }
 
+    component ToggleGrid: GridLayout {
+        Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        readonly property real effectiveWidth: width > 0 ? Math.min(width, root.availableRowWidth) : root.availableRowWidth
+        // The caption, icon and switch must fit together in each equal column.
+        readonly property real widestToggle: {
+            let widest = 0;
+            for (const control of children)
+                widest = Math.max(widest, control.naturalWidth ?? 0);
+            return widest;
+        }
+        columns: effectiveWidth >= 2 * widestToggle + columnSpacing ? 2 : 1
+        uniformCellWidths: columns > 1
+        columnSpacing: 10
+        rowSpacing: 8
+    }
+
     component CompactIconButton: RippleButton {
         id: iconBtn
         property string iconName: ""
@@ -450,8 +467,9 @@ ContentPage {
         StyledSlider {
             id: percentageSlider
             objectName: percentage.objectName + "Control"
-            Layout.fillWidth: true
-            Layout.minimumWidth: 64 * Appearance.fontSizeScale
+            Layout.fillWidth: !isVertical && customLength <= 0
+            Layout.minimumWidth: isVertical ? implicitWidth : 64 * Appearance.fontSizeScale
+            Layout.maximumWidth: isVertical || customLength > 0 ? implicitWidth : Math.round(480 * Appearance.fontSizeScale)
             Layout.alignment: Qt.AlignVCenter
             configuration: StyledSlider.Configuration.S
             from: percentage.minimum
@@ -496,7 +514,7 @@ ContentPage {
         objectName: "companionUnifiedOverviewGrid"
         Layout.fillWidth: true
         visible: true
-        columns: root.isOverviewTab && width >= 620 ? 2 : 1
+        columns: root.isOverviewTab && width >= 980 * Appearance.fontSizeScale ? 2 : 1
         uniformCellWidths: columns === 2
         columnSpacing: 12
         rowSpacing: 12
@@ -651,14 +669,8 @@ ContentPage {
                         currentValue: root.preferences.character
                         onSelected: value => root.setPreference("character", value)
                     }
-                    GridLayout {
+                    ToggleGrid {
                         objectName: "companionOverviewTogglesGrid"
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        columns: overviewCard.width >= 460 ? 2 : 1
-                        uniformCellWidths: columns > 1
-                        columnSpacing: 10
-                        rowSpacing: 8
                         CompactToggle {
                             objectName: "companionEnabled"
                             buttonIcon: "visibility"
@@ -850,13 +862,7 @@ ContentPage {
 
                     SettingsDivider {}
 
-                    GridLayout {
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        columns: placementCard.width >= 440 ? 2 : 1
-                        uniformCellWidths: columns > 1
-                        columnSpacing: 10
-                        rowSpacing: 8
+                    ToggleGrid {
 
                         CompactToggle {
                             objectName: "companionPocketShelf"
@@ -948,15 +954,9 @@ ContentPage {
 
                     SettingsDivider {}
 
-                    GridLayout {
+                    ToggleGrid {
                         id: companionBehaviorTogglesGrid
                         objectName: "companionBehaviorTogglesGrid"
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        columns: behaviorCard.width >= 440 ? 2 : 1
-                        uniformCellWidths: columns > 1
-                        columnSpacing: 10
-                        rowSpacing: 8
                         CompactToggle {
                             objectName: "companionMotion"
                             buttonIcon: "animation"
@@ -1045,7 +1045,7 @@ ContentPage {
                         Layout.fillWidth: true
                         Layout.preferredWidth: 1
                         Layout.minimumWidth: 0
-                        columns: root.availableRowWidth > 520 ? 2 : 1
+                        columns: Math.min(width > 0 ? width : root.availableRowWidth, root.availableRowWidth) >= 2 * Math.max(proactiveToggle.naturalWidth, 310 * Appearance.fontSizeScale) + columnSpacing ? 2 : 1
                         uniformCellWidths: columns === 2
                         columnSpacing: 12
                         rowSpacing: 8
@@ -1057,6 +1057,7 @@ ContentPage {
                             Layout.alignment: Qt.AlignTop
                             spacing: 6
                             CompactToggle {
+                                id: proactiveToggle
                                 objectName: "aquaEnableProactive"
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
@@ -1070,8 +1071,10 @@ ContentPage {
                             InlineChoice {
                                 objectName: "aquaProactiveFrequency"
                                 Layout.fillWidth: true
+                                Layout.maximumWidth: 350 * Appearance.fontSizeScale
+                                Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
                                 label: Translation.tr("Frequency")
-                                comboMinWidth: 140
+                                comboMinWidth: 204
                                 description: Translation.tr("Check-ins and reminders")
                                 options: [
                                     {
@@ -1100,13 +1103,16 @@ ContentPage {
                             }
                         }
 
-                        ColumnLayout {
+                        GridLayout {
                             Layout.fillWidth: true
                             Layout.preferredWidth: 1
                             Layout.minimumWidth: 0
                             Layout.alignment: Qt.AlignTop
-                            spacing: 6
+                            columns: Math.min(width > 0 ? width : root.availableRowWidth, root.availableRowWidth) >= quietToggle.naturalWidth + 332 * Appearance.fontSizeScale ? 2 : 1
+                            columnSpacing: 12
+                            rowSpacing: 6
                             CompactToggle {
+                                id: quietToggle
                                 objectName: "aquaQuietHoursToggle"
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
@@ -1116,14 +1122,20 @@ ContentPage {
                                 checked: AquaMind.options.proactiveQuietEnabled !== false
                                 onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.proactiveQuietEnabled", checked)
                             }
-                            Flow {
+                            GridLayout {
                                 Layout.fillWidth: true
-                                spacing: 8
+                                Layout.minimumWidth: 0
+                                Layout.maximumWidth: 320 * Appearance.fontSizeScale
+                                Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
+                                columns: Math.min(width > 0 ? width : root.availableRowWidth, root.availableRowWidth) >= 300 * Appearance.fontSizeScale ? 2 : 1
+                                uniformCellWidths: columns > 1
+                                columnSpacing: 12
+                                rowSpacing: 6
                                 InlineChoice {
                                     objectName: "aquaQuietHoursStart"
-                                    Layout.fillWidth: false
+                                    Layout.fillWidth: true
                                     label: "Start"
-                                    comboMinWidth: 78
+                                    comboMinWidth: 104
                                     options: [
                                         { displayName: "20:00", value: 1200 },
                                         { displayName: "22:00", value: 1320 },
@@ -1134,9 +1146,9 @@ ContentPage {
                                 }
                                 InlineChoice {
                                     objectName: "aquaQuietHoursEnd"
-                                    Layout.fillWidth: false
+                                    Layout.fillWidth: true
                                     label: "End"
-                                    comboMinWidth: 78
+                                    comboMinWidth: 104
                                     options: [
                                         { displayName: "06:00", value: 360 },
                                         { displayName: "08:00", value: 480 },
@@ -1151,15 +1163,8 @@ ContentPage {
 
                     SettingsDivider {}
 
-                    GridLayout {
+                    ToggleGrid {
                         objectName: "aquaReminderSourcesGrid"
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        Layout.minimumWidth: 0
-                        columns: root.availableRowWidth > 520 ? 2 : 1
-                        uniformCellWidths: columns > 1
-                        columnSpacing: 10
-                        rowSpacing: 8
 
                         CompactToggle {
                             objectName: "aquaPlannerReminders"
@@ -1218,7 +1223,7 @@ ContentPage {
                         Layout.fillWidth: true
                         Layout.preferredWidth: 1
                         Layout.minimumWidth: 0
-                        columns: root.availableRowWidth > 520 ? 2 : 1
+                        columns: Math.min(width > 0 ? width : root.availableRowWidth, root.availableRowWidth) >= 360 * Appearance.fontSizeScale ? 2 : 1
                         uniformCellWidths: columns === 2
                         columnSpacing: 12
                         rowSpacing: 8
@@ -1328,13 +1333,7 @@ ContentPage {
 
                     SettingsDivider {}
 
-                    GridLayout {
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        columns: dialoguePrivacyCard.width >= 440 ? 2 : 1
-                        uniformCellWidths: columns > 1
-                        columnSpacing: 10
-                        rowSpacing: 8
+                    ToggleGrid {
 
                         CompactToggle {
                             objectName: "companionWindowContext"
