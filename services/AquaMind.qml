@@ -1515,6 +1515,7 @@ Singleton {
             action: "voice_action",
             op: "tts",
             text: clean,
+            voice: "en-US-AvaMultilingualNeural",
             contextPrompt: ctxPrompt,
             language: "auto"
         };
@@ -6021,6 +6022,7 @@ Singleton {
                 root.editorPopupOpen = false;
             }
             const replyText = String(res.text ?? "").slice(0, 5800);
+            const spokenReplyText = String(res.spokenText || res.voiceReply?.spokenText || replyText).slice(0, 2400);
             const replyImgs = root.extractReplyImages(replyText, res.images);
             root.toolNotice = replyText.split("\n")[0].slice(0, 140);
             const isVoiceTurn = Boolean(agentTurnWorker.requestPayload?.fromVoice || res.voiceReply?.spoken === true || root.activeTurnFromVoice);
@@ -6035,7 +6037,7 @@ Singleton {
                 root.lastVoiceReplyMeta = (res.voiceReply && typeof res.voiceReply === "object") ? res.voiceReply : {
                     spoken: true,
                     transcriptAfterVoice: true,
-                    spokenText: replyText.slice(0, 600)
+                    spokenText: spokenReplyText.slice(0, 620)
                 };
             } else {
                 root.voiceReplySpeaking = false;
@@ -6070,10 +6072,10 @@ Singleton {
             const shouldSpeak = Boolean((isVoiceTurn || root.voiceTtsEnabled) && replyText);
             if (shouldSpeak) {
                 if (res.voiceReply?.spoken === true) {
-                    root.lastSpokenText = String(res.voiceReply.spokenText || replyText).slice(0, 600);
+                    root.lastSpokenText = String(res.voiceReply.spokenText || spokenReplyText).slice(0, 620);
                     root.ttsSpeaking = true;
                 } else {
-                    root.speakText(replyText, true, String(agentTurnWorker.requestPayload?.prompt ?? root.lastUserPrompt ?? ""));
+                    root.speakText(spokenReplyText, true, String(agentTurnWorker.requestPayload?.prompt ?? root.lastUserPrompt ?? ""));
                 }
                 if (isVoiceTurn)
                     voiceTranscriptRevealTimer.restart();

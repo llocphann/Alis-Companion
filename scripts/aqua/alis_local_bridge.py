@@ -484,32 +484,214 @@ def _format_system(sys_d: dict, desk: dict, lang: str) -> tuple[str, dict]:
     return "\n".join(lines), sys_d
 
 
+def _spoken_num_deg(val: str, deg_word: str) -> str:
+    s = str(val or "").strip()
+    m = re.match(r"^(-?\d+(?:\.\d+)?)\s*°?C?$", s, re.IGNORECASE)
+    return f"{m.group(1)} {deg_word}" if m else s
+
+
+def _spoken_weather(w: dict, query: str, lang: str) -> str:
+    if not isinstance(w, dict) or (not w.get("temp") and not w.get("city") and w.get("enabled") is False):
+        return (
+            "Dịch vụ Thời tiết của Alis hiện chưa bật hoặc chưa có dữ liệu."
+            if lang == "vi"
+            else "Alis Weather is currently disabled or has no data yet."
+        )
+    city = str(w.get("visibleCity") or w.get("city") or "").strip()
+    if city.lower() in ("", "city", "unknown"):
+        city = "khu vực hiện tại" if lang == "vi" else "your location"
+    else:
+        city = re.sub(r",\s*(?:Vietnam|Viet Nam)$", "", city, flags=re.IGNORECASE).strip()
+    temp = str(w.get("temp") or "").strip()
+    feels = str(w.get("tempFeelsLike") or "").strip()
+    desc = str(w.get("description") or "").strip()
+    hum = str(w.get("humidity") or "").strip().replace("%", " percent" if lang != "vi" else " phần trăm")
+    wind = str(w.get("wind") or "").strip()
+    wind = re.sub(r"\bkm/h\b", "kilômét trên giờ" if lang == "vi" else "kilometers per hour", wind, flags=re.IGNORECASE)
+    aq = w.get("airQuality") if isinstance(w.get("airQuality"), dict) else {}
+    forecast = w.get("forecast") if isinstance(w.get("forecast"), list) else []
+    wants_forecast = any(k in _fold_ascii(query) for k in ("ngay mai", "tuan", "du bao", "forecast", "tomorrow", "week"))
+
+    deg = "độ" if lang == "vi" else "degrees"
+    t_sp = _spoken_num_deg(temp, deg)
+    f_sp = _spoken_num_deg(feels, deg)
+    if lang == "vi":
+        parts = [f"Tại {city} hiện đang {t_sp}"]
+        if feels and feels != temp:
+            parts[0] += f", cảm giác như {f_sp}"
+        if desc:
+            parts[0] += f" và {desc.lower()}"
+        parts[0] += "."
+        extras = []
+        if hum:
+            extras.append(f"độ ẩm {hum}")
+        if wind:
+            extras.append(f"gió {wind}")
+        if aq.get("available") and aq.get("label"):
+            extras.append(f"chất lượng không khí ở mức {str(aq['label']).lower()}")
+        if extras:
+            parts.append(", ".join(extras).capitalize() + ".")
+        if wants_forecast and forecast and isinstance(forecast[0], dict):
+            f0 = forecast[0]
+            parts.append(
+                f"Dự báo ngày {f0.get('dayName', 'tới')} dao động từ {_spoken_num_deg(f0.get('lo', ''), deg)} đến {_spoken_num_deg(f0.get('hi', ''), deg)}."
+            )
+        return " ".join(parts)
+
+    parts = [f"Current weather in {city} is {t_sp}"]
+    if feels and feels != temp:
+        parts[0] += f", feeling like {f_sp}"
+    if desc:
+        parts[0] += f", with {desc.lower()}"
+    parts[0] += "."
+    extras = []
+    if hum:
+        extras.append(f"humidity is {hum}")
+    if wind:
+        extras.append(f"wind is {wind}")
+    if aq.get("available") and aq.get("label"):
+        extras.append(f"air quality is {str(aq['label']).lower()}")
+    if extras:
+        sentence = ", ".join(extras)
+        parts.append(sentence[0].upper() + sentence[1:] + ".")
+    if wants_forecast and forecast and isinstance(forecast[0], dict):
+        f0 = forecast[0]
+        parts.append(
+            f"For {f0.get('dayName', 'next day')}, expect {_spoken_num_deg(f0.get('lo', ''), deg)} to {_spoken_num_deg(f0.get('hi', ''), deg)}."
+        )
+    return " ".join(parts)
+
+
+def _spoken_music(m: dict, lang: str) -> str:
+    if not isinstance(m, dict):
+        return "Chưa đọc được trạng thái nhạc trên máy." if lang == "vi" else "Music status is unavailable."
+    title = str(m.get("currentTitle") or m.get("mprisTitle") or "").strip()
+    artist = str(m.get("currentArtist") or m.get("mprisArtist") or "").strip()
+    playing = bool(m.get("playing"))
+    if not title:
+        return "Hiện không có bài hát nào đang phát." if lang == "vi" else "No music is playing right now."
+    by = (f" của {artist}" if lang == "vi" else f" by {artist}") if artist else ""
+    if lang == "vi":
+        return f"{'Đang phát' if playing else 'Đang tạm dừng'} bài {title}{by}."
+    return f"{'Now playing' if playing else 'Paused'} {title}{by}."
+
+
+def _spoken_timers(t: dict, lang: str) -> str:
+    if not isinstance(t, dict):
+        return "Chưa có dữ liệu Pomodoro." if lang == "vi" else "Timer data is unavailable."
+    running = bool(t.get("pomodoroRunning"))
+    paused = bool(t.get("pomodoroPaused"))
+    left = _fmt_duration_sec(t.get("pomodoroSecondsLeft") or 0)
+    today_focus = _fmt_duration_sec(t.get("todayFocusSeconds") or 0)
+    if lang == "vi":
+        if running or paused:
+            return f"Pomodoro đang {'chạy' if running else 'tạm dừng'}, còn lại {left}. Hôm nay bạn đã tập trung {today_focus}."
+        return f"Pomodoro đang nghỉ. Hôm nay bạn đã tập trung {today_focus}."
+    if running or paused:
+        return f"Pomodoro is {'running' if running else 'paused'} with {left} left. You've focused for {today_focus} today."
+    return f"Pomodoro is idle. You've focused for {today_focus} today."
+
+
+def _spoken_todos(td: dict, lang: str) -> str:
+    if not isinstance(td, dict):
+        return "Chưa đọc được danh sách Todo." if lang == "vi" else "Todo list is unavailable."
+    items = td.get("items") if isinstance(td.get("items"), list) else []
+    open_cnt = int(td.get("openCount") or 0)
+    done_cnt = int(td.get("doneCount") or 0)
+    open_names = [str(it.get("content") or "").strip() for it in items if isinstance(it, dict) and not it.get("done")][:3]
+    open_names = [n for n in open_names if n]
+    if open_cnt == 0:
+        return (
+            f"Bạn không còn việc nào đang mở, đã hoàn thành {done_cnt} việc."
+            if lang == "vi"
+            else f"You have no open tasks left, with {done_cnt} completed."
+        )
+    sample = ", ".join(open_names)
+    if lang == "vi":
+        return f"Bạn có {open_cnt} việc đang mở" + (f", gồm: {sample}." if sample else ".")
+    return f"You have {open_cnt} open task" + ("s" if open_cnt != 1 else "") + (f", including {sample}." if sample else ".")
+
+
+def _spoken_schedule(sched: dict, nx: dict, lang: str) -> str:
+    today_evs = (sched.get("todayEvents") or []) if isinstance(sched, dict) else []
+    nx_rows = ((nx.get("dailySchedule") or {}).get("scheduleRows") or []) if isinstance(nx, dict) else []
+    titles = []
+    for ev in today_evs[:3]:
+        if isinstance(ev, dict) and ev.get("title"):
+            titles.append(f"{ev.get('timeStr', '')} {ev['title']}".strip())
+    for r in nx_rows[:3]:
+        if isinstance(r, dict):
+            lbl = str(r.get("title") or r.get("name") or r.get("raw") or "").strip()
+            tm = str(r.get("time") or r.get("start") or "").strip()
+            if lbl:
+                titles.append(f"{tm} {lbl}".strip() if tm and tm not in lbl else lbl)
+    if not titles:
+        return "Hôm nay bạn chưa có sự kiện nào trên lịch." if lang == "vi" else "You have no events scheduled today."
+    joined = ", ".join(titles[:3])
+    return (f"Lịch hôm nay có: {joined}." if lang == "vi" else f"On today's schedule: {joined}.")
+
+
+def _spoken_system(sys_d: dict, desk: dict, lang: str) -> str:
+    if not isinstance(sys_d, dict) or not sys_d:
+        return "Chưa đọc được thông số hệ thống." if lang == "vi" else "System status is unavailable."
+    cpu_p = sys_d.get("cpuPercent")
+    cpu_val = round(float(cpu_p or 0) * 100, 0) if float(cpu_p or 0) <= 1.0 else round(float(cpu_p or 0), 0)
+    mem_u = sys_d.get("memUsedGb")
+    mem_tot = sys_d.get("memTotalGb")
+    bat_p = sys_d.get("batteryPercent")
+    if lang == "vi":
+        parts = [f"CPU đang ở mức {int(cpu_val)} phần trăm"]
+        if mem_tot:
+            parts.append(f"RAM dùng {mem_u} trên {mem_tot} gigabyte")
+        if sys_d.get("batteryAvailable") and bat_p is not None:
+            parts.append(f"pin {bat_p} phần trăm")
+        return ", ".join(parts) + "."
+    parts = [f"CPU usage is {int(cpu_val)} percent"]
+    if mem_tot:
+        parts.append(f"memory is {mem_u} of {mem_tot} gigabytes")
+    if sys_d.get("batteryAvailable") and bat_p is not None:
+        parts.append(f"battery is at {bat_p} percent")
+    return ", ".join(parts) + "."
+
+
 def format_live_state(snapshot: dict | None, topic: str = "all", query: str = "", lang: str = "vi") -> dict:
-    """Format live Alis + Integration + Nexus state cleanly for direct reply or LLM synthesis."""
+    """Format live Alis + Integration + Nexus state cleanly for visual display and natural spoken delivery."""
     snap = snapshot if isinstance(snapshot, dict) and snapshot else load_live_snapshot()
     t = str(topic or "all").strip().lower()
+    spoken = ""
     if t == "weather":
         md, data = _format_weather(snap.get("weather") or {}, query, lang)
+        spoken = _spoken_weather(snap.get("weather") or {}, query, lang)
     elif t == "music":
         md, data = _format_music(snap.get("music") or {}, lang)
+        spoken = _spoken_music(snap.get("music") or {}, lang)
     elif t == "timers":
         md, data = _format_timers(snap.get("timers") or {}, lang)
+        spoken = _spoken_timers(snap.get("timers") or {}, lang)
     elif t == "todos":
         md, data = _format_todos(snap.get("todos") or {}, lang)
+        spoken = _spoken_todos(snap.get("todos") or {}, lang)
     elif t == "schedule":
         md, data = _format_schedule(snap.get("schedule") or {}, snap.get("nexus") or {}, lang)
+        spoken = _spoken_schedule(snap.get("schedule") or {}, snap.get("nexus") or {}, lang)
     elif t == "quicknotes":
         md, data = _format_quicknotes(snap.get("quicknotes") or {}, lang)
+        spoken = md
     elif t == "notifications":
         md, data = _format_notifications(snap.get("notifications") or {}, lang)
+        spoken = md
     elif t == "screentime":
         md, data = _format_screentime(snap.get("screentime") or {}, lang)
+        spoken = md
     elif t == "learning":
         md, data = _format_learning(snap.get("learning") or {}, lang)
+        spoken = md
     elif t == "fitness":
         md, data = _format_fitness(snap.get("fitness") or {}, snap.get("nexus") or {}, lang)
+        spoken = md
     elif t in ("system", "desktop"):
         md, data = _format_system(snap.get("system") or {}, snap.get("desktop") or {}, lang)
+        spoken = _spoken_system(snap.get("system") or {}, snap.get("desktop") or {}, lang)
     else:
         sections = [
             _format_weather(snap.get("weather") or {}, query, lang)[0],
@@ -519,8 +701,14 @@ def format_live_state(snapshot: dict | None, topic: str = "all", query: str = ""
             _format_system(snap.get("system") or {}, snap.get("desktop") or {}, lang)[0],
         ]
         md = "\n\n".join(s for s in sections if s)
+        spoken = " ".join([
+            _spoken_weather(snap.get("weather") or {}, query, lang),
+            _spoken_music(snap.get("music") or {}, lang),
+            _spoken_timers(snap.get("timers") or {}, lang),
+            _spoken_todos(snap.get("todos") or {}, lang),
+        ])
         data = {"topics": ["weather", "music", "timers", "todos", "system"]}
-    return {"topic": t, "markdown": md, "data": data}
+    return {"topic": t, "markdown": md, "spoken": spoken or md, "data": data}
 
 
 def format_nexus_reply(action: str, data: dict, query: str = "", lang: str = "vi") -> str:
@@ -851,3 +1039,149 @@ def detect_alis_local_intent(prompt: str) -> dict | None:
         return {"kind": "alis_local_info", "topic": "system"}
 
     return None
+
+
+def detect_all_alis_local_intents(prompt: str) -> list[dict]:
+    """Detect all non-slash Alis local service/control/Nexus intents in prompt order for compound orchestration."""
+    raw = str(prompt or "").strip()
+    if not raw:
+        return []
+    if raw.startswith("/"):
+        single = detect_alis_local_intent(raw)
+        return [dict(single, pos=0)] if isinstance(single, dict) else []
+
+    folded = _fold_ascii(raw)
+    has_code_ext = bool(re.search(r"\b[a-z0-9_.\-]+\.(?:qml|py|js|rs|ts|json|kdl|frag|service|sh)\b", folded))
+    has_explicit_nexus_scope = bool(
+        re.search(r"(?:trong\s+(?:nexus|obsidian|vault|ghi chu cua toi)|cua nexus|in\s+(?:my\s+)?(?:nexus|vault|notes))\b", folded)
+    )
+    if has_code_ext and not has_explicit_nexus_scope:
+        return []
+
+    # Standalone confirmation-gated writes remain single-turn interactive prompts
+    for pat in (
+        r"(?:^|\b)(?:hay\s+|vui long\s+|please\s+|help me\s+)?(?:them|tao|nhac|add|create)\s+(?:mot\s+|a\s+)?(?:viec\s+can\s+lam|dau\s+viec|todo|task|nhiem\s+vu)(?:\s*(?::|la|that|de)\s*|\s+)(.+)$",
+        r"(?:^|\b)(?:hay\s+|vui long\s+|please\s+|help me\s+)?(?:them|tao|ghi|luu|add|create)\s+(?:vao\s+|into\s+)?(?:quick\s*note|quicknote|ghi\s+chu\s+nhanh|notepad)(?:\s*(?::|la)\s*|\s+)(.+)$",
+        r"(?:^|\b)(?:hay\s+|please\s+)?(?:luu|save|ghi)\s+(?:kien thuc\s+|thong tin\s+|ghi chu\s+)?(?:nay\s+)?vao\s+(?:nexus\s+)?rag(?:\s*:\s*|\s+)(.+)$",
+    ):
+        if _extract_after_folded_regex(raw, pat):
+            single = detect_alis_local_intent(raw)
+            return [dict(single, pos=0)] if isinstance(single, dict) else []
+
+    found: list[dict] = []
+    controlled_topics: set[str] = set()
+    has_web_target = bool(re.search(r"\b(?:youtube|yt|browser|trinh duyet|web|internet|google|wikipedia|tren mang|http)\b", folded))
+
+    m_wr = re.search(r"\b(?:cap nhat thoi tiet|lam moi thoi tiet|refresh weather)\b", folded)
+    if m_wr:
+        found.append({"kind": "alis_service_control", "action": "weather_refresh", "target": "", "value": "", "requiresConfirmation": False, "pos": m_wr.start()})
+        controlled_topics.add("weather")
+
+    if not has_web_target:
+        m_ms = re.search(r"\b(?:bat shuffle|tat shuffle|tron bai|toggle shuffle|shuffle nhac)\b", folded)
+        if m_ms:
+            found.append({"kind": "alis_service_control", "action": "music_shuffle", "target": "", "value": "", "requiresConfirmation": False, "pos": m_ms.start()})
+            controlled_topics.add("music")
+
+    m_pomo = re.search(r"\b(?:pomodoro|bo dem tap trung|focus timer)\b", folded)
+    if m_pomo:
+        if re.search(r"\b(?:bat dau|chay|start|bat|mo)\b", folded):
+            found.append({"kind": "alis_service_control", "action": "pomodoro_start", "target": "", "value": "", "requiresConfirmation": False, "pos": m_pomo.start()})
+            controlled_topics.add("timers")
+        elif re.search(r"\b(?:tam dung|pause|dung)\b", folded):
+            found.append({"kind": "alis_service_control", "action": "pomodoro_pause", "target": "", "value": "", "requiresConfirmation": False, "pos": m_pomo.start()})
+            controlled_topics.add("timers")
+        elif re.search(r"\b(?:reset|dat lai|tat)\b", folded):
+            found.append({"kind": "alis_service_control", "action": "pomodoro_reset", "target": "", "value": "", "requiresConfirmation": False, "pos": m_pomo.start()})
+            controlled_topics.add("timers")
+
+    m_nl = re.search(r"\b(?:night\s*light|loc anh sang xanh|che do ban dem|hyprsunset)\b", folded)
+    if m_nl and re.search(r"\b(?:bat|mo|tat|chuyen|enable|disable|turn\s+on|turn\s+off|toggle)\b", folded):
+        val = "off" if re.search(r"\b(?:tat|disable|turn\s+off)\b", folded) else ("on" if re.search(r"\b(?:bat|mo|enable|turn\s+on)\b", folded) else "toggle")
+        act = "night_light_toggle" if val == "toggle" else "night_light_set"
+        found.append({"kind": "alis_service_control", "action": act, "target": "", "value": val, "requiresConfirmation": False, "pos": m_nl.start()})
+        controlled_topics.add("system")
+
+    m_gm = re.search(r"\b(?:game\s*mode|che do choi game|che do game)\b", folded)
+    if m_gm and re.search(r"\b(?:bat|mo|tat|chuyen|enable|disable|turn\s+on|turn\s+off|toggle)\b", folded):
+        val = "off" if re.search(r"\b(?:tat|disable|turn\s+off)\b", folded) else ("on" if re.search(r"\b(?:bat|mo|enable|turn\s+on)\b", folded) else "toggle")
+        act = "gamemode_toggle" if val == "toggle" else "gamemode_set"
+        found.append({"kind": "alis_service_control", "action": act, "target": "", "value": val, "requiresConfirmation": False, "pos": m_gm.start()})
+        controlled_topics.add("system")
+
+    m_dnd = re.search(r"\b(?:dnd|do not disturb|khong lam phien|che do im lang)\b", folded)
+    if m_dnd and re.search(r"\b(?:bat|mo|tat|chuyen|enable|disable|turn\s+on|turn\s+off|toggle)\b", folded):
+        val = "off" if re.search(r"\b(?:tat|disable|turn\s+off)\b", folded) else ("on" if re.search(r"\b(?:bat|mo|enable|turn\s+on)\b", folded) else "toggle")
+        act = "dnd_toggle" if val == "toggle" else "dnd_set"
+        found.append({"kind": "alis_service_control", "action": act, "target": "", "value": val, "requiresConfirmation": False, "pos": m_dnd.start()})
+        controlled_topics.add("notifications")
+
+    def _mask_span(buf: str, start: int, end: int) -> str:
+        s = max(0, int(start))
+        e = min(len(buf), int(end))
+        if e <= s:
+            return buf
+        return buf[:s] + (" " * (e - s)) + buf[e:]
+
+    scan_folded = folded
+
+    m_nxopen = re.search(r"\b(?:mo|open)\s+(?:nhat ky\s+(?:hom nay\s+)?(?:trong\s+)?nexus|daily\s+note\s+(?:in\s+)?nexus|nexus(?:\s+workspace)?)\b", scan_folded)
+    if m_nxopen:
+        act = "nexus_open_daily" if re.search(r"\b(?:nhat ky|daily)\b", m_nxopen.group(0)) else "nexus_open"
+        found.append({"kind": "alis_service_control", "action": act, "target": "", "value": "", "requiresConfirmation": False, "pos": m_nxopen.start()})
+        scan_folded = _mask_span(scan_folded, m_nxopen.start(), m_nxopen.end())
+
+    if has_web_target:
+        found.sort(key=lambda item: int(item.get("pos") or 0))
+        return found
+
+    nexus_patterns = [
+        ("overview", r"\b(?:tong quan nexus|thong ke nexus|nexus (?:overview|stats|status))\b"),
+        ("journal", r"\b(?:nhat ky hom nay|mood va energy|today'?s?\s+journal|my journal today)\b"),
+        ("finance", r"\b(?:tai chinh trong nexus|so du trong nexus|chi tieu trong nexus|nexus finance|finance summary)\b"),
+        ("collections", r"\b(?:bo suu tap.*nexus|sach trong nexus|phim trong nexus|cong thuc.*nexus|dia diem.*nexus|nexus collections?)\b"),
+    ]
+    matched_nx = False
+    for subk, pat in nexus_patterns:
+        m = re.search(pat, scan_folded)
+        if m:
+            found.append({"kind": "nexus_knowledge", "subkind": subk, "query": raw, "pos": m.start()})
+            scan_folded = _mask_span(scan_folded, m.start(), m.end())
+            matched_nx = True
+    if not matched_nx:
+        m_nxs = re.search(r"(?:trong\s+(?:nexus|obsidian|vault|ghi chu cua toi)|cua nexus|in\s+(?:my\s+)?(?:nexus|vault|notes))\b", scan_folded)
+        if m_nxs:
+            prefix = scan_folded[:m_nxs.start()]
+            clause_start = 0
+            boundaries = list(re.finditer(r"(?:[;,\n]+|\b(?:and then|then|and also|roi sau do|sau do|roi|dong thoi)\b)", prefix))
+            if boundaries:
+                clause_start = boundaries[-1].end()
+            verbs = list(re.finditer(r"\b(?:tim kiem|tim|tra cuu|doc|xem|search|find|look up|read|query)\b", prefix[clause_start:]))
+            if verbs:
+                clause_start += verbs[-1].start()
+            nx_query = raw[clause_start:m_nxs.end()].strip() if len(raw) == len(folded) else raw
+            found.append({"kind": "nexus_knowledge", "subkind": "search", "query": nx_query or raw, "pos": clause_start})
+            scan_folded = _mask_span(scan_folded, clause_start, m_nxs.end())
+
+    topic_patterns = [
+        ("weather", r"\b(?:thoi tiet|du bao thoi tiet|nhiet do ngoai troi|troi co mua|troi hom nay|chi so aqi|chat luong khong khi|pm2\.?5|weather|forecast|air quality|aqi|temperature outside|rain today|rain tomorrow)\b"),
+        ("music", r"\b(?:dang phat bai gi|dang nghe bai gi|bai hat hien tai|nhac dang phat|what song is playing|what's playing|currently playing|now playing)\b"),
+        ("timers", r"\b(?:pomodoro|thoi gian tap trung|hom nay.*tap trung|stopwatch|focus time today|pomodoro status)\b"),
+        ("todos", r"\b(?:viec can lam|danh sach todo|xem todo|hom nay.*can lam gi|todo list|my todos|open tasks|tasks today)\b"),
+        ("schedule", r"\b(?:lich trinh hom nay|lich hom nay|thoi khoa bieu|su kien hom nay|su kien sap toi|today'?s?\s+schedule|my schedule|upcoming events)\b"),
+        ("quicknotes", r"\b(?:quick\s*notes?|ghi chu nhanh|my notepad|show notepad)\b"),
+        ("notifications", r"\b(?:co thong bao nao|thong bao moi|thong bao chua doc|thong bao gan day|unread notifications|recent notifications|notification count)\b"),
+        ("screentime", r"\b(?:screen\s*time|thoi gian su dung may|thoi gian dung may|dung ung dung nao nhieu|app usage today)\b"),
+        ("learning", r"\b(?:flashcards?|the ghi nho|spaced repetition|bao nhieu the can on|due cards|study streak)\b"),
+        ("fitness", r"\b(?:bai tap hom nay|exercises tracker|hom nay tap gi|tien do tap luyen|workout today)\b"),
+        ("system", r"\b(?:thinkfan|toc do quat|fan rpm|tlp|gioi han sac|charge limit|night\s*light|game\s*mode|cap nhat he thong|goi cap nhat)\b"),
+    ]
+    for topic, pat in topic_patterns:
+        if topic in controlled_topics:
+            continue
+        m = re.search(pat, scan_folded)
+        if m:
+            found.append({"kind": "alis_local_info", "topic": topic, "pos": m.start()})
+
+    found.sort(key=lambda item: int(item.get("pos") or 0))
+    return found

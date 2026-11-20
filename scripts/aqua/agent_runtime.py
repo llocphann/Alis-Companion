@@ -2353,6 +2353,25 @@ def resolve_file_attachments_and_mentions(
     return dict(result)
 
 
+def _match_screen_observe_intent(folded: str, lang: str) -> dict | None:
+    """Detect screen/screenshot observation intent without colliding with 'screen time' telemetry."""
+    scrubbed = re.sub(r"\b(?:screen\s*time|thoi gian su dung may|thoi gian dung may)\b", " ", str(folded or ""))
+    m_main = re.search(
+        r"\b(?:xem man hinh|doc man hinh|nhin man hinh|quet man hinh|kiem tra man hinh|chup man hinh|chup anh man hinh|chup lai man hinh|thay man hinh|thay gi tren man hinh|nhin thay man hinh|doc cua so|cua so hien tai|ung dung dang mo|man hinh dang co gi|tren man hinh|trong anh chup|trong buc anh|mat va tay|scan screen|scan window|what is on my screen|what is on the screen|what do you see|what can you see|what you can see|describe.*screen\s*shot|describe.*screen|can you see.*screen|can you see now|see my screen|see the screen|see things on.*screen|anything on.*screen|on my screen|on the screen|in the screen\s*shot|from the screen\s*shot|about the screen\s*shot|inside the screen\s*shot|read the screen|read current window|inspect active window|look at my screen|take(?:\s+a)?\s+screen\s*shot|capture screen|screen\s*shot|eyes and hands|use your eyes|set of mark|annotate som|danh so phan tu)\b",
+        scrubbed,
+    )
+    m_head = re.match(r"^(?:/agent\s+|/)?(?:access\s+)?(?:screen|scan|window|app|desktop\s+app|eyes|screen\s*shot|som)\b", scrubbed)
+    m = m_main or m_head
+    if not m:
+        return None
+    wants_shot = bool(
+        re.search(r"\b(?:chup man hinh|chup anh man hinh|chup lai man hinh|take(?:\s+a)?\s+screen\s*shot|capture screen|screen\s*shot|set of mark|annotate som|som)\b", scrubbed)
+        or re.match(r"^(?:/agent\s+|/)?(?:screen\s*shot|som)\b", scrubbed)
+    )
+    wants_som = bool(re.search(r"\b(?:set of mark|annotate som|som|danh so phan tu)\b", scrubbed))
+    return {"kind": "screen_observe", "captureScreenshot": wants_shot, "annotateSom": wants_som, "language": lang, "pos": m.start()}
+
+
 def classify_intent(prompt: str, session_ctx: dict | None = None) -> dict:
     """Classify a single-chatbox user prompt without requiring command prefixes."""
     ctx = session_ctx or {}
@@ -2550,27 +2569,37 @@ def classify_intent(prompt: str, session_ctx: dict | None = None) -> dict:
     if domain_rag.is_domain_capability_query(raw):
         return {"kind": "rag_query", "subkind": "domain_capability", "language": lang}
 
-    # Live Alis service telemetry, smart service controls & Nexus Vault knowledge
-    # (Placed before screen_observe/web_task so local ScreenTime, Now Playing, Local Music & Nexus queries aren't stolen.)
+    # Live Alis service telemetry, smart service controls & Nexus Vault knowledge + Compound Multi-Intent Orchestration
+    if not raw.startswith("/"):
+        local_subs = alis_local_bridge.detect_all_alis_local_intents(raw)
+        screen_sub = _match_screen_observe_intent(folded, lang)
+        combined: list[dict] = []
+        seen_keys: set[tuple[str, str]] = set()
+        candidates = list(local_subs) + ([screen_sub] if screen_sub else [])
+        for cand in sorted(candidates, key=lambda item: int(item.get("pos") or 0)):
+            sk = str(cand.get("kind") or "")
+            skey = (sk, str(cand.get("topic") or cand.get("action") or cand.get("subkind") or ""))
+            if not sk or skey in seen_keys:
+                continue
+            seen_keys.add(skey)
+            clean_sub = {k: v for k, v in cand.items() if k != "pos"}
+            clean_sub.setdefault("language", lang)
+            combined.append(clean_sub)
+            if len(combined) >= 4:
+                break
+        if len(combined) >= 2:
+            return {"kind": "compound_task", "subtasks": combined, "language": lang}
+
     alis_intent = alis_local_bridge.detect_alis_local_intent(raw)
     if isinstance(alis_intent, dict) and alis_intent.get("kind"):
         alis_intent.setdefault("language", lang)
         return alis_intent
 
     # Screen / window observation (including Set-of-Mark `/som` screenshot)
-    if (
-        re.search(
-            r"\b(?:xem man hinh|doc man hinh|nhin man hinh|quet man hinh|kiem tra man hinh|chup man hinh|chup anh man hinh|chup lai man hinh|thay man hinh|thay gi tren man hinh|nhin thay man hinh|doc cua so|cua so hien tai|ung dung dang mo|man hinh dang co gi|tren man hinh|trong anh chup|trong buc anh|mat va tay|scan screen|scan window|what is on my screen|what is on the screen|what do you see|what can you see|what you can see|describe.*screen\s*shot|describe.*screen|can you see.*screen|can you see now|see my screen|see the screen|see things on.*screen|anything on.*screen|on my screen|on the screen|in the screen\s*shot|from the screen\s*shot|about the screen\s*shot|inside the screen\s*shot|read the screen|read current window|inspect active window|look at my screen|take(?:\s+a)?\s+screen\s*shot|capture screen|screen\s*shot|eyes and hands|use your eyes|set of mark|annotate som|danh so phan tu)\b",
-            folded,
-        )
-        or re.match(r"^(?:/agent\s+|/)?(?:access\s+)?(?:screen|scan|window|app|desktop\s+app|eyes|screen\s*shot|som)\b", folded)
-    ):
-        wants_shot = bool(
-            re.search(r"\b(?:chup man hinh|chup anh man hinh|chup lai man hinh|take(?:\s+a)?\s+screen\s*shot|capture screen|screen\s*shot|set of mark|annotate som|som)\b", folded)
-            or re.match(r"^(?:/agent\s+|/)?(?:screen\s*shot|som)\b", folded)
-        )
-        wants_som = bool(re.search(r"\b(?:set of mark|annotate som|som|danh so phan tu)\b", folded))
-        return {"kind": "screen_observe", "captureScreenshot": wants_shot, "annotateSom": wants_som, "language": lang}
+    screen_only = _match_screen_observe_intent(folded, lang)
+    if screen_only:
+        screen_only.pop("pos", None)
+        return screen_only
 
     # Standalone Companion /swarm subagent orchestration (Board / Members / Graph)
     if re.match(r"^/swarm\b", folded):
@@ -5600,6 +5629,7 @@ def _format_reply(
     session_ctx: dict | None = None,
     clarification: dict | None = None,
     images: list | None = None,
+    spoken_text: str = "",
 ) -> dict:
     clean = re.sub(r"\r\n?", "\n", re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(text or "")))
     clean = re.sub(r"[ \t]+\n", "\n", clean)
@@ -5607,6 +5637,7 @@ def _format_reply(
     clean = re.sub(r"\n{3,}", "\n\n", clean).strip()[:5800]
     if not clean:
         clean = "Đã hoàn thành." if language == "vi" else "Completed."
+    clean_spoken = re.sub(r"\r\n?", "\n", re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(spoken_text or ""))).strip()[:2400]
     expr = expression if expression in ("idle", "happy", "excited", "thinking", "working", "surprised", "sleepy", "sad", "alert") else "idle"
     clean_images = [str(p).strip() for p in (images or []) if str(p or "").strip()][:4]
     if run_id and str(status) == "completed" and clean:
@@ -5631,6 +5662,8 @@ def _format_reply(
         "activitySteps": [s["label"] for s in _ACTIVE_RUN_STEPS[-12:]],
         "workedSeconds": max(1, round((int(time.time() * 1000) - (_ACTIVE_RUN_START_MS or int(time.time() * 1000))) / 1000.0)),
     }
+    if clean_spoken:
+        out["spokenText"] = clean_spoken
     if isinstance(last_cursor_evt, dict):
         out["cursorEvent"] = last_cursor_evt
     if clean_images:
@@ -5638,6 +5671,371 @@ def _format_reply(
     if isinstance(clarification, dict) and clarification.get("question") and isinstance(clarification.get("options"), list):
         out["clarification"] = clarification
     return out
+
+
+def _run_screen_observe_core(
+    *,
+    prompt: str,
+    intent: dict,
+    options: dict,
+    session_ctx: dict,
+    companion_root: Path,
+    allow_screenshot: bool,
+    lang: str,
+    run_id: str,
+    now_ms: int,
+    step_idx: int = 1,
+    vlm_prompt_override: str = "",
+) -> dict:
+    """Capture/observe active window & analyze via VLM, returning both visual Markdown and natural spoken summary."""
+    step_id = record_step_start(run_id, step_idx, "screen_observe", side_effect=False, now_ms=now_ms)
+    prev_win = session_ctx.get("lastWindowId")
+    folded_p = _fold_ascii(prompt)
+    wants_som = bool(
+        intent.get("annotateSom")
+        or options.get("annotateSom")
+        or re.search(r"\b(?:set of mark|som|annotate|danh so|elements)\b", folded_p)
+        or re.match(r"^/som\b", folded_p)
+    )
+    wants_screenshot_img = bool(intent.get("captureScreenshot")) or wants_som or bool(
+        re.search(
+            r"\b(?:chup man hinh|chup anh man hinh|chup lai man hinh|take(?:\s+a)?\s+screen\s*shot|capture screen|screen\s*shot)\b",
+            folded_p,
+        )
+        or re.match(r"^(?:/agent\s+|/)?screen\s*shot\b", folded_p)
+    )
+    effective_allow_ss = bool(allow_screenshot or wants_screenshot_img)
+    is_live_desktop = (
+        not os.environ.get("ALIS_AQUA_SCREEN_FIXTURE")
+        and not os.environ.get("AQUA_TEST_ENDPOINT")
+        and not os.environ.get("AI_FIXTURE_URL")
+    )
+    ep_url, mdl_name = _resolve_live_llm(options)
+    if not ep_url:
+        ep_url = str(options.get("endpoint") or "").strip()
+    if not mdl_name:
+        mdl_name = re.sub(r"^(?:lmstudio-|ollama-|gguf:)", "", str(options.get("model") or "").strip())
+    mdl_lower = mdl_name.lower()
+    allow_vlm_call = is_live_desktop or (options.get("synthesizeWithLlm") is True)
+    has_live_vlm = bool(
+        allow_vlm_call
+        and effective_allow_ss
+        and ep_url
+        and mdl_name
+        and "/v1/" in ep_url
+        and (ep_url.startswith("http://127.0.0.1:") or ep_url.startswith("http://localhost:"))
+        and any(
+            k in mdl_lower
+            for k in (
+                "qwen3.6",
+                "qwen3_6",
+                "qwen3.5",
+                "qwen3_5",
+                "qwen3",
+                "qwen2-vl",
+                "qwen2.5-vl",
+                "-vl",
+                "vision",
+                "llava",
+                "pixtral",
+                "gemma-3",
+                "gemma3",
+                "minicpm",
+                "internvl",
+            )
+        )
+    )
+    is_followup_about_shot = bool(
+        re.search(
+            r"\b(?:inside the screen\s*shot|in the screen\s*shot|from the screen\s*shot|about the screen\s*shot|describe the screen\s*shot|what(?:'s| is) (?:in|inside) the screen\s*shot|tell me about the screen\s*shot|what (?:you can|can you|do you) see in the screen\s*shot|trong anh chup|trong buc anh|mo ta anh chup|mo ta buc anh)\b",
+            folded_p,
+        )
+        and not re.search(r"\b(?:take|capture)\b|\bchup\s+(?:man\s+hinh|lai|anh|moi)\b", folded_p)
+    )
+    need_capture_img = bool(effective_allow_ss and not is_followup_about_shot)
+    try:
+        mcp_obs = mcp_client.call_tool(
+            "computer-use-linux",
+            "screenshot" if effective_allow_ss else "get_accessibility_tree",
+            {
+                "allowScreenshot": effective_allow_ss,
+                "previousWindowId": prev_win,
+                "nowMs": now_ms,
+                "captureImage": need_capture_img,
+                "skipOcr": True,
+                "annotateSom": wants_som,
+            },
+            companion_root=companion_root,
+            enabled_overrides={"computer-use-linux": True},
+        )
+        obs_res = mcp_obs.get("structured") or observe_active_window(
+            allow_screenshot=effective_allow_ss,
+            previous_window_id=prev_win,
+            now_ms=now_ms,
+            capture_image=need_capture_img,
+            skip_ocr=True,
+            annotate_som=wants_som,
+        )
+    except McpError:
+        obs_res = observe_active_window(
+            allow_screenshot=effective_allow_ss,
+            previous_window_id=prev_win,
+            now_ms=now_ms,
+            capture_image=need_capture_img,
+            skip_ocr=True,
+            annotate_som=wants_som,
+        )
+    obs = obs_res["observation"]
+    screenshot_path = str(obs_res.get("screenshotPath") or obs.get("screenshotPath") or "").strip()
+    som_image_path = str(
+        obs_res.get("somImagePath")
+        or obs_res.get("somScreenshotPath")
+        or obs.get("somImagePath")
+        or obs.get("somScreenshotPath")
+        or ""
+    ).strip()
+    reused_previous_shot = False
+    if is_followup_about_shot and not screenshot_path:
+        try:
+            saved_shot = str(session_ctx.get("lastScreenshotPath") or "").strip()
+            if saved_shot and Path(saved_shot).is_file():
+                screenshot_path = saved_shot
+            else:
+                from screen_context import _screenshots_dir
+                recent_shots = sorted(_screenshots_dir().glob("screenshot-*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
+                if recent_shots and (time.time() - recent_shots[0].stat().st_mtime) <= 600:
+                    screenshot_path = str(recent_shots[0])
+            if screenshot_path:
+                reused_previous_shot = True
+                obs_res["screenshotPath"] = screenshot_path
+                obs["screenshotPath"] = screenshot_path
+                obs["source"] = "niri+vision"
+                obs["focusChanged"] = False
+                if saved_shot and screenshot_path == saved_shot:
+                    if session_ctx.get("lastScreenshotTitle"):
+                        obs["title"] = str(session_ctx["lastScreenshotTitle"])
+                    if session_ctx.get("lastScreenshotAppId"):
+                        obs["appId"] = str(session_ctx["lastScreenshotAppId"])
+                    if isinstance(session_ctx.get("lastScreenshotHeadings"), list):
+                        obs_res["headings"] = list(session_ctx["lastScreenshotHeadings"])
+                else:
+                    obs_res["headings"] = []
+        except Exception:
+            pass
+    if (need_capture_img or effective_allow_ss) and not screenshot_path:
+        screenshot_path = capture_screenshot_file(now_ms=now_ms)
+        if screenshot_path:
+            obs_res["screenshotPath"] = screenshot_path
+            obs["screenshotPath"] = screenshot_path
+    if not reused_previous_shot and screenshot_path:
+        session_ctx["lastScreenshotPath"] = screenshot_path
+        session_ctx["lastScreenshotTitle"] = str(obs.get("title") or "")
+        session_ctx["lastScreenshotAppId"] = str(obs.get("appId") or "")
+        session_ctx["lastScreenshotHeadings"] = list(obs_res.get("headings") or [])[:12]
+    primary_img = som_image_path if (wants_som and som_image_path) else screenshot_path
+    reply_images = [primary_img] if (primary_img and not reused_previous_shot) else []
+    record_step_finish(step_id, status="completed", detail=obs)
+    advance_turn(run_id, now_ms=now_ms)
+
+    if not reused_previous_shot:
+        session_ctx["lastWindowId"] = obs.get("windowId")
+        session_ctx["lastAppId"] = obs.get("appId") or ""
+    save_session_context(session_ctx, now_ms=now_ms)
+
+    changed_note = ""
+    if obs.get("focusChanged"):
+        changed_note = " *(đã làm mới)*" if lang == "vi" else " *(refreshed)*"
+    compact_headings = []
+    for raw_ln in obs_res["headings"]:
+        ln_txt = " ".join(str(raw_ln or "").split()).strip()
+        if not ln_txt:
+            continue
+        if len(ln_txt) > 140:
+            ln_txt = ln_txt[:137].rstrip() + "…"
+        compact_headings.append(f"- {ln_txt}")
+        if len(compact_headings) >= 8:
+            break
+    som_lines = []
+    if wants_som and obs_res.get("elements"):
+        for el in obs_res["elements"][:8]:
+            el_line = f"- `[{el.get('markId')}]` {el.get('role', 'widget')}: **{el.get('name', '')}** `@({el.get('centerX')}, {el.get('centerY')})`"
+            som_lines.append(el_line)
+            if el_line not in compact_headings:
+                compact_headings.append(el_line)
+    lines_preview = "\n".join(compact_headings)
+    source_badge = str(obs.get("source") or "niri+vision")
+    vlm_img_path = screenshot_path if (screenshot_path and Path(screenshot_path).is_file()) else primary_img
+    wants_detail = bool(
+        re.search(
+            r"\b(?:detail|detailed|as detail as possible|in detail|thorough|everything|all visible|chi tiet|ky luong|day du|tat ca|toan bo)\b",
+            folded_p,
+        )
+    )
+    turn_from_voice = bool(
+        options.get("fromVoice")
+        or options.get("fromVoiceInput")
+        or options.get("voiceMode")
+        or options.get("voiceInputTurn")
+    )
+    vlm_succeeded = False
+    vlm_prompt = str(vlm_prompt_override or prompt).strip()
+    if allow_vlm_call and ep_url and mdl_name and "/v1/" in ep_url and (ep_url.startswith("http://127.0.0.1:") or ep_url.startswith("http://localhost:")):
+        try:
+            if has_live_vlm and vlm_img_path and Path(vlm_img_path).is_file():
+                import base64
+                import io
+                from PIL import Image
+                _emit_activity_step(
+                    f"Analyzing screenshot with Vision ({mdl_name[:24]}) ›",
+                    kind="vlm_vision",
+                    status="running",
+                )
+                im_v = Image.open(vlm_img_path).convert("RGB")
+                im_v.thumbnail((1120, 1120))
+                buf = io.BytesIO()
+                im_v.save(buf, format="JPEG", quality=85)
+                b64_v = base64.b64encode(buf.getvalue()).decode("ascii")
+                ground_truth_block = (
+                    f"\nAT-SPI & OCR Ground-Truth UI Text (use as ground truth for small UI text; never guess unreadable text):\n{lines_preview}"
+                    if lines_preview
+                    else ""
+                )
+                if lang == "vi":
+                    if turn_from_voice:
+                        sys_vlm = (
+                            "Bạn là Alis-Companion. Hãy xem ảnh chụp màn hình và trả lời trực tiếp cho người dùng bằng 2-3 câu nói tiếng Việt tự nhiên, dễ nghe như đang trò chuyện. "
+                            "Mở đầu bằng ý chính người dùng đang mở/làm gì trên màn hình, chỉ thêm 1-2 chi tiết nổi bật nhất nếu cần. "
+                            "Không dùng gạch đầu dòng Markdown, không emoji, không đọc tên file thô/mã log, không viết câu kết sáo rỗng, và không gọi thanh Alis Bar là macOS hay Windows. Tuyệt đối không đoán mò chữ nhỏ không đọc được. Không sinh thẻ <think>."
+                        )
+                    elif wants_detail:
+                        sys_vlm = (
+                            "Bạn là Alis-Companion. Hãy phân tích ảnh chụp màn hình và mở đầu bằng 1 câu tóm tắt ngắn gọn bức tranh tổng thể người dùng đang làm gì, "
+                            "rồi trình bày các vùng giao diện chính thực sự đáng chú ý bằng 3-5 gạch đầu dòng Markdown súc tích (câu hoàn chỉnh; không dùng --- hay ###). "
+                            "Nếu thấy khung Alis-Companion chỉ nhắc tối đa 1 ý ngắn, không gọi thanh Alis Bar trên cùng là macOS/Windows, không thêm câu kết luận chung chung vô nghĩa. Tuyệt đối không đoán mò chữ nhỏ không đọc được. Không sinh thẻ <think>."
+                        )
+                    else:
+                        sys_vlm = (
+                            "Bạn là Alis-Companion. Hãy tổng hợp nội dung màn hình theo phong cách Cloud AI: mở đầu ngay bằng 1-2 câu trực diện trả lời đúng trọng tâm câu hỏi của người dùng; "
+                            "chỉ thêm tối đa 2-3 gạch đầu dòng ngắn gọn nếu thật sự cần tách ý (bỏ gạch đầu dòng nếu 2 câu văn đã đủ rõ). "
+                            "Không liệt kê máy móc từng thanh công cụ hay mọi góc màn hình, không gọi Alis Bar là macOS/Windows, không viết câu kết sáo rỗng. Tuyệt đối không đoán mò chữ nhỏ không đọc được. Không sinh thẻ <think>."
+                        )
+                else:
+                    if turn_from_voice:
+                        sys_vlm = (
+                            "You are Alis-Companion. Analyze the captured screenshot and answer in 2-3 natural, conversational spoken sentences matching the user's request. "
+                            "Lead with the core takeaway of what the user is working on, mentioning only 1-2 key visible highlights if helpful. "
+                            "Never use Markdown bullets, emojis, raw filenames/log strings, or generic wrap-up filler, and never call the Alis top bar macOS or Windows. Never guess unreadable small text. Do not output <think>."
+                        )
+                    elif wants_detail:
+                        sys_vlm = (
+                            "You are Alis-Companion. Analyze the captured screenshot and lead with a crisp 1-sentence overview of what the user is doing, "
+                            "followed by 3-5 tight Markdown bullets covering only the meaningful visible regions (complete sentences; no --- or ###; mention Alis-Companion briefly at most once). "
+                            "Never call the Alis Bar macOS or Windows, omit generic filler conclusions, and never guess unreadable small text. Do not output <think>."
+                        )
+                    else:
+                        sys_vlm = (
+                            "You are Alis-Companion. Synthesize what is on screen in Cloud-AI BLUF style: lead directly with a concise 1-2 sentence summary answering the user's question, "
+                            "then optionally add at most 2-3 short highlight bullets ONLY if distinct visual details add clear value (omit bullets if prose suffices). "
+                            "Do not mechanically inventory every screen bar or edge, never call the Alis Bar macOS or Windows, omit filler wrap-up sentences, and never guess unreadable small text. Do not output <think>."
+                        )
+                usr_vlm_text = (
+                    f"{{REASON:instant}}\n"
+                    f"Desktop environment: Arch Linux · Niri Wayland · Alis Desktop Shell (the top bar is the Alis Bar, NEVER call it macOS or Windows; the dark floating chat/companion widget is Alis-Companion).\n"
+                    f"Active window: {obs.get('title') or ''} ({obs.get('appId') or 'desktop'}){ground_truth_block}\n"
+                    f"User request: {vlm_prompt[:400]}"
+                )
+                screen_body = {
+                    "model": mdl_name,
+                    "messages": [
+                        {"role": "system", "content": sys_vlm},
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": usr_vlm_text},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_v}"}},
+                            ],
+                        },
+                    ],
+                    "reasoning_effort": "none",
+                    "chat_template_kwargs": {"enable_thinking": False},
+                    "temperature": (
+                        round(max(0.0, min(2.0, float(options["temperature"]))), 2)
+                        if isinstance(options.get("temperature"), (int, float))
+                        else 0.2
+                    ),
+                    "max_tokens": 240 if turn_from_voice else (640 if wants_detail else 360),
+                }
+                if _is_mtp_model(mdl_name):
+                    screen_body["repetition_penalty"] = 1.0
+                    screen_body["repeat_penalty"] = 1.0
+                ai_txt = _call_chat_completion_text(
+                    ep_url,
+                    screen_body,
+                    chunk_timeout=125.0,
+                    max_wall_sec=195.0,
+                    stream_stdout=False,
+                ).strip()
+                ai_txt = re.sub(r"<think(?:ing)?>[\s\S]*?</think(?:ing)?>", "", ai_txt, flags=re.IGNORECASE).strip()
+                if ai_txt:
+                    lines_preview = ai_txt[:3200]
+                    if som_lines:
+                        lines_preview = f"{lines_preview}\n" + "\n".join(som_lines)
+                    source_badge = "niri+vision"
+                    vlm_succeeded = True
+                elif _LAST_LMSTUDIO_ERROR in ("gpu_oom", "gpu_fit_failed", "low_memory"):
+                    lines_preview = f"{lines_preview}\n\n{_lmstudio_error_user_message(lang)}".strip()
+        except Exception:
+            pass
+
+    win_label = str(obs.get("title") or obs.get("appId") or "desktop").strip()
+    if len(win_label) > 44:
+        win_label = win_label[:41].rstrip() + "…"
+    wants_guide = any(k in folded_p for k in ("eyes", "hands", "mat va tay", "can you see"))
+    shot_note_vi = f"\n📷 Đã chụp màn hình (`{Path(primary_img).name}`)." if (primary_img and not reused_previous_shot) else ""
+    shot_note_en = f"\n📷 Screenshot captured (`{Path(primary_img).name}`)." if (primary_img and not reused_previous_shot) else ""
+    if lang == "vi":
+        guide_vi = (
+            "\n\n💡 **Mắt & Tay MCP:** `/web` tìm kiếm · `/fetch` đọc trang · `/browser` tự động hoá web · mở ứng dụng / chạy lệnh."
+            if wants_guide
+            else ""
+        )
+        msg = (
+            f"{lines_preview}{guide_vi}"
+            if vlm_succeeded
+            else f"**🖥 {win_label}** · `{source_badge}`{changed_note}\n{lines_preview}{shot_note_vi}{guide_vi}"
+        ).strip()
+        spoken_screen = (
+            lines_preview
+            if vlm_succeeded
+            else f"Tôi đã chụp ảnh màn hình, cửa sổ đang mở là {win_label}."
+        )
+    else:
+        guide_en = (
+            "\n\n💡 **MCP Eyes & Hands:** `/web` search · `/fetch` read URL · `/browser` automate web · open apps / run commands."
+            if wants_guide
+            else ""
+        )
+        msg = (
+            f"{lines_preview}{guide_en}"
+            if vlm_succeeded
+            else f"**🖥 {win_label}** · `{source_badge}`{changed_note}\n{lines_preview}{shot_note_en}{guide_en}"
+        ).strip()
+        spoken_screen = (
+            lines_preview
+            if vlm_succeeded
+            else f"I captured the screenshot; your active window is {win_label}."
+        )
+
+    return {
+        "display": msg,
+        "spoken": spoken_screen,
+        "images": reply_images,
+        "observation": obs,
+        "elements": obs_res.get("elements") or [],
+        "semanticSnapshot": obs_res.get("semanticSnapshot") or obs.get("semanticSnapshot") or "",
+        "somImagePath": som_image_path,
+        "vlmSucceeded": vlm_succeeded,
+    }
 
 
 _CURRENT_TURN_THREAD_ID: str | None = None
@@ -5888,7 +6286,8 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
                     tts_res = result["voiceResult"]
                 else:
                     tts_res = desktop_control.voice_tts(
-                        text=str(result.get("text") or ""),
+                        text=str(result.get("spokenText") or result.get("text") or ""),
+                        voice="en-US-AvaMultilingualNeural",
                         language="auto",
                         context_prompt=str(options.get("prompt") or ""),
                     )
@@ -5896,9 +6295,10 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
                     "spoken": bool(tts_res.get("spoken", True)),
                     "transcriptAfterVoice": True,
                     "backend": str(tts_res.get("ttsBackend") or tts_res.get("backend") or "tts"),
-                    "voice": str(tts_res.get("voice") or "default"),
-                    "neuralVoice": str(tts_res.get("neuralVoice") or ""),
+                    "voice": str(tts_res.get("voice") or "en-US-AvaMultilingualNeural"),
+                    "neuralVoice": str(tts_res.get("neuralVoice") or "en-US-AvaMultilingualNeural"),
                     "spokenText": str(tts_res.get("spokenText") or ""),
+                    "streamingChunks": int(tts_res.get("streamingChunks") or 1),
                     "audioPath": str(tts_res.get("audioPath") or ""),
                 }
             except Exception as exc:
@@ -7168,350 +7568,228 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
 
         # 11. Screen / Active Window Observation (routed via computer-use-linux MCP)
         if kind == "screen_observe":
-            step_id = record_step_start(run_id, 1, "screen_observe", side_effect=False, now_ms=now_ms)
-            prev_win = session_ctx.get("lastWindowId")
-            folded_p = _fold_ascii(prompt)
-            wants_som = bool(
-                intent.get("annotateSom")
-                or options.get("annotateSom")
-                or re.search(r"\b(?:set of mark|som|annotate|danh so|elements)\b", folded_p)
-                or re.match(r"^/som\b", folded_p)
+            sc = _run_screen_observe_core(
+                prompt=prompt,
+                intent=intent,
+                options=options,
+                session_ctx=session_ctx,
+                companion_root=companion_root,
+                allow_screenshot=allow_screenshot,
+                lang=lang,
+                run_id=run_id,
+                now_ms=now_ms,
+                step_idx=1,
             )
-            wants_screenshot_img = bool(intent.get("captureScreenshot")) or wants_som or bool(
-                re.search(
-                    r"\b(?:chup man hinh|chup anh man hinh|chup lai man hinh|take(?:\s+a)?\s+screen\s*shot|capture screen|screen\s*shot)\b",
-                    folded_p,
-                )
-                or re.match(r"^(?:/agent\s+|/)?screen\s*shot\b", folded_p)
-            )
-            effective_allow_ss = bool(allow_screenshot or wants_screenshot_img)
-            is_live_desktop = (
-                not os.environ.get("ALIS_AQUA_SCREEN_FIXTURE")
-                and not os.environ.get("AQUA_TEST_ENDPOINT")
-                and not os.environ.get("AI_FIXTURE_URL")
-            )
-            ep_url, mdl_name = _resolve_live_llm(options)
-            if not ep_url:
-                ep_url = str(options.get("endpoint") or "").strip()
-            if not mdl_name:
-                mdl_name = re.sub(r"^(?:lmstudio-|ollama-|gguf:)", "", str(options.get("model") or "").strip())
-            mdl_lower = mdl_name.lower()
-            allow_vlm_call = is_live_desktop or (options.get("synthesizeWithLlm") is True)
-            has_live_vlm = bool(
-                allow_vlm_call
-                and effective_allow_ss
-                and ep_url
-                and mdl_name
-                and "/v1/" in ep_url
-                and (ep_url.startswith("http://127.0.0.1:") or ep_url.startswith("http://localhost:"))
-                and any(
-                    k in mdl_lower
-                    for k in (
-                        "qwen3.6",
-                        "qwen3_6",
-                        "qwen3.5",
-                        "qwen3_5",
-                        "qwen3",
-                        "qwen2-vl",
-                        "qwen2.5-vl",
-                        "-vl",
-                        "vision",
-                        "llava",
-                        "pixtral",
-                        "gemma-3",
-                        "gemma3",
-                        "minicpm",
-                        "internvl",
-                    )
-                )
-            )
-            is_followup_about_shot = bool(
-                re.search(
-                    r"\b(?:inside the screen\s*shot|in the screen\s*shot|from the screen\s*shot|about the screen\s*shot|describe the screen\s*shot|what(?:'s| is) (?:in|inside) the screen\s*shot|tell me about the screen\s*shot|what (?:you can|can you|do you) see in the screen\s*shot|trong anh chup|trong buc anh|mo ta anh chup|mo ta buc anh)\b",
-                    folded_p,
-                )
-                and not re.search(r"\b(?:take|capture)\b|\bchup\s+(?:man\s+hinh|lai|anh|moi)\b", folded_p)
-            )
-            need_capture_img = bool(effective_allow_ss and not is_followup_about_shot)
-            try:
-                mcp_obs = mcp_client.call_tool(
-                    "computer-use-linux",
-                    "screenshot" if effective_allow_ss else "get_accessibility_tree",
-                    {
-                        "allowScreenshot": effective_allow_ss,
-                        "previousWindowId": prev_win,
-                        "nowMs": now_ms,
-                        "captureImage": need_capture_img,
-                        "skipOcr": True,
-                        "annotateSom": wants_som,
-                    },
-                    companion_root=companion_root,
-                    enabled_overrides={"computer-use-linux": True},
-                )
-                obs_res = mcp_obs.get("structured") or observe_active_window(
-                    allow_screenshot=effective_allow_ss,
-                    previous_window_id=prev_win,
-                    now_ms=now_ms,
-                    capture_image=need_capture_img,
-                    skip_ocr=True,
-                    annotate_som=wants_som,
-                )
-            except McpError:
-                obs_res = observe_active_window(
-                    allow_screenshot=effective_allow_ss,
-                    previous_window_id=prev_win,
-                    now_ms=now_ms,
-                    capture_image=need_capture_img,
-                    skip_ocr=True,
-                    annotate_som=wants_som,
-                )
-            obs = obs_res["observation"]
-            screenshot_path = str(obs_res.get("screenshotPath") or obs.get("screenshotPath") or "").strip()
-            som_image_path = str(
-                obs_res.get("somImagePath")
-                or obs_res.get("somScreenshotPath")
-                or obs.get("somImagePath")
-                or obs.get("somScreenshotPath")
-                or ""
-            ).strip()
-            reused_previous_shot = False
-            if is_followup_about_shot and not screenshot_path:
-                try:
-                    saved_shot = str(session_ctx.get("lastScreenshotPath") or "").strip()
-                    if saved_shot and Path(saved_shot).is_file():
-                        screenshot_path = saved_shot
-                    else:
-                        from screen_context import _screenshots_dir
-                        recent_shots = sorted(_screenshots_dir().glob("screenshot-*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
-                        if recent_shots and (time.time() - recent_shots[0].stat().st_mtime) <= 600:
-                            screenshot_path = str(recent_shots[0])
-                    if screenshot_path:
-                        reused_previous_shot = True
-                        obs_res["screenshotPath"] = screenshot_path
-                        obs["screenshotPath"] = screenshot_path
-                        obs["source"] = "niri+vision"
-                        obs["focusChanged"] = False
-                        if saved_shot and screenshot_path == saved_shot:
-                            if session_ctx.get("lastScreenshotTitle"):
-                                obs["title"] = str(session_ctx["lastScreenshotTitle"])
-                            if session_ctx.get("lastScreenshotAppId"):
-                                obs["appId"] = str(session_ctx["lastScreenshotAppId"])
-                            if isinstance(session_ctx.get("lastScreenshotHeadings"), list):
-                                obs_res["headings"] = list(session_ctx["lastScreenshotHeadings"])
-                        else:
-                            obs_res["headings"] = []
-                except Exception:
-                    pass
-            if (need_capture_img or effective_allow_ss) and not screenshot_path:
-                screenshot_path = capture_screenshot_file(now_ms=now_ms)
-                if screenshot_path:
-                    obs_res["screenshotPath"] = screenshot_path
-                    obs["screenshotPath"] = screenshot_path
-            if not reused_previous_shot and screenshot_path:
-                session_ctx["lastScreenshotPath"] = screenshot_path
-                session_ctx["lastScreenshotTitle"] = str(obs.get("title") or "")
-                session_ctx["lastScreenshotAppId"] = str(obs.get("appId") or "")
-                session_ctx["lastScreenshotHeadings"] = list(obs_res.get("headings") or [])[:12]
-            primary_img = som_image_path if (wants_som and som_image_path) else screenshot_path
-            reply_images = [primary_img] if (primary_img and not reused_previous_shot) else []
-            record_step_finish(step_id, status="completed", detail=obs)
-            advance_turn(run_id, now_ms=now_ms)
-
-            if not reused_previous_shot:
-                session_ctx["lastWindowId"] = obs.get("windowId")
-                session_ctx["lastAppId"] = obs.get("appId") or ""
-            save_session_context(session_ctx, now_ms=now_ms)
-            observations.append(obs)
-
-            changed_note = ""
-            if obs.get("focusChanged"):
-                changed_note = " *(đã làm mới)*" if lang == "vi" else " *(refreshed)*"
-            compact_headings = []
-            for raw_ln in obs_res["headings"]:
-                ln_txt = " ".join(str(raw_ln or "").split()).strip()
-                if not ln_txt:
-                    continue
-                if len(ln_txt) > 140:
-                    ln_txt = ln_txt[:137].rstrip() + "…"
-                compact_headings.append(f"- {ln_txt}")
-                if len(compact_headings) >= 8:
-                    break
-            som_lines = []
-            if wants_som and obs_res.get("elements"):
-                for el in obs_res["elements"][:8]:
-                    el_line = f"- `[{el.get('markId')}]` {el.get('role', 'widget')}: **{el.get('name', '')}** `@({el.get('centerX')}, {el.get('centerY')})`"
-                    som_lines.append(el_line)
-                    if el_line not in compact_headings:
-                        compact_headings.append(el_line)
-            lines_preview = "\n".join(compact_headings)
-            source_badge = str(obs.get("source") or "niri+vision")
-            vlm_img_path = screenshot_path if (screenshot_path and Path(screenshot_path).is_file()) else primary_img
-            wants_detail = bool(
-                re.search(
-                    r"\b(?:detail|detailed|as detail as possible|in detail|thorough|everything|all visible|chi tiet|ky luong|day du|tat ca|toan bo)\b",
-                    folded_p,
-                )
-            )
-            turn_from_voice = bool(
-                options.get("fromVoice")
-                or options.get("fromVoiceInput")
-                or options.get("voiceMode")
-                or options.get("voiceInputTurn")
-            )
-            vlm_succeeded = False
-            if allow_vlm_call and ep_url and mdl_name and "/v1/" in ep_url and (ep_url.startswith("http://127.0.0.1:") or ep_url.startswith("http://localhost:")):
-                try:
-                    if has_live_vlm and vlm_img_path and Path(vlm_img_path).is_file():
-                        import base64
-                        import io
-                        from PIL import Image
-                        _emit_activity_step(
-                            f"Analyzing screenshot with Vision ({mdl_name[:24]}) ›",
-                            kind="vlm_vision",
-                            status="running",
-                        )
-                        im_v = Image.open(vlm_img_path).convert("RGB")
-                        im_v.thumbnail((1120, 1120))
-                        buf = io.BytesIO()
-                        im_v.save(buf, format="JPEG", quality=85)
-                        b64_v = base64.b64encode(buf.getvalue()).decode("ascii")
-                        ground_truth_block = (
-                            f"\nAT-SPI & OCR Ground-Truth UI Text (use as ground truth for small UI text; never guess unreadable text):\n{lines_preview}"
-                            if lines_preview
-                            else ""
-                        )
-                        if lang == "vi":
-                            if turn_from_voice:
-                                sys_vlm = (
-                                    "Bạn là Alis-Companion. Hãy xem ảnh chụp màn hình và trả lời trực tiếp cho người dùng bằng 2-4 câu nói tiếng Việt tự nhiên, dễ nghe như đang trò chuyện. "
-                                    "Mở đầu bằng ý chính người dùng đang mở/làm gì trên màn hình, chỉ thêm 1-2 chi tiết nổi bật nhất nếu cần. "
-                                    "Không dùng gạch đầu dòng Markdown, không emoji, không đọc tên file thô/mã log, không viết câu kết sáo rỗng, và không gọi thanh Alis Bar là macOS hay Windows. Tuyệt đối không đoán mò chữ nhỏ không đọc được. Không sinh thẻ <think>."
-                                )
-                            elif wants_detail:
-                                sys_vlm = (
-                                    "Bạn là Alis-Companion. Hãy phân tích ảnh chụp màn hình và mở đầu bằng 1 câu tóm tắt ngắn gọn bức tranh tổng thể người dùng đang làm gì, "
-                                    "rồi trình bày các vùng giao diện chính thực sự đáng chú ý bằng 3-5 gạch đầu dòng Markdown súc tích (câu hoàn chỉnh; không dùng --- hay ###). "
-                                    "Nếu thấy khung Alis-Companion chỉ nhắc tối đa 1 ý ngắn, không gọi thanh Alis Bar trên cùng là macOS/Windows, không thêm câu kết luận chung chung vô nghĩa. Tuyệt đối không đoán mò chữ nhỏ không đọc được. Không sinh thẻ <think>."
-                                )
-                            else:
-                                sys_vlm = (
-                                    "Bạn là Alis-Companion. Hãy tổng hợp nội dung màn hình theo phong cách Cloud AI: mở đầu ngay bằng 1-2 câu trực diện trả lời đúng trọng tâm câu hỏi của người dùng; "
-                                    "chỉ thêm tối đa 2-3 gạch đầu dòng ngắn gọn nếu thật sự cần tách ý (bỏ gạch đầu dòng nếu 2 câu văn đã đủ rõ). "
-                                    "Không liệt kê máy móc từng thanh công cụ hay mọi góc màn hình, không gọi Alis Bar là macOS/Windows, không viết câu kết sáo rỗng. Tuyệt đối không đoán mò chữ nhỏ không đọc được. Không sinh thẻ <think>."
-                                )
-                        else:
-                            if turn_from_voice:
-                                sys_vlm = (
-                                    "You are Alis-Companion. Analyze the captured screenshot and answer in 2-4 natural, conversational spoken sentences matching the user's request. "
-                                    "Lead with the core takeaway of what the user is working on, mentioning only 1-2 key visible highlights if helpful. "
-                                    "Never use Markdown bullets, emojis, raw filenames/log strings, or generic wrap-up filler, and never call the Alis top bar macOS or Windows. Never guess unreadable small text. Do not output <think>."
-                                )
-                            elif wants_detail:
-                                sys_vlm = (
-                                    "You are Alis-Companion. Analyze the captured screenshot and lead with a crisp 1-sentence overview of what the user is doing, "
-                                    "followed by 3-5 tight Markdown bullets covering only the meaningful visible regions (complete sentences; no --- or ###; mention Alis-Companion briefly at most once). "
-                                    "Never call the Alis Bar macOS or Windows, omit generic filler conclusions, and never guess unreadable small text. Do not output <think>."
-                                )
-                            else:
-                                sys_vlm = (
-                                    "You are Alis-Companion. Synthesize what is on screen in Cloud-AI BLUF style: lead directly with a concise 1-2 sentence summary answering the user's question, "
-                                    "then optionally add at most 2-3 short highlight bullets ONLY if distinct visual details add clear value (omit bullets if prose suffices). "
-                                    "Do not mechanically inventory every screen bar or edge, never call the Alis Bar macOS or Windows, omit filler wrap-up sentences, and never guess unreadable small text. Do not output <think>."
-                                )
-                        usr_vlm_text = (
-                            f"{{REASON:instant}}\n"
-                            f"Desktop environment: Arch Linux · Niri Wayland · Alis Desktop Shell (the top bar is the Alis Bar, NEVER call it macOS or Windows; the dark floating chat/companion widget is Alis-Companion).\n"
-                            f"Active window: {obs.get('title') or ''} ({obs.get('appId') or 'desktop'}){ground_truth_block}\n"
-                            f"User request: {prompt[:400]}"
-                        )
-                        screen_body = {
-                            "model": mdl_name,
-                            "messages": [
-                                {"role": "system", "content": sys_vlm},
-                                {
-                                    "role": "user",
-                                    "content": [
-                                        {"type": "text", "text": usr_vlm_text},
-                                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_v}"}},
-                                    ],
-                                },
-                            ],
-                            "reasoning_effort": "none",
-                            "chat_template_kwargs": {"enable_thinking": False},
-                            "temperature": (
-                                round(max(0.0, min(2.0, float(options["temperature"]))), 2)
-                                if isinstance(options.get("temperature"), (int, float))
-                                else 0.2
-                            ),
-                            "max_tokens": 280 if turn_from_voice else (640 if wants_detail else 360),
-                        }
-                        if _is_mtp_model(mdl_name):
-                            screen_body["repetition_penalty"] = 1.0
-                            screen_body["repeat_penalty"] = 1.0
-                        ai_txt = _call_chat_completion_text(
-                            ep_url,
-                            screen_body,
-                            chunk_timeout=125.0,
-                            max_wall_sec=195.0,
-                            stream_stdout=False,
-                        ).strip()
-                        ai_txt = re.sub(r"<think(?:ing)?>[\s\S]*?</think(?:ing)?>", "", ai_txt, flags=re.IGNORECASE).strip()
-                        if ai_txt:
-                            lines_preview = ai_txt[:3200]
-                            if som_lines:
-                                lines_preview = f"{lines_preview}\n" + "\n".join(som_lines)
-                            source_badge = "niri+vision"
-                            vlm_succeeded = True
-                        elif _LAST_LMSTUDIO_ERROR in ("gpu_oom", "gpu_fit_failed", "low_memory"):
-                            lines_preview = f"{lines_preview}\n\n{_lmstudio_error_user_message(lang)}".strip()
-                except Exception:
-                    pass
-            win_label = str(obs.get("title") or obs.get("appId") or "desktop").strip()
-            if len(win_label) > 44:
-                win_label = win_label[:41].rstrip() + "…"
-            wants_guide = any(k in folded_p for k in ("eyes", "hands", "mat va tay", "can you see"))
-            shot_note_vi = f"\n📷 Đã chụp màn hình (`{Path(primary_img).name}`)." if (primary_img and not reused_previous_shot) else ""
-            shot_note_en = f"\n📷 Screenshot captured (`{Path(primary_img).name}`)." if (primary_img and not reused_previous_shot) else ""
-            if lang == "vi":
-                guide_vi = (
-                    "\n\n💡 **Mắt & Tay MCP:** `/web` tìm kiếm · `/fetch` đọc trang · `/browser` tự động hoá web · mở ứng dụng / chạy lệnh."
-                    if wants_guide
-                    else ""
-                )
-                msg = (
-                    f"{lines_preview}{guide_vi}"
-                    if vlm_succeeded
-                    else f"**🖥 {win_label}** · `{source_badge}`{changed_note}\n{lines_preview}{shot_note_vi}{guide_vi}"
-                ).strip()
-            else:
-                guide_en = (
-                    "\n\n💡 **MCP Eyes & Hands:** `/web` search · `/fetch` read URL · `/browser` automate web · open apps / run commands."
-                    if wants_guide
-                    else ""
-                )
-                msg = (
-                    f"{lines_preview}{guide_en}"
-                    if vlm_succeeded
-                    else f"**🖥 {win_label}** · `{source_badge}`{changed_note}\n{lines_preview}{shot_note_en}{guide_en}"
-                ).strip()
+            observations.append(sc["observation"])
             finish_run(run_id, status="completed", now_ms=now_ms)
             res = _format_reply(
-                msg,
+                sc["display"],
+                spoken_text=sc["spoken"],
                 expression="working",
                 status="completed",
                 run_id=run_id,
                 language=lang,
                 observations=observations,
                 session_ctx=session_ctx,
-                images=reply_images,
+                images=sc["images"],
             )
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
             return {
                 "handled": True,
                 "intent": kind,
-                "elements": obs_res.get("elements") or [],
-                "semanticSnapshot": obs_res.get("semanticSnapshot") or obs.get("semanticSnapshot") or "",
-                "somImagePath": som_image_path,
+                "elements": sc["elements"],
+                "semanticSnapshot": sc["semanticSnapshot"],
+                "somImagePath": sc["somImagePath"],
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
+
+        # 11b. Compound Multi-Intent Orchestration (e.g. screenshot + weather / todos / music / system in one turn)
+        if kind == "compound_task":
+            subtasks = [s for s in (intent.get("subtasks") or []) if isinstance(s, dict)]
+            display_sections: list[str] = []
+            spoken_parts: list[str] = []
+            all_images: list[str] = []
+            all_obs: list[dict] = []
+            all_client_actions: list[dict] = []
+            subtask_labels: list[str] = []
+            som_meta: dict = {}
+
+            section_titles_vi = {
+                "weather": "Thời tiết",
+                "music": "Nhạc cục bộ",
+                "timers": "Pomodoro & Tập trung",
+                "todos": "Việc cần làm",
+                "schedule": "Lịch trình",
+                "quicknotes": "QuickNotes",
+                "notifications": "Thông báo",
+                "screentime": "Thời gian dùng máy",
+                "learning": "Spaced Repetition",
+                "fitness": "Tập luyện",
+                "system": "Hệ thống",
+            }
+            section_titles_en = {
+                "weather": "Weather",
+                "music": "Local Music",
+                "timers": "Pomodoro & Focus",
+                "todos": "Todos",
+                "schedule": "Schedule",
+                "quicknotes": "QuickNotes",
+                "notifications": "Notifications",
+                "screentime": "ScreenTime",
+                "learning": "Spaced Repetition",
+                "fitness": "Workouts",
+                "system": "System",
+            }
+            ctrl_labels_vi = {
+                "weather_refresh": "Đã kích hoạt làm mới dữ liệu Thời tiết & AQI.",
+                "music_shuffle": "Đã bật/tắt chế độ trộn bài (Shuffle).",
+                "pomodoro_start": "Đã bắt đầu phiên tập trung Pomodoro.",
+                "pomodoro_pause": "Đã tạm dừng Pomodoro.",
+                "pomodoro_reset": "Đã đặt lại Pomodoro.",
+                "nexus_open": "Đang mở không gian làm việc Nexus.",
+                "nexus_open_daily": "Đang mở Daily Note hôm nay trong Nexus.",
+            }
+            ctrl_labels_en = {
+                "weather_refresh": "Triggered Alis Weather & AQI refresh.",
+                "music_shuffle": "Toggled Local Music shuffle mode.",
+                "pomodoro_start": "Started Pomodoro focus timer.",
+                "pomodoro_pause": "Paused Pomodoro focus timer.",
+                "pomodoro_reset": "Reset Pomodoro focus timer.",
+                "nexus_open": "Opening Nexus workspace.",
+                "nexus_open_daily": "Opening today's Daily Note in Nexus.",
+            }
+
+            for s_idx, sub in enumerate(subtasks, start=1):
+                skind = str(sub.get("kind") or "")
+                if skind == "screen_observe":
+                    subtask_labels.append("screen_observe")
+                    sc = _run_screen_observe_core(
+                        prompt=prompt,
+                        intent=sub,
+                        options=options,
+                        session_ctx=session_ctx,
+                        companion_root=companion_root,
+                        allow_screenshot=allow_screenshot,
+                        lang=lang,
+                        run_id=run_id,
+                        now_ms=now_ms,
+                        step_idx=s_idx,
+                        vlm_prompt_override=(
+                            "Mô tả súc tích những gì đang hiển thị trên màn hình."
+                            if lang == "vi"
+                            else "Concisely describe what is currently visible on the screen."
+                        ),
+                    )
+                    all_obs.append(sc["observation"])
+                    for im_p in sc["images"]:
+                        if im_p and im_p not in all_images:
+                            all_images.append(im_p)
+                    if sc.get("elements") or sc.get("somImagePath"):
+                        som_meta = {
+                            "elements": sc["elements"],
+                            "semanticSnapshot": sc["semanticSnapshot"],
+                            "somImagePath": sc["somImagePath"],
+                        }
+                    hdr = "Màn hình" if lang == "vi" else "Screen"
+                    display_sections.append(f"**{hdr}**\n{sc['display']}")
+                    if sc.get("spoken"):
+                        spoken_parts.append(str(sc["spoken"]).strip())
+
+                elif skind == "alis_local_info":
+                    topic = str(sub.get("topic") or "all")
+                    subtask_labels.append(f"alis_local_info:{topic}")
+                    st_id = record_step_start(run_id, s_idx, f"alis_{topic}", side_effect=False, now_ms=now_ms)
+                    live_res = alis_local_bridge.format_live_state(_CURRENT_TURN_LIVE_SNAPSHOT, topic=topic, query=prompt, lang=lang)
+                    md_part = str(live_res.get("markdown") or "").strip()
+                    if topic == "system":
+                        try:
+                            tel_res = desktop_control.get_system_telemetry()
+                            tel_lines = "\n".join(tel_res.get("lines", [])[:4])
+                            if tel_lines and tel_lines not in md_part:
+                                md_part = f"{md_part}\n{tel_lines}".strip()
+                        except Exception:
+                            pass
+                    record_step_finish(st_id, status="completed", detail=live_res.get("data"))
+                    advance_turn(run_id, now_ms=now_ms)
+                    hdr = (section_titles_vi if lang == "vi" else section_titles_en).get(topic, topic.title())
+                    display_sections.append(f"**{hdr}**\n{md_part}")
+                    sp_part = str(live_res.get("spoken") or "").strip()
+                    if sp_part:
+                        spoken_parts.append(sp_part)
+
+                elif skind == "alis_service_control":
+                    act = str(sub.get("action") or "")
+                    tgt = str(sub.get("target") or "")
+                    val = str(sub.get("value") or "")
+                    subtask_labels.append(f"alis_service_control:{act}")
+                    st_id = record_step_start(run_id, s_idx, f"alis_ctrl_{act}", side_effect=True, now_ms=now_ms)
+                    client_act = {"action": act, "target": tgt, "value": val}
+                    all_client_actions.append(client_act)
+                    if act in ("night_light_set", "gamemode_set", "dnd_set"):
+                        lbl_base = {"night_light_set": "Night Light", "gamemode_set": "Game Mode", "dnd_set": "Do Not Disturb"}[act]
+                        act_msg = (f"Đã {'bật' if val == 'on' else 'tắt'} {lbl_base}." if lang == "vi" else f"Turned {lbl_base} {val}.")
+                    else:
+                        act_msg = (ctrl_labels_vi if lang == "vi" else ctrl_labels_en).get(act, f"Executed {act}.")
+                    record_step_finish(st_id, status="completed", detail=client_act)
+                    advance_turn(run_id, now_ms=now_ms)
+                    display_sections.append(act_msg)
+                    spoken_parts.append(act_msg)
+
+                elif skind == "nexus_knowledge":
+                    sub_k = str(sub.get("subkind") or "search").strip().lower()
+                    q_nx = str(sub.get("query") or prompt).strip()
+                    v_override = _CURRENT_TURN_NEXUS_VAULT
+                    subtask_labels.append(f"nexus_knowledge:{sub_k}")
+                    st_id = record_step_start(run_id, s_idx, f"nexus_{sub_k}", side_effect=False, now_ms=now_ms)
+                    if sub_k in ("overview", "journal", "finance", "collections"):
+                        ov = nexus_rag.get_nexus_overview(vault_path=v_override, topic=sub_k)
+                        nx_md = alis_local_bridge.format_nexus_reply(sub_k, ov, query=q_nx, lang=lang)
+                        nx_det = ov.get("stats")
+                    else:
+                        nx_res = nexus_rag.search_nexus_knowledge(q_nx, vault_path=v_override, top_k=4, token_budget=700)
+                        nx_md = alis_local_bridge.format_nexus_reply("search", nx_res, query=q_nx, lang=lang)
+                        nx_det = {"matches": len(nx_res.get("citations") or [])}
+                    record_step_finish(st_id, status="completed", detail=nx_det)
+                    advance_turn(run_id, now_ms=now_ms)
+                    display_sections.append(f"**Nexus**\n{nx_md}")
+                    nx_spoken = desktop_control._clean_text_for_tts(nx_md, context_prompt=prompt, max_chars=260)
+                    if nx_spoken:
+                        spoken_parts.append(nx_spoken)
+
+            observations.extend(all_obs)
+            display_msg = "\n\n".join(s for s in display_sections if s).strip()
+            clean_spoken_parts = []
+            for sp in spoken_parts:
+                sp_s = " ".join(sp.split()).strip()
+                if not sp_s:
+                    continue
+                if sp_s[-1] not in ".!?;:…":
+                    sp_s += "."
+                clean_spoken_parts.append(sp_s)
+            spoken_msg = " ".join(clean_spoken_parts).strip()
+
+            finish_run(run_id, status="completed", now_ms=now_ms)
+            res = _format_reply(
+                display_msg,
+                spoken_text=spoken_msg,
+                expression="working",
+                status="completed",
+                run_id=run_id,
+                language=lang,
+                observations=observations,
+                session_ctx=session_ctx,
+                images=all_images,
+            )
+            u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+            return {
+                "handled": True,
+                "intent": kind,
+                "subtaskIntents": subtask_labels,
+                "clientActions": all_client_actions,
+                **som_meta,
                 **res,
                 "userMessageId": u_id,
                 "assistantMessageId": a_id,
@@ -8365,7 +8643,15 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
             record_step_finish(step_id, status="completed", detail=live_res.get("data"))
             advance_turn(run_id, now_ms=now_ms)
             finish_run(run_id, status="completed", now_ms=now_ms)
-            res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
+            res = _format_reply(
+                msg,
+                spoken_text=str(live_res.get("spoken") or ""),
+                expression="happy",
+                status="completed",
+                run_id=run_id,
+                language=lang,
+                session_ctx=session_ctx,
+            )
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
             return {
                 "handled": True,

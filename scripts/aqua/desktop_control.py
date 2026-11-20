@@ -1270,23 +1270,19 @@ def _has_edge_tts() -> bool:
         return False
 
 
-def _resolve_edge_tts_neural_voice(eff_voice: str) -> str:
-    v = str(eff_voice or "").strip()
-    if v.endswith("Neural"):
-        return v
-    if v.lower().startswith("vi"):
-        return "vi-VN-HoaiMyNeural"
-    return "en-US-AvaNeural"
+CANONICAL_NEURAL_VOICE = "en-US-AvaMultilingualNeural"
+
+
+def _resolve_edge_tts_neural_voice(_eff_voice: str = "") -> str:
+    return CANONICAL_NEURAL_VOICE
 
 
 def voice_status() -> dict:
-    """Inspect available local offline STT (Whisper) and cloud/neural STT/TTS backends."""
+    """Inspect available local Voice STT (Whisper) and canonical multilingual Neural TTS backend."""
     stt_bins = [b for b in ("whisper-cli", "whisper-cpp", "whisper") if shutil.which(b)]
     rec_bins = [b for b in ("pw-record", "arecord", "ffmpeg") if shutil.which(b)]
-    tts_bins = (["edge-tts"] if _has_edge_tts() else []) + [
-        b for b in ("piper", "espeak-ng", "espeak", "spd-say") if shutil.which(b)
-    ]
-    play_bins = [b for b in ("ffplay", "pw-play", "paplay", "aplay") if shutil.which(b)]
+    tts_bins = ["edge-tts"] if _has_edge_tts() else []
+    play_bins = [b for b in ("pw-play", "paplay", "aplay", "ffplay") if shutil.which(b)]
     test_mode = _is_test_or_isolated_env() or bool(os.environ.get("AQUA_TEST_VOICE_TEXT"))
     cfg_voice, api_keys = _load_voice_config_and_keys()
     local_models = _candidate_local_whisper_models(str(cfg_voice.get("localModelPath") or ""))
@@ -1299,7 +1295,7 @@ def voice_status() -> dict:
         stt_backend = cloud_providers[0]
     else:
         stt_backend = stt_bins[0] if stt_bins else "whisper-cli"
-    tts_backend = tts_bins[0] if tts_bins else ("fixture-piper" if test_mode else "piper")
+    tts_backend = "edge-tts" if tts_bins else ("fixture-edge-tts" if test_mode else "edge-tts-unavailable")
     return {
         "action": "voice_status",
         "status": "completed",
@@ -1308,12 +1304,13 @@ def voice_status() -> dict:
         "ttsAvailable": bool(tts_bins or test_mode),
         "sttBackend": stt_backend,
         "ttsBackend": tts_backend,
+        "canonicalVoice": CANONICAL_NEURAL_VOICE,
         "recordBackends": rec_bins,
         "playBackends": play_bins,
-        "summary": f"Local Voice I/O — STT: {stt_backend}, TTS: {tts_backend}",
+        "summary": f"Local Voice I/O — STT: {stt_backend}, TTS: {tts_backend} ({CANONICAL_NEURAL_VOICE})",
         "lines": [
             f"STT backend: {stt_backend} (recorders: {', '.join(rec_bins) or 'fixture'})",
-            f"TTS backend: {tts_backend} (players: {', '.join(play_bins) or 'fixture'})",
+            f"TTS backend: {tts_backend} · Voice: {CANONICAL_NEURAL_VOICE} (players: {', '.join(play_bins) or 'fixture'})",
         ],
     }
 
@@ -1665,7 +1662,7 @@ def _tts_pid_file() -> Path:
 
 
 def voice_tts_stop() -> dict:
-    """Terminate any active TTS audio playback or synthesizer process."""
+    """Terminate any active TTS playback process group and clean temporary chunk files."""
     pid_candidates = [_tts_pid_file(), _voice_state_dir() / "tts_pid.json"]
     stopped_pid = 0
     for pf in pid_candidates:
@@ -1675,20 +1672,15 @@ def voice_tts_stop() -> dict:
             raw = pf.read_text(encoding="utf-8").strip()
             data = json.loads(raw) if raw.startswith("{") else {"pid": int(raw)}
             pid = int(data.get("pid") or 0) if isinstance(data, dict) else 0
-            backend = str(data.get("backend") or "") if isinstance(data, dict) else ""
             if pid > 0:
                 try:
-                    os.kill(pid, signal.SIGTERM)
+                    os.killpg(pid, signal.SIGTERM)
                 except (ProcessLookupError, PermissionError, OSError):
-                    pass
-                stopped_pid = pid
-            if backend == "spd-say":
-                spdsay_bin = _resolve_safe_session_binary("spd-say")
-                if spdsay_bin:
                     try:
-                        subprocess.run([spdsay_bin, "--cancel"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5, check=False)
-                    except Exception:
+                        os.kill(pid, signal.SIGTERM)
+                    except (ProcessLookupError, PermissionError, OSError):
                         pass
+                stopped_pid = pid
         except (OSError, ValueError):
             pass
         finally:
@@ -1696,6 +1688,16 @@ def voice_tts_stop() -> dict:
                 pf.unlink(missing_ok=True)
             except OSError:
                 pass
+    try:
+        vdir = _voice_state_dir()
+        for pat in ("tts_chunk_*", "tts_manifest_*.json"):
+            for stale in vdir.glob(pat):
+                try:
+                    stale.unlink(missing_ok=True)
+                except OSError:
+                    pass
+    except OSError:
+        pass
     if stopped_pid > 0:
         return {
             "action": "voice_tts_stop",
@@ -1771,20 +1773,47 @@ _TTS_PATH_INTENT_RE = re.compile(
 )
 
 
-def _detect_tts_language(clean_txt: str, requested: str = "") -> str:
-    req = str(requested or "").strip()
-    if req and req.lower() not in ("", "default", "auto"):
-        return req
+def _is_vi_text(clean_txt: str) -> bool:
     words = re.findall(r"[^\W\d_]+", clean_txt or "", re.UNICODE)
     if not words:
-        return "en"
+        return False
     vi_words = sum(1 for w in words if _TTS_VI_DIACRITIC_RE.search(w))
-    if vi_words >= 2 or (vi_words == 1 and len(words) <= 8) or (vi_words / len(words)) >= 0.12:
-        return "vi"
-    return "en"
+    return (vi_words / len(words)) >= 0.16 or (vi_words >= 1 and len(words) <= 6)
 
 
-def _clean_text_for_tts(raw_text: str, context_prompt: str = "", max_chars: int = 520) -> str:
+def _naturalize_spoken_units(txt: str) -> str:
+    txt = re.sub(r"(\*\*|__)", "", txt)
+    is_vi = _is_vi_text(txt)
+    deg_word = "độ" if is_vi else "degrees"
+    to_word = "đến" if is_vi else "to"
+    kmh_words = "kilômét trên giờ" if is_vi else "kilometers per hour"
+
+    txt = re.sub(r"`?\[[ xX]\]`?", " ", txt)
+    txt = re.sub(
+        r"(-?\d+(?:\.\d+)?)\s*°C\s*[–—-]\s*(-?\d+(?:\.\d+)?)\s*°C",
+        rf"\1 {to_word} \2 {deg_word}",
+        txt,
+    )
+    txt = re.sub(r"(-?\d+(?:\.\d+)?)\s*°C(?=\s|[,.;:!?)]|$)", rf"\1 {deg_word}", txt)
+    txt = re.sub(r"°C\b", f" {deg_word}", txt)
+    txt = re.sub(
+        r"\bkm/h\s*\(\s*(?:N|S|E|W|NE|NW|SE|SW|NNE|NNW|SSE|SSW|ENE|ESE|WNW|WSW)\s*\)",
+        kmh_words,
+        txt,
+    )
+    txt = re.sub(r"\bkm/h\b", kmh_words, txt)
+    txt = re.sub(r"(?:[·,]?\s*)?\bPM\s*2\.5\s*:\s*[\d.]+\s*[μµu]g/m[³3]", "", txt, flags=re.IGNORECASE)
+    txt = re.sub(r"[\d.]+\s*[μµu]g/m[³3]", "", txt, flags=re.IGNORECASE)
+    txt = re.sub(
+        r"\b(?:EAQI|AQI)\s+\d+\s*\(\s*([^)]+?)\s*\)",
+        lambda m: m.group(1).lower(),
+        txt,
+    )
+    txt = re.sub(r"\b(?:EAQI|AQI)\s+(\d+)\b", lambda m: f"AQI {m.group(1)}", txt)
+    return txt
+
+
+def _clean_text_for_tts(raw_text: str, context_prompt: str = "", max_chars: int = 620) -> str:
     txt = str(raw_text or "").strip()
     if not txt:
         return ""
@@ -1816,6 +1845,7 @@ def _clean_text_for_tts(raw_text: str, context_prompt: str = "", max_chars: int 
         return inner
 
     txt = re.sub(r"`([^`]+)`", _unwrap_code, txt)
+    txt = _naturalize_spoken_units(txt)
     txt = re.sub(r"\s*[·|]\s*", ", ", txt)
     txt = re.sub(r"\s+—\s+", ", ", txt)
 
@@ -1840,7 +1870,7 @@ def _clean_text_for_tts(raw_text: str, context_prompt: str = "", max_chars: int 
     cleaned = re.sub(r",{2,}", ",", cleaned)
     cleaned = " ".join(cleaned.split()).strip()
 
-    limit = max(80, int(max_chars or 520))
+    limit = max(80, int(max_chars or 620))
     if len(cleaned) > limit:
         head = cleaned[:limit]
         last_sent = max(head.rfind(". "), head.rfind("! "), head.rfind("? "), head.rfind("… "))
@@ -1855,6 +1885,74 @@ def _clean_text_for_tts(raw_text: str, context_prompt: str = "", max_chars: int 
     return cleaned
 
 
+def _split_spoken_sentences(clean_txt: str, max_chunk_chars: int = 190) -> list[str]:
+    """Split clean speech prose into fast, natural sentence chunks for streaming TTS."""
+    txt = " ".join(str(clean_txt or "").split()).strip()
+    if not txt:
+        return []
+    raw_parts = [p.strip() for p in re.split(r"(?<=[.!?…])\s+", txt) if p.strip()]
+    wrapped: list[str] = []
+    for part in raw_parts:
+        if len(part) <= max_chunk_chars:
+            wrapped.append(part)
+            continue
+        cur = part
+        while len(cur) > max_chunk_chars:
+            cut = cur.rfind(", ", 0, max_chunk_chars)
+            if cut < int(max_chunk_chars * 0.45):
+                cut = cur.rfind(" ", 0, max_chunk_chars)
+            if cut <= 20:
+                cut = max_chunk_chars
+            wrapped.append(cur[: cut + (1 if cut < len(cur) and cur[cut] == "," else 0)].strip())
+            cur = cur[cut + (1 if cut < len(cur) and cur[cut] in ", " else 0) :].strip()
+        if cur:
+            wrapped.append(cur)
+
+    chunks: list[str] = []
+    for seg in wrapped:
+        if not chunks:
+            chunks.append(seg)
+        elif len(chunks[-1]) < 32 and len(chunks[-1]) + 1 + len(seg) <= max_chunk_chars:
+            chunks[-1] = f"{chunks[-1]} {seg}"
+        elif len(seg) < 28 and len(chunks[-1]) + 1 + len(seg) <= max_chunk_chars:
+            chunks[-1] = f"{chunks[-1]} {seg}"
+        else:
+            chunks.append(seg)
+    return chunks or [txt]
+
+
+def _synthesize_edge_chunk(chunk_text: str, out_mp3: Path, neural_voice: str, edge_rate: str, edge_cli: str) -> bool:
+    for attempt_rate in (edge_rate, "+0%"):
+        try:
+            import asyncio
+            import edge_tts
+
+            async def _synth_edge():
+                comm = edge_tts.Communicate(chunk_text, neural_voice, rate=attempt_rate)
+                await asyncio.wait_for(comm.save(str(out_mp3)), timeout=8.5)
+
+            asyncio.run(_synth_edge())
+            if out_mp3.is_file() and out_mp3.stat().st_size > 128:
+                return True
+        except Exception:
+            pass
+    if edge_cli:
+        for attempt_rate in (edge_rate, "+0%"):
+            try:
+                subprocess.run(
+                    [edge_cli, "--voice", neural_voice, "--rate", attempt_rate, "--text", chunk_text, "--write-media", str(out_mp3)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=9.0,
+                    check=False,
+                )
+                if out_mp3.is_file() and out_mp3.stat().st_size > 128:
+                    return True
+            except Exception:
+                pass
+    return False
+
+
 def voice_tts(
     text: str,
     voice: str = "",
@@ -1866,15 +1964,14 @@ def voice_tts(
     wait: bool = False,
     context_prompt: str = "",
 ) -> dict:
-    """Synthesize speech using natural Neural TTS (edge-tts) first, with Piper, espeak-ng, or spd-say fallback (safe dry-run in test environments)."""
+    """Synthesize speech using a single fixed multilingual neural voice (en-US-AvaMultilingualNeural) with streaming sentence chunks."""
     voice_tts_stop()
-    eff_voice = _detect_tts_language("", requested=str(voice or language or lang or "").strip())
     req_engine = str(engine or "").strip().lower()
     clean_txt = _clean_text_for_tts(text, context_prompt=context_prompt)
     if not clean_txt:
         raise DesktopControlError("empty_tts_text", "Provide non-empty text to synthesize with local TTS.")
-    eff_voice = _detect_tts_language(clean_txt, requested=str(voice or language or lang or "").strip())
-    neural_voice = _resolve_edge_tts_neural_voice(eff_voice)
+    neural_voice = _resolve_edge_tts_neural_voice(str(voice or language or lang or ""))
+    chunks = _split_spoken_sentences(clean_txt)
     raw_rate = str(rate or "").strip()
     edge_rate = raw_rate if (raw_rate.startswith(("+", "-")) and raw_rate.endswith("%")) else "+4%"
     vdir = _voice_state_dir()
@@ -1892,25 +1989,20 @@ def voice_tts(
             "ok": True,
             "spoken": True,
             "spokenText": clean_txt,
-            "voice": eff_voice or "default",
+            "voice": neural_voice,
             "neuralVoice": neural_voice,
-            "backend": "fixture-piper",
-            "ttsBackend": "fixture-piper",
+            "backend": "fixture-edge-tts",
+            "ttsBackend": "fixture-edge-tts",
             "requestedEngine": req_engine or "auto",
+            "streamingChunks": len(chunks),
             "waited": bool(wait),
             "audioPath": str(out_wav),
             "dryRun": True,
             "pid": 0,
-            "summary": f"Spoken via local TTS ({len(clean_txt)} chars): {clean_txt[:120]}",
+            "summary": f"Spoken via {neural_voice} ({len(chunks)} chunk(s), {len(clean_txt)} chars): {clean_txt[:120]}",
             "lines": [clean_txt[:180]],
         }
 
-    piper_bin = _resolve_safe_session_binary("piper")
-    piper_model = os.environ.get("ALIS_AQUA_PIPER_MODEL", "").strip()
-    if not piper_model and eff_voice.endswith(".onnx") and Path(eff_voice).expanduser().is_file():
-        piper_model = str(Path(eff_voice).expanduser())
-    espeak_bin = _resolve_safe_session_binary("espeak-ng") or _resolve_safe_session_binary("espeak")
-    spdsay_bin = _resolve_safe_session_binary("spd-say")
     ffplay_bin = _resolve_safe_session_binary("ffplay")
     ffmpeg_bin = _resolve_safe_session_binary("ffmpeg")
     play_bin = (
@@ -1918,139 +2010,119 @@ def voice_tts(
         or _resolve_safe_session_binary("paplay")
         or _resolve_safe_session_binary("aplay")
     )
-    spawned_pid = 0
-    spawned_proc: subprocess.Popen | None = None
-    backend_used = ""
+    edge_cli = _resolve_safe_session_binary("edge-tts") or ""
+    if not edge_cli:
+        cand_edge = Path.home() / ".local" / "bin" / "edge-tts"
+        if cand_edge.is_file() and os.access(cand_edge, os.X_OK):
+            edge_cli = str(cand_edge)
 
-    # 1. Primary: Natural Neural Voice via edge-tts (vi-VN-HoaiMyNeural / en-US-AvaNeural)
-    if req_engine in ("", "auto", "edge-tts", "edge_tts", "neural") and _has_edge_tts():
-        out_mp3 = out_wav.with_suffix(".mp3") if out_wav.suffix.lower() != ".mp3" else out_wav
+    out_mp3 = out_wav.with_suffix(".mp3") if out_wav.suffix.lower() != ".mp3" else out_wav
+    for stale in (out_mp3, out_wav):
         try:
-            out_mp3.unlink(missing_ok=True)
+            stale.unlink(missing_ok=True)
         except OSError:
             pass
-        try:
-            import asyncio
-            import edge_tts
 
-            async def _synth_edge():
-                comm = edge_tts.Communicate(clean_txt, neural_voice, rate=edge_rate)
-                await asyncio.wait_for(comm.save(str(out_mp3)), timeout=7.5)
+    synth_ok = False
+    if _has_edge_tts():
+        synth_ok = _synthesize_edge_chunk(chunks[0], out_mp3, neural_voice, edge_rate, edge_cli)
 
-            asyncio.run(_synth_edge())
-        except Exception:
-            edge_cli = _resolve_safe_session_binary("edge-tts")
-            if not edge_cli:
-                cand_edge = Path.home() / ".local" / "bin" / "edge-tts"
-                if cand_edge.is_file() and os.access(cand_edge, os.X_OK):
-                    edge_cli = str(cand_edge)
-            if edge_cli:
-                try:
-                    subprocess.run(
-                        [edge_cli, "--voice", neural_voice, "--rate", edge_rate, "--text", clean_txt, "--write-media", str(out_mp3)],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=8.0,
-                        check=False,
-                    )
-                except Exception:
-                    pass
-        if out_mp3.is_file() and out_mp3.stat().st_size > 128:
-            backend_used = "edge-tts"
-            if out_wav != out_mp3:
-                if ffmpeg_bin:
-                    try:
-                        subprocess.run(
-                            [ffmpeg_bin, "-y", "-loglevel", "quiet", "-i", str(out_mp3), str(out_wav)],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            timeout=4.0,
-                            check=False,
-                        )
-                    except Exception:
-                        pass
-                if not out_wav.is_file() or out_wav.stat().st_size <= 44:
-                    try:
-                        out_wav.write_bytes(_EMPTY_WAV_HEADER)
-                    except OSError:
-                        pass
-            try:
-                if play_bin and out_wav.is_file() and out_wav.stat().st_size > 64:
-                    proc = subprocess.Popen(
-                        [play_bin, str(out_wav)],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True,
-                    )
-                    spawned_proc = proc
-                    spawned_pid = proc.pid
-                elif ffplay_bin:
-                    proc = subprocess.Popen(
-                        [ffplay_bin, "-nodisp", "-autoexit", "-loglevel", "quiet", str(out_mp3)],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True,
-                    )
-                    spawned_proc = proc
-                    spawned_pid = proc.pid
-            except OSError:
-                pass
+    if not synth_ok:
+        return {
+            "action": "voice_tts",
+            "status": "tts_unavailable",
+            "ok": True,
+            "spoken": False,
+            "spokenText": clean_txt,
+            "voice": neural_voice,
+            "neuralVoice": neural_voice,
+            "backend": "edge-tts",
+            "ttsBackend": "edge-tts",
+            "requestedEngine": req_engine or "auto",
+            "streamingChunks": len(chunks),
+            "waited": bool(wait),
+            "audioPath": "",
+            "dryRun": False,
+            "pid": 0,
+            "error": "edge_tts_unreachable",
+            "summary": f"Neural voice ({neural_voice}) is temporarily unreachable.",
+            "lines": [f"Voice unavailable ({neural_voice})."],
+        }
 
-    # 2. Secondary: Local Piper ONNX TTS
-    if not backend_used and req_engine not in ("espeak", "espeak-ng", "spd-say") and piper_bin and piper_model and Path(piper_model).is_file():
-        backend_used = "piper"
+    first_audio = out_mp3
+    if play_bin and ffmpeg_bin and out_wav != out_mp3:
         try:
             subprocess.run(
-                [piper_bin, "--model", piper_model, "--output_file", str(out_wav)],
-                input=clean_txt.encode("utf-8"),
+                [ffmpeg_bin, "-y", "-loglevel", "quiet", "-i", str(out_mp3), str(out_wav)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=8.0,
+                timeout=4.5,
                 check=False,
             )
-            if play_bin and out_wav.is_file():
-                proc = subprocess.Popen([play_bin, str(out_wav)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-                spawned_proc = proc
-                spawned_pid = proc.pid
-        except (OSError, subprocess.SubprocessError):
-            out_wav.write_bytes(_EMPTY_WAV_HEADER)
+            if out_wav.is_file() and out_wav.stat().st_size > 64:
+                first_audio = out_wav
+        except Exception:
+            pass
 
-    # 3. Offline Fallback: espeak-ng / spd-say
-    if not backend_used:
-        if espeak_bin:
-            backend_used = "espeak-ng"
-            cmd = [espeak_bin, "-w", str(out_wav)]
-            if eff_voice and eff_voice not in ("default", "auto"):
-                cmd.extend(["-v", eff_voice])
-            if str(rate or "").strip():
-                cmd.extend(["-s", str(rate).strip()])
-            cmd.append(clean_txt)
-            run_user_command(cmd, shell=False, timeout_sec=6.0)
-            if play_bin and out_wav.is_file():
-                proc = subprocess.Popen([play_bin, str(out_wav)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-                spawned_proc = proc
-                spawned_pid = proc.pid
-        elif spdsay_bin:
-            backend_used = "spd-say"
-            proc = subprocess.Popen([spdsay_bin, clean_txt], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    spawned_pid = 0
+    spawned_proc: subprocess.Popen | None = None
+    try:
+        if len(chunks) >= 2:
+            manifest_path = vdir / f"tts_manifest_{int(time.time() * 1000)}.json"
+            manifest_payload = {
+                "firstAudioPath": str(first_audio),
+                "firstMp3Path": str(out_mp3) if first_audio != out_mp3 else "",
+                "remainingChunks": chunks[1:],
+                "voice": neural_voice,
+                "rate": edge_rate,
+                "chunkDir": str(vdir),
+                "playBin": play_bin or "",
+                "ffmpegBin": ffmpeg_bin or "",
+                "ffplayBin": ffplay_bin or "",
+                "edgeCli": edge_cli,
+            }
+            manifest_path.write_text(json.dumps(manifest_payload, ensure_ascii=False), encoding="utf-8")
+            stream_script = Path(__file__).resolve().parent / "tts_stream_player.py"
+            proc = subprocess.Popen(
+                [sys.executable, str(stream_script), str(manifest_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
             spawned_proc = proc
             spawned_pid = proc.pid
-            out_wav.write_bytes(_EMPTY_WAV_HEADER)
-        else:
-            backend_used = "piper" if piper_bin else "none"
-            out_wav.write_bytes(_EMPTY_WAV_HEADER)
+        elif first_audio.suffix.lower() == ".wav" and play_bin:
+            proc = subprocess.Popen(
+                [play_bin, str(first_audio)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            spawned_proc = proc
+            spawned_pid = proc.pid
+        elif ffplay_bin:
+            proc = subprocess.Popen(
+                [ffplay_bin, "-nodisp", "-autoexit", "-loglevel", "quiet", str(first_audio)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            spawned_proc = proc
+            spawned_pid = proc.pid
+    except OSError:
+        pass
 
     if spawned_pid > 0:
         try:
             _tts_pid_file().write_text(
-                json.dumps({"pid": spawned_pid, "backend": backend_used, "timestamp": int(time.time() * 1000)}),
+                json.dumps({"pid": spawned_pid, "backend": "edge-tts", "voice": neural_voice, "timestamp": int(time.time() * 1000)}),
                 encoding="utf-8",
             )
         except OSError:
             pass
     if wait and spawned_proc is not None:
         try:
-            spawned_proc.wait(timeout=15.0)
+            spawned_proc.wait(timeout=45.0)
         except Exception:
             pass
 
@@ -2060,16 +2132,17 @@ def voice_tts(
         "ok": True,
         "spoken": True,
         "spokenText": clean_txt,
-        "voice": eff_voice or "default",
+        "voice": neural_voice,
         "neuralVoice": neural_voice,
-        "backend": backend_used,
-        "ttsBackend": backend_used,
+        "backend": "edge-tts",
+        "ttsBackend": "edge-tts",
         "requestedEngine": req_engine or "auto",
+        "streamingChunks": len(chunks),
         "waited": bool(wait),
-        "audioPath": str(out_wav),
+        "audioPath": str(first_audio),
         "dryRun": False,
         "pid": spawned_pid,
-        "summary": f"Spoken via local TTS ({backend_used}): {clean_txt[:120]}",
+        "summary": f"Spoken via {neural_voice} ({len(chunks)} chunk(s)): {clean_txt[:120]}",
         "lines": [clean_txt[:180]],
     }
 

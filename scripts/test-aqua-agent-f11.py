@@ -2459,7 +2459,8 @@ if len(sys.argv) > 1 and sys.argv[1] == "info":
             voice_env,
         )
         assert v_tts["ok"] is True and v_tts["spoken"] is True
-        assert v_tts["ttsBackend"] == "fixture-piper"
+        assert v_tts["ttsBackend"] == "fixture-edge-tts"
+        assert v_tts["neuralVoice"] == "en-US-AvaMultilingualNeural"
 
         tts_turn = run_helper(
             {
@@ -3220,15 +3221,15 @@ if len(sys.argv) > 1 and sys.argv[1] == "info":
             f"Expected 0 built-in Alis doc hits for unrelated query when user RAG sources exist, got {isolated_rag}"
         )
 
-        # Verify voice_tts auto-selects Vietnamese voice (-v vi / vi-VN-HoaiMyNeural) and English voice (en-US-AvaNeural)
+        # Verify voice_tts uses a single fixed multilingual neural voice (en-US-AvaMultilingualNeural) across VI and EN
         import desktop_control
         vi_tts = desktop_control.voice_tts("Xin chào thế giới hôm nay", voice="default", out_path=str(Path(d) / "vi_test.wav"))
-        assert vi_tts["ok"] is True and vi_tts["voice"] == "vi" and vi_tts.get("neuralVoice") == "vi-VN-HoaiMyNeural", (
-            f"Expected voice='vi' and neuralVoice='vi-VN-HoaiMyNeural' for Vietnamese text, got {vi_tts}"
+        assert vi_tts["ok"] is True and vi_tts["voice"] == "en-US-AvaMultilingualNeural" and vi_tts.get("neuralVoice") == "en-US-AvaMultilingualNeural", (
+            f"Expected canonical multilingual voice for Vietnamese text, got {vi_tts}"
         )
         en_tts = desktop_control.voice_tts("Hello world today", voice="default", out_path=str(Path(d) / "en_test.wav"))
-        assert en_tts["ok"] is True and en_tts.get("neuralVoice") == "en-US-AvaNeural", (
-            f"Expected neuralVoice='en-US-AvaNeural' for English text, got {en_tts}"
+        assert en_tts["ok"] is True and en_tts["voice"] == "en-US-AvaMultilingualNeural" and en_tts.get("neuralVoice") == "en-US-AvaMultilingualNeural", (
+            f"Expected canonical multilingual voice for English text, got {en_tts}"
         )
 
         # Verify modality-matching in agent_runtime: text turn (fromVoice=False) -> text only; voice turn (fromVoice=True) -> voice spoken first, transcript after
@@ -4610,7 +4611,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "info":
             engine="edge-tts",
             wait=False,
         )
-        assert tts_vi_edge["ok"] is True and tts_vi_edge["neuralVoice"] == "vi-VN-HoaiMyNeural", tts_vi_edge
+        assert tts_vi_edge["ok"] is True and tts_vi_edge["neuralVoice"] == "en-US-AvaMultilingualNeural", tts_vi_edge
         assert tts_vi_edge["requestedEngine"] == "edge-tts" and tts_vi_edge["waited"] is False, tts_vi_edge
 
         tts_en_edge = desktop_control.voice_tts(
@@ -4619,7 +4620,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "info":
             engine="edge-tts",
             wait=True,
         )
-        assert tts_en_edge["ok"] is True and tts_en_edge["neuralVoice"] == "en-US-AvaNeural", tts_en_edge
+        assert tts_en_edge["ok"] is True and tts_en_edge["neuralVoice"] == "en-US-AvaMultilingualNeural", tts_en_edge
         assert tts_en_edge["requestedEngine"] == "edge-tts" and tts_en_edge["waited"] is True, tts_en_edge
 
     print("ALIS_COMPANION_AGENT_F11_PASS naturalLanguageLoop permissions bwrapSandbox screenContext codeToolsLsp ragCitations mcpProtocol skillsSystem hermesSelfLearning slashCommands rules memoryPocket crashReconcile legacyDataParity chatThreadsProjects fullAuthorityDesktopAgent twoTierFileEditor storageAndSkillsSettings dualModelAutoRouting plusIqModeSwitching mtpAutoOptimization interactiveClarification screenshotImageReply reactMultiStepLoop niriWindowColumnLayout browserDomSnapshot somVisualGrounding multiFormatFts5HybridRag fileAttachmentsAndOfflineVoice graphifyMcpAndSkill antiHallucinationAndRulesSync deepWebSearchAndPlanSynthesis qmlQolAndDeadCodeCleanup homeFileSearchAndAutoScroll screenshotRetentionAndTemperatureOverride threeStageDomainRag agentDesktopSemanticRefsAndVirtualCursor ponytailDocxPdfXlsxSkills singleModelSubagentOrchestration")

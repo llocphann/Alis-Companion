@@ -932,12 +932,12 @@ CURATED_TOOLS = {
         {
             "server": "pipewire-mpris-mcp",
             "name": "voice_tts",
-            "description": "Synthesize text into local speech audio using Piper, espeak-ng, or Speech Dispatcher.",
+            "description": "Synthesize text into local speech audio using the fixed multilingual neural voice (edge-tts en-US-AvaMultilingualNeural).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "text": {"type": "string", "description": "Text to speak aloud"},
-                    "voice": {"type": "string", "description": "Optional voice model/identifier"},
+                    "voice": {"type": "string", "description": "Optional voice override (canonical default: en-US-AvaMultilingualNeural)"},
                     "out_path": {"type": "string", "description": "Optional output WAV file path"},
                 },
                 "required": ["text"],
@@ -946,7 +946,7 @@ CURATED_TOOLS = {
         {
             "server": "pipewire-mpris-mcp",
             "name": "voice_status",
-            "description": "Inspect available local offline Voice STT/TTS backends (Whisper, Piper, espeak-ng, PipeWire).",
+            "description": "Inspect available local Voice STT/TTS backends (Whisper, edge-tts en-US-AvaMultilingualNeural, PipeWire).",
             "inputSchema": {
                 "type": "object",
                 "properties": {},
