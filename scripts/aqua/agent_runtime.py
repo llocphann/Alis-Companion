@@ -4492,22 +4492,23 @@ def delegate_subagent(
             if rt_name not in blocked_tools:
                 blocked_tools.append(rt_name)
 
+    route_meta = opts.get("modelRoute") if isinstance(opts.get("modelRoute"), dict) else {}
     with _SUBAGENT_LOCK:
-        t0_ms = int(time.time() * 1000)
-        # Strictly reuse the single loaded model; never load a second LLM into VRAM/GTT
-        route_meta = opts.get("modelRoute") if isinstance(opts.get("modelRoute"), dict) else {}
         pinned_model = (
             _LAST_LMSTUDIO_LOADED_MODEL
             or str(opts.get("model") or opts.get("selectedModel") or route_meta.get("selectedModel") or "").strip()
             or "qwen3.5-9b-uncensored-hauhaucs-aggressive"
         )
-        pinned_endpoint = str(
-            opts.get("endpoint")
-            or opts.get("selectedEndpoint")
-            or route_meta.get("selectedEndpoint")
-            or ""
-        ).strip()
+    t0_ms = int(time.time() * 1000)
+    # Strictly reuse the single loaded model; never load a second LLM into VRAM/GTT
+    pinned_endpoint = str(
+        opts.get("endpoint")
+        or opts.get("selectedEndpoint")
+        or route_meta.get("selectedEndpoint")
+        or ""
+    ).strip()
 
+    with _SUBAGENT_LOCK:
         running_prog = _emit_subagent_progress(
             role_key,
             index=idx,
@@ -4515,49 +4516,54 @@ def delegate_subagent(
             summary=str(role_spec["status_summary"]),
             status="running",
         )
-        running_label = str(running_prog["current"])
+    running_label = str(running_prog["current"])
 
-        # Isolated context window: fresh [system, user] messages list without main chat history bloat
-        sub_sys = str(role_spec["system_prompt"])
-        sub_user = f"Subtask [{role_title}]: {task_str[:900]}"
-        if hint_str:
-            sub_user = f"{sub_user}\n\nContext Hint:\n{hint_str[:600]}"
-        sub_messages: list[dict] = [
-            {"role": "system", "content": sub_sys},
-            {"role": "user", "content": sub_user},
-        ]
+    # Isolated context window: fresh [system, user] messages list without main chat history bloat
+    sub_sys = str(role_spec["system_prompt"])
+    sub_user = f"Subtask [{role_title}]: {task_str[:900]}"
+    if hint_str:
+        sub_user = f"{sub_user}\n\nContext Hint:\n{hint_str[:600]}"
+    sub_messages: list[dict] = [
+        {"role": "system", "content": sub_sys},
+        {"role": "user", "content": sub_user},
+    ]
 
-        role_tool_schemas: list[dict] = []
-        _seen_sub_tools: set[str] = set()
-        for schema in (AGENT_TOOL_SCHEMAS + _SUBAGENT_EXTRA_TOOL_SCHEMAS):
-            t_schema_name = str(schema.get("function", {}).get("name") or "")
-            if (
-                t_schema_name
-                and t_schema_name not in _seen_sub_tools
-                and t_schema_name in allowed_set
-                and t_schema_name != "delegate_subagent"
-                and not (read_only_role and t_schema_name in _PRIVILEGED_MUTATE_EXEC_TOOLS)
-            ):
-                _seen_sub_tools.add(t_schema_name)
-                role_tool_schemas.append(schema)
-
-        sub_steps: list[dict] = []
-        findings: list[str] = []
-        parallel_io_used = False
-        workspace = str(ctx.get("lastProject") or ctx.get("lastDirectory") or comp_root)
-
-        if blocked_tools:
-            sub_steps.append({"tool": "privilege_guard", "blockedTools": list(blocked_tools)})
-            findings.append(
-                f"Privilege isolation enforced for [{role_title}]: blocked disallowed tool(s) ({', '.join(blocked_tools)})."
-            )
-
-        # Optional live/fixture LLM tool turn on the pinned single model
+    role_tool_schemas: list[dict] = []
+    _seen_sub_tools: set[str] = set()
+    for schema in (AGENT_TOOL_SCHEMAS + _SUBAGENT_EXTRA_TOOL_SCHEMAS):
+        t_schema_name = str(schema.get("function", {}).get("name") or "")
         if (
-            pinned_endpoint
-            and (pinned_endpoint.startswith("http://127.0.0.1:") or pinned_endpoint.startswith("http://localhost:"))
-            and opts.get("useSubagentLlm") is not False
+            t_schema_name
+            and t_schema_name not in _seen_sub_tools
+            and t_schema_name in allowed_set
+            and t_schema_name != "delegate_subagent"
+            and not (read_only_role and t_schema_name in _PRIVILEGED_MUTATE_EXEC_TOOLS)
         ):
+            _seen_sub_tools.add(t_schema_name)
+            role_tool_schemas.append(schema)
+
+    sub_steps: list[dict] = []
+    findings: list[str] = []
+    parallel_io_used = False
+    local_ctx = dict(ctx) if isinstance(ctx, dict) else {}
+    workspace = str(local_ctx.get("lastProject") or local_ctx.get("lastDirectory") or comp_root)
+
+    if blocked_tools:
+        sub_steps.append({"tool": "privilege_guard", "blockedTools": list(blocked_tools)})
+        findings.append(
+            f"Privilege isolation enforced for [{role_title}]: blocked disallowed tool(s) ({', '.join(blocked_tools)})."
+        )
+
+    # Bounded multi-step LLM tool loop on the pinned model (up to subagentMaxTurns, default 3)
+    max_sub_turns = max(1, min(3, int(opts.get("subagentMaxTurns") or 3)))
+    sub_turns_used = 0
+    if (
+        pinned_endpoint
+        and (pinned_endpoint.startswith("http://127.0.0.1:") or pinned_endpoint.startswith("http://localhost:"))
+        and opts.get("useSubagentLlm") is not False
+    ):
+        for sub_turn in range(1, max_sub_turns + 1):
+            sub_turns_used = sub_turn
             llm_turn = _call_local_model_tool_turn(
                 endpoint_url=pinned_endpoint,
                 model_name=pinned_model,
@@ -4569,131 +4575,167 @@ def delegate_subagent(
                 messages=sub_messages,
                 temperature=float(role_spec["temperature"]),
                 tools=role_tool_schemas,
+                provider=str(opts.get("provider") or route_meta.get("provider") or ""),
+                context_window=opts.get("contextWindow"),
+                turn_idx=sub_turn,
             )
-            if isinstance(llm_turn, dict):
-                tcs = llm_turn.get("toolCalls") or []
-                for tc in tcs[:2]:
-                    tc_name = str(tc.get("name") or "").strip()
-                    if not tc_name:
-                        continue
-                    if (
-                        tc_name == "delegate_subagent"
-                        or tc_name not in allowed_set
-                        or (read_only_role and tc_name in _PRIVILEGED_MUTATE_EXEC_TOOLS)
-                    ):
-                        if tc_name not in blocked_tools:
-                            blocked_tools.append(tc_name)
-                        sub_steps.append({"tool": tc_name, "status": "blocked_privilege_isolation"})
-                        continue
+            if not isinstance(llm_turn, dict):
+                break
+            tcs = llm_turn.get("toolCalls") or []
+            llm_txt = str(llm_turn.get("text") or "").strip()
+            if not tcs:
+                if llm_txt:
+                    findings.append(llm_txt[:700])
+                break
+
+            limited_tcs = list(tcs[:2])
+            sub_messages.append({
+                "role": "assistant",
+                "content": llm_txt or "",
+                "tool_calls": [
+                    {
+                        "id": str(tc.get("toolCallId") or f"sub_t{sub_turn}_{i + 1}"),
+                        "type": "function",
+                        "function": {
+                            "name": str(tc.get("name") or ""),
+                            "arguments": json.dumps(tc.get("args") or {}, ensure_ascii=False),
+                        },
+                    }
+                    for i, tc in enumerate(limited_tcs)
+                ],
+            })
+            for i, tc in enumerate(limited_tcs):
+                tc_id = str(tc.get("toolCallId") or f"sub_t{sub_turn}_{i + 1}")
+                tc_name = str(tc.get("name") or "").strip()
+                if not tc_name:
+                    obs_msg = "[empty tool name]"
+                elif (
+                    tc_name == "delegate_subagent"
+                    or tc_name not in allowed_set
+                    or (read_only_role and tc_name in _PRIVILEGED_MUTATE_EXEC_TOOLS)
+                ):
+                    if tc_name not in blocked_tools:
+                        blocked_tools.append(tc_name)
+                    sub_steps.append({"tool": tc_name, "status": "blocked_privilege_isolation"})
+                    obs_msg = f"[{tc_name} blocked by {role_title} privilege isolation]"
+                else:
                     try:
-                        obs = _execute_llm_tool_call(tc, ctx, comp_root, ts_ms)
+                        obs = _execute_llm_tool_call(tc, local_ctx, comp_root, ts_ms)
                         sub_steps.append({"tool": tc_name, "status": "completed", "observation": obs[:360]})
                         findings.append(f"[{tc_name}] {obs[:360]}")
+                        obs_msg = obs[:2400]
                     except Exception as exc:
                         obs_err = f"[{tc_name} error: {exc}]"
                         sub_steps.append({"tool": tc_name, "status": "failed", "error": str(exc)[:200]})
                         findings.append(obs_err[:360])
-                llm_txt = str(llm_turn.get("text") or "").strip()
-                if llm_txt:
-                    findings.append(llm_txt[:700])
+                        obs_msg = obs_err
+                sub_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "name": tc_name or "unknown",
+                    "content": obs_msg,
+                })
+            if sub_turn == max_sub_turns and llm_txt:
+                findings.append(llm_txt[:700])
 
-        # Deterministic role-scoped local execution/context gathering so subagents always return grounded compact summaries
-        if not findings or (len(findings) == 1 and blocked_tools):
-            if role_key == "researcher":
-                combined_q = f"{task_str} {hint_str}".strip()
-                doms = domain_rag.detect_domains(combined_q)
-                if not doms and domain_rag.is_config_check_query(combined_q):
-                    doms = ["niri", "quickshell"]
-                cand_path = _extract_path_from_text(combined_q, ctx)
+    # Deterministic role-scoped local execution/context gathering so subagents always return grounded compact summaries
+    if not findings or (len(findings) == 1 and blocked_tools):
+        if role_key == "researcher":
+            combined_q = f"{task_str} {hint_str}".strip()
+            doms = domain_rag.detect_domains(combined_q)
+            if not doms and domain_rag.is_config_check_query(combined_q):
+                doms = ["niri", "quickshell"]
+            cand_path = _extract_path_from_text(combined_q, local_ctx)
 
-                def _io_domain_rag() -> tuple[dict | None, str]:
-                    if not doms:
-                        return None, ""
+            def _io_domain_rag() -> tuple[dict | None, str]:
+                if not doms:
+                    return None, ""
+                try:
+                    drag = domain_rag.query_domain_rag(
+                        task_str,
+                        domains=doms,
+                        companion_root=comp_root,
+                        token_budget=260,
+                    )
+                    dom_chunks = (
+                        (drag.get("canonicalChunks") or []) + (drag.get("personalChunks") or [])
+                        or (drag.get("chunks") or [])
+                    )
+                    snippets = [c.get("title") or c.get("source") or "" for c in dom_chunks[:3]]
+                    msg_s = (
+                        f"Domain RAG ({', '.join(doms)}): matched {len(dom_chunks)} reference(s)"
+                        + (f" ({', '.join(s for s in snippets if s)})" if any(snippets) else "")
+                    )
+                    return {"tool": "domain_rag", "domains": doms}, msg_s
+                except Exception:
+                    return None, ""
+
+            def _io_read_target() -> tuple[dict | None, str]:
+                if not (cand_path and Path(cand_path).exists()):
+                    return None, ""
+                p_obj = Path(cand_path)
+                if p_obj.is_file():
                     try:
-                        drag = domain_rag.query_domain_rag(
-                            task_str,
-                            domains=doms,
-                            companion_root=comp_root,
-                            token_budget=260,
-                        )
-                        dom_chunks = (
-                            (drag.get("canonicalChunks") or []) + (drag.get("personalChunks") or [])
-                            or (drag.get("chunks") or [])
-                        )
-                        snippets = [c.get("title") or c.get("source") or "" for c in dom_chunks[:3]]
-                        msg_s = (
-                            f"Domain RAG ({', '.join(doms)}): matched {len(dom_chunks)} reference(s)"
-                            + (f" ({', '.join(s for s in snippets if s)})" if any(snippets) else "")
-                        )
-                        return {"tool": "domain_rag", "domains": doms}, msg_s
+                        info = code_tools.read_file(p_obj, max_chars=420)
+                        preview = re.sub(r"\s+", " ", str(info.get("text") or "").strip())[:320]
+                        return {"tool": "read_file", "targetPath": str(p_obj)}, f"Inspected `{p_obj.name}`: {preview}"
                     except Exception:
-                        return None, ""
+                        return {"tool": "read_file", "targetPath": str(p_obj)}, f"Located target file `{p_obj}`."
+                return {"tool": "read_file", "targetPath": str(p_obj)}, f"Inspected directory `{p_obj}`."
 
-                def _io_read_target() -> tuple[dict | None, str]:
-                    if not (cand_path and Path(cand_path).exists()):
-                        return None, ""
-                    p_obj = Path(cand_path)
-                    if p_obj.is_file():
-                        try:
-                            info = code_tools.read_file(p_obj, max_chars=420)
-                            preview = re.sub(r"\s+", " ", str(info.get("text") or "").strip())[:320]
-                            return {"tool": "read_file", "targetPath": str(p_obj)}, f"Inspected `{p_obj.name}`: {preview}"
-                        except Exception:
-                            return {"tool": "read_file", "targetPath": str(p_obj)}, f"Located target file `{p_obj}`."
-                    return {"tool": "read_file", "targetPath": str(p_obj)}, f"Inspected directory `{p_obj}`."
+            def _io_repo_map() -> tuple[dict | None, str]:
+                try:
+                    rmap = build_repo_map(workspace, token_budget=180)
+                    top_entries = ", ".join(f"`{e['file']}`" for e in (rmap.get("entries") or [])[:4])
+                    msg_s = (
+                        f"Workspace `{Path(workspace).name}` context: {rmap.get('fileCount', 0)} files indexed"
+                        + (f" (key files: {top_entries})." if top_entries else ".")
+                    )
+                    return {"tool": "code_search", "workspace": workspace}, msg_s
+                except Exception:
+                    return None, ""
 
-                def _io_repo_map() -> tuple[dict | None, str]:
-                    try:
-                        rmap = build_repo_map(workspace, token_budget=180)
-                        top_entries = ", ".join(f"`{e['file']}`" for e in (rmap.get("entries") or [])[:4])
-                        msg_s = (
-                            f"Workspace `{Path(workspace).name}` context: {rmap.get('fileCount', 0)} files indexed"
-                            + (f" (key files: {top_entries})." if top_entries else ".")
-                        )
-                        return {"tool": "code_search", "workspace": workspace}, msg_s
-                    except Exception:
-                        return None, ""
+            # Parallel I/O discovery across independent read-only sources via ThreadPoolExecutor
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+                fut_rag = pool.submit(_io_domain_rag)
+                fut_file = pool.submit(_io_read_target)
+                fut_repo = pool.submit(_io_repo_map)
+                io_results = [fut_rag.result(), fut_file.result(), fut_repo.result()]
+            parallel_io_used = True
+            for step_meta, msg_s in io_results:
+                if step_meta and msg_s:
+                    sub_steps.append(step_meta)
+                    findings.append(msg_s)
+            if not findings:
+                findings.append(f"Gathered context for: {task_str[:240]}")
+        elif role_key == "planner":
+            sub_steps.append({"tool": "plan_checklist", "task": task_str[:120]})
+            findings.append(
+                f"Execution Plan for '{task_str[:160]}':\n"
+                "1. Validate scope, target files, and configuration constraints.\n"
+                "2. Execute targeted changes with backward compatibility.\n"
+                "3. Cross-verify output integrity and state readback."
+            )
+        elif role_key in ("executor", "coder"):
+            sub_steps.append({"tool": "action_prepare", "task": task_str[:120]})
+            findings.append(
+                f"Prepared & scoped concrete {role_title.lower()} actions for '{task_str[:200]}'"
+                + (f" (context: {hint_str[:180]})" if hint_str else "")
+                + "."
+            )
+        elif role_key == "verifier":
+            sub_steps.append({"tool": "verify_state", "task": task_str[:120], "status": "skipped"})
+            findings.append(
+                f"Verifier skipped automated execution (no live LLM/check backend ran) for '{task_str[:200]}'."
+            )
 
-                # Parallel I/O discovery across independent read-only sources via ThreadPoolExecutor
-                with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-                    fut_rag = pool.submit(_io_domain_rag)
-                    fut_file = pool.submit(_io_read_target)
-                    fut_repo = pool.submit(_io_repo_map)
-                    io_results = [fut_rag.result(), fut_file.result(), fut_repo.result()]
-                parallel_io_used = True
-                for step_meta, msg_s in io_results:
-                    if step_meta and msg_s:
-                        sub_steps.append(step_meta)
-                        findings.append(msg_s)
-                if not findings:
-                    findings.append(f"Gathered context for: {task_str[:240]}")
-            elif role_key == "planner":
-                sub_steps.append({"tool": "plan_checklist", "task": task_str[:120]})
-                findings.append(
-                    f"Execution Plan for '{task_str[:160]}':\n"
-                    "1. Validate scope, target files, and configuration constraints.\n"
-                    "2. Execute targeted changes with backward compatibility.\n"
-                    "3. Cross-verify output integrity and state readback."
-                )
-            elif role_key in ("executor", "coder"):
-                sub_steps.append({"tool": "action_prepare", "task": task_str[:120]})
-                findings.append(
-                    f"Prepared & scoped concrete {role_title.lower()} actions for '{task_str[:200]}'"
-                    + (f" (context: {hint_str[:180]})" if hint_str else "")
-                    + "."
-                )
-            elif role_key == "verifier":
-                sub_steps.append({"tool": "verify_state", "task": task_str[:120], "status": "skipped"})
-                findings.append(
-                    f"Verifier skipped automated execution (no live LLM/check backend ran) for '{task_str[:200]}'."
-                )
+    header = f"[{role_title} {idx}/{tot}]"
+    joined = " | ".join(f.strip() for f in findings if f.strip())
+    compact_summary = f"{header} {joined}".strip()[:_SUBAGENT_MAX_SUMMARY_CHARS]
+    if not compact_summary:
+        compact_summary = f"{header} Completed subtask: {task_str[:300]}"[:_SUBAGENT_MAX_SUMMARY_CHARS]
 
-        header = f"[{role_title} {idx}/{tot}]"
-        joined = " | ".join(f.strip() for f in findings if f.strip())
-        compact_summary = f"{header} {joined}".strip()[:_SUBAGENT_MAX_SUMMARY_CHARS]
-        if not compact_summary:
-            compact_summary = f"{header} Completed subtask: {task_str[:300]}"[:_SUBAGENT_MAX_SUMMARY_CHARS]
-
+    with _SUBAGENT_LOCK:
         done_prog = _emit_subagent_progress(
             role_key,
             index=idx,
@@ -4721,6 +4763,7 @@ def delegate_subagent(
             "temperature": float(role_spec["temperature"]),
             "allowedTools": list(role_spec["allowed_tools"]),
             "messagesCount": len(sub_messages),
+            "llmTurns": sub_turns_used,
             "statusLabel": running_label,
             "completedStatusLabel": str(done_prog["current"]),
             "progressPayload": running_prog,
@@ -5005,6 +5048,37 @@ def assess_task_scale_for_subagents(prompt: str, options: dict | None = None) ->
     }
 
 
+_SWARM_LOCAL_SEMAPHORE = threading.Semaphore(1)
+_CLOUD_SWARM_PROVIDERS = frozenset({
+    "openai",
+    "anthropic",
+    "claude",
+    "gemini",
+    "google",
+    "deepseek",
+    "openrouter",
+    "codex",
+    "groq",
+    "together",
+    "mistral",
+    "cloud",
+})
+
+
+def _is_local_swarm_endpoint(endpoint: str = "", provider: str = "", options: dict | None = None) -> bool:
+    opts = options if isinstance(options, dict) else {}
+    forced = str(opts.get("swarmForceConcurrency") or "").strip().lower()
+    if forced == "parallel":
+        return False
+    if forced == "serial":
+        return True
+    prov = str(provider or "").strip().lower()
+    ep = str(endpoint or "").strip().lower()
+    if prov in _CLOUD_SWARM_PROVIDERS or ep.startswith("https://"):
+        return False
+    return True
+
+
 def run_swarm_mission(
     goal: str,
     options: dict,
@@ -5034,33 +5108,84 @@ def run_swarm_mission(
     accumulated_hints: list[str] = []
     worker_bullets: list[str] = []
 
+    route_meta = options.get("modelRoute") if isinstance(options.get("modelRoute"), dict) else {}
+    ep_val = str(options.get("endpoint") or route_meta.get("selectedEndpoint") or "").strip()
+    prov_val = str(options.get("provider") or route_meta.get("provider") or "").strip()
+    is_local_swarm = _is_local_swarm_endpoint(ep_val, prov_val, options)
+
+    state_lock = threading.Lock()
+    layer_buckets: dict[int, list[tuple[int, dict]]] = {}
     for idx, worker in enumerate(workers, start=1):
+        lyr = max(1, min(3, int(worker.get("layer") or 1)))
+        layer_buckets.setdefault(lyr, []).append((idx, worker))
+
+    def _run_layer_worker(idx: int, worker: dict, layer_hint: str) -> tuple[str, dict | None]:
         fresh_state = swarm_store.load_state(int(time.time() * 1000))
         if fresh_state.get("status") == "stopped":
-            return fresh_state, swarm_store.format_swarm_markdown(fresh_state, lang=lang)
+            return "stopped", fresh_state
         wid = str(worker.get("id") or f"worker-{idx}")
         wrole = str(worker.get("role") or "researcher")
         wtask = str(worker.get("task") or clean_goal)
-        swarm_store.mark_worker_working(state, wid, now_ms=int(time.time() * 1000), emit=True)
-        sub_res = delegate_subagent(
-            role=wrole,
-            task=wtask,
-            context_hint="\n".join(accumulated_hints[-3:]),
-            options=options,
-            session_ctx=ctx,
-            companion_root=companion_root,
-            subagent_index=idx,
-            subagent_total=total_w,
-            now_ms=int(time.time() * 1000),
-        )
+        with state_lock:
+            swarm_store.mark_worker_working(state, wid, now_ms=int(time.time() * 1000), emit=True)
+        worker_opts = dict(options)
+        if is_local_swarm:
+            with _SWARM_LOCAL_SEMAPHORE:
+                sub_res = delegate_subagent(
+                    role=wrole,
+                    task=wtask,
+                    context_hint=layer_hint,
+                    options=worker_opts,
+                    session_ctx=dict(ctx),
+                    companion_root=companion_root,
+                    subagent_index=idx,
+                    subagent_total=total_w,
+                    now_ms=int(time.time() * 1000),
+                )
+        else:
+            sub_res = delegate_subagent(
+                role=wrole,
+                task=wtask,
+                context_hint=layer_hint,
+                options=worker_opts,
+                session_ctx=dict(ctx),
+                companion_root=companion_root,
+                subagent_index=idx,
+                subagent_total=total_w,
+                now_ms=int(time.time() * 1000),
+            )
         fresh_after = swarm_store.load_state(int(time.time() * 1000))
         if fresh_after.get("status") == "stopped":
-            return fresh_after, swarm_store.format_swarm_markdown(fresh_after, lang=lang)
-        swarm_store.record_worker_completion(state, wid, sub_res, now_ms=int(time.time() * 1000), emit=True)
-        raw_sum = str(sub_res.get("rawSummary") or sub_res.get("summary") or "").strip()
-        if raw_sum:
-            accumulated_hints.append(f"[{wid}] {raw_sum[:360]}")
-            worker_bullets.append(f"- **`@{wid}`** ({worker.get('title')}): {raw_sum}")
+            return "stopped", fresh_after
+        with state_lock:
+            swarm_store.record_worker_completion(state, wid, sub_res, now_ms=int(time.time() * 1000), emit=True)
+            raw_sum = str(sub_res.get("rawSummary") or sub_res.get("summary") or "").strip()
+            if raw_sum:
+                accumulated_hints.append(f"[{wid}] {raw_sum[:360]}")
+                worker_bullets.append(f"- **`@{wid}`** ({worker.get('title')}): {raw_sum}")
+        return "ok", None
+
+    for lyr in sorted(layer_buckets.keys()):
+        layer_workers = layer_buckets[lyr]
+        fresh_layer = swarm_store.load_state(int(time.time() * 1000))
+        if fresh_layer.get("status") == "stopped":
+            return fresh_layer, swarm_store.format_swarm_markdown(fresh_layer, lang=lang)
+        with state_lock:
+            layer_hint = "\n".join(accumulated_hints[-3:])
+        if not is_local_swarm and len(layer_workers) > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(3, len(layer_workers))) as pool:
+                futs = [pool.submit(_run_layer_worker, idx_w, w_obj, layer_hint) for idx_w, w_obj in layer_workers]
+                for fut in futs:
+                    st_res, stopped_state = fut.result()
+                    if st_res == "stopped" and isinstance(stopped_state, dict):
+                        return stopped_state, swarm_store.format_swarm_markdown(stopped_state, lang=lang)
+        else:
+            for idx_w, w_obj in layer_workers:
+                with state_lock:
+                    cur_hint = "\n".join(accumulated_hints[-3:]) if is_local_swarm else layer_hint
+                st_res, stopped_state = _run_layer_worker(idx_w, w_obj, cur_hint)
+                if st_res == "stopped" and isinstance(stopped_state, dict):
+                    return stopped_state, swarm_store.format_swarm_markdown(stopped_state, lang=lang)
 
     joined_findings = "\n".join(worker_bullets) if worker_bullets else "- All assigned slices completed."
     synth_text = ""
@@ -7081,7 +7206,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
     options["_taskScale"] = scale_info
     if (
         scale_info.get("shouldDecompose")
-        and options.get("autoSubagentDecompose", True) is not False
+        and options.get("autoSubagentDecompose") is True
         and kind
         not in (
             "hypothetical_or_negated",

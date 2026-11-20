@@ -19,7 +19,7 @@ def assemble(source, target, binary, sha):
     """Copy only product source. No Blender sources, tests, models or user data."""
     source, target, binary = Path(source), Path(target), Path(binary)
     for name in RUNTIME_DIRS:
-        shutil.copytree(source / name, target / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.frag"))
+        shutil.copytree(source / name, target / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     for name in RUNTIME_FILES:
         path = target / name
         path.parent.mkdir(parents=True, exist_ok=True)

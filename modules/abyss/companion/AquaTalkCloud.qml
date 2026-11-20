@@ -927,6 +927,29 @@ Item {
         }
         return null;
     }
+    property var _bubbleTextRegistry: ({})
+    function registerBubbleText(index, item): void {
+        const idx = Number(index);
+        if (idx < 0 || !item)
+            return;
+        root._bubbleTextRegistry[idx] = item;
+    }
+    function unregisterBubbleText(index, item = null): void {
+        const idx = Number(index);
+        if (idx < 0)
+            return;
+        if (!item || root._bubbleTextRegistry[idx] === item)
+            delete root._bubbleTextRegistry[idx];
+    }
+    function getBubbleTextItem(index) {
+        const idx = Number(index);
+        if (idx < 0)
+            return null;
+        const cached = root._bubbleTextRegistry[idx];
+        if (cached && cached.objectName === ("aquaChatBubbleText-" + idx))
+            return cached;
+        return root.findChildByObjectName(transcript, "aquaChatBubbleText-" + idx);
+    }
     function clearOtherSelections(exceptIndex = -999): void {
         const keep = Number(exceptIndex);
         if (keep !== -3) {
@@ -934,10 +957,12 @@ Item {
                 streamingPreviewTextItem.deselect();
             streamingPreviewTextItem.cachedSelectedText = "";
         }
-        for (let i = 0; i < transcript.count; ++i) {
-            if (i === keep)
+        const keys = Object.keys(root._bubbleTextRegistry);
+        for (let k = 0; k < keys.length; ++k) {
+            const idx = Number(keys[k]);
+            if (idx === keep)
                 continue;
-            const textItem = root.findChildByObjectName(transcript, "aquaChatBubbleText-" + i);
+            const textItem = root._bubbleTextRegistry[keys[k]];
             if (textItem) {
                 if (String(textItem.selectedText ?? "").length > 0)
                     textItem.deselect();
@@ -975,7 +1000,7 @@ Item {
         const idx = Number(index);
         if (idx >= 0 && idx < transcript.count)
             transcript.positionViewAtIndex(idx, ListView.Contain);
-        const textItem = root.findChildByObjectName(transcript, "aquaChatBubbleText-" + idx);
+        const textItem = root.getBubbleTextItem(idx);
         if (!textItem)
             return "";
         root.clearOtherSelections(idx);
@@ -993,7 +1018,7 @@ Item {
         const idx = Number(index);
         if (!directTextItem && idx >= 0 && idx < transcript.count)
             transcript.positionViewAtIndex(idx, ListView.Contain);
-        const textItem = directTextItem || root.findChildByObjectName(transcript, "aquaChatBubbleText-" + idx);
+        const textItem = directTextItem || root.getBubbleTextItem(idx);
         const fallbackContent = (idx >= 0 && idx < AquaMind.history.length) ? String(AquaMind.history[idx]?.content ?? "") : "";
         const liveSel = textItem ? String(textItem.selectedText ?? "") : "";
         const cachedSel = (textItem && textItem.cachedSelectedText !== undefined) ? String(textItem.cachedSelectedText ?? "") : "";
@@ -1013,18 +1038,20 @@ Item {
         if (root.activeSelectionBubbleIndex === -3 && streamingPreviewTextItem.visible && streamSel.length > 0)
             return root.copyTextToClipboard(streamSel, -3);
         if (root.activeSelectionBubbleIndex >= 0 && root.activeSelectionBubbleIndex < transcript.count) {
-            const activeItem = root.findChildByObjectName(transcript, "aquaChatBubbleText-" + root.activeSelectionBubbleIndex);
+            const activeItem = root.getBubbleTextItem(root.activeSelectionBubbleIndex);
             const activeSel = activeItem ? String(activeItem.selectedText || activeItem.cachedSelectedText || "") : "";
             if (activeSel.length > 0)
                 return root.copyTextToClipboard(activeSel, root.activeSelectionBubbleIndex);
         }
         if (streamingPreviewTextItem.visible && streamSel.length > 0)
             return root.copyTextToClipboard(streamSel, -3);
-        for (let i = 0; i < transcript.count; ++i) {
-            const textItem = root.findChildByObjectName(transcript, "aquaChatBubbleText-" + i);
+        const keys = Object.keys(root._bubbleTextRegistry);
+        for (let k = 0; k < keys.length; ++k) {
+            const idx = Number(keys[k]);
+            const textItem = root._bubbleTextRegistry[keys[k]];
             const itemSel = textItem ? String(textItem.selectedText || textItem.cachedSelectedText || "") : "";
             if (itemSel.length > 0)
-                return root.copyTextToClipboard(itemSel, i);
+                return root.copyTextToClipboard(itemSel, idx);
         }
         return false;
     }
@@ -2214,7 +2241,22 @@ Item {
                         TextEdit {
                             id: messageText
                             objectName: "aquaChatBubbleText-" + bubbleRow.index
+                            property int _registeredBubbleIndex: -1
+                            readonly property int registryIndex: bubbleRow.index
                             property string cachedSelectedText: ""
+                            function _syncBubbleRegistration(): void {
+                                const nextIdx = Number(registryIndex);
+                                if (_registeredBubbleIndex >= 0 && _registeredBubbleIndex !== nextIdx)
+                                    root.unregisterBubbleText(_registeredBubbleIndex, messageText);
+                                if (nextIdx >= 0) {
+                                    root.registerBubbleText(nextIdx, messageText);
+                                    _registeredBubbleIndex = nextIdx;
+                                } else {
+                                    _registeredBubbleIndex = -1;
+                                }
+                            }
+                            Component.onCompleted: _syncBubbleRegistration()
+                            onRegistryIndexChanged: _syncBubbleRegistration()
                             readonly property string rawContent: String(bubbleRow.modelData?.content ?? "")
                             readonly property string displaySource: bubbleRow.fromUser ? rawContent : root.compactBubbleSource(rawContent)
                             readonly property bool useRichMarkdown: root.containsMarkdownSyntax(displaySource)
@@ -2261,6 +2303,7 @@ Item {
                                 root.focusedSelectableCount = Math.max(0, root.focusedSelectableCount + (activeFocus ? 1 : -1));
                             }
                             Component.onDestruction: {
+                                root.unregisterBubbleText(_registeredBubbleIndex, messageText);
                                 if (activeFocus)
                                     root.focusedSelectableCount = Math.max(0, root.focusedSelectableCount - 1);
                                 if (root.activeSelectionBubbleIndex === bubbleRow.index)
