@@ -10,6 +10,9 @@ Item {
     property color specularColor: "#d9fbff"
     property real shimmer: 0
     property real lift: 0
+    property bool thinking: false
+    property real thinkingPhase: 0
+    readonly property real thinkingWave: thinking ? (0.5 - 0.5 * Math.cos(thinkingPhase * Math.PI * 2)) : 0
     width: 76
     height: 92
     visible: propKind === "book" || propKind === "coffee" || propKind === "thought"
@@ -35,9 +38,9 @@ Item {
         width: 38
         height: 25
         x: 38 + root.bookAnchor.x - width * 0.5
-        y: visible ? 46.14 - root.bookAnchor.y - height * 0.5 + root.lift + (root.shimmer - 0.5) * 1.6 : 0
+        y: visible ? 46.14 - root.bookAnchor.y - height * 0.5 + root.lift + (root.shimmer - 0.5) * (root.thinking ? 0.9 : 1.6) : 0
         scale: Math.max(0.88, Math.min(1.2, root.bookAnchor.scale ?? 1.05))
-        rotation: visible ? -6 + (root.shimmer - 0.5) * 3.5 : 0
+        rotation: visible ? -6 + (root.shimmer - 0.5) * (root.thinking ? 1.8 : 3.5) : 0
 
         // Soft drop shadow under the 3/4 angled open book
         Shape {
@@ -131,12 +134,32 @@ Item {
             ShapePath {
                 strokeWidth: 0.85
                 strokeColor: root.bookRimStroke
-                fillColor: root.specularColor
+                fillColor: Qt.alpha(root.specularColor, root.thinking ? (0.68 + root.thinkingWave * 0.32) : 1.0)
                 startX: 9.4; startY: 10.2
                 PathLine { x: 11.8; y: 12.4 }
                 PathLine { x: 9.6; y: 14.6 }
                 PathLine { x: 7.2; y: 12.4 }
                 PathLine { x: 9.4; y: 10.2 }
+            }
+        }
+
+        // Focused page-scanning shimmer highlight when reading while thinking
+        Item {
+            id: bookThinkingScan
+            objectName: "aquaBookThinkingScan"
+            visible: root.thinking && root.propKind === "book"
+            x: 19.5
+            y: 3.6
+            width: 13.5
+            height: 9.5
+            rotation: -10
+            Rectangle {
+                width: 11.2
+                height: 2.0
+                radius: 1.0
+                x: 1.0 + Math.sin(root.thinkingPhase * Math.PI * 2) * 0.8
+                y: 1.0 + root.thinkingWave * 5.2
+                color: Qt.alpha(root.specularColor, 0.45 + root.thinkingWave * 0.35)
             }
         }
 
@@ -205,9 +228,9 @@ Item {
                 strokeColor: Qt.alpha("#ffffff", 0.85)
                 fillColor: "transparent"
                 startX: 8; startY: 7.4
-                PathQuad { x: 8.6; y: 2.2; controlX: coffeeProp.visible ? 6.0 + root.shimmer * 2.8 : 6.0; controlY: 4.8 }
+                PathQuad { x: 8.6; y: 2.2; controlX: coffeeProp.visible ? 6.0 + (root.thinking ? 1.4 + Math.sin(root.thinkingPhase * Math.PI * 2) * 1.6 : root.shimmer * 2.8) : 6.0; controlY: 4.8 }
                 PathMove { x: 12.8; y: 7.6 }
-                PathQuad { x: 13.4; y: 2.6; controlX: coffeeProp.visible ? 15.0 - root.shimmer * 2.8 : 15.0; controlY: 5.0 }
+                PathQuad { x: 13.4; y: 2.6; controlX: coffeeProp.visible ? 15.0 - (root.thinking ? 1.4 + Math.sin(root.thinkingPhase * Math.PI * 2) * 1.6 : root.shimmer * 2.8) : 15.0; controlY: 5.0 }
             }
         }
     }
@@ -241,8 +264,10 @@ Item {
                 Repeater {
                     model: 3
                     Rectangle {
+                        required property int index
                         width: 2.2; height: 2.2; radius: 1.1
                         color: "#1e4460"
+                        opacity: root.thinking ? (0.4 + 0.6 * Math.max(0, Math.sin((root.thinkingPhase + index * 0.25) * Math.PI * 2))) : 1.0
                     }
                 }
             }

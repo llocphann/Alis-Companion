@@ -57,7 +57,7 @@ Item {
         || companionPresence.dragging || companionPresence.traveling || companionPresence.portalActive
         || companionCuriosity.busy || talkCloud.controlsVisible
     readonly property bool companionPerformanceHeld: session.companionTargetOutput===host.outputName
-        && (session.cowork?.active===true || (session.companionAmbientProp ?? "").length>0 || AquaPocket.opened)
+        && (session.cowork?.active===true || (session.companionAmbientProp ?? "").length>0 || AquaPocket.opened || AquaMind.isWorking)
     onCompanionPerformanceHeldChanged: if (companionPerformanceHeld) Qt.callLater(() => {
         if (root.companionPerformanceHeld && (AquaPocket.opened || (companionPresence.hiddenUntil<=Date.now() && companionPresence.requestedReveal>0)))
             root.ensureCompanionPresent()
@@ -458,9 +458,11 @@ Item {
         eyeOpen: companionBridge.eyeOpen
         mouthCurve: companionBridge.mouthCurve
         pulse: companionBridge.pulse
-        expression: (AquaMind.isWorking && !AquaMind.conversationOpen) ? "thinking" : companionBridge.expression
+        thinking: AquaMind.isWorking
+        thinkingPhase: AquaMind.workPhase
+        expression: AquaMind.isWorking ? "thinking" : companionBridge.expression
         mood: companionBridge.mood
-        activity: (AquaMind.isWorking && !AquaMind.conversationOpen) ? "thinking" : companionBridge.activity
+        activity: AquaMind.isWorking ? "thinking" : companionBridge.activity
         ambientProp: !root.ambientBlocked && session.companionTargetOutput===host.outputName ? session.companionAmbientProp : ""
         coworkPose: !root.ambientBlocked && session.companionTargetOutput===host.outputName ? session.companionCoworkPose : null
         coworkPropVisible: !root.ambientBlocked && session.companionTargetOutput===host.outputName && session.companionCoworkPropVisible

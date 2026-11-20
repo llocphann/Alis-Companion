@@ -22,6 +22,7 @@ Item {
     Behavior on gazeY { enabled: root.motionEnabled; SmoothedAnimation { velocity: 7; maximumEasingTime: 80 } }
     property real viewYaw: 0
     property real pulse: 0
+    property bool thinkingActive: false
     property bool feedingOpen: false
     property real chompPhase: 0
     property color accent: AbyssStyle.accent
@@ -286,8 +287,9 @@ Item {
         }
     }
     Text {
+        objectName: "aquaExpressionMark"
         x: 58 * root.unit; y: 22 * root.unit
-        visible: text.length > 0
+        visible: text.length > 0 && !(root.thinkingActive && root.expression === "thinking")
         text: root.profile.mark; color: "#d9faff"
         font.pixelSize: (root.expression === "sleepy" ? 8 : 13) * root.unit
         font.bold: true

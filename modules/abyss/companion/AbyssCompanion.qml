@@ -67,6 +67,9 @@ Item {
     property string ambientProp: ""
     property var coworkPose: null
     property bool coworkPropVisible: false
+    property bool thinking: false
+    property string thinkingPhase: ""
+    readonly property bool thinkingActive: thinking || activity === "thinking"
     property bool pocketDragActive: false
     property real pocketDragX: 0
     property real pocketDragY: 0
@@ -87,7 +90,7 @@ Item {
     readonly property string presentationAction: presentation<.999 && !peeking ? (leaving ? activeHideClip : activeAppearClip) : ""
     readonly property bool portalWalking: effectiveTravelMode==="portal" && surfaceSupported && portalReveal>.01 && presentation>.99 && !dragging && !leaving
     readonly property string motionAction: {
-        const thinkingClip = (!moving && !dragging && !portalWalking && !leaving && activity === "thinking") ? "inspect" : ""
+        const thinkingClip = (!moving && !dragging && !portalWalking && !leaving && thinkingActive && !coworkPropVisible) ? "inspect" : ""
         const action=pairedAction || (dragging ? "drag" : moving ? effectiveTravelMode : portalWalking ? "run" : gesture || presentationAction || thinkingClip)
         return Motion.retired(action) ? "" : action
     }
@@ -416,6 +419,8 @@ Item {
             ambientProp: root.presentation > 0.99 && !root.leaving && !root.peeking && !root.moving && !root.portalWalking && !root.dragging ? root.ambientProp : ""
             coworkPose: root.presentation > 0.99 && !root.leaving && !root.peeking && !root.moving && !root.portalWalking && !root.dragging ? root.coworkPose : null
             coworkPropVisible: root.presentation > 0.99 && !root.leaving && !root.peeking && !root.moving && !root.portalWalking && !root.dragging && root.coworkPropVisible
+            thinking: root.presentation > 0.99 && !root.leaving && !root.peeking && !root.moving && !root.portalWalking && !root.dragging && root.thinkingActive
+            thinkingStage: root.thinkingPhase
             pocketDragActive: root.pocketDragActive
             walkingDirection: (root.upright ? root.tangentDirection : root.travelDirection) * (root.upright || root.edge === "top" || root.edge === "left" ? 1 : -1)
             viewYaw: root.pocketDragActive ? root.dragFaceX * 28

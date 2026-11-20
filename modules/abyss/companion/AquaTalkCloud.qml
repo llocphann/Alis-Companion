@@ -894,7 +894,7 @@ Item {
         id: thinkingPulseTimer
         interval: 260
         repeat: true
-        running: root.visible && AquaMind.isWorking
+        running: root.visible && root.editing && !root.editorMode && AquaMind.isWorking
         onTriggered: root.thinkingAnimTick = (root.thinkingAnimTick + 1) % 3
     }
     function findChildByObjectName(item, targetName) {
@@ -1023,24 +1023,13 @@ Item {
         return false;
     }
 
-    readonly property bool backgroundThinkingBubble: !embeddedMode && !panelMode && AquaMind.isWorking && AquaMind.text.length === 0 && AquaMind.checkInStage.length === 0
-    onBackgroundThinkingBubbleChanged: {
-        if (actor) {
-            if (backgroundThinkingBubble) {
-                actor.expression = "thinking";
-                actor.activity = "thinking";
-            } else if (actor.activity === "thinking" && !AquaMind.isWorking) {
-                actor.expression = "idle";
-                actor.activity = "idle";
-            }
-        }
-    }
+    readonly property bool backgroundThinkingBubble: false
 
     readonly property real compactPanelWidth: (sidebarOpen && editing) ? Math.min(Math.max(574, outputWidth - 24), Math.max(420, 380 + sidebarOffset)) : Math.min(380, Math.max(240, outputWidth - 32))
     readonly property real expandedSwarmWidth: Math.min(Math.max(420, outputWidth - 24), Math.round(compactPanelWidth + swarmSidebarTargetWidth + 10))
-    readonly property real baseCloudWidth: embeddedMode ? (parent ? parent.width : outputWidth) : backgroundThinkingBubble ? 58 : panelMode ? Math.round(compactPanelWidth + (expandedSwarmWidth - compactPanelWidth) * swarmExpandProgress) : Math.min(380, Math.max(220, outputWidth - 32))
+    readonly property real baseCloudWidth: embeddedMode ? (parent ? parent.width : outputWidth) : panelMode ? Math.round(compactPanelWidth + (expandedSwarmWidth - compactPanelWidth) * swarmExpandProgress) : Math.min(380, Math.max(220, outputWidth - 32))
     width: embeddedMode ? baseCloudWidth : Math.round(baseCloudWidth * editorScaleFactor)
-    focus: visible && !backgroundThinkingBubble && (!editing || (!message.activeFocus && !editorTextArea.activeFocus && !root.anySelectableTextFocused))
+    focus: visible && (!editing || (!message.activeFocus && !editorTextArea.activeFocus && !root.anySelectableTextFocused))
     function closePopup(): void {
         root.profileStage = 0;
         root.chatCheckInField = "";
@@ -1133,9 +1122,9 @@ Item {
     readonly property real nonEditingContentHeight: AquaMind.contextOpen ? content.implicitHeight : speechText.implicitHeight + (AquaMind.checkInStage.length > 0 ? content.spacing + 28 : 0)
     readonly property real compactPanelHeight: Math.min(440, Math.max(280, outputHeight - 48))
     readonly property real expandedSwarmHeight: Math.min(540, Math.max(340, outputHeight - 48))
-    readonly property real baseCloudHeight: embeddedMode ? (parent ? parent.height : outputHeight) : backgroundThinkingBubble ? 32 : (editing || pocketOpen || swarmOpen || swarmExpandProgress > 0.001) ? Math.round(compactPanelHeight + (expandedSwarmHeight - compactPanelHeight) * swarmExpandProgress) : nonEditingContentHeight + bodyTop + 12
+    readonly property real baseCloudHeight: embeddedMode ? (parent ? parent.height : outputHeight) : (editing || pocketOpen || swarmOpen || swarmExpandProgress > 0.001) ? Math.round(compactPanelHeight + (expandedSwarmHeight - compactPanelHeight) * swarmExpandProgress) : nonEditingContentHeight + bodyTop + 12
     height: embeddedMode ? baseCloudHeight : Math.round(baseCloudHeight * editorScaleFactor)
-    visible: embeddedMode || (allowed && actor && actor.visible && actor.inputReady && (pocketOpen || swarmOpen || AquaMind.text.length > 0 || AquaMind.conversationOpen || AquaMind.contextOpen || AquaMind.isWorking))
+    visible: embeddedMode || (allowed && actor && actor.visible && actor.inputReady && (pocketOpen || swarmOpen || AquaMind.text.length > 0 || AquaMind.conversationOpen || AquaMind.contextOpen))
     readonly property real actorVisualScale: (visible && actor) ? Math.max(.1, Number(actor.scale) || 1) : 1
     readonly property real actorVisualWidth: (visible && actor) ? actor.width * actorVisualScale : 0
     readonly property real actorVisualHeight: (visible && actor) ? actor.height * actorVisualScale : 0
@@ -1191,46 +1180,6 @@ Item {
             height: 1.5
             radius: 1
             color: Qt.alpha(AbyssStyle.accent, 0.45)
-        }
-    }
-
-    Item {
-        id: backgroundThinkingDotsItem
-        objectName: "aquaBackgroundThinkingDotsBubble"
-        visible: root.backgroundThinkingBubble
-        anchors.fill: parent
-        Row {
-            objectName: "aquaBackgroundThinkingDotsRow"
-            anchors.centerIn: parent
-            spacing: 5
-            Repeater {
-                model: 3
-                Rectangle {
-                    required property int index
-                    width: 6
-                    height: 6
-                    radius: 3
-                    color: AbyssStyle.accent
-                    opacity: root.thinkingAnimTick === index ? 1.0 : 0.34
-                    scale: root.thinkingAnimTick === index ? 1.18 : 0.92
-                    Behavior on opacity {
-                        NumberAnimation {
-                            duration: 180
-                        }
-                    }
-                    Behavior on scale {
-                        NumberAnimation {
-                            duration: 180
-                        }
-                    }
-                }
-            }
-        }
-        MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: AquaMind.openChat()
         }
     }
 
@@ -1619,7 +1568,7 @@ Item {
             y: todayContextHeader.visible ? (todayContextHeader.height + content.spacing) : 0
             width: content.width
             Layout.fillWidth: true
-            visible: !root.editing && !root.backgroundThinkingBubble
+            visible: !root.editing
             text: useRichSpeech ? root.formatBubbleMarkdown(displaySpeech) : displaySpeech
             textFormat: useRichSpeech ? Text.RichText : Text.PlainText
             wrapMode: Text.WordWrap

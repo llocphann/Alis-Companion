@@ -19,7 +19,13 @@ Window {
         for(const child of item.data ?? item.children ?? []){const match=named(child,name);if(match)return match}
         return null
     }
-    AbyssCompanion {id:actor;x:570;y:550;reveal:1;motionEnabled:false;upright:true;interactive:true}
+    AbyssCompanion {
+        id:actor;x:570;y:550;reveal:1;motionEnabled:false;upright:true;interactive:true
+        thinking: AquaMind.isWorking
+        thinkingPhase: AquaMind.workPhase
+        expression: AquaMind.isWorking ? "thinking" : "idle"
+        activity: AquaMind.isWorking ? "thinking" : "idle"
+    }
     AquaTalkCloud {id:cloud;actor:actor;outputWidth:root.width;outputHeight:root.height;allowed:true}
     AquaCloudActions {id:actions;actor:actor;outputWidth:root.width;outputHeight:root.height;allowed:true}
     Item {
@@ -633,8 +639,8 @@ Window {
                 wait(15)
                 keyClick(Qt.Key_Escape)
                 wait(20)
-                check(AquaMind.isWorking && !AquaMind.conversationOpen && !cloud.panelMode && cloud.visible && cloud.backgroundThinkingBubble,
-                    "pressing Escape while Companion is thinking cancelled generation instead of keeping it running in background")
+                check(AquaMind.isWorking && !AquaMind.conversationOpen && !cloud.panelMode && !cloud.visible && !cloud.backgroundThinkingBubble && actor.thinkingActive,
+                    "pressing Escape while Companion is thinking did not hide popup and keep immersive thinking active in background")
                 AquaMind.openChat()
                 wait(20)
                 check(AquaMind.isWorking && thinkingCard.visible,
@@ -1584,13 +1590,11 @@ Window {
                 AquaMind.busy = true
                 wait(60)
                 const bgDotsBubble = root.named(cloud, "aquaBackgroundThinkingDotsBubble")
-                const bgDotsRow = root.named(cloud, "aquaBackgroundThinkingDotsRow")
-                check(!AquaMind.conversationOpen && cloud.visible && cloud.backgroundThinkingBubble
-                    && !!bgDotsBubble && bgDotsBubble.visible && !!bgDotsRow
-                    && cloud.width <= 72 && cloud.height <= 40
-                    && actor.faceExpression === "thinking" && actor.motionAction === "inspect",
-                    "Closed chatbox while Companion is thinking did not show 3-dot speech bubble and thinking animation: "
-                    + JSON.stringify({vis:cloud.visible, bgBubble:cloud.backgroundThinkingBubble, w:cloud.width, h:cloud.height, expr:actor.faceExpression, motion:actor.motionAction}))
+                check(!AquaMind.conversationOpen && !cloud.visible && !cloud.backgroundThinkingBubble
+                    && !bgDotsBubble
+                    && actor.thinkingActive && actor.faceExpression === "thinking" && actor.motionAction === "inspect",
+                    "Closed chatbox while Companion is thinking should hide 3-dot popup and drive immersive thinking: "
+                    + JSON.stringify({vis:cloud.visible, bgBubble:cloud.backgroundThinkingBubble, thinkingActive:actor.thinkingActive, expr:actor.faceExpression, motion:actor.motionAction}))
                 AquaMind.busy = false
                 AquaMind.pending = null
                 wait(40)

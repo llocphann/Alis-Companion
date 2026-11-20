@@ -9,6 +9,9 @@ Item {
     property color accentColor: "#6be5ff"
     property color specularColor: "#d9fbff"
     property real lift: 0
+    property bool thinking: false
+    property real thinkingPhase: 0
+    readonly property real thinkingWave: thinking ? (0.5 - 0.5 * Math.cos(thinkingPhase * Math.PI * 2)) : 0
     width: 76
     height: 92
 
@@ -18,11 +21,11 @@ Item {
     readonly property color deckGradStartColor: Qt.darker(root.accentColor, 1.45)
     readonly property color deckGradEndColor: Qt.darker(root.accentColor, 1.95)
     readonly property color trackpadStrokeColor: Qt.lighter(root.accentColor, 1.35)
-    readonly property color trackpadFillColor: Qt.alpha(root.accentColor, 0.34 + root.typingPulse * 0.28)
+    readonly property color trackpadFillColor: Qt.alpha(root.accentColor, 0.34 + root.effectiveTypingPulse * 0.28)
     readonly property color keyWellFillColor: Qt.darker(root.accentColor, 3.1)
     readonly property color keyCapPrimaryColor: Qt.lighter(root.accentColor, 1.22)
     readonly property color keyCapSecondaryColor: root.accentColor
-    readonly property color screenGlowColor: Qt.alpha(root.accentColor, 0.44 + root.screenPulse * 0.18)
+    readonly property color screenGlowColor: Qt.alpha(root.accentColor, 0.44 + root.effectiveScreenPulse * 0.18)
     readonly property color hingeStrokeColor: Qt.darker(root.accentColor, 2.6)
     readonly property color hingeFillColor: Qt.darker(root.accentColor, 1.65)
     readonly property color lidRimStrokeColor: Qt.darker(root.accentColor, 2.15)
@@ -33,7 +36,7 @@ Item {
     readonly property color lidBackGrad2: Qt.darker(root.accentColor, 1.15)
     readonly property color lidCreaseColor: Qt.darker(root.accentColor, 1.55)
     readonly property color emblemStrokeColor: Qt.darker(root.accentColor, 2.0)
-    readonly property color emblemFillColor: root.specularColor
+    readonly property color emblemFillColor: Qt.alpha(root.specularColor, root.thinking ? (0.68 + root.thinkingWave * 0.32) : 1.0)
 
     readonly property real laptopHinge: pose?.laptopHinge ?? 0
     readonly property real laptopSlide: pose?.laptopSlide ?? 0
@@ -43,6 +46,8 @@ Item {
         (pose?.laptopTap0 ?? 0) / 3,
         (pose?.laptopTap1 ?? 0) / 3
     )))
+    readonly property real effectiveScreenPulse: thinking ? Math.max(screenPulse, 0.48 + thinkingWave * 0.50) : screenPulse
+    readonly property real effectiveTypingPulse: thinking ? Math.max(typingPulse, 0.25 + 0.55 * Math.abs(Math.sin(thinkingPhase * Math.PI * 3))) : typingPulse
     readonly property real hingeFactor: Math.max(0, Math.min(1.03, laptopHinge / 106))
     readonly property var deckAnchor: body
         ? body.project(0, -25 + laptopLift, 21 - laptopSlide * 0.45)
@@ -149,8 +154,8 @@ Item {
                     x: 13.5 + index * 3.5
                     y: 9.8 + index * 1.05
                     rotation: 17
-                    color: (index % 2 === 0 && root.typingPulse > 0.15) ? root.specularColor : root.keyCapPrimaryColor
-                    opacity: 0.82 + root.typingPulse * 0.18
+                    color: (index % 2 === 0 && root.effectiveTypingPulse > 0.15) ? root.specularColor : root.keyCapPrimaryColor
+                    opacity: 0.82 + root.effectiveTypingPulse * 0.18
                 }
             }
             Repeater {
@@ -163,8 +168,8 @@ Item {
                     x: 10.2 + index * 3.5
                     y: 12.2 + index * 1.05
                     rotation: 17
-                    color: (index % 2 === 1 && root.typingPulse > 0.15) ? root.specularColor : root.keyCapSecondaryColor
-                    opacity: 0.76 + root.typingPulse * 0.22
+                    color: (index % 2 === 1 && root.effectiveTypingPulse > 0.15) ? root.specularColor : root.keyCapSecondaryColor
+                    opacity: 0.76 + root.effectiveTypingPulse * 0.22
                 }
             }
         }

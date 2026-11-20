@@ -20,7 +20,7 @@ Item {
             readonly property int index: modelData
             objectName: "octoTentacle"+index
             readonly property real coworkReach: index < 2 ? (root.body.coworkPose ? (root.body.coworkPose["laptopReach" + index] ?? 0) * (index === 0 ? 12 : -12) : root.body.ambientProp === "book" ? (index === 0 ? 9.5 : -9.5) : root.body.ambientProp === "coffee" && index === 1 ? -9.5 : 0) : 0
-            readonly property real coworkTap: index < 2 ? (root.body.coworkPose ? (root.body.coworkPose["laptopTap" + index] ?? 0) * -2.2 : root.body.ambientProp === "book" ? (root.body.shimmer - 0.5) * -1.8 : 0) : 0
+            readonly property real coworkTap: index < 2 ? (root.body.coworkPose ? (root.body.coworkPose["laptopTap" + index] ?? 0) * -2.2 : root.body.ambientProp === "book" ? (root.body.thinking ? Math.sin((root.body.thinkingPhase + index * 0.5) * Math.PI * 2) * -1.8 : (root.body.shimmer - 0.5) * -1.8) : 0) : 0
             readonly property var curve: root.gripping
                 ? Rig.gripControls(index,root.motion.sample("gripRise"),root.motion.sample("gripWrap"))
                 : Rig.controls(index,root.motion.curl(index),root.motion.sample("tentacle"+index+"Lift")+coworkTap,root.motion.sample("tentacle"+index+"Reach")*root.motion.direction+coworkReach)

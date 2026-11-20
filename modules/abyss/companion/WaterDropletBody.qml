@@ -61,9 +61,17 @@ Item {
     property real rollingAngle: 0 // Legacy input retained but no longer controls body pose.
     property var coworkPose: null
     property bool coworkPropVisible: false
-    readonly property real modelRoll:gait.roll+(coworkPose?.roll ?? 0)
+    property bool thinking: false
+    property string thinkingStage: ""
+    property real thinkingPhase: 0
+    readonly property real thinkingWave: thinking ? (0.5 - 0.5 * Math.cos(thinkingPhase * Math.PI * 2)) : 0
+    readonly property bool propDampsInspect: thinking && (ambientProp === "book" || ambientProp === "coffee")
+    readonly property real effectiveGaitLift: propDampsInspect ? gait.lift * 0.35 : gait.lift
+    readonly property real effectiveGaitRoll: propDampsInspect ? gait.roll * 0.42 : gait.roll
+    readonly property real effectiveGaitPitch: propDampsInspect ? gait.pitch * 0.42 : gait.pitch
+    readonly property real modelRoll:effectiveGaitRoll+(coworkPose?.roll ?? 0)
     readonly property real modelYaw: viewYaw+gait.yaw+(coworkPose?.yaw ?? 0)
-    readonly property real modelPitch: viewPitch+gait.pitch+(coworkPose?.pitch ?? (ambientProp==="book" ? 5 : 0))
+    readonly property real modelPitch: viewPitch+effectiveGaitPitch+(coworkPose?.pitch ?? (ambientProp==="book" ? 5 : 0))
     // These three angles feed five ShaderEffect instances (torso + four
     // limbs). Convert each shared pose angle once per pose revision instead of
     // repeating identical degree-to-radian work in every consumer.
@@ -267,8 +275,8 @@ Item {
             property vector4d rendering: Qt.vector4d(root.qualityLevel, 0, 0, 0)
             property vector4d feet: visible ? Qt.vector4d(
                 0.5, 0.5,
-                Math.max(0, 1 - Math.abs(gait.lift) / 10),
-                Math.max(0, 1 - Math.abs(gait.lift) / 10)) : root.zeroPoseUniform
+                Math.max(0, 1 - Math.abs(root.effectiveGaitLift) / 10),
+                Math.max(0, 1 - Math.abs(root.effectiveGaitLift) / 10)) : root.zeroPoseUniform
             fragmentShader: Qt.resolvedUrl("WaterDropletContact.frag.qsb")
         }
     }
@@ -323,7 +331,7 @@ Item {
         Item {
             id: torso
             width: root.width; height: root.height
-            y: gait.lift + (root.reactionLift + (gait.active || !root.grounded ? 0 : root.bob * 0.35)) * root.motionAmount
+            y: root.effectiveGaitLift + (root.reactionLift + (gait.active || !root.grounded ? 0 : root.bob * 0.35)) * root.motionAmount
             // Rounded vector fallback for software/error; volume optics require a GPU.
             Loader {
                 active: root.softwareFallback || material.status === ShaderEffect.Error
@@ -374,7 +382,7 @@ Item {
                 property color accent: root.liquidAccent
                 property color specular: root.reflectionColor
                 property vector4d motion: Qt.vector4d(root.shimmer, root.stateTip + root.sway * 0.25,
-                    Math.max(root.pulse,root.tapPulse*.65) + root.hoverAmount*.16, root.effectsEnabled ? 1 : 0)
+                    Math.max(root.pulse,root.tapPulse*.65) + root.hoverAmount*.16 + (root.thinking ? (root.thinkingStage === "tool" ? 0.16 : 0.12) + root.thinkingWave * 0.24 : 0), root.effectsEnabled ? 1 : 0)
                 property vector4d optics: Qt.vector4d(root.modelYawRadians, root.octopus ? 4 : 0, 0, 0)
                 property vector4d rendering: root.materialRenderingUniform
                 property vector4d pose:Qt.vector4d(root.modelPitchRadians,root.modelRollRadians,root.poseScaleX-1,root.poseScaleY-1)
@@ -486,8 +494,21 @@ Item {
                     // orientation, including sideways and upper water rims.
                     gazeX: root.gazeX
                     gazeY: root.gazeY
-                    microX: root.motionEnabled && !root.traveling ? root.sway*.16 : 0
-                    microY: root.motionEnabled && !root.traveling ? root.bob*.055 : 0
+                    microX: (root.thinking && root.motionEnabled && !root.traveling && !root.hovered)
+                        ? (root.ambientProp === "book"
+                            ? Math.sin(root.thinkingPhase * Math.PI * 2) * 0.42
+                            : root.coworkPropVisible
+                                ? Math.sin(root.thinkingPhase * Math.PI * 2) * 0.36
+                                : Math.sin(root.thinkingPhase * Math.PI * 2) * 0.38)
+                        : (root.motionEnabled && !root.traveling ? root.sway * .16 : 0)
+                    microY: (root.thinking && root.motionEnabled && !root.traveling && !root.hovered)
+                        ? (root.ambientProp === "book"
+                            ? 0.34 + 0.08 * Math.cos(root.thinkingPhase * Math.PI * 4)
+                            : root.coworkPropVisible
+                                ? 0.26
+                                : -0.26 + 0.10 * Math.cos(root.thinkingPhase * Math.PI * 2))
+                        : (root.motionEnabled && !root.traveling ? root.bob * .055 : 0)
+                    thinkingActive: root.thinking
                     pulse: root.pulse
                     feedingOpen: root.pocketDragActive || root.swallowPhase < 0.88
                     chompPhase: root.chompPhase
@@ -507,9 +528,9 @@ Item {
             readonly property real flightT: Math.min(1, progress / 0.72)
             readonly property real bellyT: Math.max(0, (progress - 0.72) / 0.28)
             readonly property real mouthX: 38 + (root.octopus ? 3.8 : 0)
-            readonly property real mouthY: 60.5 + (root.octopus ? -1.6 : 0) + gait.lift + root.reactionLift * root.motionAmount
+            readonly property real mouthY: 60.5 + (root.octopus ? -1.6 : 0) + root.effectiveGaitLift + root.reactionLift * root.motionAmount
             readonly property real bellyX: 38 + (root.octopus ? 2.0 : 0)
-            readonly property real bellyY: 74 + (root.octopus ? -2.0 : 0) + gait.lift
+            readonly property real bellyY: 74 + (root.octopus ? -2.0 : 0) + root.effectiveGaitLift
             readonly property real originX: root.swallowStartX + (index - (root.swallowCount - 1) * 0.5) * 9
             readonly property real originY: root.swallowStartY - index * 5
             readonly property real distToMouth: Math.hypot(mouthX - originX, mouthY - originY)
@@ -595,7 +616,9 @@ Item {
             accentColor: root.liquidAccent
             specularColor: root.reflectionColor
             shimmer: root.shimmer
-            lift: gait.lift + root.reactionLift * root.motionAmount
+            lift: root.effectiveGaitLift + root.reactionLift * root.motionAmount
+            thinking: root.thinking
+            thinkingPhase: root.thinkingPhase
         }
     }
     Loader {
@@ -608,7 +631,76 @@ Item {
             pose: root.coworkPose
             accentColor: root.liquidAccent
             specularColor: root.reflectionColor
-            lift: gait.lift + root.reactionLift * root.motionAmount
+            lift: root.effectiveGaitLift + root.reactionLift * root.motionAmount
+            thinking: root.thinking
+            thinkingPhase: root.thinkingPhase
+        }
+    }
+    Loader {
+        id: thinkingAuraLoader
+        objectName: "aquaThinkingAuraLoader"
+        active: root.thinking && root.effectsEnabled && !root.walking && !root.flying && !root.dragging && !root.traveling
+        z: 4
+        sourceComponent: Item {
+            id: thinkingAura
+            objectName: "aquaThinkingAura"
+            width: 76
+            height: 92
+            readonly property var crownAnchor: root.project(0, root.octopus ? OctoRig.geometry.headOffset + 26 : 33, 6)
+            readonly property real baseX: 38 + crownAnchor.x
+            readonly property real baseY: 46.14 - crownAnchor.y + root.effectiveGaitLift + (root.reactionLift + (gait.active || !root.grounded ? 0 : root.bob * 0.35)) * root.motionAmount
+            Item {
+                id: crownOrbit
+                width: 34
+                height: 10
+                x: thinkingAura.baseX - width * 0.5
+                y: thinkingAura.baseY - height * 0.5 - 3
+                visible: root.qualityLevel > 0 && !root.bubble2DMode
+                opacity: 0.28 + root.thinkingWave * 0.38
+                rotation: -8 + root.thinkingWave * 16
+                scale: (thinkingAura.crownAnchor.scale ?? 1.0) * (0.94 + root.thinkingWave * 0.12)
+                Shape {
+                    anchors.fill: parent
+                    antialiasing: true
+                    preferredRendererType: Shape.CurveRenderer
+                    ShapePath {
+                        fillColor: "transparent"
+                        strokeColor: Qt.alpha(root.reflectionColor, 0.85)
+                        strokeWidth: 0.85
+                        startX: 0; startY: crownOrbit.height * 0.5
+                        PathArc { x: crownOrbit.width; y: crownOrbit.height * 0.5; radiusX: crownOrbit.width * 0.5; radiusY: crownOrbit.height * 0.5 }
+                        PathArc { x: 0; y: crownOrbit.height * 0.5; radiusX: crownOrbit.width * 0.5; radiusY: crownOrbit.height * 0.5 }
+                    }
+                }
+            }
+            Repeater {
+                model: 3
+                Rectangle {
+                    id: thoughtPearl
+                    required property int index
+                    readonly property real p: (root.thinkingPhase + index / 3) % 1
+                    readonly property real arcWeight: Math.sin(p * Math.PI)
+                    readonly property real dir: index === 0 ? -1 : index === 1 ? 0.35 : 1
+                    width: index === 1 ? 5.2 : 4.2
+                    height: width
+                    radius: width * 0.5
+                    x: thinkingAura.baseX + dir * (6 + p * 7) + Math.sin(p * Math.PI * 2 + index) * 2.2 - width * 0.5
+                    y: thinkingAura.baseY - 4 - p * 15 - height * 0.5
+                    scale: 0.55 + arcWeight * 0.55
+                    opacity: arcWeight * 0.92
+                    color: Qt.alpha(root.liquidAccent, 0.72)
+                    border.width: 0.75
+                    border.color: root.reflectionColor
+                    Rectangle {
+                        width: Math.max(1.4, parent.width * 0.35)
+                        height: width
+                        radius: width * 0.5
+                        x: parent.width * 0.22
+                        y: parent.height * 0.18
+                        color: "#f4feff"
+                    }
+                }
+            }
         }
     }
     HoverHandler { id: hoverHandler; enabled: root.enabled }
@@ -673,9 +765,10 @@ Item {
     onMotionEnabledChanged: {
         if (!motionEnabled) {
             squashBurst.stop(); reactionBounce.stop(); shineBurst.stop(); tapBurst.stop(); swallowBurst.stop()
-            squash = 0; bob = 0; sway = 0; orbitPhase = 0; reactionPhase = 1; reactionRipple = 0; shine = 0; tapPhase = 1; tapPulse = 0; swallowPhase = 1; chompPhase = 0
+            squash = 0; bob = 0; sway = 0; orbitPhase = 0; thinkingPhase = 0; reactionPhase = 1; reactionRipple = 0; shine = 0; tapPhase = 1; tapPulse = 0; swallowPhase = 1; chompPhase = 0
         }
     }
+    onThinkingChanged: if (!thinking) thinkingPhase = 0
     onExpressionChanged: {
         if (motionEnabled && ["happy", "excited", "surprised", "alert"].includes(expression)) {
             reactionBounce.restart()
@@ -726,8 +819,13 @@ Item {
     }
     readonly property bool _windowVisible: root.Window.window ? root.Window.window.visible : true
     readonly property bool burstActive: squashBurst.running || tapBurst.running || reactionBounce.running || shineBurst.running || swallowBurst.running
-    readonly property bool idleLoopPaused: !root._windowVisible || root.motionAmount <= 0.001 || (root.quietSettled && !root.burstActive && !root.hovered && !root.dragging && !root.walking && !root.flying && !root.traveling && !root.pocketDragActive)
-    readonly property bool effectiveNearbyInteraction: root._windowVisible && (root.nearbyInteraction || root.hovered || root.dragging || root.walking || root.flying || root.traveling || root.pocketDragActive || root.burstActive)
+    readonly property bool idleLoopPaused: !root._windowVisible || root.motionAmount <= 0.001 || (root.quietSettled && !root.thinking && !root.burstActive && !root.hovered && !root.dragging && !root.walking && !root.flying && !root.traveling && !root.pocketDragActive)
+    readonly property bool effectiveNearbyInteraction: root._windowVisible && (root.nearbyInteraction || root.thinking || root.hovered || root.dragging || root.walking || root.flying || root.traveling || root.pocketDragActive || root.burstActive)
+    NumberAnimation on thinkingPhase {
+        running: root.thinking && root.motionEnabled && root.visible && root._windowVisible
+        from: 0; to: 1; duration: 2400
+        loops: Animation.Infinite
+    }
     SequentialAnimation on bob {
         running: root.motionEnabled && root.visible && !gait.active; paused: root.idleLoopPaused && running; loops: Animation.Infinite
         NumberAnimation { to: -1.2 - root.energy * 2.4; duration: 1570; easing.type: Easing.InOutSine }
