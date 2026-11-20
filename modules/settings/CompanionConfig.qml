@@ -584,13 +584,15 @@ ContentPage {
                                 transformOrigin: Item.Center
                                 expression: root.previewExpression
                                 motionAction: root.previewMotion
+                                thinking: root.previewExpression === "thinking"
+                                thinkingStage: root.previewExpression === "thinking" ? "thinking" : ""
                                 grounded: !["fly", "jump", "drag"].includes(root.previewMotion)
                                 motionScale: Preferences.motionScale(root.preferences.personality)
                                 motionEnabled: root.preferences.animationsEnabled && AbyssStyle.motionEnabled && visible
                                 effectsEnabled: root.preferences.effectsEnabled && Appearance.effectsEnabled && AbyssRenderPolicy.aquaQuality !== "performance"
                                 powerProfile: AbyssRenderPolicy.powerProfile
                                 bubblesEnabled: root.preferences.effectsEnabled && Appearance.effectsEnabled
-                                nearbyInteraction: previewHover.hovered || preview.hovered || root.previewMotion !== ""
+                                nearbyInteraction: previewHover.hovered || preview.hovered || root.previewMotion !== "" || root.previewExpression === "thinking"
                                 renderQuality: AbyssRenderPolicy.aquaQuality
                                 translucency: root.preferences.translucency
                             }

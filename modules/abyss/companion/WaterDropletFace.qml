@@ -23,6 +23,8 @@ Item {
     property real viewYaw: 0
     property real pulse: 0
     property bool thinkingActive: false
+    property real thinkingPhase: 0
+    readonly property real thinkingWave: thinkingActive ? (0.5 - 0.5 * Math.cos(thinkingPhase * Math.PI * 2)) : 0
     property bool feedingOpen: false
     property real chompPhase: 0
     property color accent: AbyssStyle.accent
@@ -169,6 +171,33 @@ Item {
                             width: 4.8 * root.unit; height: 2.6 * root.unit; radius: height / 2
                             rotation: -25; color: Qt.alpha(Qt.lighter(root.accent, 1.5), 0.75)
                         }
+                    }
+                }
+                Shape {
+                    id: eyeThinkingGlint
+                    objectName: "aquaEyeThinkingGlint"
+                    visible: root.thinkingActive
+                    x: (1.6 + root.pupilX * 2.1) * root.unit
+                    y: (1.4 + root.pupilY * 1.9) * root.unit
+                    width: 5.6 * root.unit
+                    height: 5.6 * root.unit
+                    scale: 0.85 + root.thinkingWave * 0.35
+                    rotation: (eye.index === 0 ? 1 : -1) * (root.thinkingPhase * 90 - 45)
+                    antialiasing: true
+                    preferredRendererType: Shape.CurveRenderer
+                    ShapePath {
+                        strokeWidth: 0.5 * root.unit
+                        strokeColor: root.ink
+                        fillColor: "#fffbe0"
+                        startX: 2.8 * root.unit; startY: 0.4 * root.unit
+                        PathLine { x: 3.45 * root.unit; y: 2.15 * root.unit }
+                        PathLine { x: 5.2 * root.unit; y: 2.8 * root.unit }
+                        PathLine { x: 3.45 * root.unit; y: 3.45 * root.unit }
+                        PathLine { x: 2.8 * root.unit; y: 5.2 * root.unit }
+                        PathLine { x: 2.15 * root.unit; y: 3.45 * root.unit }
+                        PathLine { x: 0.4 * root.unit; y: 2.8 * root.unit }
+                        PathLine { x: 2.15 * root.unit; y: 2.15 * root.unit }
+                        PathLine { x: 2.8 * root.unit; y: 0.4 * root.unit }
                     }
                 }
             }

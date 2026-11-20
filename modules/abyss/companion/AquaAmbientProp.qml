@@ -143,7 +143,7 @@ Item {
             }
         }
 
-        // Focused page-scanning shimmer highlight when reading while thinking
+        // Focused page-scanning shimmer highlight & rising knowledge motes when reading while thinking
         Item {
             id: bookThinkingScan
             objectName: "aquaBookThinkingScan"
@@ -154,12 +154,40 @@ Item {
             height: 9.5
             rotation: -10
             Rectangle {
-                width: 11.2
-                height: 2.0
-                radius: 1.0
-                x: 1.0 + Math.sin(root.thinkingPhase * Math.PI * 2) * 0.8
-                y: 1.0 + root.thinkingWave * 5.2
-                color: Qt.alpha(root.specularColor, 0.45 + root.thinkingWave * 0.35)
+                width: 12.6
+                height: 4.2
+                radius: 2.1
+                x: 0.3 + Math.sin(root.thinkingPhase * Math.PI * 2) * 0.8
+                y: root.thinkingWave * 4.6
+                color: Qt.alpha(root.accentColor, 0.38 + root.thinkingWave * 0.25)
+            }
+            Rectangle {
+                width: 11.4
+                height: 2.2
+                radius: 1.1
+                x: 0.9 + Math.sin(root.thinkingPhase * Math.PI * 2) * 0.8
+                y: 1.0 + root.thinkingWave * 4.6
+                color: Qt.alpha("#fff7cc", 0.78 + root.thinkingWave * 0.22)
+                border.width: 0.5
+                border.color: Qt.alpha(root.bookRimStroke, 0.45)
+            }
+            Repeater {
+                model: 3
+                Rectangle {
+                    required property int index
+                    readonly property real p: (root.thinkingPhase + index * 0.33) % 1
+                    readonly property real fade: Math.sin(p * Math.PI)
+                    width: index === 1 ? 4.4 : 3.6
+                    height: width
+                    radius: width * 0.5
+                    x: 1.5 + index * 4.2 + Math.sin(p * Math.PI * 2 + index) * 1.4 - width * 0.5
+                    y: -2 - p * 20 - height * 0.5
+                    opacity: fade * 0.92
+                    scale: 0.7 + fade * 0.35
+                    color: "#fff7d1"
+                    border.width: 0.7
+                    border.color: root.bookCoverDark
+                }
             }
         }
 
@@ -224,8 +252,8 @@ Item {
                 PathCubic { x: 15.5; y: 18.2; control1X: 21.2; control1Y: 11.5; control2X: 21.2; control2Y: 18.2 }
             }
             ShapePath {
-                strokeWidth: 0.95
-                strokeColor: Qt.alpha("#ffffff", 0.85)
+                strokeWidth: root.thinking ? 1.25 : 0.95
+                strokeColor: root.thinking ? Qt.alpha("#fff8dc", 0.92) : Qt.alpha("#ffffff", 0.85)
                 fillColor: "transparent"
                 startX: 8; startY: 7.4
                 PathQuad { x: 8.6; y: 2.2; controlX: coffeeProp.visible ? 6.0 + (root.thinking ? 1.4 + Math.sin(root.thinkingPhase * Math.PI * 2) * 1.6 : root.shimmer * 2.8) : 6.0; controlY: 4.8 }

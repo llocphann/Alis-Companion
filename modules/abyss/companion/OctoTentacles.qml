@@ -20,7 +20,15 @@ Item {
             readonly property int index: modelData
             objectName: "octoTentacle"+index
             readonly property real coworkReach: index < 2 ? (root.body.coworkPose ? (root.body.coworkPose["laptopReach" + index] ?? 0) * (index === 0 ? 12 : -12) : root.body.ambientProp === "book" ? (index === 0 ? 9.5 : -9.5) : root.body.ambientProp === "coffee" && index === 1 ? -9.5 : 0) : 0
-            readonly property real coworkTap: index < 2 ? (root.body.coworkPose ? (root.body.coworkPose["laptopTap" + index] ?? 0) * -2.2 : root.body.ambientProp === "book" ? (root.body.thinking ? Math.sin((root.body.thinkingPhase + index * 0.5) * Math.PI * 2) * -1.8 : (root.body.shimmer - 0.5) * -1.8) : 0) : 0
+            readonly property real coworkTap: index < 2
+                ? (root.body.coworkPose
+                    ? (root.body.coworkPose["laptopTap" + index] ?? 0) * -2.2
+                    : root.body.ambientProp === "book"
+                        ? (root.body.thinking ? Math.sin((root.body.thinkingPhase + index * 0.5) * Math.PI * 2) * -1.8 : (root.body.shimmer - 0.5) * -1.8)
+                        : root.body.ambientProp !== "coffee" && root.body.thinking
+                            ? Math.sin((root.body.thinkingPhase + index * 0.35) * Math.PI * 2) * -1.8
+                            : 0)
+                : 0
             readonly property var curve: root.gripping
                 ? Rig.gripControls(index,root.motion.sample("gripRise"),root.motion.sample("gripWrap"))
                 : Rig.controls(index,root.motion.curl(index),root.motion.sample("tentacle"+index+"Lift")+coworkTap,root.motion.sample("tentacle"+index+"Reach")*root.motion.direction+coworkReach)
@@ -31,7 +39,7 @@ Item {
                 return {left:Math.min(p0.x,p1.x,p2.x,p3.x)-radius,right:Math.max(p0.x,p1.x,p2.x,p3.x)+radius,
                     bottom:Math.min(p0.y,p1.y,p2.y,p3.y)-radius,top:Math.max(p0.y,p1.y,p2.y,p3.y)+radius}
             }
-            x:38+bounds.left; y:46.14-bounds.top+root.motion.lift+root.body.reactionLift*root.body.motionAmount
+            x:38+bounds.left; y:46.14-bounds.top+root.motion.lift+(root.body.reactionLift+root.body.thinkingFloatY)*root.body.motionAmount
             width:bounds.right-bounds.left; height:bounds.top-bounds.bottom
             z:(points[0].z+points[1].z+points[2].z+points[3].z)*0.25
             readonly property real radialScale: Math.sqrt(root.body.poseScaleX*root.body.poseScaleY)

@@ -80,15 +80,17 @@ ShellRoot {
             const ambientLoader = root.find(body, "aquaAmbientPropLoader")
             const laptopLoader = root.find(body, "aquaLaptopPropLoader")
             const mark = root.find(body, "aquaExpressionMark")
-            root.require(body !== null && auraLoader !== null && ambientLoader !== null && laptopLoader !== null && mark !== null,
+            const glint = root.find(body, "aquaEyeThinkingGlint")
+            root.require(body !== null && auraLoader !== null && ambientLoader !== null && laptopLoader !== null && mark !== null && glint !== null,
                 "missing companion internal nodes")
 
             const tag = "[" + actor.character + "] "
 
             if (root.phaseStep === 0) {
-                // 1. Idle state: zero aura nodes instantiated
+                // 1. Idle state: zero aura nodes instantiated & eye glint hidden
                 root.require(auraLoader.active === false && auraLoader.item === null, tag + "aura must be inactive while idle")
                 root.require(body.thinkingPhase === 0, tag + "thinkingPhase must be 0 when idle")
+                root.require(glint.visible === false, tag + "eye thinking glint must be hidden while idle")
 
                 // 2. Enable thinking (no prop)
                 actor.thinking = true
@@ -99,6 +101,17 @@ ShellRoot {
                 root.phaseStep = 1
             } else if (root.phaseStep === 1) {
                 root.require(auraLoader.active === true && auraLoader.item !== null, tag + "aura did not activate for thinking")
+                for (const objName of [
+                    "aquaThinkingOuterRing",
+                    "aquaThinkingInnerRing",
+                    "aquaThinkingHeroStar",
+                    "aquaThinkingTwinStar",
+                    "aquaThinkingPulseWave"
+                ]) {
+                    const node = root.find(auraLoader.item, objName)
+                    root.require(node !== null && node.visible === true, tag + "missing/invisible " + objName)
+                }
+                root.require(glint.visible === true, tag + "eye thinking glint did not appear during thinking")
                 root.require(actor.motionAction === "inspect", tag + "expected inspect motion when thinking without laptop")
                 root.require(mark.visible === false, tag + "static '?' expression mark should hide during active thinking")
                 root.savedThinkingPhase = body.thinkingPhase
@@ -106,18 +119,30 @@ ShellRoot {
             } else if (root.phaseStep === 2) {
                 if (++root.waitTicks < 3) return
                 root.require(body.thinkingPhase !== root.savedThinkingPhase, tag + "thinkingPhase animation did not advance")
+                root.require(body.thinkingFloatY < 0, tag + "companion body did not float up while thinking")
 
-                // 3. Compose thinking + reading book prop
-                actor.ambientProp = "book"
+                // 3. Stage accent checks: tool -> drafting
+                actor.thinkingPhase = "tool"
                 root.phaseStep = 3
             } else if (root.phaseStep === 3) {
+                root.require(auraLoader.item !== null && auraLoader.item.orbitCycles === 2, tag + "tool stage did not double orbitCycles")
+                actor.thinkingPhase = "drafting"
+                root.phaseStep = 4
+            } else if (root.phaseStep === 4) {
+                root.require(auraLoader.item !== null && auraLoader.item.isDrafting === true, tag + "drafting stage did not activate")
+
+                // 4. Compose thinking + reading book prop
+                actor.thinkingPhase = "thinking"
+                actor.ambientProp = "book"
+                root.phaseStep = 5
+            } else if (root.phaseStep === 5) {
                 root.require(ambientLoader.active === true && ambientLoader.item !== null, tag + "book prop did not stay active during thinking")
                 root.require(auraLoader.active === true && auraLoader.item !== null, tag + "aura must compose alongside book prop")
                 root.require(body.propDampsInspect === true, tag + "propDampsInspect should calm inspect motion while reading")
                 const scan = root.find(ambientLoader.item, "aquaBookThinkingScan")
                 root.require(scan !== null && scan.visible === true, tag + "book page-scan shimmer missing while thinking")
 
-                // 4. Compose thinking + laptop prop (yields inspect to prevent double pitch)
+                // 5. Compose thinking + laptop prop (yields inspect to prevent double pitch)
                 actor.ambientProp = ""
                 actor.coworkPose = ({
                     laptopHinge: 106, screenPulse: 0.55,
@@ -126,30 +151,34 @@ ShellRoot {
                     pitch: 6, roll: 0, yaw: 0
                 })
                 actor.coworkPropVisible = true
-                root.phaseStep = 4
-            } else if (root.phaseStep === 4) {
+                root.phaseStep = 6
+            } else if (root.phaseStep === 6) {
                 root.require(laptopLoader.active === true && laptopLoader.item !== null, tag + "laptop prop did not activate during thinking")
                 root.require(auraLoader.active === true && auraLoader.item !== null, tag + "aura must compose alongside laptop prop")
                 root.require(actor.motionAction === "", tag + "inspect clip should yield cleanly to coworkPose laptop")
                 root.require(laptopLoader.item.effectiveScreenPulse >= 0.48, tag + "laptop screen glow should animate during thinking")
+                const stream = root.find(laptopLoader.item, "aquaLaptopThinkingStream")
+                root.require(stream !== null && stream.visible === true, tag + "laptop thinking stream missing while thinking")
 
-                // 5. Disable effects -> zero aura overhead
+                // 6. Disable effects -> zero aura overhead
                 actor.coworkPropVisible = false
                 actor.coworkPose = null
                 actor.effectsEnabled = false
-                root.phaseStep = 5
-            } else if (root.phaseStep === 5) {
+                root.phaseStep = 7
+            } else if (root.phaseStep === 7) {
                 root.require(auraLoader.active === false, tag + "aura must deactivate when effectsEnabled=false")
 
-                // 6. Stop thinking -> return to idle cleanly
+                // 7. Stop thinking -> return to idle cleanly
                 actor.effectsEnabled = true
                 actor.thinking = false
+                actor.thinkingPhase = ""
                 actor.activity = "idle"
                 actor.expression = "idle"
-                root.phaseStep = 6
-            } else if (root.phaseStep === 6) {
+                root.phaseStep = 8
+            } else if (root.phaseStep === 8) {
                 root.require(auraLoader.active === false && auraLoader.item === null, tag + "aura did not unload after thinking ended")
                 root.require(body.thinkingPhase === 0, tag + "thinkingPhase must reset to 0 after thinking")
+                root.require(glint.visible === false, tag + "eye thinking glint must hide after thinking ended")
 
                 if (root.charIndex + 1 < root.castList.length) {
                     root.charIndex++

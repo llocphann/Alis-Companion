@@ -49,8 +49,10 @@ Item {
     property real orbitPhase: 0
     readonly property int orbitStep: Math.floor((((orbitPhase % 1) + 1) % 1) * 720)
     readonly property real orbitAngle: orbitStep * (Math.PI * 2 / 720)
-    readonly property real orbitBaseCos: Math.cos(orbitAngle)
-    readonly property real orbitBaseSin: Math.sin(orbitAngle)
+    readonly property real thinkingOrbitAngle: thinking ? (thinkingPhase * Math.PI * 2) : 0
+    readonly property real effectiveOrbitAngle: orbitAngle + thinkingOrbitAngle
+    readonly property real orbitBaseCos: Math.cos(effectiveOrbitAngle)
+    readonly property real orbitBaseSin: Math.sin(effectiveOrbitAngle)
     property real stateSquash: 0
     property real stateStretch: 0
     property real stateLean: 0
@@ -65,7 +67,10 @@ Item {
     property string thinkingStage: ""
     property real thinkingPhase: 0
     readonly property real thinkingWave: thinking ? (0.5 - 0.5 * Math.cos(thinkingPhase * Math.PI * 2)) : 0
+    property real thinkingBlend: thinking ? 1 : 0
+    Behavior on thinkingBlend { enabled: root.motionEnabled; NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
     readonly property bool propDampsInspect: thinking && (ambientProp === "book" || ambientProp === "coffee")
+    readonly property real thinkingFloatY: -thinkingBlend * (propDampsInspect || coworkPropVisible ? (0.8 + thinkingWave * 1.0) : (2.6 + thinkingWave * 2.4))
     readonly property real effectiveGaitLift: propDampsInspect ? gait.lift * 0.35 : gait.lift
     readonly property real effectiveGaitRoll: propDampsInspect ? gait.roll * 0.42 : gait.roll
     readonly property real effectiveGaitPitch: propDampsInspect ? gait.pitch * 0.42 : gait.pitch
@@ -331,7 +336,7 @@ Item {
         Item {
             id: torso
             width: root.width; height: root.height
-            y: root.effectiveGaitLift + (root.reactionLift + (gait.active || !root.grounded ? 0 : root.bob * 0.35)) * root.motionAmount
+            y: root.effectiveGaitLift + (root.reactionLift + (gait.active || !root.grounded ? 0 : root.bob * 0.35) + root.thinkingFloatY) * root.motionAmount
             // Rounded vector fallback for software/error; volume optics require a GPU.
             Loader {
                 active: root.softwareFallback || material.status === ShaderEffect.Error
@@ -382,7 +387,7 @@ Item {
                 property color accent: root.liquidAccent
                 property color specular: root.reflectionColor
                 property vector4d motion: Qt.vector4d(root.shimmer, root.stateTip + root.sway * 0.25,
-                    Math.max(root.pulse,root.tapPulse*.65) + root.hoverAmount*.16 + (root.thinking ? (root.thinkingStage === "tool" ? 0.16 : 0.12) + root.thinkingWave * 0.24 : 0), root.effectsEnabled ? 1 : 0)
+                    Math.max(root.pulse,root.tapPulse*.65) + root.hoverAmount*.16 + (root.thinkingBlend > 0.001 ? root.thinkingBlend * ((root.thinkingStage === "tool" ? 0.36 : 0.26) + root.thinkingWave * 0.56) : 0), root.effectsEnabled ? 1 : 0)
                 property vector4d optics: Qt.vector4d(root.modelYawRadians, root.octopus ? 4 : 0, 0, 0)
                 property vector4d rendering: root.materialRenderingUniform
                 property vector4d pose:Qt.vector4d(root.modelPitchRadians,root.modelRollRadians,root.poseScaleX-1,root.poseScaleY-1)
@@ -399,9 +404,11 @@ Item {
                     readonly property real phaseSin: Expressions.bubbleSin[index]
                     readonly property real orbitCos: root.bubble2DMode ? phaseCos : (root.orbitBaseCos * phaseCos - root.orbitBaseSin * phaseSin)
                     readonly property real orbitSin: root.bubble2DMode ? phaseSin : (root.orbitBaseSin * phaseCos + root.orbitBaseCos * phaseSin)
-                    readonly property real localX: 47 * orbitCos
-                    readonly property real localY: 4.14 - 37 * orbitSin
-                    readonly property real localZ: root.bubble2DMode ? 0 : 25 * orbitSin
+                    readonly property real thinkRadiusScale: 1 - root.thinkingBlend * (0.14 - root.thinkingWave * 0.08)
+                    readonly property real thinkLiftY: root.thinkingBlend * (8.5 + Math.sin((root.thinkingPhase + index * 0.125) * Math.PI * 2) * 3.2)
+                    readonly property real localX: 47 * thinkRadiusScale * orbitCos
+                    readonly property real localY: 4.14 + thinkLiftY - 37 * thinkRadiusScale * orbitSin
+                    readonly property real localZ: root.bubble2DMode ? 0 : 25 * thinkRadiusScale * orbitSin
                     readonly property real depth: root.bubble2DMode ? 1 : root.projectZ(localX, localY, localZ)
                     x: (root.bubble2DMode ? (38 + localX * 0.92) : (38 + root.projectX(localX, localY, localZ))) - width / 2
                     y: (root.bubble2DMode ? (46.14 - localY * 0.92) : (46.14 - root.projectY(localX, localY, localZ))) - height / 2
@@ -509,6 +516,7 @@ Item {
                                 : -0.26 + 0.10 * Math.cos(root.thinkingPhase * Math.PI * 2))
                         : (root.motionEnabled && !root.traveling ? root.bob * .055 : 0)
                     thinkingActive: root.thinking
+                    thinkingPhase: root.thinkingPhase
                     pulse: root.pulse
                     feedingOpen: root.pocketDragActive || root.swallowPhase < 0.88
                     chompPhase: root.chompPhase
@@ -616,7 +624,7 @@ Item {
             accentColor: root.liquidAccent
             specularColor: root.reflectionColor
             shimmer: root.shimmer
-            lift: root.effectiveGaitLift + root.reactionLift * root.motionAmount
+            lift: root.effectiveGaitLift + (root.reactionLift + root.thinkingFloatY) * root.motionAmount
             thinking: root.thinking
             thinkingPhase: root.thinkingPhase
         }
@@ -631,7 +639,7 @@ Item {
             pose: root.coworkPose
             accentColor: root.liquidAccent
             specularColor: root.reflectionColor
-            lift: root.effectiveGaitLift + root.reactionLift * root.motionAmount
+            lift: root.effectiveGaitLift + (root.reactionLift + root.thinkingFloatY) * root.motionAmount
             thinking: root.thinking
             thinkingPhase: root.thinkingPhase
         }
@@ -641,66 +649,17 @@ Item {
         objectName: "aquaThinkingAuraLoader"
         active: root.thinking && root.effectsEnabled && !root.walking && !root.flying && !root.dragging && !root.traveling
         z: 4
-        sourceComponent: Item {
-            id: thinkingAura
-            objectName: "aquaThinkingAura"
-            width: 76
-            height: 92
-            readonly property var crownAnchor: root.project(0, root.octopus ? OctoRig.geometry.headOffset + 26 : 33, 6)
-            readonly property real baseX: 38 + crownAnchor.x
-            readonly property real baseY: 46.14 - crownAnchor.y + root.effectiveGaitLift + (root.reactionLift + (gait.active || !root.grounded ? 0 : root.bob * 0.35)) * root.motionAmount
-            Item {
-                id: crownOrbit
-                width: 34
-                height: 10
-                x: thinkingAura.baseX - width * 0.5
-                y: thinkingAura.baseY - height * 0.5 - 3
-                visible: root.qualityLevel > 0 && !root.bubble2DMode
-                opacity: 0.28 + root.thinkingWave * 0.38
-                rotation: -8 + root.thinkingWave * 16
-                scale: (thinkingAura.crownAnchor.scale ?? 1.0) * (0.94 + root.thinkingWave * 0.12)
-                Shape {
-                    anchors.fill: parent
-                    antialiasing: true
-                    preferredRendererType: Shape.CurveRenderer
-                    ShapePath {
-                        fillColor: "transparent"
-                        strokeColor: Qt.alpha(root.reflectionColor, 0.85)
-                        strokeWidth: 0.85
-                        startX: 0; startY: crownOrbit.height * 0.5
-                        PathArc { x: crownOrbit.width; y: crownOrbit.height * 0.5; radiusX: crownOrbit.width * 0.5; radiusY: crownOrbit.height * 0.5 }
-                        PathArc { x: 0; y: crownOrbit.height * 0.5; radiusX: crownOrbit.width * 0.5; radiusY: crownOrbit.height * 0.5 }
-                    }
-                }
-            }
-            Repeater {
-                model: 3
-                Rectangle {
-                    id: thoughtPearl
-                    required property int index
-                    readonly property real p: (root.thinkingPhase + index / 3) % 1
-                    readonly property real arcWeight: Math.sin(p * Math.PI)
-                    readonly property real dir: index === 0 ? -1 : index === 1 ? 0.35 : 1
-                    width: index === 1 ? 5.2 : 4.2
-                    height: width
-                    radius: width * 0.5
-                    x: thinkingAura.baseX + dir * (6 + p * 7) + Math.sin(p * Math.PI * 2 + index) * 2.2 - width * 0.5
-                    y: thinkingAura.baseY - 4 - p * 15 - height * 0.5
-                    scale: 0.55 + arcWeight * 0.55
-                    opacity: arcWeight * 0.92
-                    color: Qt.alpha(root.liquidAccent, 0.72)
-                    border.width: 0.75
-                    border.color: root.reflectionColor
-                    Rectangle {
-                        width: Math.max(1.4, parent.width * 0.35)
-                        height: width
-                        radius: width * 0.5
-                        x: parent.width * 0.22
-                        y: parent.height * 0.18
-                        color: "#f4feff"
-                    }
-                }
-            }
+        sourceComponent: AquaThinkingAura {
+            body: root
+            accentColor: root.liquidAccent
+            specularColor: root.reflectionColor
+            thinkingPhase: root.thinkingPhase
+            thinkingWave: root.thinkingWave
+            thinkingBlend: root.thinkingBlend
+            thinkingStage: root.thinkingStage
+            qualityLevel: root.qualityLevel
+            octopus: root.octopus
+            floatOffset: root.effectiveGaitLift + (root.reactionLift + (gait.active || !root.grounded ? 0 : root.bob * 0.35) + root.thinkingFloatY) * root.motionAmount
         }
     }
     HoverHandler { id: hoverHandler; enabled: root.enabled }
@@ -823,7 +782,7 @@ Item {
     readonly property bool effectiveNearbyInteraction: root._windowVisible && (root.nearbyInteraction || root.thinking || root.hovered || root.dragging || root.walking || root.flying || root.traveling || root.pocketDragActive || root.burstActive)
     NumberAnimation on thinkingPhase {
         running: root.thinking && root.motionEnabled && root.visible && root._windowVisible
-        from: 0; to: 1; duration: 2400
+        from: 0; to: 1; duration: 2200
         loops: Animation.Infinite
     }
     SequentialAnimation on bob {

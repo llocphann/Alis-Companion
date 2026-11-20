@@ -25,7 +25,7 @@ Item {
     readonly property color keyWellFillColor: Qt.darker(root.accentColor, 3.1)
     readonly property color keyCapPrimaryColor: Qt.lighter(root.accentColor, 1.22)
     readonly property color keyCapSecondaryColor: root.accentColor
-    readonly property color screenGlowColor: Qt.alpha(root.accentColor, 0.44 + root.effectiveScreenPulse * 0.18)
+    readonly property color screenGlowColor: Qt.alpha(root.accentColor, root.thinking ? (0.52 + root.effectiveScreenPulse * 0.30) : (0.44 + root.effectiveScreenPulse * 0.18))
     readonly property color hingeStrokeColor: Qt.darker(root.accentColor, 2.6)
     readonly property color hingeFillColor: Qt.darker(root.accentColor, 1.65)
     readonly property color lidRimStrokeColor: Qt.darker(root.accentColor, 2.15)
@@ -192,6 +192,34 @@ Item {
                 PathLine { x: 42; y: 11 }
                 PathLine { x: 27; y: 24 }
                 PathLine { x: 6; y: 9 }
+            }
+        }
+
+        // Rising holographic spark bits streaming up from the screen light cone when thinking
+        Item {
+            id: laptopThinkingStream
+            objectName: "aquaLaptopThinkingStream"
+            visible: root.thinking && root.hingeFactor > 0.35
+            anchors.fill: parent
+            Repeater {
+                model: 3
+                Rectangle {
+                    required property int index
+                    readonly property real p: (root.thinkingPhase + index * 0.33) % 1
+                    readonly property real fade: Math.sin(p * Math.PI)
+                    readonly property bool isBar: index === 1
+                    width: isBar ? 5.2 : 3.8
+                    height: isBar ? 2.4 : 3.8
+                    radius: isBar ? 1.2 : width * 0.5
+                    x: 18 + index * 5.2 + Math.sin(p * Math.PI * 2 + index) * 1.5 - width * 0.5
+                    y: 7 - p * 17 - height * 0.5
+                    rotation: isBar ? -16 : 0
+                    opacity: fade * 0.94
+                    scale: 0.72 + fade * 0.38
+                    color: index === 0 ? "#d8ffff" : root.specularColor
+                    border.width: 0.65
+                    border.color: root.deckEdgeStrokeColor
+                }
             }
         }
 
