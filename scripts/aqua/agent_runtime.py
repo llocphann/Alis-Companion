@@ -15,6 +15,7 @@ Key guarantees:
     and while-busy stop/steer instructions.
 """
 from __future__ import annotations
+import concurrent.futures
 import json
 import os
 from pathlib import Path
@@ -29,6 +30,7 @@ import urllib.request
 import code_tools
 import context_policy
 import spill_store
+import thinking_router
 from code_tools import (
     CodeToolError,
     build_repo_map,
@@ -982,7 +984,7 @@ def _call_chat_completion_text(
     if not _ensure_lmstudio_runtime_ready(endpoint, str(payload.get("model") or "")):
         return ""
     should_stream_stdout = (
-        (not bool(getattr(sys, "_aqua_json_rpc_stdout", False)))
+        (not bool(getattr(threading.current_thread(), "_aqua_json_rpc_stdout", getattr(sys, "_aqua_json_rpc_stdout", False))))
         if stream_stdout is None
         else bool(stream_stdout)
     )
@@ -1003,6 +1005,7 @@ def _call_chat_completion_text(
             endpoint=endpoint,
             reserved_output=int(req_body.get("max_tokens") or 1024),
             context_window=req_body.pop("companionContextWindow", None),
+            tools=req_body.get("tools") if isinstance(req_body.get("tools"), list) else None,
         )
     req_body["stream"] = True
     req = urllib.request.Request(
@@ -1036,7 +1039,8 @@ def _call_chat_completion_text(
             prev_sigint = None
 
     def _is_cancelled() -> bool:
-        return sig_cancelled or (cancel_event is not None and cancel_event.is_set())
+        thread_cancel = getattr(threading.current_thread(), "_aqua_cancel_event", None)
+        return sig_cancelled or (cancel_event is not None and cancel_event.is_set()) or (thread_cancel is not None and thread_cancel.is_set())
 
     watchdog_stop = _start_lmstudio_gtt_watchdog() if is_live_lms else None
     try:
@@ -1817,7 +1821,139 @@ AGENT_TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_search",
+            "description": (
+                "Discover and load additional specialized tools (such as git_inspect, web_search, web_fetch, "
+                "file_mutate, code_inspect, desktop_control, process_manage, mcp_call, skill_run, delegate_subagent) "
+                "into the active schema list on demand."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Keywords describing the capability needed (e.g. 'git diff', 'web fetch', 'kill process').",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of matching tools to load (default 6).",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
+
+CORE_AGENT_TOOL_NAMES: frozenset[str] = frozenset({
+    "file_inspect",
+    "shell_run",
+    "alis_live_state",
+    "nexus_knowledge",
+    "read_spill",
+    "tool_search",
+})
+
+_TAINT_SOURCE_TOOLS: frozenset[str] = frozenset({
+    "web_search",
+    "web_fetch",
+    "screen_observe",
+})
+
+
+def search_agent_tool_schemas(query: str, limit: int = 6) -> list[dict]:
+    """Search `AGENT_TOOL_SCHEMAS` by name, description, and parameter keywords."""
+    q = str(query or "").strip().lower()
+    terms = [t for t in re.split(r"[\s,;|/_-]+", q) if t]
+    max_items = max(1, min(16, int(limit or 6)))
+    if not terms:
+        return [s for s in AGENT_TOOL_SCHEMAS if s.get("function", {}).get("name")][:max_items]
+    scored: list[tuple[int, dict]] = []
+    for schema in AGENT_TOOL_SCHEMAS:
+        fn = schema.get("function") or {}
+        t_name = str(fn.get("name") or "").strip().lower()
+        t_desc = str(fn.get("description") or "").strip().lower()
+        props = ((fn.get("parameters") or {}).get("properties") or {})
+        prop_blob = " ".join(
+            f"{k} {str((v or {}).get('description') or '')}"
+            for k, v in props.items()
+            if isinstance(v, dict)
+        ).lower()
+        score = 0
+        for term in terms:
+            if term == t_name:
+                score += 10
+            elif term in t_name:
+                score += 6
+            if term in t_desc:
+                score += 3
+            if term in prop_blob:
+                score += 2
+        if score > 0:
+            scored.append((score, schema))
+    scored.sort(key=lambda pair: (-pair[0], str((pair[1].get("function") or {}).get("name") or "")))
+    return [pair[1] for pair in scored[:max_items]]
+
+
+def select_initial_tool_schemas(prompt: str = "", full: bool = False) -> list[dict]:
+    """Select compact core tools initially (`full=True` returns all `AGENT_TOOL_SCHEMAS`)."""
+    if full:
+        return list(AGENT_TOOL_SCHEMAS)
+    core = [
+        schema
+        for schema in AGENT_TOOL_SCHEMAS
+        if str((schema.get("function") or {}).get("name") or "") in CORE_AGENT_TOOL_NAMES
+    ]
+    return core if core else list(AGENT_TOOL_SCHEMAS)
+
+
+def _is_privileged_taint_sink(tool_name: str, args: dict | None = None) -> bool:
+    """Return True if executing `tool_name` with `args` is a privileged side-effect sink."""
+    t_name = str(tool_name or "").strip()
+    t_args = args if isinstance(args, dict) else {}
+    if t_name in ("shell_run", "run_command", "file_mutate", "edit_file", "write_file"):
+        return True
+    if t_name == "process_manage":
+        return str(t_args.get("action") or "").strip().lower() == "kill"
+    if t_name == "desktop_control":
+        return str(t_args.get("action") or "").strip().lower() == "launch_app"
+    if t_name == "mcp_call":
+        return str(t_args.get("tool") or "").strip().lower() in ("shell_exec", "execute_command")
+    return False
+
+
+def _detect_untrusted_taint_label(
+    tool_name: str,
+    args: dict | None,
+    session_ctx: dict,
+    companion_root: Path,
+) -> str:
+    """Return non-empty taint source label when `tool_name` ingests untrusted external input."""
+    t_name = str(tool_name or "").strip()
+    t_args = args if isinstance(args, dict) else {}
+    if t_name in _TAINT_SOURCE_TOOLS:
+        return t_name
+    if t_name == "mcp_call":
+        srv = str(t_args.get("server") or t_args.get("tool") or "external").strip()
+        return f"mcp_call:{srv}"
+    if t_name == "file_inspect":
+        raw_path = str(t_args.get("path") or t_args.get("target") or "").strip()
+        if not raw_path:
+            return ""
+        base_dir = Path(str(session_ctx.get("lastDirectory") or companion_root)).expanduser()
+        cand = Path(raw_path).expanduser()
+        resolved = cand.resolve(strict=False) if cand.is_absolute() else (base_dir / cand).resolve(strict=False)
+        allowed_roots: list[Path] = [Path(companion_root).resolve(strict=False)]
+        for k in ("lastProject", "lastDirectory"):
+            val = str(session_ctx.get(k) or "").strip()
+            if val:
+                allowed_roots.append(Path(val).expanduser().resolve(strict=False))
+        if not any(resolved.is_relative_to(root) for root in allowed_roots):
+            return f"file_inspect:{raw_path[:60]}"
+    return ""
 
 _GENERIC_LIST_TARGETS = frozenset((
     "files", "file", "folders", "folder", "directories", "directory", "dir", "dirs",
@@ -3237,6 +3373,7 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
     if explicit_reason:
         in_chat_directive = explicit_reason.group(0)
     elif is_plus_iq and auto_enabled:
+        tags = thinking_router.PLUSIQ_REASON_TAGS
         if user_effort == "auto":
             if any(
                 k in folded
@@ -3251,19 +3388,19 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
                     "lateral thinking",
                 )
             ) and recommended_effort in ("high", "max"):
-                in_chat_directive = "{REASON:spoon}"
+                in_chat_directive = tags["spoon"]
             elif recommended_effort == "max":
-                in_chat_directive = "{REASON:einstein}"
+                in_chat_directive = tags["max"]
             elif recommended_effort == "high":
-                in_chat_directive = "{REASON:xhigh}"
+                in_chat_directive = tags["thinking_high"]
             elif recommended_effort == "medium":
-                in_chat_directive = "{REASON:medium}"
+                in_chat_directive = tags["thinking_medium"]
             elif recommended_effort == "low":
-                in_chat_directive = "{REASON:low}"
+                in_chat_directive = tags["thinking_low"]
             else:
-                in_chat_directive = "{REASON:imedium}"
+                in_chat_directive = tags["medium"]
         elif role == "action" or is_light_knowledge:
-            in_chat_directive = "{REASON:ixhigh}" if (role == "action" and user_effort in ("xhigh", "max")) else "{REASON:imedium}"
+            in_chat_directive = tags["xhigh"] if (role == "action" and user_effort in ("xhigh", "max")) else tags["medium"]
         else:
             if any(
                 k in folded
@@ -3278,13 +3415,13 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
                     "lateral thinking",
                 )
             ):
-                in_chat_directive = "{REASON:spoon}"
+                in_chat_directive = tags["spoon"]
             elif user_effort == "max" or any(
                 k in folded for k in ("einstein", "cuc sau", "deepest", "exhaustive", "toan dien")
             ):
-                in_chat_directive = "{REASON:einstein}"
+                in_chat_directive = tags["max"]
             else:
-                in_chat_directive = "{REASON:xhigh}"
+                in_chat_directive = tags["thinking_high"]
     else:
         in_chat_directive = ""
 
@@ -3407,6 +3544,7 @@ def _call_local_model_tool_turn(
     watchdog_stop = _start_lmstudio_gtt_watchdog() if is_live_lms else None
     try:
         if "/v1/" in endpoint_url:
+            active_schemas = tools if isinstance(tools, list) else AGENT_TOOL_SCHEMAS
             if isinstance(messages, list) and messages:
                 req_messages, _ = context_policy.compact_messages_for_route(
                     messages,
@@ -3415,6 +3553,7 @@ def _call_local_model_tool_turn(
                     endpoint=endpoint_url,
                     reserved_output=2048 if enable_thinking else 1536,
                     context_window=context_window,
+                    tools=active_schemas,
                 )
             else:
                 req_messages = [
@@ -3424,7 +3563,7 @@ def _call_local_model_tool_turn(
             body = {
                 "model": effective_model_name,
                 "messages": req_messages,
-                "tools": tools if isinstance(tools, list) else AGENT_TOOL_SCHEMAS,
+                "tools": active_schemas,
                 "tool_choice": "auto",
                 "temperature": eff_temp,
                 "max_tokens": 2048 if enable_thinking else 1536,
@@ -4118,6 +4257,21 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
             save_session_context(session_ctx, now_ms=now_ms)
             return f"[Confirmation required before executing `{act}` (`{tgt or val}`). Ask the user to confirm.]"
         return f"[alis_service_control error: unsupported action `{act}`]"
+
+    if name == "tool_search":
+        q_ts = str(args.get("query") or args.get("q") or "").strip()
+        lim_ts = int(args.get("limit") or 6)
+        matched = search_agent_tool_schemas(q_ts, limit=lim_ts)
+        if not matched:
+            return f"No additional tools matched query `{q_ts}`."
+        lines_ts: list[str] = []
+        for s in matched:
+            fn_s = s.get("function") or {}
+            t_n = str(fn_s.get("name") or "")
+            t_d = str(fn_s.get("description") or "")[:160]
+            props_s = list(((fn_s.get("parameters") or {}).get("properties") or {}).keys())
+            lines_ts.append(f"- `{t_n}`({', '.join(props_s[:8])}): {t_d}")
+        return f"Loaded {len(matched)} tool schema(s):\n" + "\n".join(lines_ts)
 
     return f"[unknown tool: {name}]"
 
@@ -5354,6 +5508,13 @@ def run_react_tool_loop(
     tool_steps: list[dict] = []
     tool_chain: list[str] = []
     thoughts: list[str] = []
+    taint_sources: list[str] = []
+    taint_blocked = False
+    active_tools: list[dict] = select_initial_tool_schemas(
+        eff_prompt,
+        full=(opts.get("deferTools") is False),
+    )
+    allow_tainted_exec = opts.get("allowTaintedExecution") is True
     final_synthesis = ""
     step_counter = 0
     max_iters = max(1, min(6, int(max_steps or 4)))
@@ -5368,6 +5529,7 @@ def run_react_tool_loop(
             endpoint=eff_endpoint,
             reserved_output=2048 if eff_thinking else 1536,
             context_window=eff_ctx_window,
+            tools=active_tools,
         )
         llm_turn = _call_local_model_turn_react_step(
             endpoint_url=eff_endpoint,
@@ -5379,6 +5541,7 @@ def run_react_tool_loop(
             mtp_active=eff_mtp,
             messages=messages,
             temperature=eff_temp,
+            tools=active_tools,
             provider=eff_provider,
             context_window=eff_ctx_window,
             turn_idx=turn_idx,
@@ -5410,6 +5573,8 @@ def run_react_tool_loop(
                         "thoughts": [],
                         "synthesized": True,
                         "observations": [],
+                        "taintSources": [],
+                        "taintBlocked": False,
                     }
                 return None
             if turn_text:
@@ -5442,21 +5607,65 @@ def run_react_tool_loop(
         for tc_idx, tc in enumerate(turn_tcs[:4]):
             step_counter += 1
             t_name = tc["name"]
+            t_args = tc.get("args") if isinstance(tc.get("args"), dict) else {}
             tool_chain.append(t_name)
             _emit_activity_step(f"Step {step_counter}: `{t_name}` ›", kind="tool", status="running")
             step_id = record_step_start(run_id, step_counter, t_name, side_effect=True, now_ms=ts_ms)
             err_sig = ""
-            try:
-                out_str = _execute_llm_tool_call(tc, ctx, comp_root, ts_ms)
-                record_step_finish(step_id, status="completed", detail={"output": out_str[:400]})
+            if taint_sources and not allow_tainted_exec and _is_privileged_taint_sink(t_name, t_args):
+                taint_blocked = True
+                conf = create_pending_confirmation(
+                    "tainted_tool_escalation",
+                    t_name,
+                    f"Confirm `{t_name}` after untrusted data ({', '.join(taint_sources[:3])})",
+                    {"tool": t_name, "args": dict(t_args), "taintSources": list(taint_sources)},
+                    now_ms=ts_ms,
+                )
+                conf_id = str(conf.get("confirmId") or "")
+                out_str = (
+                    f"[CaMeL taint guard: Confirmation required before executing `{t_name}` "
+                    f"after reading untrusted data from {', '.join(taint_sources[:3])} "
+                    f"(confirmationId={conf_id}). Do not execute without explicit user approval.]"
+                )
+                record_step_finish(
+                    step_id,
+                    status="awaiting_confirmation",
+                    detail={"taintSources": list(taint_sources), "confirmationId": conf_id},
+                )
                 tool_outputs.append(f"### `{t_name}`\n{out_str}")
-                tool_steps.append({"step": step_counter, "name": t_name, "args": tc.get("args") or {}, "status": "completed", "observation": out_str})
-            except Exception as exc:
-                err_sig = f"{t_name}:{str(exc)[:100]}"
-                out_str = f"[{t_name} error: {exc}]"
-                record_step_finish(step_id, status="failed", detail={"error": str(exc)})
-                tool_outputs.append(f"### `{t_name}` (error)\n{exc}")
-                tool_steps.append({"step": step_counter, "name": t_name, "args": tc.get("args") or {}, "status": "failed", "observation": out_str})
+                tool_steps.append({
+                    "step": step_counter,
+                    "name": t_name,
+                    "args": dict(t_args),
+                    "status": "awaiting_confirmation",
+                    "confirmationId": conf_id,
+                    "taintSources": list(taint_sources),
+                    "observation": out_str,
+                })
+            else:
+                try:
+                    out_str = _execute_llm_tool_call(tc, ctx, comp_root, ts_ms)
+                    record_step_finish(step_id, status="completed", detail={"output": out_str[:400]})
+                    tool_outputs.append(f"### `{t_name}`\n{out_str}")
+                    tool_steps.append({"step": step_counter, "name": t_name, "args": dict(t_args), "status": "completed", "observation": out_str})
+                    if t_name == "tool_search":
+                        q_ts = str(t_args.get("query") or t_args.get("q") or "").strip()
+                        lim_ts = int(t_args.get("limit") or 6)
+                        seen_names = {str((s.get("function") or {}).get("name") or "") for s in active_tools}
+                        for ms in search_agent_tool_schemas(q_ts, limit=lim_ts):
+                            mname = str((ms.get("function") or {}).get("name") or "")
+                            if mname and mname not in seen_names:
+                                active_tools.append(ms)
+                                seen_names.add(mname)
+                    taint_label = _detect_untrusted_taint_label(t_name, t_args, ctx, comp_root)
+                    if taint_label and taint_label not in taint_sources:
+                        taint_sources.append(taint_label)
+                except Exception as exc:
+                    err_sig = f"{t_name}:{str(exc)[:100]}"
+                    out_str = f"[{t_name} error: {exc}]"
+                    record_step_finish(step_id, status="failed", detail={"error": str(exc)})
+                    tool_outputs.append(f"### `{t_name}` (error)\n{exc}")
+                    tool_steps.append({"step": step_counter, "name": t_name, "args": dict(t_args), "status": "failed", "observation": out_str})
             turn_check = advance_turn(
                 run_id,
                 error_signature=err_sig,
@@ -5530,6 +5739,8 @@ def run_react_tool_loop(
         "synthesized": synthesized,
         "observations": tool_outputs,
         "clientActions": pending_ca if isinstance(pending_ca, list) else [],
+        "taintSources": list(taint_sources),
+        "taintBlocked": taint_blocked,
     }
 
 
@@ -5543,6 +5754,7 @@ def _call_local_model_turn_react_step(
     mtp_active: bool | None = None,
     messages: list[dict] | None = None,
     temperature: float | None = None,
+    tools: list[dict] | None = None,
     provider: str = "",
     context_window: int | None = None,
     turn_idx: int = 0,
@@ -5557,6 +5769,7 @@ def _call_local_model_turn_react_step(
         mtp_active=mtp_active,
         messages=messages,
         temperature=temperature,
+        tools=tools,
         provider=provider,
         context_window=context_window,
         turn_idx=turn_idx,

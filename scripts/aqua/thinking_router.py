@@ -37,6 +37,20 @@ MODEL_LABEL = "mmBERT-small (141M INT8)"
 EFFORT_RANK = {"off": 0, "instant": 0, "low": 1, "medium": 2, "high": 3, "xhigh": 4, "max": 5}
 CANONICAL_BUDGET = {"low": 1024, "medium": 4096, "high": 8192, "xhigh": 16384, "max": 24576}
 
+PLUSIQ_REASON_TAGS: dict[str, str] = {
+    "off": "{REASON:none}",
+    "instant": "{REASON:none}",
+    "low": "{REASON:ilow}",
+    "medium": "{REASON:imedium}",
+    "high": "{REASON:ihigh}",
+    "xhigh": "{REASON:ixhigh}",
+    "thinking_low": "{REASON:low}",
+    "thinking_medium": "{REASON:medium}",
+    "thinking_high": "{REASON:xhigh}",
+    "max": "{REASON:einstein}",
+    "spoon": "{REASON:spoon}",
+}
+
 MECHANICAL_CATEGORIES = frozenset({
     "slash_action",
     "desktop_ui_action",
@@ -640,131 +654,104 @@ def route_thinking_effort(
     return result
 
 
-def apply_effort_to_payload(
-    payload_obj: dict,
-    effort: str,
-    api_format: str = "",
-    model_name: str = "",
-    provider_id: str = "",
-    endpoint: str = "",
-) -> dict:
-    """Layer 3: Translate resolved canonical effort into provider-native reasoning parameters."""
-    if not isinstance(payload_obj, dict):
-        return payload_obj
-    eff = str(effort or "off").strip().lower()
-    if eff not in EFFORT_RANK:
-        eff = "off"
-    fmt = str(api_format or "").strip().lower()
-    mdl = str(model_name or payload_obj.get("model") or "").strip().lower()
-    prov = str(provider_id or "").strip().lower()
-    ep = str(endpoint or "").strip().lower()
+def _apply_plusiq_payload(payload_obj: dict, eff: str, _canonical: str, _enable_thinking: bool, _ctx: dict) -> dict:
+    payload_obj["reasoning_effort"] = "none"
+    tag = PLUSIQ_REASON_TAGS.get(eff, PLUSIQ_REASON_TAGS["off"])
+    msgs = payload_obj.get("messages")
+    if isinstance(msgs, list):
+        for idx in range(len(msgs) - 1, -1, -1):
+            m = msgs[idx]
+            if not isinstance(m, dict) or m.get("role") != "user":
+                continue
+            content = m.get("content")
+            if isinstance(content, str):
+                if "{REASON:" not in content:
+                    m["content"] = f"{tag}\n{content}"
+                break
+            if isinstance(content, list):
+                injected = False
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
+                        if "{REASON:" not in part["text"]:
+                            part["text"] = f"{tag}\n{part['text']}"
+                        injected = True
+                        break
+                if not injected:
+                    content.insert(0, {"type": "text", "text": tag})
+                break
+    return payload_obj
 
-    is_plusiq = any(k in mdl for k in ("plusiq", "davidau", "defiant-fable", "heretic", "neo-imatrix"))
-    canonical = "none" if eff in ("off", "instant") else ("high" if eff in ("xhigh", "max") else eff)
-    enable_thinking = eff not in ("off", "instant")
 
-    # 1. DavidAU / Qwen3.5 PlusIQ single-model {REASON:...} in-chat tags
-    if is_plusiq:
-        payload_obj["reasoning_effort"] = "none"
-        tag_map = {
-            "off": "{REASON:none}",
-            "instant": "{REASON:none}",
-            "low": "{REASON:ilow}",
-            "medium": "{REASON:imedium}",
-            "high": "{REASON:ihigh}",
-            "xhigh": "{REASON:ixhigh}",
-            "max": "{REASON:einstein}",
-        }
-        tag = tag_map.get(eff, "{REASON:none}")
-        msgs = payload_obj.get("messages")
-        if isinstance(msgs, list):
-            for idx in range(len(msgs) - 1, -1, -1):
-                m = msgs[idx]
-                if not isinstance(m, dict) or m.get("role") != "user":
-                    continue
-                content = m.get("content")
-                if isinstance(content, str):
-                    if "{REASON:" not in content:
-                        m["content"] = f"{tag}\n{content}"
-                    break
-                if isinstance(content, list):
-                    injected = False
-                    for part in content:
-                        if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
-                            if "{REASON:" not in part["text"]:
-                                part["text"] = f"{tag}\n{part['text']}"
-                            injected = True
-                            break
-                    if not injected:
-                        content.insert(0, {"type": "text", "text": tag})
-                    break
-        return payload_obj
+def _apply_anthropic_payload(payload_obj: dict, eff: str, canonical: str, enable_thinking: bool, ctx: dict) -> dict:
+    mdl = ctx["mdl"]
+    if not enable_thinking:
+        payload_obj.pop("thinking", None)
+        oc = payload_obj.get("output_config")
+        if isinstance(oc, dict):
+            oc.pop("effort", None)
+            if not oc:
+                payload_obj.pop("output_config", None)
+    elif re.search(r"claude-(?:opus|sonnet)-(?:4[.-][6-9]|[5-9])", mdl):
+        payload_obj["thinking"] = {"type": "adaptive"}
+        oc = payload_obj.get("output_config")
+        oc = dict(oc) if isinstance(oc, dict) else {}
+        oc["effort"] = canonical
+        payload_obj["output_config"] = oc
+        payload_obj.pop("temperature", None)
+        payload_obj.pop("top_p", None)
+        payload_obj.pop("top_k", None)
+    else:
+        budget = CANONICAL_BUDGET.get(eff, 4096)
+        payload_obj["thinking"] = {"type": "enabled", "budget_tokens": budget}
+        payload_obj["max_tokens"] = max(int(payload_obj.get("max_tokens") or 4096), budget + 1024)
+        payload_obj["temperature"] = 1
+        payload_obj.pop("top_p", None)
+        payload_obj.pop("top_k", None)
+    return payload_obj
 
-    # 2. Anthropic Claude Messages API
-    if fmt == "anthropic":
-        if not enable_thinking:
-            payload_obj.pop("thinking", None)
-            oc = payload_obj.get("output_config")
-            if isinstance(oc, dict):
-                oc.pop("effort", None)
-                if not oc:
-                    payload_obj.pop("output_config", None)
-        elif re.search(r"claude-(?:opus|sonnet)-(?:4[.-][6-9]|[5-9])", mdl):
-            payload_obj["thinking"] = {"type": "adaptive"}
-            oc = payload_obj.get("output_config")
-            oc = dict(oc) if isinstance(oc, dict) else {}
-            oc["effort"] = canonical
-            payload_obj["output_config"] = oc
-            payload_obj.pop("temperature", None)
-            payload_obj.pop("top_p", None)
-            payload_obj.pop("top_k", None)
-        else:
-            budget = CANONICAL_BUDGET.get(eff, 4096)
-            payload_obj["thinking"] = {"type": "enabled", "budget_tokens": budget}
-            payload_obj["max_tokens"] = max(int(payload_obj.get("max_tokens") or 4096), budget + 1024)
-            payload_obj["temperature"] = 1
-            payload_obj.pop("top_p", None)
-            payload_obj.pop("top_k", None)
-        return payload_obj
 
-    # 3. Google Gemini (2.5 thinkingBudget / 3+ thinkingLevel)
-    if fmt == "gemini":
-        gen_cfg = dict(payload_obj.get("generationConfig") or {})
-        t_cfg = dict(gen_cfg.get("thinkingConfig") or {})
-        if "gemini-3" in mdl:
-            t_cfg.pop("thinkingBudget", None)
-            t_cfg["thinkingLevel"] = ("low" if "pro" in mdl else "minimal") if not enable_thinking else canonical
-        elif "gemini-2.5" in mdl:
-            off_budget = 128 if "pro" in mdl else 0
-            t_cfg["thinkingBudget"] = off_budget if not enable_thinking else CANONICAL_BUDGET.get(eff, 4096)
-        if t_cfg:
-            gen_cfg["thinkingConfig"] = t_cfg
-            payload_obj["generationConfig"] = gen_cfg
-        return payload_obj
+def _apply_gemini_payload(payload_obj: dict, eff: str, canonical: str, enable_thinking: bool, ctx: dict) -> dict:
+    mdl = ctx["mdl"]
+    gen_cfg = dict(payload_obj.get("generationConfig") or {})
+    t_cfg = dict(gen_cfg.get("thinkingConfig") or {})
+    if "gemini-3" in mdl:
+        t_cfg.pop("thinkingBudget", None)
+        t_cfg["thinkingLevel"] = ("low" if "pro" in mdl else "minimal") if not enable_thinking else canonical
+    elif "gemini-2.5" in mdl:
+        off_budget = 128 if "pro" in mdl else 0
+        t_cfg["thinkingBudget"] = off_budget if not enable_thinking else CANONICAL_BUDGET.get(eff, 4096)
+    if t_cfg:
+        gen_cfg["thinkingConfig"] = t_cfg
+        payload_obj["generationConfig"] = gen_cfg
+    return payload_obj
 
-    # 4. Native GGUF Python transport
-    if payload_obj.get("modelPath"):
-        payload_obj["thinkingEffort"] = eff if enable_thinking else "off"
-        return payload_obj
 
-    # 5. OpenAI Responses API (/v1/responses)
-    if fmt == "openai-response" or ep.endswith("/responses"):
-        r_cfg = dict(payload_obj.get("reasoning") or {})
-        r_cfg["effort"] = canonical
-        payload_obj["reasoning"] = r_cfg
-        return payload_obj
+def _apply_gguf_payload(payload_obj: dict, eff: str, _canonical: str, enable_thinking: bool, _ctx: dict) -> dict:
+    payload_obj["thinkingEffort"] = eff if enable_thinking else "off"
+    return payload_obj
 
-    # 6. Native Ollama (/api/chat)
-    if prov == "ollama" and "/v1/" not in ep and ep.endswith("/api/chat"):
-        if not enable_thinking:
-            payload_obj["think"] = False
-        elif "gpt-oss" in mdl:
-            payload_obj["think"] = canonical
-        else:
-            payload_obj["think"] = True
-        return payload_obj
 
-    # 7. OpenAI Chat Completions + vLLM / llama.cpp reasoning_families
+def _apply_openai_responses_payload(payload_obj: dict, _eff: str, canonical: str, _enable_thinking: bool, _ctx: dict) -> dict:
+    r_cfg = dict(payload_obj.get("reasoning") or {})
+    r_cfg["effort"] = canonical
+    payload_obj["reasoning"] = r_cfg
+    return payload_obj
+
+
+def _apply_ollama_native_payload(payload_obj: dict, _eff: str, canonical: str, enable_thinking: bool, ctx: dict) -> dict:
+    mdl = ctx["mdl"]
+    if not enable_thinking:
+        payload_obj["think"] = False
+    elif "gpt-oss" in mdl:
+        payload_obj["think"] = canonical
+    else:
+        payload_obj["think"] = True
+    return payload_obj
+
+
+def _apply_openai_compat_payload(payload_obj: dict, _eff: str, canonical: str, enable_thinking: bool, ctx: dict) -> dict:
+    mdl = ctx["mdl"]
+    ep = ctx["ep"]
     is_legacy_o_series = bool(re.match(r"^o[134](?:$|-)", mdl))
     is_reasoning_openai = bool(
         not mdl
@@ -815,6 +802,82 @@ def apply_effort_to_payload(
             kwargs = dict(payload_obj.get("chat_template_kwargs") or {})
             kwargs["thinking"] = bool(enable_thinking)
             payload_obj["chat_template_kwargs"] = kwargs
+    return payload_obj
+
+
+PROVIDER_CAPABILITY_TABLE: tuple[dict, ...] = (
+    {
+        "id": "plusiq",
+        "reasoningMode": "in_chat_directive",
+        "match": lambda _payload, ctx: any(
+            k in ctx["mdl"] for k in ("plusiq", "davidau", "defiant-fable", "heretic", "neo-imatrix")
+        ),
+        "handler": _apply_plusiq_payload,
+    },
+    {
+        "id": "anthropic",
+        "reasoningMode": "thinking_adaptive_or_budget",
+        "match": lambda _payload, ctx: ctx["fmt"] == "anthropic",
+        "handler": _apply_anthropic_payload,
+    },
+    {
+        "id": "gemini",
+        "reasoningMode": "thinking_config",
+        "match": lambda _payload, ctx: ctx["fmt"] == "gemini",
+        "handler": _apply_gemini_payload,
+    },
+    {
+        "id": "gguf",
+        "reasoningMode": "thinking_effort_string",
+        "match": lambda payload, _ctx: bool(payload.get("modelPath")),
+        "handler": _apply_gguf_payload,
+    },
+    {
+        "id": "openai_responses",
+        "reasoningMode": "reasoning.effort",
+        "match": lambda _payload, ctx: ctx["fmt"] == "openai-response" or ctx["ep"].endswith("/responses"),
+        "handler": _apply_openai_responses_payload,
+    },
+    {
+        "id": "ollama_native",
+        "reasoningMode": "think_flag_or_effort",
+        "match": lambda _payload, ctx: ctx["prov"] == "ollama" and "/v1/" not in ctx["ep"] and ctx["ep"].endswith("/api/chat"),
+        "handler": _apply_ollama_native_payload,
+    },
+    {
+        "id": "openai_chat_completions",
+        "reasoningMode": "reasoning_effort_or_chat_template_kwargs",
+        "match": lambda _payload, _ctx: True,
+        "handler": _apply_openai_compat_payload,
+    },
+)
+
+
+def apply_effort_to_payload(
+    payload_obj: dict,
+    effort: str,
+    api_format: str = "",
+    model_name: str = "",
+    provider_id: str = "",
+    endpoint: str = "",
+) -> dict:
+    """Layer 3: Translate resolved canonical effort into provider-native reasoning parameters."""
+    if not isinstance(payload_obj, dict):
+        return payload_obj
+    eff = str(effort or "off").strip().lower()
+    if eff not in EFFORT_RANK:
+        eff = "off"
+    ctx = {
+        "fmt": str(api_format or "").strip().lower(),
+        "mdl": str(model_name or payload_obj.get("model") or "").strip().lower(),
+        "prov": str(provider_id or "").strip().lower(),
+        "ep": str(endpoint or "").strip().lower(),
+    }
+    canonical = "none" if eff in ("off", "instant") else ("high" if eff in ("xhigh", "max") else eff)
+    enable_thinking = eff not in ("off", "instant")
+    for spec in PROVIDER_CAPABILITY_TABLE:
+        if spec["match"](payload_obj, ctx):
+            return spec["handler"](payload_obj, eff, canonical, enable_thinking, ctx)
     return payload_obj
 
 

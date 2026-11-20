@@ -2082,6 +2082,17 @@ def memory_action(action, payload):
 
 if __name__=='__main__':
     argv_list=sys.argv[1:]
+    if '--daemon' in argv_list:
+        import companion_daemon
+        raise SystemExit(companion_daemon.run_daemon_cli(argv_list))
+    if '--daemon-status' in argv_list:
+        import companion_daemon
+        print(json.dumps(companion_daemon.daemon_status(),ensure_ascii=False))
+        raise SystemExit(0)
+    if '--daemon-shutdown' in argv_list:
+        import companion_daemon
+        print(json.dumps({'stopped':companion_daemon.shutdown_daemon()},ensure_ascii=False))
+        raise SystemExit(0)
     if '--rollback-file-receipt' in argv_list:
         import tool_store
         idx=argv_list.index('--rollback-file-receipt')
@@ -2102,6 +2113,17 @@ if __name__=='__main__':
         raw=sys.stdin.buffer.readline(98305)
         if len(raw)>98304:raise MindError('request_too_large','Companion request exceeded the limit')
         parsed_req=json.loads(raw)
+        if isinstance(parsed_req,dict) and (('--use-daemon' in argv_list) or os.environ.get('ALIS_COMPANION_USE_DAEMON')=='1'):
+            try:
+                import companion_daemon
+                daemon_resp=companion_daemon.call_via_daemon(parsed_req,auto_start=True)
+                if isinstance(daemon_resp,dict) and 'ok' in daemon_resp:
+                    print(json.dumps(daemon_resp,ensure_ascii=False,separators=(',',':')))
+                    raise SystemExit(0)
+            except SystemExit:
+                raise
+            except Exception:
+                pass
         sys._aqua_json_rpc_stdout=not bool(isinstance(parsed_req,dict) and parsed_req.get('streamStdout'))
         result={'ok':True,'result':dispatch(parsed_req)}
     except journal_errors() as exc:result={'ok':False,'error':{'code':exc.code,'message':str(exc)[:160]}}

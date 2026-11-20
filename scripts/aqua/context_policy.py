@@ -23,7 +23,12 @@ from pathlib import Path
 import re
 import stat
 import tempfile
+import threading
 import time
+from typing import Any
+import urllib.error
+import urllib.parse
+import urllib.request
 
 import spill_store
 
@@ -33,6 +38,10 @@ DEFAULT_RESERVED_OUTPUT = 1_024
 MIN_INPUT_BUDGET = 2_048
 RECENT_BUDGET_RATIO = 0.60
 INPUT_SAFETY_RATIO = 0.85
+CONTEXT_PROBE_TTL_SEC = 60.0
+
+_CONTEXT_PROBE_LOCK = threading.Lock()
+_CONTEXT_PROBE_CACHE: dict[tuple[str, str], tuple[float, int]] = {}
 
 _LOCAL_PROVIDER_IDS = frozenset((
     "ollama",
@@ -43,6 +52,106 @@ _LOCAL_PROVIDER_IDS = frozenset((
     "gguf",
     "local",
 ))
+
+
+def clear_context_probe_cache() -> None:
+    """Clear cached live endpoint context window probes."""
+    with _CONTEXT_PROBE_LOCK:
+        _CONTEXT_PROBE_CACHE.clear()
+
+
+def _loopback_origin(endpoint: str) -> str:
+    raw = str(endpoint or "").strip()
+    if not raw:
+        return ""
+    parsed = urllib.parse.urlparse(raw)
+    if parsed.scheme not in ("http", "https"):
+        return ""
+    host = (parsed.hostname or "").lower()
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def probe_live_context_window(endpoint: str, model: str = "", timeout_sec: float = 1.2) -> int | None:
+    """Query loopback LM Studio (`/api/v0/models`) or Ollama (`/api/show`) for live context window."""
+    origin = _loopback_origin(endpoint)
+    if not origin:
+        return None
+    if os.environ.get("ALIS_TEST_CONTEXT_PROBE") != "1" and (
+        os.environ.get("ALIS_TEST_ISOLATED")
+        or os.environ.get("AQUA_TEST_ENDPOINT")
+        or os.environ.get("AI_FIXTURE_URL")
+    ):
+        return None
+
+    mdl_key = str(model or "").strip().lower()
+    cache_key = (origin, mdl_key)
+    now = time.monotonic()
+    with _CONTEXT_PROBE_LOCK:
+        cached = _CONTEXT_PROBE_CACHE.get(cache_key)
+        if cached and (now - cached[0]) < CONTEXT_PROBE_TTL_SEC:
+            return cached[1]
+
+    detected: int | None = None
+    # 1. LM Studio native REST endpoint (/api/v0/models)
+    try:
+        req = urllib.request.Request(f"{origin}/api/v0/models", headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+        entries = payload.get("data") if isinstance(payload, dict) else (payload if isinstance(payload, list) else [])
+        matched = None
+        for item in entries or []:
+            if not isinstance(item, dict):
+                continue
+            item_id = str(item.get("id") or "").strip().lower()
+            if mdl_key and (item_id == mdl_key or mdl_key in item_id):
+                matched = item
+                break
+            if matched is None and str(item.get("state") or "").lower() == "loaded":
+                matched = item
+        if matched is None and isinstance(entries, list) and len(entries) == 1 and isinstance(entries[0], dict):
+            matched = entries[0]
+        if isinstance(matched, dict):
+            for k in ("loaded_context_length", "context_length", "max_context_length"):
+                val = matched.get(k)
+                if isinstance(val, (int, float)) and int(val) >= MIN_INPUT_BUDGET:
+                    detected = int(val)
+                    break
+    except Exception:
+        detected = None
+
+    # 2. Ollama native model metadata (/api/show)
+    if detected is None and mdl_key:
+        try:
+            body = json.dumps({"name": str(model).strip()}).encode("utf-8")
+            req = urllib.request.Request(
+                f"{origin}/api/show",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+                show_data = json.loads(resp.read().decode("utf-8", errors="replace"))
+            if isinstance(show_data, dict):
+                mi = show_data.get("model_info") if isinstance(show_data.get("model_info"), dict) else {}
+                for k, v in mi.items():
+                    if str(k).endswith(".context_length") and isinstance(v, (int, float)) and int(v) >= MIN_INPUT_BUDGET:
+                        detected = int(v)
+                        break
+                if detected is None:
+                    params_txt = str(show_data.get("parameters") or "")
+                    m_ctx = re.search(r"\bnum_ctx\s+(\d{4,7})\b", params_txt)
+                    if m_ctx and int(m_ctx.group(1)) >= MIN_INPUT_BUDGET:
+                        detected = int(m_ctx.group(1))
+        except Exception:
+            detected = None
+
+    if detected is not None and detected >= MIN_INPUT_BUDGET:
+        with _CONTEXT_PROBE_LOCK:
+            _CONTEXT_PROBE_CACHE[cache_key] = (now, detected)
+        return detected
+    return None
 
 
 def resolve_route_context_window(
@@ -71,6 +180,10 @@ def resolve_route_context_window(
     )
 
     if is_local:
+        if _loopback_origin(endpoint):
+            probed = probe_live_context_window(endpoint, model)
+            if probed is not None and probed >= MIN_INPUT_BUDGET:
+                return probed
         # Local llama.cpp / raw GGUF / older small local models default 16k;
         # modern local Ollama / LM Studio / Qwen / Llama-3 / Gemma / DeepSeek-distill default 32k.
         if (
@@ -188,6 +301,17 @@ def estimate_message_tokens(msg: dict) -> int:
 
 def estimate_messages_tokens(messages: list[dict]) -> int:
     return sum(estimate_message_tokens(m) for m in (messages or []) if isinstance(m, dict))
+
+
+def estimate_tools_tokens(tools: list[dict] | None) -> int:
+    """Conservatively estimate prompt token overhead consumed by serialized tool schemas."""
+    if not tools or not isinstance(tools, (list, tuple)):
+        return 0
+    try:
+        serialized = json.dumps(list(tools), ensure_ascii=False, separators=(",", ":"))
+    except Exception:
+        serialized = str(tools)
+    return _string_tokens(serialized) + (4 * len(tools))
 
 
 def partition_atomic_message_groups(messages: list[dict]) -> tuple[list[dict], list[list[dict]]]:
@@ -456,11 +580,14 @@ def compact_messages_for_route(
     endpoint: str = "",
     reserved_output: int = DEFAULT_RESERVED_OUTPUT,
     context_window: int | None = None,
+    tools: list[dict] | None = None,
+    llm_summarize_fn: Any = None,
 ) -> tuple[list[dict], dict]:
     """Compact `messages` when estimated tokens exceed the `(provider, model)` route `input_budget`.
 
     Guarantees:
     - Static leading `system` messages are preserved byte-for-byte.
+    - Tool-schema token overhead (`tools`) is deducted from the route's input budget.
     - Recent turns fitting within ~60% of `input_budget` are kept intact.
     - `assistant(tool_calls)` <-> `tool(tool_call_id)` groups are NEVER split.
     """
@@ -470,7 +597,9 @@ def compact_messages_for_route(
         endpoint=endpoint,
         explicit_context_window=context_window,
     )
-    input_budget = compute_input_budget(w, reserved_output=reserved_output)
+    tool_schema_tokens = estimate_tools_tokens(tools)
+    base_budget = compute_input_budget(w, reserved_output=reserved_output)
+    input_budget = max(512, base_budget - tool_schema_tokens)
     system_prefix, groups = partition_atomic_message_groups(messages)
     repaired_flat = system_prefix + [m for g in groups for m in g]
     tokens_before = estimate_messages_tokens(repaired_flat)
@@ -482,6 +611,7 @@ def compact_messages_for_route(
             "model": str(model or ""),
             "contextWindow": w,
             "reservedOutput": int(reserved_output or 0),
+            "toolSchemaTokens": tool_schema_tokens,
             "inputBudget": input_budget,
             "estimatedTokensBefore": tokens_before,
             "estimatedTokensAfter": tokens_before,
@@ -527,6 +657,7 @@ def compact_messages_for_route(
             "model": str(model or ""),
             "contextWindow": w,
             "reservedOutput": int(reserved_output or 0),
+            "toolSchemaTokens": tool_schema_tokens,
             "inputBudget": input_budget,
             "estimatedTokensBefore": tokens_before,
             "estimatedTokensAfter": tokens_before,
@@ -535,7 +666,19 @@ def compact_messages_for_route(
         }
 
     remaining_for_summary = max(160, input_budget - sys_tokens - retained_tokens)
-    summary_msg = _summarize_evicted_groups(evicted_groups, max_tokens=remaining_for_summary)
+    summary_msg = None
+    if callable(llm_summarize_fn):
+        try:
+            llm_summary = str(llm_summarize_fn(evicted_groups, remaining_for_summary) or "").strip()
+            if llm_summary:
+                summary_msg = {
+                    "role": "user",
+                    "content": f"{COMPACTED_HEADER}\n{llm_summary[:max(160, remaining_for_summary * 3)]}",
+                }
+        except Exception:
+            summary_msg = None
+    if summary_msg is None:
+        summary_msg = _summarize_evicted_groups(evicted_groups, max_tokens=remaining_for_summary)
 
     compacted_list: list[dict] = list(system_prefix)
     if summary_msg is not None:
@@ -550,6 +693,7 @@ def compact_messages_for_route(
         "model": str(model or ""),
         "contextWindow": w,
         "reservedOutput": int(reserved_output or 0),
+        "toolSchemaTokens": tool_schema_tokens,
         "inputBudget": input_budget,
         "estimatedTokensBefore": tokens_before,
         "estimatedTokensAfter": tokens_after,
