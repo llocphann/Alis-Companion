@@ -1,77 +1,46 @@
 # Alis-Companion
 
-Aqua and Octo, expressive 3D desktop companions for [Alis](https://github.com/llocphann/Alis). Companion is an optional installation, disabled by default in Alis.
+Ambient liquid companions (**Aqua** and **Octo**) and a local-first AI assistant for the [**Alis**](https://github.com/llocphann/Alis) Wayland desktop shell.
 
-This repository owns the procedural liquid renderer, Blender models and motion curves, behavior daemon (`alis-companiond`), expressions, movement, curiosity, alternating characters, orbital cloud actions, the unified Left Sidebar **Intelligence** chat view (`AquaCompanionChatView.qml`, `AquaTalkCloud.qml`, `AquaChatSidebar.qml`), interactive `/` slash commands, Agent Skills (`skill_store.py`), RAG document indexing (`rag_store.py`), MCP client integration (`mcp_client.py`), Pocket SQLite capture, check-ins and Companion settings. Alis supplies the Abyss surfaces, theme, shared AI transport, Obsidian/Todo integration and a small optional host adapter.
+<p align="center">
+  <img src="assets/screenshots/companion-cast-thinking.png" alt="Aqua and Octo companions with Celestial Abyss Orrery thinking aura" width="100%" />
+</p>
 
-## Integrated installation via Alis
+## Highlights
 
-**Alis users do not install or update Companion separately.** When installed
-through Alis `./setup install`, `reinstall` or `update`, Alis fetches a
-known-compatible, SHA-pinned revision of this separate source repository and
-runs the user-owned Companion release installer. A no-op Alis update also
-repairs a missing Companion. Installation is automatic; whether Aqua or Octo
-is **enabled** remains a separate user preference in **Settings → Companion**.
+- **Expressive Dual Cast (Aqua & Octo)** — Switch between **Aqua** and **Octo** with smooth skeletal & shader-driven expressions, perimeter edge attachment, reading-book & cowork-laptop animations, and the Celestial Abyss Orrery thinking aura that blends cleanly with active idle poses.
+- **Floating Chat & Edgebar Pocket** — Summon `AquaTalkCloud` on demand to pin conversations, filter threads, stage files in the inline Left Edgebar **Pocket**, and click **Mood**, **Energy**, and **Weight** chips synchronized with your Nexus Journal check-ins.
+- **Standalone `/swarm` Multi-Agent Workspace** — Trigger `/swarm` right from the Chatbox composer or toggle the collapsible Right Sidebar (`Board` | `Members` | `Graph`) to follow coordinated sub-tasks visually without leaving your chat flow.
+- **Local Tools & Unified Nexus Vault RAG** — Query local desktop state (including Alis weather updates and system context) under strict local-only defaults, and index Markdown knowledge notes in your Nexus Vault (`90_System/99_RAG/`) backed by an external SQLite FTS5 store (`nexus_rag.db`) that avoids vault sync conflicts.
+- **Voice & Adaptive Reasoning** — Speak directly with sound-reactive waveform feedback, optional icon-filtered TTS replies, and **Auto Thinking Effort** routing calibrated to prompt complexity.
 
-The integration currently covers Alis's user `./setup` flows. Arch/Nix and
-staged system `make install` packaging must not build this project as root or
-write to an arbitrary user's home; their first-user provisioning still needs
-a separately validated packaging route.
+<p align="center">
+  <img src="assets/screenshots/companion-chat-swarm.png" alt="Alis-Companion Chatbox with Mood/Energy/Weight check-ins, Nexus RAG reply, and standalone Swarm Right Sidebar" width="100%" />
+</p>
 
-Rust 1.95 or newer is required to build the native behavior daemon;
-rendering uses Alis's Quickshell/Qt environment. Blender is only for
-authoring. No LLM is downloaded or loaded by the installer.
-**Super + Alt + Comma** retains its existing chat behavior.
+## Installation
 
-### Independent development
-
-For development and release testing of the standalone source checkout:
+Install `Alis-Companion` into your user data directory alongside **Alis** (`hostApi: 1`) from a clean git checkout:
 
 ```sh
-git clone https://github.com/llocphann/Alis-Companion.git
-cd Alis-Companion
-make install
-alis ipc alis-companion refresh
+python3 scripts/install.py install
 ```
 
-Normal Alis users should use its integrated setup/update lifecycle instead.
-
-The runtime is installed to `${XDG_DATA_HOME:-$HOME/.local/share}/alis-companion/releases/<commit>`. An atomic `current` link selects a release. The payload excludes Blender files, tests, documentation and models. Alis discovers this user installation without modifying its source tree or a system package.
-
-## Update and remove
+To remove the installed companion bundle cleanly without removing Alis core:
 
 ```sh
-git pull --ff-only
-make install
-alis ipc alis-companion refresh
-
-make uninstall
-alis ipc alis-companion refresh
+python3 scripts/install.py uninstall
 ```
 
-Uninstall detaches the runtime. Preferences, chat history, Obsidian notes and previous releases remain intact. Alis's managed setup/update now installs its pinned Companion revision automatically; standalone development remains manual. The `abyss.companion` / `abyss.companionMind` preferences, `aqua` IPC target, transcript path and `alis-companiond` binary name remain compatible during extraction.
+Settings for **Companion** and **AI** appear inside **Alis Settings → Abyss & Bar**.
 
-## Development
+## Documentation & Links
 
-```sh
-make build
-make test ALIS_ROOT=/path/to/Alis
-# Include the optional Obsidian package for journal regression checks:
-make test ALIS_ROOT=/path/to/Alis ALIS_INTERGRATION_ROOT=/path/to/Alis-Intergration
-```
+- [Documentation Index](docs/README.md) — runtime boundaries, Unified Nexus RAG storage layout, and dormant context protocol reference
+- [Alis-Companion GitHub Issues](https://github.com/llocphann/Alis-Companion/issues) — active bug reports and feature tracking
+- [Alis Core Shell](https://github.com/llocphann/Alis) — Wayland host shell (`dev` / `stable`)
 
-With current Alis hosts, Obsidian helpers belong to the optional Alis-Intergration
-package. Journal checks can stage its committed source privately:
-`python3 scripts/validate.py --alis-root /clean/Alis --alis-intergration-root /clean/Alis-Intergration --require-clean --only test-aqua-local-mind.py test-aqua-shared-ai-runtime.py test-aqua-journal-ui.py AquaMind.qml`.
-This builds no resident service, installs nothing and changes no user settings.
-Chat/history do not require Obsidian; missing journal integration returns a
-bounded error only when a journal action is explicitly requested.
+---
 
-Validation uses an isolated host checkout and fake inference fixtures; it does not modify the live desktop or call a real LLM. See the [documentation index](docs/README.md) for host API, extraction provenance, renderer runbooks and Mochi × Mak1zu × Alis decisions. **Companion tasks and milestones are managed in [Alis-Companion GitHub Issues](https://github.com/llocphann/Alis-Companion/issues?q=is%3Aissue+is%3Aopen)**; the former visual/AI TODO links are compatibility pointers and historical receipts remain at the source-pinned pre-centralization commit; [imported historical milestones](to-do/archive/README.md) and [retired research](docs/archive/README.md) are frozen archives, not current implementation instructions. Historical Alis evidence remains source-pinned and is not a test result for this repository.
-
-License: GPL-3.0-or-later; imported source attribution is retained.
-
-## Development & Release Cadence (`1.0.0`)
-
-- **LLM-Assisted Engineering:** Designed and developed with the assistance of Large Language Models (LLMs) under maintainer review.
+- **License:** GPL-3.0-or-later; imported source attribution is retained.
 - **Release Schedule:** Maintained alongside Alis `1.0.0` with updates released on a **quarterly, semi-annual, or annual** cadence.

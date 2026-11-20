@@ -1,6 +1,6 @@
 # Alis-Companion context protocol v1
 
-Status: **dormant receiving contract**, not a running host bridge. The implementation is [AquaContextProtocol.js](../modules/abyss/companion/AquaContextProtocol.js); its synthetic regression is [test-aqua-context-protocol.cjs](../scripts/test-aqua-context-protocol.cjs). Visual work remains in the [canonical TODO](../to-do/cloud-bot/ABYSS_WATER_DROPLET_COMPANION.md).
+Status: **dormant receiving contract**, not a running host bridge. The implementation is [AquaContextProtocol.js](../modules/abyss/companion/AquaContextProtocol.js); its synthetic regression is [test-aqua-context-protocol.cjs](../scripts/test-aqua-context-protocol.cjs). Open work is tracked in [Alis-Companion GitHub Issues](https://github.com/llocphann/Alis-Companion/issues).
 
 The receiver feeds the existing Behavior Director. It neither creates a second actor nor owns movement, presentation, input, a process or a timer. No production QML imports it. Alis must own permission, semantic reduction, peer authentication and transport before any live integration. The optional host/package API remains v1; this document versions a separate future event frame.
 

@@ -436,7 +436,7 @@ def _collect_doc_chunks(companion_root, extra_dirs=None, include_builtin_docs=Tr
         if env_comp and Path(env_comp).is_dir():
             root_candidates.append(Path(env_comp).resolve(strict=False))
         for base in root_candidates:
-            for rel in ("README.md", "docs/README.md", "docs/ALIS_EXTRACTION.md"):
+            for rel in ("README.md", "docs/README.md", "docs/ALIS_COMPANION_CONTEXT_PROTOCOL_V1.md"):
                 cand = base / rel
                 if cand.is_file() and not cand.is_symlink() and str(cand) not in seen_paths:
                     sources.append((rel, cand))

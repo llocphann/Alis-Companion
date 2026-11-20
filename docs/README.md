@@ -1,14 +1,14 @@
 # Alis-Companion documentation
 
-**Active engineering references** (not independent competing roadmaps):
+Core references for the **Alis-Companion** package (`hostApi: 1`):
 
-- [Alis extraction and host API 1](ALIS_EXTRACTION.md) — ownership, compatibility, packaging and optional loader semantics
-- [Original Alis source inventory](ALIS_IMPORT.json) — pinned import provenance; retain
-- [Mochi × Mak1zu × Alis synthesis](ALIS_COMPANION_COMPANION_SYNTHESIS_20261009.md) — current design choices, permissions, separable behavior/animation/inference authority
-- [Renderer G0/G1 optimization decision and runbook](ALIS_COMPANION_RENDERER_OPTIMIZATION_DECISION_20261008.md) — evidence and fail-closed measurement procedures, not a separate task list
+- [Package overview](../README.md) — features, screenshots, and standalone installation
+- [Context protocol v1](ALIS_COMPANION_CONTEXT_PROTOCOL_V1.md) — dormant host-to-companion behavioral signal contract (`AquaContextProtocol.js`)
+- [Scripts reference](../scripts/README.md) — developer verification and installer utilities
+- [Agent & workflow guidelines](../AGENTS.md) — repository ownership, UI/UX contracts, and verification standards
 
-**Active tasks only:** [Alis-Companion GitHub Issues](https://github.com/llocphann/Alis-Companion/issues?q=is%3Aissue+is%3Aopen). The former Companion [visual](../to-do/cloud-bot/ABYSS_WATER_DROPLET_COMPANION.md) and [AI](../to-do/cloud-bot/AQUA_LOCAL_AI.md) pages are forwarding pointers; historical source-pinned evidence still supports acceptance but cannot override the repository-managed task status.
+## Unified Nexus Vault RAG Storage
 
-**Retired:** [research archive](archive/README.md), [legacy work log archive](../to-do/archive/README.md). Archived links/paths are for historical provenance only; do not implement an old phase or infer a PASS from an archived receipt.
+Human-readable Markdown knowledge notes live inside the active Nexus Vault under `90_System/99_RAG/` (`README.md`, `RAG_Sources.md`, `Canonical/`, `Personal/`, and `Knowledge/`). The binary SQLite FTS5 index (`nexus_rag.db`) and external source manifests stay outside the Vault under `$XDG_STATE_HOME/quickshell/user/` (`~/.local/state/quickshell/user/`) so Syncthing and Git never encounter binary database conflicts.
 
-**Boundaries:** Alis-Companion `main` owns optional Companion; Alis `dev` owns host and generic AI integrations. Nothing in these docs authorizes edits to Alis `stable`, turning on desktop sensors, installing an LLM, or claiming measured GPU performance without current local receipts.
+**Issue tracker:** [Alis-Companion GitHub Issues](https://github.com/llocphann/Alis-Companion/issues).

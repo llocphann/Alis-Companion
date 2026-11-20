@@ -28,8 +28,8 @@ schedule supports visual inspection. The reflective studio disc is a preview
 surface, not a desktop effect. Four-rim geometry is **not** Niri/input acceptance.
 
 Runtime mesh/material integration, theme binding, interrupted motion ownership,
-real four-rim visuals/input and GPU costs remain open in the canonical
-[Companion TODO](../../to-do/cloud-bot/ABYSS_WATER_DROPLET_COMPANION.md). These
+real four-rim visuals/input and GPU costs are tracked in
+[Alis-Companion GitHub Issues](https://github.com/llocphann/Alis-Companion/issues). These
 assets do not qualify original G0, strict lossless rendering, resource savings
 or reference parity. No private model, desktop screenshot or vault is a fixture.
 
