@@ -1717,13 +1717,56 @@ def voice_tts_stop() -> dict:
     }
 
 
-def _clean_text_for_tts(raw_text: str) -> str:
+_TTS_EMOJI_CLUSTER_RE = re.compile(
+    r"[\U0001F1E6-\U0001F1FF]{2}"
+    r"|(?:[\U0001F300-\U0001FAFF\u2600-\u26FF\u2700-\u27BF\u231A-\u23FA\u2B05-\u2B55\u2934\u2935\u3030\u303D\u3297\u3299\u203C\u2049\u2122\u2139\u2194-\u2199\u21A9-\u21AA\u24C2\u25AA-\u25FE]|[#*0-9]\uFE0F?\u20E3)"
+    r"(?:[\uFE0E\uFE0F\U0001F3FB-\U0001F3FF]|\u200D[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0E\uFE0F\U0001F3FB-\U0001F3FF]+)*"
+    r"|[›•▸▪◦◆◇★☆✓✔✕✖]+"
+)
+_TTS_ICON_INTENT_RE = re.compile(
+    r"\b(?:emoji|emojis|emoticon|emoticons|icon|icons|symbol|symbols|unicode|glyph|biểu tượng|bieu tuong|ký hiệu|ky hieu|icon\s+gì|emoji\s+nào)\b",
+    re.IGNORECASE,
+)
+
+
+def _strip_decorative_icons_for_tts(raw_text: str, context_prompt: str = "") -> str:
+    ctx = str(context_prompt or "").strip()
+    if not raw_text:
+        return ""
+    keep_all_icons = bool(_TTS_ICON_INTENT_RE.search(ctx))
+    prompt_icons = set(_TTS_EMOJI_CLUSTER_RE.findall(ctx)) if ctx else set()
+    if keep_all_icons:
+        return raw_text
+
+    def _keep_or_drop(match: re.Match) -> str:
+        tok = match.group(0)
+        if tok in prompt_icons:
+            return tok
+        start, end = match.span()
+        before = raw_text[max(0, start - 24) : start]
+        after = raw_text[end : min(len(raw_text), end + 28)]
+        # Preserve icon if explicitly quoted/code-wrapped or directly explained
+        if before.endswith(('"', "'", "`", "«", "“", "‘")) and after.startswith(('"', "'", "`", "»", "”", "’")):
+            return tok
+        if re.match(r"^\s*(?:=|means\b|is\b|là\b|nghĩa là\b|represents\b|biểu thị\b|stands for\b)", after, re.IGNORECASE):
+            return tok
+        if re.search(r"(?:emoji|icon|symbol|biểu tượng|ký hiệu)\s*[:=\-]?\s*$", before, re.IGNORECASE):
+            return tok
+        return " "
+
+    return _TTS_EMOJI_CLUSTER_RE.sub(_keep_or_drop, raw_text)
+
+
+def _clean_text_for_tts(raw_text: str, context_prompt: str = "") -> str:
     txt = str(raw_text or "").strip()
+    txt = _strip_decorative_icons_for_tts(txt, context_prompt=context_prompt)
     txt = re.sub(r"```[\s\S]*?```", " ", txt)
     txt = re.sub(r"`([^`]+)`", r"\1", txt)
     txt = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", txt)
     txt = re.sub(r"[#*_~>|]+", " ", txt)
-    return " ".join(txt.split())[:600]
+    txt = " ".join(txt.split())
+    txt = re.sub(r"\s+([,.!?;:])", r"\1", txt)
+    return txt[:600]
 
 
 def voice_tts(
@@ -1735,12 +1778,13 @@ def voice_tts(
     rate: str | int | float = "",
     engine: str = "",
     wait: bool = False,
+    context_prompt: str = "",
 ) -> dict:
     """Synthesize speech using natural Neural TTS (edge-tts) first, with Piper, espeak-ng, or spd-say fallback (safe dry-run in test environments)."""
     voice_tts_stop()
     eff_voice = str(voice or language or lang or "").strip()
     req_engine = str(engine or "").strip().lower()
-    clean_txt = _clean_text_for_tts(text)
+    clean_txt = _clean_text_for_tts(text, context_prompt=context_prompt)
     if not clean_txt:
         raise DesktopControlError("empty_tts_text", "Provide non-empty text to synthesize with local TTS.")
     if eff_voice in ("", "default", "auto"):

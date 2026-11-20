@@ -1097,9 +1097,14 @@ def thinking_capable(name):
 def is_mtp_model(name):
     return bool(re.search(r'(?:^|[\s\-_.:/])mtp(?:$|[\s\-_.:/])',str(name or ''),re.I))
 
-def thinking_effort(value):
-    effort=str(value or 'off').lower()
-    if effort not in THINKING_EFFORTS:raise MindError('invalid_thinking_effort','Thinking effort must be off, low, medium or high')
+def thinking_effort(value,prompt='',from_voice=False):
+    effort=str(value or 'off').strip().lower()
+    if effort=='instant':return 'off'
+    if effort=='auto':
+        import agent_runtime
+        resolved=agent_runtime.resolve_auto_thinking_effort(prompt,{'fromVoice':bool(from_voice)})
+        return resolved if resolved in THINKING_EFFORTS else 'off'
+    if effort not in THINKING_EFFORTS:raise MindError('invalid_thinking_effort','Thinking effort must be off, low, medium, high, xhigh, max or auto')
     return effort
 
 def probe(options):
@@ -1388,9 +1393,9 @@ def chat(options):
     prompt=raw_prompt
     if not prompt or len(prompt)>1200:raise MindError('invalid_prompt','Message must contain 1 to 1200 characters')
     if route and ('thinkingEffort' not in options or route.get('dualModelActive') or route.get('isPlusIq')):
-        requested_effort=thinking_effort(route.get('recommendedEffort',options.get('thinkingEffort','off')))
+        requested_effort=thinking_effort(route.get('recommendedEffort',options.get('thinkingEffort','off')),raw_prompt,bool(options.get('fromVoice')))
     else:
-        requested_effort=thinking_effort(options.get('thinkingEffort','off'))
+        requested_effort=thinking_effort(options.get('thinkingEffort','off'),raw_prompt,bool(options.get('fromVoice')))
     capability_name=Path(str(options.get('modelPath',''))).name if options.get('modelPath') else model
     effort=requested_effort if thinking_capable(capability_name) else 'off'
     effort_profile=THINKING_EFFORTS[effort]
@@ -1586,6 +1591,7 @@ def voice_action(payload):
                 text=str(payload.get('text') or ''),
                 language=str(payload.get('language') or 'auto'),
                 rate=payload.get('rate') or '',
+                context_prompt=str(payload.get('contextPrompt') or ''),
             )
         if op in ('stop','tts_stop','voice_tts_stop'):
             return desktop_control.voice_tts_stop()

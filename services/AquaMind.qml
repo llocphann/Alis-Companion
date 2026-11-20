@@ -745,7 +745,8 @@ Singleton {
     }
     onLocalOnlyChanged: if (localOnly && pending?.action === "ai_chat" && pending.request.local !== true)
         cancel()
-    readonly property string thinkingEffort: ["off", "instant", "low", "medium", "high", "xhigh", "max"].includes(String(options.thinkingEffort ?? "off")) ? String(options.thinkingEffort ?? "off") : "off"
+    readonly property string thinkingEffort: ["auto", "off", "instant", "low", "medium", "high", "xhigh", "max"].includes(String(options.thinkingEffort ?? "off")) ? String(options.thinkingEffort ?? "off") : "off"
+    property string lastAutoResolvedEffort: ""
     onEffectiveThinkingEffortChanged: if (!refreshingModels && pending?.action === "ai_chat" && pending.request.userEffort !== thinkingEffort)
         cancel()
     readonly property string referenceVault: String(options.referenceVault ?? "")
@@ -856,10 +857,14 @@ Singleton {
     property int voiceElapsedSeconds: 0
     property int voiceSessionSerial: 0
     property real voiceInputLevel: 0.0
+    property var voiceInputBands: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    property bool voiceInputHasBands: false
     property int _fallbackVoiceTtsEnabled: -1
     property bool voiceTtsEnabled: _fallbackVoiceTtsEnabled >= 0 ? (_fallbackVoiceTtsEnabled === 1) : (options.voiceTtsEnabled === true)
     property string lastVoiceTranscript: ""
     property string lastSpokenText: ""
+    property string lastUserPrompt: ""
+    property string _queuedTtsContextPrompt: ""
     property string voiceErrorNotice: ""
     property bool activeTurnFromVoice: false
     readonly property bool voiceInputTurn: activeTurnFromVoice
@@ -868,13 +873,34 @@ Singleton {
     property string pendingVoiceTranscriptText: ""
     property var lastVoiceReplyMeta: ({})
     signal voiceTranscriptReady(string transcript, bool autoSent)
+    function _resetVoiceInputMetrics(): void {
+        voiceInputLevel = 0.0;
+        voiceInputHasBands = false;
+        voiceInputBands = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+    }
     function _handleVoiceCaptureLine(rawLine): void {
         const line = String(rawLine ?? "").trim();
         if (!line.startsWith("LEVEL:"))
             return;
-        const val = Number(line.slice(6));
+        const body = line.slice(6);
+        const sep = body.indexOf("|");
+        const val = Number(sep >= 0 ? body.slice(0, sep) : body);
         if (Number.isFinite(val)) {
             voiceInputLevel = Math.max(0.0, Math.min(1.0, val));
+        }
+        if (sep >= 0) {
+            const parts = body.slice(sep + 1).split(",");
+            if (parts.length === 8) {
+                const nextBands = [];
+                for (let i = 0; i < 8; ++i) {
+                    const b = Number(parts[i]);
+                    nextBands.push(Number.isFinite(b) ? Math.max(0.0, Math.min(1.0, b)) : 0.0);
+                }
+                voiceInputBands = nextBands;
+                voiceInputHasBands = true;
+            }
+        } else {
+            voiceInputHasBands = false;
         }
     }
     onRefreshingModelsChanged: if (!refreshingModels)
@@ -1326,7 +1352,7 @@ Singleton {
         errorMessage = "";
         voiceErrorNotice = "";
         voiceElapsedSeconds = 0;
-        voiceInputLevel = 0.0;
+        _resetVoiceInputMetrics();
         voiceTranscribing = false;
         voiceRecording = true;
         voiceModeOpen = true;
@@ -1365,7 +1391,7 @@ Singleton {
         voiceRecording = false;
         voiceTranscribing = false;
         voiceElapsedSeconds = 0;
-        voiceInputLevel = 0.0;
+        _resetVoiceInputMetrics();
         touchConversation();
         return wasActive;
     }
@@ -1380,7 +1406,7 @@ Singleton {
             voiceSessionSerial = 1;
         voiceModeOpen = true;
         voiceRecording = false;
-        voiceInputLevel = 0.0;
+        _resetVoiceInputMetrics();
         voiceTranscribing = true;
         const explicitAudio = _normalizeImagePath(audioPath);
         const targetAudio = explicitAudio || (liveModelAutoDetectAllowed ? voiceCaptureWorker.captureFilePath : "");
@@ -1409,26 +1435,31 @@ Singleton {
         repeat: false
         onTriggered: {
             const next = root._queuedTtsText;
+            const nextCtx = root._queuedTtsContextPrompt;
             root._queuedTtsText = "";
+            root._queuedTtsContextPrompt = "";
             if (next)
-                root.speakText(next, true);
+                root.speakText(next, true, nextCtx);
         }
     }
-    function speakText(textToSpeak = "", forceInterrupt = false): bool {
+    function speakText(textToSpeak = "", forceInterrupt = false, contextPrompt = ""): bool {
         const clean = String(textToSpeak || text || "").trim().slice(0, 600);
         if (!clean)
             return false;
+        const ctxPrompt = String(contextPrompt || root.lastUserPrompt || "").trim();
         if (voiceWorker.running) {
             if (!forceInterrupt && voiceWorker.opKind !== "tts")
                 return false;
             voiceWorker.cancelled = true;
             voiceWorker.running = false;
             root._queuedTtsText = clean;
+            root._queuedTtsContextPrompt = ctxPrompt;
             ttsRestartTimer.restart();
             return true;
         }
         ttsRestartTimer.stop();
         root._queuedTtsText = "";
+        root._queuedTtsContextPrompt = "";
         lastSpokenText = clean;
         ttsSpeaking = true;
         voiceWorker.environment = ({});
@@ -1440,6 +1471,7 @@ Singleton {
             action: "voice_action",
             op: "tts",
             text: clean,
+            contextPrompt: ctxPrompt,
             language: "auto"
         };
         voiceWorker.running = true;
@@ -1665,9 +1697,28 @@ Singleton {
     }
     readonly property var currentModelInfo: selectableModels.find(m => m.name === model) ?? null
     readonly property bool thinkingSupported: reasoningSupported || instantSupported
-    readonly property string effectiveThinkingEffort: thinkingEffort === "instant" ? (instantSupported ? "instant" : "off") : (reasoningSupported && ["low", "medium", "high", "xhigh", "max"].includes(thinkingEffort) ? thinkingEffort : "off")
-    readonly property string thinkingEffortLabel: thinkingLevels.find(e => e.value === effectiveThinkingEffort)?.label ?? (effectiveThinkingEffort === "off" && instantSupported ? "Instant" : "Provider default")
-    readonly property string thinkingEffortShortLabel: thinkingEffortLabel === "Provider default" ? "Default" : (thinkingEffortLabel === "Extra High" ? "XHigh" : thinkingEffortLabel)
+    function _effortDisplayName(val): string {
+        switch (String(val ?? "").toLowerCase()) {
+        case "off":
+        case "instant":
+            return "Instant";
+        case "low":
+            return "Low";
+        case "medium":
+            return "Medium";
+        case "high":
+            return "High";
+        case "xhigh":
+            return "Extra High";
+        case "max":
+            return "Max";
+        default:
+            return "Auto";
+        }
+    }
+    readonly property string effectiveThinkingEffort: thinkingEffort === "auto" ? "auto" : (thinkingEffort === "instant" ? (instantSupported ? "instant" : "off") : (reasoningSupported && ["low", "medium", "high", "xhigh", "max"].includes(thinkingEffort) ? thinkingEffort : "off"))
+    readonly property string thinkingEffortLabel: effectiveThinkingEffort === "auto" ? (lastAutoResolvedEffort ? ("Auto · " + _effortDisplayName(lastAutoResolvedEffort)) : "Auto") : (thinkingLevels.find(e => e.value === effectiveThinkingEffort)?.label ?? (effectiveThinkingEffort === "off" && instantSupported ? "Instant" : "Provider default"))
+    readonly property string thinkingEffortShortLabel: effectiveThinkingEffort === "auto" ? "Auto" : (thinkingEffortLabel === "Provider default" ? "Default" : (thinkingEffortLabel === "Extra High" ? "XHigh" : thinkingEffortLabel))
     readonly property string currentModelLabel: {
         void modelAliases;
         const custom = modelAliasFor(model);
@@ -2558,10 +2609,40 @@ Singleton {
     function setMtpOptimizeEnabled(enabled): void {
         Config.setNestedValue("abyss.companionMind.mtpOptimizeEnabled", enabled === true);
     }
-    function classifyTaskType(rawPrompt): var {
-        return classifyPromptModelRole(rawPrompt);
+    function resolveAutoThinkingEffort(rawPrompt, fromVoice = false, meta = null): string {
+        const raw = String(rawPrompt ?? "").trim();
+        if (!raw)
+            return "off";
+        const folded = raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").trim();
+        const cat = String(meta?.category ?? "");
+        const isDomainCap = Boolean(meta?.isDomainCap);
+        const casualRe = /\b(?:can you hear me|do you hear me|hear me|are you listening|listening to me|mic test|test mic|testing mic|alo+|nghe ro khong|nghe thay khong|co nghe khong|ban nghe khong|how are you|how is your day|how's your day|how is it going|how's it going|what's up|whats up|what is your name|who are you|good morning|good afternoon|good evening|ban ten la gi|ban la ai|ban khoe khong|hom nay the nao)\b/;
+        if (isDomainCap || casualRe.test(folded) || /^(?:hi|hello|hey|yo|alo+|chao|xin chao|ok|okay|thanks|thank you|cam on)[!.,?\s]*$/.test(folded))
+            return "off";
+        if (["slash_action", "desktop_ui_action", "gui_action", "desktop_control", "system_control", "file_task", "shell_task", "git_task", "mcp_manage", "web_task", "voice_task"].includes(cat))
+            return "off";
+        const hasCodeBlock = raw.includes("```") || (raw.match(/[;{}=<>]{2,}/g) ?? []).length >= 2;
+        const deepRe = /\b(?:suy luan|suy nghi sau|phan tich sau|phan tich ky|phan tich nguyen nhan|giai thich chi tiet|giai thich sau|kien truc|thuat toan|debug sau|go loi|tim nguyen nhan|root cause|deadlock|race condition|lock-free|concurrency|de quy|quy hoach dong|dynamic programming|len ke hoach|lap ke hoach|ke hoach chi tiet|create a plan|make a plan|build a plan|help me plan|step by step|tung buoc|chung minh|danh gia kien truc|thiet ke he thong|system design|architecture|algorithm|complexity|big-o|trade-off|tradeoff|deep dive|deep thinking|reason about|analyze deeply|explain why|under the hood|multi-step plan|refactor strategy|triet hoc|philosophy|philosophical|sang tao sau|out of the box|lateral thinking)\b/g;
+        const exhaustiveRe = /\b(?:exhaustive|exhaustively|deepest|maximum effort|formal proof|mathematical proof|no spoon|einstein|cuc sau|chuyen sau nhat|toan dien)\b/;
+        const moderateRe = /\b(?:compare|so sanh|difference between|khac nhau|khac biet|debug|fix bug|sua loi|refactor|optimize|toi uu|explain how|explain|giai thich|script|function|regex|sql|systemd|niri|quickshell|python|qml|typescript|rust|bash|arch|pacman|error|exception|traceback)\b/;
+        const simpleQaRe = /\b(?:what is|what are|who is|when|where|how much|how many|translate|dich|summarize|tom tat|rewrite|define|dinh nghia|capital of|la gi|nghia la gi)\b/;
+        const deepHits = (folded.match(deepRe) ?? []).length;
+        const exhaustiveHit = exhaustiveRe.test(folded);
+        const moderateHit = moderateRe.test(folded);
+        if (exhaustiveHit || (raw.length >= 650 && (deepHits >= 2 || hasCodeBlock)))
+            return fromVoice ? "high" : "max";
+        if (deepHits >= 1 || cat === "slash_thinking" || cat === "deep_reasoning" || /^\/(?:plan|diagnostics|learn|workflow|reflect|swarm)\b/.test(folded) || hasCodeBlock || (raw.length >= 320 && (moderateHit || raw.includes("?"))))
+            return fromVoice ? "medium" : "high";
+        if (["rag_synthesis", "complex_analysis", "plan_and_code", "self_learn", "domain_rag"].includes(cat) || moderateHit || (raw.length >= 120 && (raw.includes("?") || simpleQaRe.test(folded))))
+            return "medium";
+        if (cat === "knowledge_qa" || simpleQaRe.test(folded) || (raw.includes("?") && raw.length >= 36))
+            return "low";
+        return raw.length < 48 ? "off" : "low";
     }
-    function classifyPromptModelRole(rawPrompt): var {
+    function classifyTaskType(rawPrompt, fromVoice = false): var {
+        return classifyPromptModelRole(rawPrompt, fromVoice);
+    }
+    function classifyPromptModelRole(rawPrompt, fromVoice = false): var {
         const raw = String(rawPrompt ?? "").trim();
         const folded = raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").trim();
         const isVi = /[àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]/i.test(raw) || /\b(?:hay|vui long|man hinh|thu muc|tep|ung dung|suy luan|phan tich|thuat toan|kien truc|lap ke hoach|tai sao|vi sao|cau hinh|kiem tra)\b/.test(folded);
@@ -2601,7 +2682,7 @@ Singleton {
                 /\b(?:do you (?:have|know)|have you (?:got|learned)|are you familiar with|can you help with|what do you know about|ban co (?:biet|kien thuc|nam duoc|hieu))\b/.test(folded)
                 || /\b(?:knowledge|kien thuc|domain rag|3-stage rag|rag 3 tang)\b/.test(folded)
             ) && !/\b(?:how to|how do i|how does|why does|why is|fix|error|bug|broken|crash|write|create|configure|edit|setup|install|lam sao|nhu the nao|sua loi|viet|tao|cai dat)\b/.test(folded));
-            const isCasualChat = /\b(?:how are you|how is your day|how's your day|how is it going|how's it going|what's up|whats up|what is your name|who are you|good morning|good afternoon|good evening|ban ten la gi|ban la ai|ban khoe khong|hom nay the nao)\b/.test(folded);
+            const isCasualChat = /\b(?:can you hear me|do you hear me|hear me|are you listening|listening to me|mic test|test mic|testing mic|alo+|nghe ro khong|nghe thay khong|co nghe khong|ban nghe khong|how are you|how is your day|how's your day|how is it going|how's it going|what's up|whats up|what is your name|who are you|good morning|good afternoon|good evening|ban ten la gi|ban la ai|ban khoe khong|hom nay the nao)\b/.test(folded);
 
             if (deepMatch && (!uiMatch || strongDeepCue)) {
                 role = "thinking";
@@ -2643,7 +2724,14 @@ Singleton {
         const isLightKnowledge = (category === "domain_rag" || category === "knowledge_qa") && !strongDeepCue && !deepMatch;
 
         let recommendedEffort = "off";
-        if (!autoOn) {
+        if (thinkingEffort === "auto") {
+            const autoEffort = resolveAutoThinkingEffort(raw, fromVoice, { category, isDomainCap });
+            if (autoEffort === "off" || autoEffort === "instant") {
+                recommendedEffort = targetInstant && autoEffort === "instant" ? "instant" : "off";
+            } else {
+                recommendedEffort = targetSupportsThinking ? autoEffort : "off";
+            }
+        } else if (!autoOn) {
             recommendedEffort = thinkingEffort === "instant" ? (targetInstant ? "instant" : "off") : (targetSupportsThinking && ["low", "medium", "high", "xhigh", "max"].includes(thinkingEffort) ? thinkingEffort : "off");
         } else if (role === "thinking") {
             if (isDomainCap) {
@@ -2672,7 +2760,7 @@ Singleton {
         if (explicitReason) {
             inChatDirective = explicitReason[0];
         } else if (isPlusIq) {
-            if (!autoOn) {
+            if (!autoOn || thinkingEffort === "auto") {
                 if (recommendedEffort === "off" || recommendedEffort === "instant") {
                     inChatDirective = "{REASON:imedium}";
                 } else if (recommendedEffort === "low") {
@@ -2716,7 +2804,7 @@ Singleton {
             actionModel: actionModel,
             thinkingModel: thinkingModel,
             recommendedEffort: recommendedEffort,
-            enableThinking: autoOn ? (role === "thinking" && !isLightKnowledge) : (recommendedEffort !== "off" && recommendedEffort !== "instant"),
+            enableThinking: thinkingEffort === "auto" ? (recommendedEffort !== "off" && recommendedEffort !== "instant") : (autoOn ? (role === "thinking" && !isLightKnowledge) : (recommendedEffort !== "off" && recommendedEffort !== "instant")),
             isPlusIq: isPlusIq,
             isQwen35: isQwen35,
             isMtp: isMtp,
@@ -2732,8 +2820,9 @@ Singleton {
     }
     function setThinkingEffort(value): void {
         const effort = String(value ?? "off");
-        if (effort !== "off" && !thinkingLevels.some(entry => entry.value === effort))
+        if (effort !== "off" && effort !== "auto" && !thinkingLevels.some(entry => entry.value === effort))
             return;
+        lastAutoResolvedEffort = "";
         Config.setNestedValue("abyss.companionMind.thinkingEffort", effort);
     }
     function refreshJournal(automatic = false): bool {
@@ -3320,8 +3409,12 @@ Singleton {
                     id: String(e.id ?? ""),
                     title: String(e.title ?? "")
                 })) : [];
-        const route = classifyPromptModelRole(trimmed);
+        const route = classifyPromptModelRole(trimmed, isVoiceTurn);
         lastModelRoute = route;
+        if (!isSudoInput)
+            lastUserPrompt = trimmed;
+        if (thinkingEffort === "auto")
+            lastAutoResolvedEffort = String(route.recommendedEffort || "off");
         const routedModelId = route.selectedModel || model;
         workActivityExpanded = false;
         currentActivityLine = "Analyzing request & routing tools ›";
@@ -3991,8 +4084,11 @@ Singleton {
         }
         if (historyClearPending)
             return false;
-        const route = classifyPromptModelRole(prompt);
+        const route = classifyPromptModelRole(prompt, turnFromVoice);
         lastModelRoute = route;
+        lastUserPrompt = prompt;
+        if (thinkingEffort === "auto")
+            lastAutoResolvedEffort = String(route.recommendedEffort || "off");
         const targetModel = (route.selectedModel && Ai.models[route.selectedModel] && ModelPolicy.allowed(Ai.models[route.selectedModel], localOnly) && Ai.modelCanRun(Ai.models[route.selectedModel])) ? route.selectedModel : model;
         const targetModelObj = Ai.models[targetModel];
         const targetEffort = route.recommendedEffort;
@@ -4365,7 +4461,7 @@ Singleton {
         say(value, "ai");
         const shouldSpeak = Boolean((isVoiceTurn || root.voiceTtsEnabled) && value);
         if (shouldSpeak) {
-            root.speakText(value, true);
+            root.speakText(value, true, String(job.request.prompt ?? root.lastUserPrompt ?? ""));
             if (isVoiceTurn)
                 voiceTranscriptRevealTimer.restart();
         }
@@ -5481,7 +5577,7 @@ Singleton {
                     root.lastSpokenText = String(res.voiceReply.spokenText || replyText).slice(0, 600);
                     root.ttsSpeaking = true;
                 } else {
-                    root.speakText(replyText, true);
+                    root.speakText(replyText, true, String(agentTurnWorker.requestPayload?.prompt ?? root.lastUserPrompt ?? ""));
                 }
                 if (isVoiceTurn)
                     voiceTranscriptRevealTimer.restart();
@@ -5811,13 +5907,13 @@ Singleton {
         property string queuedAudioPath: ""
         property int queuedSerial: 0
         readonly property string captureFilePath: (Quickshell.env("XDG_STATE_HOME") ? (Quickshell.env("XDG_STATE_HOME") + "/alis-companion/voice") : (String(Quickshell.env("HOME") || "/tmp") + "/.local/state/alis-companion/voice")) + "/voice_live_capture.wav"
-        command: ["/usr/bin/python3", "-c", "import os, sys, time, math, array, shutil, signal, subprocess\nout_path = sys.argv[1]\nrec_flag = out_path + '.recording'\nos.makedirs(os.path.dirname(out_path), exist_ok=True)\nfor p in (out_path, rec_flag):\n    try:\n        os.remove(p)\n    except OSError:\n        pass\ncmd = None\nif shutil.which('pw-record'):\n    cmd = ['pw-record', '--rate=16000', '--channels=1', '--format=s16', out_path]\nelif shutil.which('arecord'):\n    cmd = ['arecord', '-q', '-f', 'S16_LE', '-r', '16000', '-c', '1', out_path]\nif not cmd:\n    sys.exit(0)\ntry:\n    with open(rec_flag, 'wb') as rf:\n        rf.write(b'1')\nexcept OSError:\n    pass\ndef _pdeath():\n    try:\n        import ctypes\n        ctypes.CDLL('libc.so.6').prctl(1, signal.SIGINT)\n    except Exception:\n        pass\nproc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=_pdeath)\ndef _cleanup_flag():\n    try:\n        os.remove(rec_flag)\n    except OSError:\n        pass\ndef _stop(signum, frame):\n    signal.signal(signal.SIGINT, signal.SIG_IGN)\n    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n    if proc.poll() is None:\n        try:\n            proc.send_signal(signal.SIGINT)\n            proc.wait(timeout=0.6)\n        except Exception:\n            try:\n                proc.kill()\n            except Exception:\n                pass\n    _cleanup_flag()\n    sys.exit(0)\nsignal.signal(signal.SIGINT, _stop)\nsignal.signal(signal.SIGTERM, _stop)\nsmooth = 0.0\ntry:\n    while proc.poll() is None:\n        time.sleep(0.06)\n        lvl = 0.0\n        try:\n            sz = os.path.getsize(out_path)\n            end_pos = sz - (sz % 2)\n            if end_pos > 160:\n                start_pos = max(44, end_pos - 3200)\n                start_pos += (start_pos % 2)\n                read_len = end_pos - start_pos\n                if read_len >= 64:\n                    with open(out_path, 'rb') as f:\n                        f.seek(start_pos)\n                        buf = f.read(read_len)\n                        buf = buf[:len(buf) - (len(buf) % 2)]\n                        samples = array.array('h')\n                        samples.frombytes(buf)\n                        if len(samples) > 0:\n                            rms = math.sqrt(sum(s * s for s in samples) / len(samples)) / 32768.0\n                            noise_floor = 0.008\n                            if rms > noise_floor:\n                                lvl = min(1.0, ((rms - noise_floor) / 0.12) ** 0.65)\n        except Exception:\n            pass\n        if lvl < 0.02:\n            smooth = smooth * 0.45 if smooth > 0.03 else 0.0\n        else:\n            smooth = max(lvl, smooth * 0.55 + lvl * 0.45)\n        sys.stdout.write(f'LEVEL:{smooth:.3f}\\n')\n        sys.stdout.flush()\nfinally:\n    _cleanup_flag()\n", captureFilePath]
+        command: ["/usr/bin/python3", "-c", "import os, sys, time, math, array, wave, shutil, signal, subprocess\nout_path = sys.argv[1]\nrec_flag = out_path + '.recording'\nos.makedirs(os.path.dirname(out_path), exist_ok=True)\nfor p in (out_path, rec_flag):\n    try:\n        os.remove(p)\n    except OSError:\n        pass\nstream_cmd = None\npoll_cmd = None\nif shutil.which('parec'):\n    stream_cmd = ['parec', '--raw', '--rate=16000', '--channels=1', '--format=s16le', '--latency-msec=30', '--process-time-msec=20', '-d', '@DEFAULT_SOURCE@']\nelif shutil.which('arecord'):\n    stream_cmd = ['arecord', '-q', '-t', 'raw', '-f', 'S16_LE', '-r', '16000', '-c', '1', '-']\nelif shutil.which('pw-record'):\n    poll_cmd = ['pw-record', '--rate=16000', '--channels=1', '--format=s16', out_path]\nif not stream_cmd and not poll_cmd:\n    sys.exit(0)\ntry:\n    with open(rec_flag, 'wb') as rf:\n        rf.write(b'1')\nexcept OSError:\n    pass\ndef _pdeath():\n    try:\n        import ctypes\n        ctypes.CDLL('libc.so.6').prctl(1, signal.SIGINT)\n    except Exception:\n        pass\nstopping = [False]\nproc = subprocess.Popen(stream_cmd or poll_cmd, stdout=(subprocess.PIPE if stream_cmd else subprocess.DEVNULL), stderr=subprocess.DEVNULL, preexec_fn=_pdeath)\ndef _cleanup_flag():\n    try:\n        os.remove(rec_flag)\n    except OSError:\n        pass\ndef _stop(signum, frame):\n    stopping[0] = True\n    signal.signal(signal.SIGINT, signal.SIG_IGN)\n    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n    if proc.poll() is None:\n        try:\n            proc.send_signal(signal.SIGINT if poll_cmd else signal.SIGTERM)\n            proc.wait(timeout=0.35)\n        except Exception:\n            try:\n                proc.kill()\n            except Exception:\n                pass\n    if poll_cmd:\n        _cleanup_flag()\n        sys.exit(0)\nsignal.signal(signal.SIGINT, _stop)\nsignal.signal(signal.SIGTERM, _stop)\nsmooth = 0.0\nnoise_floor = 0.004\nband_smooth = [0.0] * 8\nfreqs = (140.0, 260.0, 440.0, 720.0, 1150.0, 1800.0, 2700.0, 3800.0)\ncoeffs = [2.0 * math.cos(2.0 * math.pi * f / 16000.0) for f in freqs]\nwf = None\ntry:\n    if stream_cmd:\n        wf = wave.open(out_path, 'wb')\n        wf.setnchannels(1)\n        wf.setsampwidth(2)\n        wf.setframerate(16000)\n        while not stopping[0]:\n            buf = proc.stdout.read(1024)\n            if not buf:\n                break\n            even = len(buf) - (len(buf) % 2)\n            if even >= 2:\n                pcm = buf[:even]\n                wf.writeframesraw(pcm)\n                samples = array.array('h')\n                samples.frombytes(pcm)\n                n = len(samples)\n                if n > 0:\n                    mean = sum(samples) / n\n                    dc_free = [s - mean for s in samples]\n                    rms = math.sqrt(sum(x * x for x in dc_free) / n) / 32768.0\n                    if rms < max(0.015, noise_floor * 2.2):\n                        noise_floor = noise_floor * 0.94 + rms * 0.06\n                    gate = max(0.0035, noise_floor * 1.45)\n                    raw_lvl = 0.0 if rms <= gate else min(1.0, ((rms - gate) / 0.09) ** 0.58)\n                    smooth = (smooth * 0.50 if smooth > 0.025 else 0.0) if raw_lvl < 0.02 else max(raw_lvl, smooth * 0.58 + raw_lvl * 0.42)\n                    half_norm = max(1.0, n * 0.5 * 32768.0)\n                    b_vals = []\n                    for idx_b, c in enumerate(coeffs):\n                        q1 = 0.0\n                        q2 = 0.0\n                        for x in dc_free:\n                            q0 = c * q1 - q2 + x\n                            q2 = q1\n                            q1 = q0\n                        amp = math.sqrt(max(0.0, q1 * q1 + q2 * q2 - q1 * q2 * c)) / half_norm\n                        b_raw = 0.0 if rms <= gate else min(1.0, (amp / 0.06) ** 0.62)\n                        pb = band_smooth[idx_b]\n                        cb = (pb * 0.48 if pb > 0.02 else 0.0) if b_raw < 0.02 else max(b_raw, pb * 0.52 + b_raw * 0.48)\n                        band_smooth[idx_b] = cb\n                        b_vals.append(f'{cb:.2f}')\n                    sys.stdout.write(f'LEVEL:{smooth:.3f}|' + ','.join(b_vals) + '\\n')\n                    sys.stdout.flush()\n    else:\n        while proc.poll() is None:\n            time.sleep(0.05)\n            lvl = 0.0\n            try:\n                sz = os.path.getsize(out_path)\n                end_pos = sz - (sz % 2)\n                if end_pos > 160:\n                    start_pos = max(44, end_pos - 3200)\n                    start_pos += (start_pos % 2)\n                    read_len = end_pos - start_pos\n                    if read_len >= 64:\n                        with open(out_path, 'rb') as f:\n                            f.seek(start_pos)\n                            buf = f.read(read_len)\n                            buf = buf[:len(buf) - (len(buf) % 2)]\n                            samples = array.array('h')\n                            samples.frombytes(buf)\n                            n = len(samples)\n                            if n > 0:\n                                mean = sum(samples) / n\n                                dc_free = [s - mean for s in samples]\n                                rms = math.sqrt(sum(x * x for x in dc_free) / n) / 32768.0\n                                if rms > 0.006:\n                                    lvl = min(1.0, ((rms - 0.006) / 0.11) ** 0.62)\n            except Exception:\n                pass\n            smooth = (smooth * 0.45 if smooth > 0.03 else 0.0) if lvl < 0.02 else max(lvl, smooth * 0.55 + lvl * 0.45)\n            sys.stdout.write(f'LEVEL:{smooth:.3f}\\n')\n            sys.stdout.flush()\nfinally:\n    if wf is not None:\n        try:\n            wf.close()\n        except Exception:\n            pass\n    _cleanup_flag()\n", captureFilePath]
         stdout: SplitParser {
             onRead: line => root._handleVoiceCaptureLine(line)
         }
         onExited: (code, status) => {
             voiceCaptureStopTimeout.stop();
-            root.voiceInputLevel = 0.0;
+            root._resetVoiceInputMetrics();
             if (voiceCaptureWorker.restartQueued) {
                 voiceCaptureWorker.restartQueued = false;
                 voiceCaptureWorker.transcribeQueued = false;
@@ -5913,7 +6009,7 @@ Singleton {
                 root.voiceTranscribing = false;
                 root.voiceModeOpen = false;
                 root.voiceElapsedSeconds = 0;
-                root.voiceInputLevel = 0.0;
+                root._resetVoiceInputMetrics();
             }
             const parsed = AquaHelperReplyGuard.parse("voice_action", String(voiceReply.text ?? ""), code);
             if (parsed.ok && parsed.result) {

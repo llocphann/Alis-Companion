@@ -186,7 +186,7 @@ Item {
         const r = s % 60;
         return (m < 10 ? "0" + m : String(m)) + ":" + (r < 10 ? "0" + r : String(r));
     }
-    function voiceBarHeight(index, total, phase, recording, transcribing, inputLevel = 0.0): real {
+    function voiceBarHeight(index, total, phase, recording, transcribing, inputLevel = 0.0, bands = null): real {
         const count = Math.max(2, Number(total) || 32);
         const norm = index / Math.max(1, count - 1);
         const envelope = Math.sin(norm * Math.PI);
@@ -197,6 +197,17 @@ Item {
         const level = Math.max(0.0, Math.min(1.0, Number(inputLevel) || 0.0));
         if (!recording || level <= 0.02) {
             return 4;
+        }
+        if (Array.isArray(bands) && bands.length >= 8) {
+            const distFromCenter = Math.abs(norm - 0.5) * 2.0;
+            const bandPos = Math.max(0.0, Math.min(7.0, distFromCenter * 7.0));
+            const lo = Math.floor(bandPos);
+            const hi = Math.min(7, lo + 1);
+            const frac = bandPos - lo;
+            const bVal = (Number(bands[lo]) || 0.0) * (1.0 - frac) + (Number(bands[hi]) || 0.0) * frac;
+            const ripple = 0.88 + 0.12 * Math.sin(phase * 1.8 + index * 0.65);
+            const drive = Math.max(0.10, Math.min(1.0, (bVal * 0.78 + level * 0.32) * ripple));
+            return Math.round(4 + 20 * drive * (0.28 + 0.72 * envelope));
         }
         const w1 = Math.sin(phase * 2.5 + index * 0.48);
         const w2 = Math.cos(phase * 1.7 - index * 0.73);
@@ -3518,10 +3529,11 @@ Item {
                         y: profilePanel.subPanelOffset
                         width: parent.width
                         height: implicitHeight
-                        implicitHeight: 20 + effortMenu.implicitHeight
+                        implicitHeight: 24 + effortMenu.implicitHeight
                         RowLayout {
                             width: parent.width
-                            height: 16
+                            height: 20
+                            spacing: 6
                             StyledText {
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
@@ -3529,6 +3541,35 @@ Item {
                                 verticalAlignment: Text.AlignVCenter
                                 font.pixelSize: Appearance.font.pixelSize.smallest
                                 color: Appearance.colors.colSubtext
+                            }
+                            RippleButton {
+                                id: autoEffortBtn
+                                objectName: "aquaEffortOption-auto"
+                                readonly property bool isSelected: AquaMind.effectiveThinkingEffort === "auto"
+                                implicitWidth: 44
+                                implicitHeight: 20
+                                width: 44
+                                height: 20
+                                toggled: isSelected
+                                enabled: !AquaMind.busy
+                                buttonRadius: 10
+                                colBackground: Qt.alpha(AbyssStyle.textColor, 0.08)
+                                colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.16)
+                                colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
+                                colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.28)
+                                onClicked: {
+                                    AquaMind.setThinkingEffort("auto");
+                                    root.triggerEffortSlideClose();
+                                }
+                                contentItem: Item {
+                                    StyledText {
+                                        anchors.centerIn: parent
+                                        text: "Auto"
+                                        font.pixelSize: Appearance.font.pixelSize.smallest - 1
+                                        font.weight: autoEffortBtn.isSelected ? Font.DemiBold : Font.Normal
+                                        color: autoEffortBtn.isSelected ? AbyssStyle.accent : Appearance.colors.colSubtext
+                                    }
+                                }
                             }
                             StyledText {
                                 text: AquaMind.thinkingEffortLabel
@@ -3541,10 +3582,12 @@ Item {
                         Item {
                             id: effortMenu
                             objectName: "aquaThinkingEffort"
-                            y: 20
+                            y: 24
                             width: parent.width
                             height: implicitHeight
                             implicitHeight: 36
+                            readonly property bool autoActive: AquaMind.effectiveThinkingEffort === "auto"
+                            opacity: autoActive ? 0.55 : 1.0
                             property bool draggingSlider: false
                             readonly property int stepCount: Math.max(1, effortRepeater.count)
                             readonly property real stepSlotWidth: width / stepCount
@@ -3603,7 +3646,7 @@ Item {
                                 id: effortSliderTrackFill
                                 x: effortSliderTrackBg.x
                                 y: effortSliderTrackBg.y
-                                width: effortMenu.stepCount > 1 ? Math.round(effortSliderTrackBg.width * (effortMenu.animatedStepIndex / (effortMenu.stepCount - 1))) : 0
+                                width: effortMenu.autoActive ? 0 : (effortMenu.stepCount > 1 ? Math.round(effortSliderTrackBg.width * (effortMenu.animatedStepIndex / (effortMenu.stepCount - 1))) : 0)
                                 height: 4
                                 radius: 2
                                 color: AbyssStyle.accent
@@ -3611,6 +3654,7 @@ Item {
                             Rectangle {
                                 id: effortSliderThumb
                                 objectName: "aquaThinkingEffortThumb"
+                                visible: !effortMenu.autoActive
                                 z: 5
                                 width: 14
                                 height: 14
@@ -4900,7 +4944,7 @@ Item {
                                     spacing: 4
                                     MaterialSymbol {
                                         anchors.verticalCenter: parent.verticalCenter
-                                        text: AquaMind.effectiveThinkingEffort === "instant" || AquaMind.effectiveThinkingEffort === "off" ? "bolt" : AquaMind.effectiveThinkingEffort === "xhigh" || AquaMind.effectiveThinkingEffort === "max" ? "auto_awesome" : "psychology"
+                                        text: AquaMind.effectiveThinkingEffort === "instant" || AquaMind.effectiveThinkingEffort === "off" ? "bolt" : (AquaMind.effectiveThinkingEffort === "auto" || AquaMind.effectiveThinkingEffort === "xhigh" || AquaMind.effectiveThinkingEffort === "max") ? "auto_awesome" : "psychology"
                                         iconSize: 15
                                         color: root.profileStage === 1 ? AbyssStyle.accent : Appearance.colors.colPrimary
                                     }
@@ -5218,11 +5262,18 @@ Item {
                                             required property int index
                                             objectName: "aquaVoiceWaveBar-" + index
                                             readonly property real barFraction: index / Math.max(1, voiceWaveform.barCount - 1)
-                                            readonly property real targetBarHeight: root.voiceBarHeight(index, voiceWaveform.barCount, root.voiceWavePhase, AquaMind.voiceRecording, AquaMind.voiceTranscribing, root.activeVoiceLevel)
+                                            readonly property real targetBarHeight: root.voiceBarHeight(index, voiceWaveform.barCount, root.voiceWavePhase, AquaMind.voiceRecording, AquaMind.voiceTranscribing, root.activeVoiceLevel, AquaMind.voiceInputHasBands ? AquaMind.voiceInputBands : null)
                                             readonly property color topStopColor: ColorUtils.mix(root.voiceAccentColor, root.voiceOnContainerColor, 0.72 - 0.35 * waveBar.barFraction)
                                             readonly property color bottomStopColor: ColorUtils.transparentize(ColorUtils.mix(root.voiceAccentColor, root.voiceContainerColor, 0.55), 0.18)
                                             width: Math.max(2.0, Math.min(5.0, (voiceWaveform.width - (voiceWaveform.barCount - 1) * waveBarRow.spacing) / voiceWaveform.barCount))
                                             height: targetBarHeight
+                                            Behavior on height {
+                                                enabled: root.visible
+                                                NumberAnimation {
+                                                    duration: 24
+                                                    easing.type: Easing.OutQuad
+                                                }
+                                            }
                                             anchors.verticalCenter: parent.verticalCenter
                                             radius: width / 2
                                             gradient: Gradient {

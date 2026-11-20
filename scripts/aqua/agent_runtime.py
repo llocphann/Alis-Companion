@@ -2706,6 +2706,97 @@ def _is_mtp_model(model_id: str) -> bool:
     return bool(re.search(r"(?:^|[\s\-_.:/])mtp(?:$|[\s\-_.:/])", str(model_id or ""), re.IGNORECASE))
 
 
+_CASUAL_OR_MIC_RE = re.compile(
+    r"\b(?:can you hear me|do you hear me|hear me|are you listening|listening to me|mic test|test mic|testing mic|alo+|nghe ro khong|nghe thay khong|co nghe khong|ban nghe khong|how are you|how is your day|how's your day|how is it going|how's it going|what's up|whats up|what is your name|who are you|good morning|good afternoon|good evening|ban ten la gi|ban la ai|ban khoe khong|hom nay the nao)\b"
+)
+_EXHAUSTIVE_THINKING_RE = re.compile(
+    r"\b(?:exhaustive|exhaustively|deepest|maximum effort|formal proof|mathematical proof|no spoon|einstein|cuc sau|chuyen sau nhat|toan dien)\b"
+)
+_DEEP_AUTO_THINKING_RE = re.compile(
+    r"\b(?:suy luan|suy nghi sau|phan tich sau|phan tich ky|phan tich nguyen nhan|giai thich chi tiet|giai thich sau|kien truc|thuat toan|debug sau|go loi|tim nguyen nhan|root cause|deadlock|race condition|lock-free|concurrency|de quy|quy hoach dong|dynamic programming|len ke hoach|lap ke hoach|ke hoach chi tiet|create a plan|make a plan|build a plan|help me plan|step by step|tung buoc|chung minh|danh gia kien truc|thiet ke he thong|system design|architecture|algorithm|complexity|big-o|trade-off|tradeoff|deep dive|deep thinking|reason about|analyze deeply|explain why|under the hood|multi-step plan|refactor strategy|triet hoc|philosophy|philosophical|sang tao sau|out of the box|lateral thinking)\b"
+)
+_MODERATE_AUTO_THINKING_RE = re.compile(
+    r"\b(?:compare|so sanh|difference between|khac nhau|khac biet|debug|fix bug|sua loi|refactor|optimize|toi uu|explain how|explain|giai thich|script|function|regex|sql|systemd|niri|quickshell|python|qml|typescript|rust|bash|arch|pacman|error|exception|traceback|multiple workers|multi-file)\b"
+)
+_SIMPLE_QA_THINKING_RE = re.compile(
+    r"\b(?:what is|what are|who is|when|where|how much|how many|translate|dich|summarize|tom tat|rewrite|define|dinh nghia|capital of|la gi|nghia la gi)\b"
+)
+
+
+def resolve_auto_thinking_effort(
+    prompt: str, options: dict | None = None, route_meta: dict | None = None
+) -> str:
+    """Adaptively choose thinking effort ('off', 'low', 'medium', 'high', 'max') by prompt complexity & efficiency."""
+    opts = options if isinstance(options, dict) else {}
+    meta = route_meta if isinstance(route_meta, dict) else {}
+    raw = str(prompt or "").strip()
+    if not raw:
+        return "off"
+    folded = _fold_ascii(raw)
+    from_voice = bool(opts.get("fromVoice"))
+    category = str(meta.get("category") or "").strip()
+    is_domain_cap = bool(meta.get("is_domain_cap"))
+
+    if is_domain_cap or _CASUAL_OR_MIC_RE.search(folded):
+        return "off"
+    if re.match(r"^(?:hi|hello|hey|yo|alo+|chao|xin chao|ok|okay|thanks|thank you|cam on)[!.,?\s]*$", folded):
+        return "off"
+    if category in (
+        "slash_action",
+        "desktop_ui_action",
+        "screen_observe",
+        "screen_inspect",
+        "gui_action",
+        "desktop_control",
+        "system_control",
+        "file_task",
+        "shell_task",
+        "git_task",
+        "mcp_manage",
+        "web_task",
+        "voice_task",
+        "permission_manage",
+        "rule_manage",
+        "memory_manage",
+        "pocket_manage",
+        "skill_manage",
+        "confirmation_response",
+        "stop",
+        "resume",
+    ):
+        return "off"
+
+    has_code_block = "```" in raw or len(re.findall(r"[;{}=<>]{2,}", raw)) >= 2
+    deep_hits = len(_DEEP_AUTO_THINKING_RE.findall(folded))
+    exhaustive_hit = bool(_EXHAUSTIVE_THINKING_RE.search(folded))
+    moderate_hit = bool(_MODERATE_AUTO_THINKING_RE.search(folded))
+
+    if exhaustive_hit or (len(raw) >= 650 and (deep_hits >= 2 or has_code_block)):
+        effort = "high" if from_voice else "max"
+    elif (
+        deep_hits >= 1
+        or category in ("slash_thinking", "deep_reasoning")
+        or bool(re.match(r"^/(?:plan|diagnostics|learn|workflow|reflect|swarm)\b", folded))
+        or has_code_block
+        or (len(raw) >= 320 and (moderate_hit or "?" in raw))
+    ):
+        effort = "medium" if from_voice else "high"
+    elif (
+        category in ("rag_synthesis", "complex_analysis", "plan_and_code", "self_learn", "domain_rag")
+        or moderate_hit
+        or (len(raw) >= 120 and ("?" in raw or bool(_SIMPLE_QA_THINKING_RE.search(folded))))
+    ):
+        effort = "medium"
+    elif category == "knowledge_qa" or bool(_SIMPLE_QA_THINKING_RE.search(folded)) or ("?" in raw and len(raw) >= 36):
+        effort = "low"
+    elif len(raw) < 48:
+        effort = "off"
+    else:
+        effort = "low"
+
+    return effort
+
+
 def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict:
     """Classify a prompt into 'action' (Desktop UI & Fast Action) vs 'thinking' (Deep Thinking / Domain RAG).
 
@@ -2865,10 +2956,7 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
                     else "Direct desktop, file, or system action routed for instant execution"
                 )
             elif (
-                not re.search(
-                    r"\b(?:how are you|how is your day|how's your day|how is it going|how's it going|what's up|whats up|what is your name|who are you|good morning|good afternoon|good evening|ban ten la gi|ban la ai|ban khoe khong|hom nay the nao)\b",
-                    folded,
-                )
+                not _CASUAL_OR_MIC_RE.search(folded)
                 and (
                     len(raw) >= 140
                     or (not ui_action_match and user_effort_hint in ("high", "xhigh", "max"))
@@ -2906,10 +2994,7 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
                     r"\b(?:what is|what are|how does|how do|how to|can you explain|explain|difference between|compare|do you know|do you have|la gi|nhu the nao|lam sao|giai thich|so sanh|co biet|kien thuc)\b",
                     folded,
                 )
-                and not re.search(
-                    r"\b(?:how are you|how is your day|how's your day|how is it going|how's it going|what's up|whats up|what is your name|who are you|good morning|good afternoon|good evening|ban ten la gi|ban la ai|ban khoe khong|hom nay the nao)\b",
-                    folded,
-                )
+                and not _CASUAL_OR_MIC_RE.search(folded)
             ):
                 role = "thinking"
                 role_label = "Deep Thinking"
@@ -2961,7 +3046,7 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
     action_endpoint = str(opts.get("actionEndpoint") or "").strip() or base_endpoint
     thinking_endpoint = str(opts.get("thinkingEndpoint") or "").strip() or base_endpoint
     user_effort = str(opts.get("thinkingEffort") or "off").strip().lower()
-    if user_effort not in ("off", "instant", "low", "medium", "high", "xhigh", "max"):
+    if user_effort not in ("auto", "off", "instant", "low", "medium", "high", "xhigh", "max"):
         user_effort = "off"
 
     dual_model_active = bool(auto_enabled and action_model and thinking_model and action_model != thinking_model)
@@ -2971,7 +3056,29 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
         and not deep_thinking_match
     )
 
-    if not auto_enabled:
+    if user_effort == "auto":
+        auto_effort = resolve_auto_thinking_effort(
+            raw,
+            opts,
+            {
+                "role": role,
+                "category": category,
+                "is_domain_cap": bool(is_domain_cap or is_domain_concept or is_config_check),
+            },
+        )
+        if not auto_enabled:
+            selected_model = base_model
+            selected_endpoint = base_endpoint
+            recommended_effort = auto_effort
+        elif role == "thinking":
+            selected_model = thinking_model
+            selected_endpoint = thinking_endpoint
+            recommended_effort = auto_effort
+        else:
+            selected_model = action_model
+            selected_endpoint = action_endpoint
+            recommended_effort = "off" if (dual_model_active or auto_effort == "off") else auto_effort
+    elif not auto_enabled:
         selected_model = base_model
         selected_endpoint = base_endpoint
         recommended_effort = user_effort
@@ -2998,7 +3105,32 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
     if explicit_reason:
         in_chat_directive = explicit_reason.group(0)
     elif is_plus_iq and auto_enabled:
-        if role == "action" or is_light_knowledge:
+        if user_effort == "auto":
+            if any(
+                k in folded
+                for k in (
+                    "spoon",
+                    "no spoon",
+                    "triet hoc",
+                    "philosophy",
+                    "philosophical",
+                    "sang tao sau",
+                    "out of the box",
+                    "lateral thinking",
+                )
+            ) and recommended_effort in ("high", "max"):
+                in_chat_directive = "{REASON:spoon}"
+            elif recommended_effort == "max":
+                in_chat_directive = "{REASON:einstein}"
+            elif recommended_effort == "high":
+                in_chat_directive = "{REASON:xhigh}"
+            elif recommended_effort == "medium":
+                in_chat_directive = "{REASON:medium}"
+            elif recommended_effort == "low":
+                in_chat_directive = "{REASON:low}"
+            else:
+                in_chat_directive = "{REASON:imedium}"
+        elif role == "action" or is_light_knowledge:
             in_chat_directive = "{REASON:ixhigh}" if (role == "action" and user_effort in ("xhigh", "max")) else "{REASON:imedium}"
         else:
             if any(
@@ -3025,9 +3157,13 @@ def classify_prompt_model_role(prompt: str, options: dict | None = None) -> dict
         in_chat_directive = ""
 
     enable_thinking = (
-        (role == "thinking" and not is_light_knowledge)
-        if auto_enabled
-        else (recommended_effort not in ("off", "instant"))
+        (recommended_effort not in ("off", "instant"))
+        if user_effort == "auto"
+        else (
+            (role == "thinking" and not is_light_knowledge)
+            if auto_enabled
+            else (recommended_effort not in ("off", "instant"))
+        )
     )
     if not auto_enabled:
         routing_mode = "manual"
@@ -5467,6 +5603,9 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
         effective_options["model"] = route_info["selectedModel"]
     if route_info.get("selectedEndpoint"):
         effective_options["endpoint"] = route_info["selectedEndpoint"]
+    if str(options.get("thinkingEffort") or "").strip().lower() == "auto":
+        effective_options["thinkingEffort"] = str(route_info.get("recommendedEffort") or "off")
+        effective_options["thinkingEffortMode"] = "auto"
     effective_options["routedRole"] = route_info["role"]
     effective_options["modelRoute"] = route_info
 
@@ -5582,6 +5721,7 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
                     tts_res = desktop_control.voice_tts(
                         text=str(result.get("text") or ""),
                         language=str(result.get("language") or "auto"),
+                        context_prompt=str(options.get("prompt") or ""),
                     )
                 result["voiceReply"] = {
                     "spoken": bool(tts_res.get("spoken", True)),
@@ -6723,7 +6863,11 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     prompt.strip(),
                     flags=re.IGNORECASE,
                 ).strip() or prompt.strip()
-                v_res = desktop_control.voice_tts(text=clean_tts, language=lang)
+                v_res = desktop_control.voice_tts(
+                    text=clean_tts,
+                    language=lang,
+                    context_prompt=str(prompt or ""),
+                )
                 tts_backend = str(v_res.get("ttsBackend") or v_res.get("backend") or "tts")
                 msg = (
                     f"🔊 Đã đọc thành tiếng qua `{tts_backend}`: \"{clean_tts}\""
