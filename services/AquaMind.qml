@@ -818,7 +818,7 @@ Singleton {
             }
         })
     readonly property bool proactiveIdleEnabled: options.proactiveEnabled === true && proactiveProfiles[proactive] !== undefined && Persistent.ready && Persistent.states.aquaProactive !== undefined
-    readonly property bool ambientMascotEnabled: (options.ambientMascotEnabled !== undefined) ? (options.ambientMascotEnabled === true) : ((Config.options?.abyss?.companion?.ambientEnabled !== false) && talkEnabled && aiEnabled)
+    readonly property bool ambientMascotEnabled: (options.ambientMascotEnabled !== undefined) ? (options.ambientMascotEnabled === true) : ((Config.options?.abyss?.companion?.ambientEnabled !== false) && talkEnabled)
     readonly property bool ambientVisualPeek: options.ambientVisualPeek === true
     property var recentMascotComments: []
     property double lastMascotRemarkMs: 0
@@ -3709,12 +3709,16 @@ Singleton {
             snap.system = sys;
         } catch (e) {}
         try {
-            if (typeof NiriService !== "undefined" && NiriService) {
+            const niriWin = (typeof NiriService !== "undefined" && NiriService) ? NiriService.activeWindow : null;
+            const wlTop = (typeof ToplevelManager !== "undefined" && ToplevelManager) ? ToplevelManager.activeToplevel : null;
+            const rawApp = String(niriWin?.app_id ?? wlTop?.appId ?? "");
+            const rawTitle = String(niriWin?.title ?? wlTop?.title ?? "").slice(0, 80);
+            if (rawApp.length > 0 || rawTitle.length > 0 || (typeof NiriService !== "undefined" && NiriService)) {
                 snap.desktop = {
-                    currentOutput: String(NiriService.currentOutput ?? ""),
-                    focusedApp: String(NiriService.activeWindow?.app_id ?? ""),
-                    focusedTitle: String(NiriService.activeWindow?.title ?? "").slice(0, 80),
-                    windowCount: Array.isArray(NiriService.windows) ? NiriService.windows.length : 0
+                    currentOutput: String((typeof NiriService !== "undefined" && NiriService) ? (NiriService.currentOutput ?? "") : ""),
+                    focusedApp: rawApp,
+                    focusedTitle: rawTitle,
+                    windowCount: (typeof NiriService !== "undefined" && NiriService && Array.isArray(NiriService.windows)) ? NiriService.windows.length : 0
                 };
             }
         } catch (e) {}
@@ -4122,24 +4126,22 @@ Singleton {
     function _mascotCooldownMs(): int {
         switch (proactive) {
         case "often":
-            return 240000;
+            return 120000;
         case "regular":
-            return 420000;
+            return 210000;
         case "rare":
-            return 1200000;
+            return 600000;
         default:
-            return 720000;
+            return 300000;
         }
     }
     property double _lastAmbientSkipMs: 0
     function requestAmbientMascotCommentary(force = false): bool {
-        if (!ambientMascotEnabled || !talkEnabled || !available || !hostVisible || hostBlocked)
+        if (!ambientMascotEnabled || !talkEnabled || !hostVisible || hostBlocked)
             return false;
         if (conversationOpen || contextOpen || sidebarChatOpen || isWorking || busy || draining)
             return false;
         if (voiceModeOpen || voiceRecording || voiceTranscribing || ttsSpeaking || voiceReplySpeaking)
-            return false;
-        if (!force && proactive === "manual")
             return false;
         if (ambientCommentaryWorker.running)
             return false;
@@ -4153,14 +4155,16 @@ Singleton {
         const nowMs = now.getTime();
         if (!force && lastMascotRemarkMs > 0 && (nowMs - lastMascotRemarkMs) < _mascotCooldownMs())
             return false;
-        if (!force && _lastAmbientSkipMs > 0 && (nowMs - _lastAmbientSkipMs) < 300000)
+        if (!force && _lastAmbientSkipMs > 0 && (nowMs - _lastAmbientSkipMs) < 60000)
             return false;
-        if (Date.now() - startedAt < 45000 && !force)
+        if (Date.now() - startedAt < 20000 && !force)
             return false;
         const minuteOfDay = now.getHours() * 60 + now.getMinutes();
         const qStart = options.proactiveQuietStart ?? 1320;
         const qEnd = options.proactiveQuietEnd ?? 480;
-        const quietActive = (options.proactiveQuietEnabled !== false) && (qStart > qEnd ? (minuteOfDay >= qStart || minuteOfDay < qEnd) : (minuteOfDay >= qStart && minuteOfDay < qEnd));
+        // Proactive quiet hours apply to ambient mascot remarks only when proactive scheduling is explicitly enabled.
+        const quietActive = (options.proactiveEnabled === true && options.proactiveQuietEnabled === true)
+            && (qStart > qEnd ? (minuteOfDay >= qStart || minuteOfDay < qEnd) : (minuteOfDay >= qStart && minuteOfDay < qEnd));
         if (quietActive && !force)
             return false;
         const hasBatt = (typeof Battery !== "undefined" && Battery?.available);
@@ -4170,15 +4174,23 @@ Singleton {
             return false;
 
         const snap = buildLocalMachineSnapshot();
-        const focusApp = String(snap.desktop?.focusedApp ?? "").trim();
+        let focusApp = String(snap.desktop?.focusedApp ?? "").trim();
         const focusTitle = String(snap.desktop?.focusedTitle ?? "").trim();
+        if (typeof AppSearch !== "undefined" && typeof AppSearch.resolveWindowIdentity === "function" && (focusApp.length > 0 || focusTitle.length > 0)) {
+            const resolvedApp = String(AppSearch.resolveWindowIdentity({ appId: focusApp, title: focusTitle }) ?? "").trim();
+            if (resolvedApp.length > 0)
+                focusApp = resolvedApp;
+        }
         const dwellMin = (_appDwellSinceMs > 0) ? Math.max(0, Math.round((nowMs - _appDwellSinceMs) / 60000)) : 0;
         const routeModelId = actionModel || model;
-        const modelObj = Ai.models[routeModelId] ?? Ai.models[model];
+        const modelObj = (available && routeModelId) ? (Ai.models[routeModelId] ?? Ai.models[model]) : null;
         const reqEp = String(modelObj?.endpoint ?? options.endpoint ?? "");
         const reqModel = String(modelObj?.model ?? routeModelId ?? "");
-        if (!reqEp)
-            return false;
+        const reqFormat = String(modelObj?.api_format ?? "openai").toLowerCase();
+        const reqProvider = String(modelObj?.provider ?? (routeModelId.startsWith("lmstudio-") ? "lmstudio" : (routeModelId.startsWith("ollama-") ? "ollama" : ""))).toLowerCase();
+        const reqKey = (modelObj && !root.localOnly && !ModelPolicy.isLocal(modelObj))
+            ? String(Ai.credentialForModel(modelObj) ?? "")
+            : "";
 
         ambientCommentaryWorker.requestPayload = {
             action: "ambient_commentary",
@@ -4186,6 +4198,10 @@ Singleton {
             model: reqModel,
             actionEndpoint: reqEp,
             actionModel: reqModel,
+            apiFormat: reqFormat,
+            providerHint: reqProvider,
+            apiKey: reqKey,
+            allowContextualFallback: true,
             localOnly: root.localOnly,
             character: root.character === "octo" ? "octo" : "aqua",
             personality: String(Config.options?.abyss?.companion?.personality ?? "balanced"),
@@ -5703,19 +5719,29 @@ Singleton {
         revokeAutomatic()
     onCalendarRemindersEnabledChanged: if (!calendarRemindersEnabled)
         revokeAutomatic()
-    onHostBlockedChanged: if (hostBlocked)
-        revokeAutomatic()
+    onHostBlockedChanged: {
+        if (hostBlocked) {
+            revokeAutomatic();
+        } else if (ambientMascotEnabled && hostVisible && !conversationOpen && !isWorking && lastMascotRemarkMs === 0 && !mascotDwellTimer.running) {
+            mascotDwellTimer.restart();
+        }
+    }
     onFocusSessionActiveChanged: if (focusSessionActive)
         revokeAutomatic()
     onReminderNotificationsEnabledChanged: if (!reminderNotificationsEnabled && reminderPopup.running)
         reminderPopup.signal(15)
-    onHostVisibleChanged: if (!hostVisible) {
-        if (pending?.automatic)
-            cancel();
-        if (!conversationOpen) {
-            text = "";
-            checkInStage = "";
-            contextOpen = false;
+    onHostVisibleChanged: {
+        if (!hostVisible) {
+            mascotDwellTimer.stop();
+            if (pending?.automatic)
+                cancel();
+            if (!conversationOpen) {
+                text = "";
+                checkInStage = "";
+                contextOpen = false;
+            }
+        } else if (ambientMascotEnabled && !conversationOpen && !isWorking && lastMascotRemarkMs === 0 && !mascotDwellTimer.running) {
+            mascotDwellTimer.restart();
         }
     }
     onTalkEnabledChanged: if (!talkEnabled) {
@@ -7213,9 +7239,20 @@ Singleton {
             }
         }
     }
+    function _noteActiveDesktopWindow(rawApp, rawTitle): void {
+        if (!root.ambientMascotEnabled)
+            return;
+        const appKey = String(rawApp ?? "").trim() + "|" + String(rawTitle ?? "").slice(0, 48).trim();
+        if (appKey !== root._lastObservedAppKey) {
+            root._lastObservedAppKey = appKey;
+            root._appDwellSinceMs = Date.now();
+            if (root.ambientMascotEnabled && root.hostVisible && !root.conversationOpen && !root.isWorking && appKey.length > 1)
+                mascotDwellTimer.restart();
+        }
+    }
     Timer {
         id: mascotDwellTimer
-        interval: 45000
+        interval: 22000
         repeat: false
         onTriggered: {
             if (root.ambientMascotEnabled && !root.conversationOpen)
@@ -7224,25 +7261,25 @@ Singleton {
     }
     Timer {
         id: mascotCheckTimer
-        interval: 300000
+        interval: 90000
         repeat: true
-        running: root.ambientMascotEnabled && root.talkEnabled && root.available && root.hostVisible && !root.conversationOpen && !root.isWorking && !root.busy
+        running: root.ambientMascotEnabled && root.talkEnabled && root.hostVisible && !root.conversationOpen && !root.isWorking && !root.busy
         onTriggered: root.requestAmbientMascotCommentary(false)
     }
     Connections {
         target: typeof NiriService !== "undefined" ? NiriService : null
         ignoreUnknownSignals: true
         function onActiveWindowChanged(): void {
-            if (!root.ambientMascotEnabled)
-                return;
             const win = NiriService?.activeWindow;
-            const appKey = String(win?.app_id ?? "").trim() + "|" + String(win?.title ?? "").slice(0, 48).trim();
-            if (appKey !== root._lastObservedAppKey) {
-                root._lastObservedAppKey = appKey;
-                root._appDwellSinceMs = Date.now();
-                if (root.ambientMascotEnabled && root.hostVisible && !root.conversationOpen && !root.isWorking && appKey.length > 1)
-                    mascotDwellTimer.restart();
-            }
+            root._noteActiveDesktopWindow(win?.app_id, win?.title);
+        }
+    }
+    Connections {
+        target: typeof ToplevelManager !== "undefined" ? ToplevelManager : null
+        ignoreUnknownSignals: true
+        function onActiveToplevelChanged(): void {
+            const top = ToplevelManager?.activeToplevel;
+            root._noteActiveDesktopWindow(top?.appId, top?.title);
         }
     }
     Timer {

@@ -85,7 +85,8 @@ _SENSITIVE_KEYWORDS = (
 )
 
 _SENSITIVE_WORD_RE = re.compile(
-    r"\b(?:otp|login|password|passwd|pin|token|vault|banking|wallet)\b",
+    r"\b(?:otp|login|password|passwd|pin|token|banking|wallet)\b"
+    r"|\b(?:password|key|secret|credential|bitwarden|keepass|1password)\s+vault\b",
     re.IGNORECASE,
 )
 
@@ -389,11 +390,99 @@ def _parse_remark_response(raw_text: str) -> tuple[str, str]:
     return remark, expr
 
 
-def _post_micro_completion(endpoint: str, body: dict, timeout: float = 8.0) -> str:
+def _post_micro_completion(
+    endpoint: str,
+    body: dict,
+    timeout: float = 8.0,
+    *,
+    api_key: str = "",
+    api_format: str = "openai",
+    model_name: str = "",
+) -> str:
+    fmt = str(api_format or "openai").strip().lower()
+    key = str(api_key or "").strip()
+    headers = {"Content-Type": "application/json"}
+
+    if fmt == "anthropic" or "anthropic.com" in endpoint.lower():
+        if key:
+            headers["x-api-key"] = key
+        headers["anthropic-version"] = "2023-06-01"
+        msgs = body.get("messages") or []
+        sys_txt = ""
+        user_msgs = []
+        for m in msgs:
+            if not isinstance(m, dict):
+                continue
+            if m.get("role") == "system":
+                sys_txt = str(m.get("content") or "")
+            else:
+                content = m.get("content")
+                if isinstance(content, list):
+                    text_only = "\n".join(str(p.get("text") or "") for p in content if isinstance(p, dict) and p.get("type") == "text")
+                    user_msgs.append({"role": m.get("role") or "user", "content": text_only})
+                else:
+                    user_msgs.append({"role": m.get("role") or "user", "content": str(content or "")})
+        anth_body = {
+            "model": model_name or body.get("model") or "",
+            "max_tokens": min(80, int(body.get("max_tokens") or 60)),
+            "system": sys_txt,
+            "messages": user_msgs,
+        }
+        req = urllib.request.Request(
+            endpoint,
+            data=json.dumps(anth_body).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with _urlopen_local(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        blocks = data.get("content") or []
+        return "\n".join(str(b.get("text") or "") for b in blocks if isinstance(b, dict) and b.get("type") == "text").strip()
+
+    if fmt == "gemini" or "generativelanguage.googleapis.com" in endpoint.lower():
+        url = endpoint
+        if key:
+            headers["x-goog-api-key"] = key
+        msgs = body.get("messages") or []
+        sys_txt = ""
+        user_txt = ""
+        for m in msgs:
+            if not isinstance(m, dict):
+                continue
+            if m.get("role") == "system":
+                sys_txt = str(m.get("content") or "")
+            else:
+                content = m.get("content")
+                if isinstance(content, list):
+                    user_txt = "\n".join(str(p.get("text") or "") for p in content if isinstance(p, dict) and p.get("type") == "text")
+                else:
+                    user_txt = str(content or "")
+        gem_body: dict = {
+            "contents": [{"role": "user", "parts": [{"text": user_txt}]}],
+            "generationConfig": {"maxOutputTokens": min(80, int(body.get("max_tokens") or 60)), "temperature": 0.72},
+        }
+        if sys_txt:
+            gem_body["systemInstruction"] = {"parts": [{"text": sys_txt}]}
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(gem_body).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with _urlopen_local(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        cands = data.get("candidates") or []
+        if cands and isinstance(cands[0], dict):
+            parts = ((cands[0].get("content") or {}).get("parts") or [])
+            return "\n".join(str(p.get("text") or "") for p in parts if isinstance(p, dict)).strip()
+        return ""
+
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
     req = urllib.request.Request(
         endpoint,
         data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     with _urlopen_local(req, timeout=timeout) as resp:
@@ -407,6 +496,83 @@ def _post_micro_completion(endpoint: str, body: dict, timeout: float = 8.0) -> s
             return "\n".join(parts).strip()
         return str(content or "").strip()
     return ""
+
+
+def _build_contextual_fallback_remark(
+    clean_ctx: dict,
+    *,
+    personality: str = "balanced",
+    recent: list[str] | None = None,
+) -> tuple[str, str]:
+    """Zero-model-load ephemeral contextual remark when no LLM is currently warm."""
+    app_raw = str(clean_ctx.get("focusedApp") or "").strip()
+    title_raw = str(clean_ctx.get("focusedTitle") or "").strip()
+    dwell = int(clean_ctx.get("dwellMinutes") or 0)
+    music = str(clean_ctx.get("music") or "").strip()
+    pomodoro = str(clean_ctx.get("pomodoro") or "").strip()
+    weather = str(clean_ctx.get("weather") or "").strip()
+
+    app_l = app_raw.lower()
+    if app_l in ("org.quickshell", "quickshell", "qs") and re.search(r"\balis\s+nexus\b", title_raw, re.I):
+        app_raw = "Alis Nexus"
+        app_l = "alis-nexus"
+    elif app_l in ("org.quickshell", "quickshell", "qs") and re.search(r"\balis\s+settings\b", title_raw, re.I):
+        app_raw = "Alis Settings"
+        app_l = "alis-settings"
+    title_clean = re.sub(r"\s*[-—–|·]\s*(?:Visual Studio Code|Code|Obsidian|Firefox|Zen Browser|Chromium|Google Chrome|Brave|Alis Nexus)\s*$", "", title_raw, flags=re.I).strip()
+    if title_clean.lower() in ("alis nexus", "alis settings"):
+        title_clean = ""
+    short_title = title_clean[:38].rstrip(" -—–|·") if title_clean else ""
+    recent_set = {str(r).strip().lower() for r in (recent or []) if str(r).strip()}
+
+    candidates: list[tuple[str, str]] = []
+    if pomodoro:
+        candidates.append((f"{pomodoro} — staying right here with you, keep the momentum steady.", "working"))
+    if any(tok in app_l for tok in ("code", "zed", "nvim", "vim", "antigravity", "cursor", "windsurf", "kate", "emacs", "neovide")):
+        if short_title and not is_opaque_title(app_raw, title_raw):
+            candidates.append((f"Deep in {short_title} — nice focus, take a breather when you need one.", "working"))
+            candidates.append((f"Working through {short_title}? Looking steady from over here.", "curious"))
+        if dwell >= 20:
+            candidates.append((f"{dwell} minutes straight in the editor — remember to blink and stretch.", "calm"))
+        candidates.append(("Quiet coding flow — I'll keep watch on the edge while you build.", "working"))
+    elif any(tok in app_l for tok in ("foot", "kitty", "alacritty", "wezterm", "ghostty", "konsole", "terminal")):
+        if short_title and not is_opaque_title(app_raw, title_raw):
+            candidates.append((f"Terminal busy with {short_title} — hope everything builds cleanly.", "curious"))
+        candidates.append(("Command-line focus mode — smooth sailing in the terminal.", "working"))
+    elif any(tok in app_l for tok in ("obsidian", "alis-nexus", "nexus", "logseq", "notion")):
+        if short_title and not is_opaque_title(app_raw, title_raw):
+            candidates.append((f"Organizing notes in {short_title} — love seeing the vault grow.", "happy"))
+        candidates.append(("Quiet note-taking session — connecting ideas at your own pace.", "calm"))
+    elif any(tok in app_l for tok in ("firefox", "zen", "chromium", "chrome", "brave", "vivaldi")):
+        if short_title and not is_opaque_title(app_raw, title_raw):
+            candidates.append((f"Reading up on {short_title} — anything interesting catching your eye?", "curious"))
+        if dwell >= 15:
+            candidates.append((f"Browsing for {dwell} minutes — don't lose track of your main groove.", "calm"))
+        candidates.append(("Cruising through tabs — let me know if you want a quick summary.", "curious"))
+    elif app_raw:
+        pretty_app = re.sub(r"^(?:org|com|io|dev|net)\.(?:[^.]+\.)?", "", app_raw, flags=re.I).replace("-", " ").replace("_", " ").strip().title()
+        if short_title and not is_opaque_title(app_raw, title_raw):
+            candidates.append((f"Focused on {short_title} in {pretty_app} — keeping you company.", "happy"))
+        else:
+            candidates.append((f"Hanging out while you work in {pretty_app} — steady pace!", "happy"))
+
+    if music:
+        short_music = music[:36].rstrip(" -—–|·")
+        candidates.append((f"Nice vibe with {short_music} playing while you work.", "happy"))
+    if weather:
+        candidates.append((f"It's {weather} outside — cozy time to stay focused indoors.", "calm"))
+    if dwell >= 35:
+        candidates.append((f"You've been at this for {dwell} minutes — quick water break soon?", "calm"))
+
+    if not candidates:
+        candidates.append(("Right here on the screen edge whenever you need a hand.", "happy"))
+
+    for remark, expr in candidates:
+        if remark.lower() not in recent_set:
+            if personality == "energetic" and expr == "calm":
+                expr = "happy"
+            return remark, expr
+    return candidates[0]
 
 
 def _skipped(reason: str) -> dict:
@@ -447,36 +613,69 @@ def generate_mascot_commentary(payload: dict) -> dict:
     if not clean_ctx.get("focusedApp") and not clean_ctx.get("focusedTitle") and not clean_ctx.get("music") and not clean_ctx.get("pomodoro"):
         return _skipped("empty_context")
 
-    endpoint = _normalize_chat_endpoint(str(req.get("actionEndpoint") or req.get("endpoint") or ""))
-    preferred_model = str(req.get("actionModel") or req.get("model") or "").strip()
-    if not endpoint:
-        return _skipped("no_endpoint")
-
-    if bool(req.get("localOnly", True)):
-        parsed_ep = urllib.parse.urlparse(endpoint)
-        if (parsed_ep.hostname or "").lower() not in ("127.0.0.1", "localhost", "::1"):
-            return _skipped("local_only_blocked")
-
-    allow_cold = bool(req.get("allowColdLoad"))
-    warm_ok, warm_model, is_vlm = probe_warm_local_model(
-        endpoint,
-        preferred_model=preferred_model,
-        provider_hint=str(req.get("providerHint") or ""),
-        allow_cold_load=allow_cold,
-        timeout=0.7,
-    )
-    if not warm_ok or not warm_model:
-        return _skipped("no_warm_model")
-
-    char_name = "Octo" if str(req.get("character") or "").lower() == "octo" else "Aqua"
+    endpoint_raw = str(req.get("actionEndpoint") or req.get("endpoint") or "").strip()
+    api_format = str(req.get("apiFormat") or "openai").strip().lower()
+    api_key = str(req.get("apiKey") or "").strip()
+    allow_fallback = bool(req.get("allowContextualFallback"))
     personality = str(req.get("personality") or "balanced").lower()
-    lang_raw = str(req.get("language") or "auto").lower()
-    lang = "vi" if lang_raw.startswith("vi") else ("en" if lang_raw.startswith("en") else "auto")
     recent = [
         " ".join(str(r).split())[:120]
         for r in (req.get("recentComments") or [])
         if str(r or "").strip()
     ][-5:]
+
+    def _fallback_or_skip(reason: str) -> dict:
+        if not allow_fallback:
+            return _skipped(reason)
+        fb_remark, fb_expr = _build_contextual_fallback_remark(
+            clean_ctx, personality=personality, recent=recent
+        )
+        if not fb_remark:
+            return _skipped(reason)
+        return {
+            "ok": True,
+            "skipped": False,
+            "skipReason": "",
+            "remark": fb_remark,
+            "expression": fb_expr,
+            "tier": "contextual",
+            "ephemeral": True,
+            "model": "contextual-local",
+        }
+
+    if api_format in ("gemini", "anthropic") and endpoint_raw.startswith(("http://", "https://")):
+        endpoint = endpoint_raw
+    else:
+        endpoint = _normalize_chat_endpoint(endpoint_raw)
+    preferred_model = str(req.get("actionModel") or req.get("model") or "").strip()
+    if not endpoint:
+        return _fallback_or_skip("no_endpoint")
+
+    parsed_ep = urllib.parse.urlparse(endpoint)
+    is_local_host = (parsed_ep.hostname or "").lower() in ("127.0.0.1", "localhost", "::1")
+    if bool(req.get("localOnly", True)) and not is_local_host:
+        return _fallback_or_skip("local_only_blocked")
+
+    allow_cold = bool(req.get("allowColdLoad"))
+    if is_local_host:
+        warm_ok, warm_model, is_vlm = probe_warm_local_model(
+            endpoint,
+            preferred_model=preferred_model,
+            provider_hint=str(req.get("providerHint") or ""),
+            allow_cold_load=allow_cold,
+            timeout=0.7,
+        )
+    else:
+        warm_ok = bool(endpoint and (preferred_model or api_format == "gemini"))
+        warm_model = preferred_model or "default"
+        is_vlm = _is_vlm_name(warm_model)
+
+    if not warm_ok or not warm_model:
+        return _fallback_or_skip("no_warm_model")
+
+    char_name = "Octo" if str(req.get("character") or "").lower() == "octo" else "Aqua"
+    lang_raw = str(req.get("language") or "auto").lower()
+    lang = "vi" if lang_raw.startswith("vi") else ("en" if lang_raw.startswith("en") else "auto")
 
     lang_rule = (
         "Write in natural, warm Vietnamese."
@@ -539,10 +738,17 @@ def generate_mascot_commentary(payload: dict) -> dict:
             body["repetition_penalty"] = 1.0
             body["repeat_penalty"] = 1.0
 
-        raw_out = _post_micro_completion(endpoint, body, timeout=8.5)
+        raw_out = _post_micro_completion(
+            endpoint,
+            body,
+            timeout=8.5,
+            api_key=api_key,
+            api_format=api_format,
+            model_name=warm_model,
+        )
         remark, expr = _parse_remark_response(raw_out)
         if not remark:
-            return _skipped("empty_llm_output")
+            return _fallback_or_skip("empty_llm_output")
         return {
             "ok": True,
             "skipped": False,
@@ -554,7 +760,7 @@ def generate_mascot_commentary(payload: dict) -> dict:
             "model": warm_model,
         }
     except Exception as exc:
-        return _skipped(f"error:{type(exc).__name__}")
+        return _fallback_or_skip(f"error:{type(exc).__name__}")
     finally:
         if peek_img is not None:
             try:
