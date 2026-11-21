@@ -1523,7 +1523,7 @@ Item {
         y: root.bodyTop
         width: root.sidebarWidth
         height: Math.max(0, root.height - root.bodyTop - 12)
-        asynchronous: status !== Loader.Ready && Quickshell.env("QT_QUICK_BACKEND") !== "software"
+        asynchronous: status !== Loader.Ready && (typeof Quickshell === "undefined" || Quickshell.env("QT_QUICK_BACKEND") !== "software")
         sourceComponent: Component {
             AquaChatSidebar {
                 anchors.fill: parent
@@ -5575,7 +5575,7 @@ Item {
         height: Math.max(0, parent.height - root.bodyTop - 12)
         clip: true
         active: root.editing && (root.swarmOpen || root.swarmExpandProgress > 0.001)
-        asynchronous: status !== Loader.Ready && Quickshell.env("QT_QUICK_BACKEND") !== "software"
+        asynchronous: status !== Loader.Ready && (typeof Quickshell === "undefined" || Quickshell.env("QT_QUICK_BACKEND") !== "software")
         visible: active
         sourceComponent: Component {
             AquaSwarmPane {
@@ -5599,7 +5599,7 @@ Item {
         width: parent.width - 24
         height: Math.max(0, parent.height - root.bodyTop - 12)
         active: root.pocketOpen
-        asynchronous: status !== Loader.Ready && Quickshell.env("QT_QUICK_BACKEND") !== "software"
+        asynchronous: status !== Loader.Ready && (typeof Quickshell === "undefined" || Quickshell.env("QT_QUICK_BACKEND") !== "software")
         sourceComponent: Component {
             AquaPocketPane {
                 actor: root.actor
