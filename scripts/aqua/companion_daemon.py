@@ -13,6 +13,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import signal
 import socket
 import struct
 import subprocess
@@ -26,7 +27,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-DEFAULT_IDLE_SEC = 900
+DEFAULT_IDLE_SEC = 300
 MAX_REQUEST_BYTES = 98304
 
 
@@ -350,11 +351,46 @@ def _serve_client(conn: socket.socket, sock_path: Path, prewarmed: list[str], to
             pass
 
 
-def run_daemon(sock_path: Path | None = None, idle_sec: int | None = None) -> int:
+def _parent_alive(parent_pid: int | None) -> bool:
+    if parent_pid is None or parent_pid <= 1:
+        return True
+    try:
+        os.kill(parent_pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+def _install_signal_handlers() -> None:
+    def _handle_term(_signum: int, _frame: Any) -> None:
+        _SHUTDOWN_EVENT.set()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, _handle_term)
+        except Exception:
+            pass
+
+
+def run_daemon(
+    sock_path: Path | None = None,
+    idle_sec: int | None = None,
+    parent_pid: int | None = None,
+) -> int:
     """Start the Unix-domain companion daemon and block until idle or shutdown."""
     global _DAEMON_START_TIME
     _SHUTDOWN_EVENT.clear()
+    _install_signal_handlers()
     _DAEMON_START_TIME = time.monotonic()
+    eff_parent_pid = parent_pid
+    if eff_parent_pid is None:
+        raw_parent = str(os.environ.get("ALIS_PARENT_PID") or "").strip()
+        if raw_parent.isdigit():
+            eff_parent_pid = int(raw_parent)
     target_sock = Path(sock_path) if sock_path else resolve_socket_path()
     target_sock.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     eff_idle = max(
@@ -386,7 +422,7 @@ def run_daemon(sock_path: Path | None = None, idle_sec: int | None = None) -> in
         srv.listen(32)
         srv.settimeout(min(1.0, max(0.1, eff_idle / 3.0)))
 
-        while not _SHUTDOWN_EVENT.is_set():
+        while not _SHUTDOWN_EVENT.is_set() and _parent_alive(eff_parent_pid):
             try:
                 conn, _ = srv.accept()
                 _touch()
@@ -399,6 +435,8 @@ def run_daemon(sock_path: Path | None = None, idle_sec: int | None = None) -> in
                 workers = [w for w in workers if w.is_alive()]
                 workers.append(t)
             except TimeoutError:
+                if not _parent_alive(eff_parent_pid):
+                    break
                 with _ACTIVE_REQUESTS_LOCK:
                     busy = len(_ACTIVE_REQUESTS) > 0
                 with active_lock:
@@ -583,6 +621,7 @@ def run_daemon_cli(argv: list[str] | None = None) -> int:
     args = list(argv if argv is not None else sys.argv[1:])
     idle_sec: int | None = None
     sock_path: Path | None = None
+    parent_pid: int | None = None
     if "--idle-sec" in args:
         idx = args.index("--idle-sec")
         if idx + 1 < len(args):
@@ -594,7 +633,14 @@ def run_daemon_cli(argv: list[str] | None = None) -> int:
         idx = args.index("--socket")
         if idx + 1 < len(args):
             sock_path = Path(args[idx + 1])
-    return run_daemon(sock_path=sock_path, idle_sec=idle_sec)
+    if "--parent-pid" in args:
+        idx = args.index("--parent-pid")
+        if idx + 1 < len(args):
+            try:
+                parent_pid = int(args[idx + 1])
+            except ValueError:
+                pass
+    return run_daemon(sock_path=sock_path, idle_sec=idle_sec, parent_pid=parent_pid)
 
 
 if __name__ == "__main__":

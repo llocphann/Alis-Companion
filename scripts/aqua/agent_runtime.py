@@ -16,6 +16,7 @@ Key guarantees:
 """
 from __future__ import annotations
 import concurrent.futures
+import importlib
 import json
 import os
 from pathlib import Path
@@ -111,7 +112,23 @@ from tool_store import (
     rollback_file_receipt,
     search_files_in_home,
 )
-import web_tools
+class _LazyModule:
+    def __init__(self, module_name: str) -> None:
+        object.__setattr__(self, "_module_name", module_name)
+        object.__setattr__(self, "_module", None)
+
+    def _load(self):
+        mod = object.__getattribute__(self, "_module")
+        if mod is None:
+            mod = importlib.import_module(object.__getattribute__(self, "_module_name"))
+            object.__setattr__(self, "_module", mod)
+        return mod
+
+    def __getattr__(self, item: str):
+        return getattr(self._load(), item)
+
+
+web_tools = _LazyModule("web_tools")
 import alis_local_bridge
 import nexus_rag
 from nexus_rag import NexusRagError

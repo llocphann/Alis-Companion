@@ -40,7 +40,8 @@ IGNORED_VAULT_DIRS = frozenset({
 INDEXABLE_SUFFIXES = frozenset({".md", ".txt", ".org"})
 DEFAULT_RAG_FOLDER = "90_System/99_RAG"
 MAX_NOTE_BYTES = 256 * 1024
-SYNC_COOLDOWN_MS = 15_000
+SYNC_COOLDOWN_MS = 120_000
+_NEXUS_CACHE_MEMO: tuple[str, int, int, dict] | None = None
 
 
 class NexusRagError(Exception):
@@ -386,21 +387,33 @@ def migrate_legacy_rag_to_nexus(explicit_vault: str = "") -> dict:
 
 
 def load_nexus_cache(explicit_vault: str = "") -> dict:
+    global _NEXUS_CACHE_MEMO
     vault = resolve_nexus_vault_path(explicit_vault)
     cache_path = nexus_vault_cache_path()
+    try:
+        st = cache_path.stat()
+    except OSError:
+        _NEXUS_CACHE_MEMO = None
+        return {}
     if not cache_path.is_file():
         return {}
-    try:
-        data = json.loads(cache_path.read_text(encoding="utf-8"))
+    cache_key = (str(cache_path), int(st.st_mtime_ns), int(st.st_size))
+    memo = _NEXUS_CACHE_MEMO
+    if memo is not None and memo[:3] == cache_key:
+        data = memo[3]
+    else:
+        try:
+            data = json.loads(cache_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
         if not isinstance(data, dict):
             return {}
-        if vault is not None:
-            vp = str(data.get("vaultPath") or "").strip()
-            if vp and Path(_expand_home(vp)).resolve(strict=False) != vault:
-                return {}
-        return data
-    except Exception:
-        return {}
+        _NEXUS_CACHE_MEMO = (cache_key[0], cache_key[1], cache_key[2], data)
+    if vault is not None:
+        vp = str(data.get("vaultPath") or "").strip()
+        if vp and Path(_expand_home(vp)).resolve(strict=False) != vault:
+            return {}
+    return data
 
 
 def _extract_frontmatter_and_body(text: str, rel_path: str) -> tuple[str, list[str], str]:

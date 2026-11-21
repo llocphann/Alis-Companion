@@ -20,7 +20,7 @@ Item {
     property bool sidebarOpen: false
     property bool embeddedMode: false
     readonly property alias inputField: message
-    readonly property bool hasSidebarInputFocus: chatSidebar.visible && chatSidebar.hasActiveInputFocus
+    readonly property bool hasSidebarInputFocus: chatSidebarLoader.active && Boolean(chatSidebarLoader.item?.hasActiveInputFocus)
     property bool wantsKeyboardFocus: false
     property bool swarmOpen: false
     readonly property AquaSwarmPane activeSwarmPane: (root.visible && swarmPaneLoader.active) ? (swarmPaneLoader.item as AquaSwarmPane) : null
@@ -1515,28 +1515,35 @@ Item {
         }
     }
 
-    AquaChatSidebar {
-        id: chatSidebar
-        visible: root.sidebarOpen && root.editing && !root.pocketOpen
+    Loader {
+        id: chatSidebarLoader
+        active: root.sidebarOpen && root.editing && !root.pocketOpen
+        visible: active
         x: 12
         y: root.bodyTop
         width: root.sidebarWidth
         height: Math.max(0, root.height - root.bodyTop - 12)
-        mind: AquaMind
-        onThreadTurnSelected: (threadId, matchedTurnIndex) => {
-            const targetThread = String(threadId ?? "").trim();
-            root.pendingJumpThreadId = targetThread;
-            root.pendingJumpTurnIndex = Number(matchedTurnIndex);
-            if (!targetThread || targetThread === AquaMind.activeThreadId) {
-                Qt.callLater(() => {
-                    if (root.pendingJumpTurnIndex >= 0 && (!root.pendingJumpThreadId || root.pendingJumpThreadId === AquaMind.activeThreadId)) {
-                        const targetIdx = root.pendingJumpTurnIndex;
-                        if (root.jumpToChatTurn(targetIdx)) {
-                            root.pendingJumpTurnIndex = -1;
-                            root.pendingJumpThreadId = "";
-                        }
+        asynchronous: status !== Loader.Ready && Quickshell.env("QT_QUICK_BACKEND") !== "software"
+        sourceComponent: Component {
+            AquaChatSidebar {
+                anchors.fill: parent
+                mind: AquaMind
+                onThreadTurnSelected: (threadId, matchedTurnIndex) => {
+                    const targetThread = String(threadId ?? "").trim();
+                    root.pendingJumpThreadId = targetThread;
+                    root.pendingJumpTurnIndex = Number(matchedTurnIndex);
+                    if (!targetThread || targetThread === AquaMind.activeThreadId) {
+                        Qt.callLater(() => {
+                            if (root.pendingJumpTurnIndex >= 0 && (!root.pendingJumpThreadId || root.pendingJumpThreadId === AquaMind.activeThreadId)) {
+                                const targetIdx = root.pendingJumpTurnIndex;
+                                if (root.jumpToChatTurn(targetIdx)) {
+                                    root.pendingJumpTurnIndex = -1;
+                                    root.pendingJumpThreadId = "";
+                                }
+                            }
+                        });
                     }
-                });
+                }
             }
         }
     }
@@ -1545,11 +1552,11 @@ Item {
     Item {
         id: sidebarResizeHandle
         objectName: "aquaSidebarResizeHandle"
-        visible: chatSidebar.visible
-        x: chatSidebar.x + chatSidebar.width
-        y: chatSidebar.y
+        visible: chatSidebarLoader.visible
+        x: chatSidebarLoader.x + chatSidebarLoader.width
+        y: chatSidebarLoader.y
         width: 10
-        height: chatSidebar.height
+        height: chatSidebarLoader.height
         z: 15
         readonly property bool dragging: sidebarResizeMouse.pressed
         readonly property bool hovered: sidebarResizeMouse.containsMouse
@@ -5568,6 +5575,7 @@ Item {
         height: Math.max(0, parent.height - root.bodyTop - 12)
         clip: true
         active: root.editing && (root.swarmOpen || root.swarmExpandProgress > 0.001)
+        asynchronous: status !== Loader.Ready && Quickshell.env("QT_QUICK_BACKEND") !== "software"
         visible: active
         sourceComponent: Component {
             AquaSwarmPane {
@@ -5591,6 +5599,7 @@ Item {
         width: parent.width - 24
         height: Math.max(0, parent.height - root.bodyTop - 12)
         active: root.pocketOpen
+        asynchronous: status !== Loader.Ready && Quickshell.env("QT_QUICK_BACKEND") !== "software"
         sourceComponent: Component {
             AquaPocketPane {
                 actor: root.actor

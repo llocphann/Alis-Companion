@@ -515,31 +515,36 @@ Item {
                         border.width: 1.05
                         border.color: Qt.alpha(root.thinkingBubbleColor, root.thinkingBlend * (0.28 + 0.58 * floatingDroplet.thinkPulse))
                     }
-                    Shape {
-                        id: bubbleSpark
-                        objectName: "aquaBubbleThinkingSpark"
-                        visible: root.effectsEnabled && root.thinkingBlend > 0.06 && (floatingDroplet.index < 4 || floatingDroplet.thinkPulse > 0.58)
+                    Loader {
+                        id: bubbleSparkLoader
                         anchors.centerIn: parent
                         width: Math.max(5.5, floatingDroplet.width * 0.72)
                         height: width
-                        opacity: root.thinkingBlend * (0.45 + 0.55 * floatingDroplet.thinkPulse)
-                        scale: 0.55 + 0.45 * floatingDroplet.thinkPulse
-                        rotation: root.thinkingPhase * 90 * (floatingDroplet.index % 2 === 0 ? 1 : -1)
-                        antialiasing: true
-                        preferredRendererType: Shape.CurveRenderer
-                        ShapePath {
-                            strokeWidth: 0.65
-                            strokeColor: Qt.alpha(root.thinkingBubbleColor, 0.85)
-                            fillColor: root.thinkingSparkColor
-                            startX: bubbleSpark.width * 0.5; startY: bubbleSpark.width * 0.08
-                            PathLine { x: bubbleSpark.width * 0.61; y: bubbleSpark.width * 0.39 }
-                            PathLine { x: bubbleSpark.width * 0.92; y: bubbleSpark.width * 0.5 }
-                            PathLine { x: bubbleSpark.width * 0.61; y: bubbleSpark.width * 0.61 }
-                            PathLine { x: bubbleSpark.width * 0.5; y: bubbleSpark.width * 0.92 }
-                            PathLine { x: bubbleSpark.width * 0.39; y: bubbleSpark.width * 0.61 }
-                            PathLine { x: bubbleSpark.width * 0.08; y: bubbleSpark.width * 0.5 }
-                            PathLine { x: bubbleSpark.width * 0.39; y: bubbleSpark.width * 0.39 }
-                            PathLine { x: bubbleSpark.width * 0.5; y: bubbleSpark.width * 0.08 }
+                        active: root.effectsEnabled && root.thinkingBlend > 0.04
+                        sourceComponent: Shape {
+                            id: bubbleSpark
+                            objectName: "aquaBubbleThinkingSpark"
+                            visible: root.effectsEnabled && root.thinkingBlend > 0.06 && (floatingDroplet.index < 4 || floatingDroplet.thinkPulse > 0.58)
+                            anchors.fill: parent
+                            opacity: root.thinkingBlend * (0.45 + 0.55 * floatingDroplet.thinkPulse)
+                            scale: 0.55 + 0.45 * floatingDroplet.thinkPulse
+                            rotation: root.thinkingPhase * 90 * (floatingDroplet.index % 2 === 0 ? 1 : -1)
+                            antialiasing: true
+                            preferredRendererType: Shape.CurveRenderer
+                            ShapePath {
+                                strokeWidth: 0.65
+                                strokeColor: Qt.alpha(root.thinkingBubbleColor, 0.85)
+                                fillColor: root.thinkingSparkColor
+                                startX: bubbleSpark.width * 0.5; startY: bubbleSpark.width * 0.08
+                                PathLine { x: bubbleSpark.width * 0.61; y: bubbleSpark.width * 0.39 }
+                                PathLine { x: bubbleSpark.width * 0.92; y: bubbleSpark.width * 0.5 }
+                                PathLine { x: bubbleSpark.width * 0.61; y: bubbleSpark.width * 0.61 }
+                                PathLine { x: bubbleSpark.width * 0.5; y: bubbleSpark.width * 0.92 }
+                                PathLine { x: bubbleSpark.width * 0.39; y: bubbleSpark.width * 0.61 }
+                                PathLine { x: bubbleSpark.width * 0.08; y: bubbleSpark.width * 0.5 }
+                                PathLine { x: bubbleSpark.width * 0.39; y: bubbleSpark.width * 0.39 }
+                                PathLine { x: bubbleSpark.width * 0.5; y: bubbleSpark.width * 0.08 }
+                            }
                         }
                     }
                 }
@@ -847,6 +852,7 @@ Item {
             PropertyAction { target: root; property: "chompPhase"; value: 0 }
         }
     }
+    readonly property bool powerSaverActive: root.powerProfile === "power-saver" || Boolean(Config.options?.performance?.lowPower ?? false)
     readonly property bool _windowVisible: root.Window.window ? root.Window.window.visible : true
     readonly property bool burstActive: squashBurst.running || tapBurst.running || reactionBounce.running || shineBurst.running || swallowBurst.running
     readonly property bool idleLoopPaused: !root._windowVisible || root.motionAmount <= 0.001 || (root.quietSettled && !root.thinking && !root.burstActive && !root.hovered && !root.dragging && !root.walking && !root.flying && !root.traveling && !root.pocketDragActive)
@@ -863,24 +869,35 @@ Item {
         loops: Animation.Infinite
     }
     SequentialAnimation on bob {
-        running: root.motionEnabled && root.visible && !gait.active; paused: root.idleLoopPaused && running; loops: Animation.Infinite
+        running: root.motionEnabled && root.visible && !gait.active && !(root.powerSaverActive && root.idleLoopPaused); paused: root.idleLoopPaused && running; loops: Animation.Infinite
         NumberAnimation { to: -1.2 - root.energy * 2.4; duration: 1570; easing.type: Easing.InOutSine }
         NumberAnimation { to: 0.6 + root.energy * 1.2; duration: 2110; easing.type: Easing.InOutSine }
     }
     SequentialAnimation on sway {
-        running: root.motionEnabled && root.visible && !gait.active; paused: root.idleLoopPaused && running; loops: Animation.Infinite
+        running: root.motionEnabled && root.visible && !gait.active && !(root.powerSaverActive && root.idleLoopPaused); paused: root.idleLoopPaused && running; loops: Animation.Infinite
         NumberAnimation { to: 0.45 + root.energy; duration: 2390; easing.type: Easing.InOutSine }
         NumberAnimation { to: -0.3 - root.energy * 0.7; duration: 3170; easing.type: Easing.InOutSine }
     }
     SequentialAnimation on shimmer {
-        running: root.motionEnabled && root.visible && root.effectsEnabled; paused: root.idleLoopPaused && running; loops: Animation.Infinite
+        running: root.motionEnabled && root.visible && root.effectsEnabled && !(root.powerSaverActive && root.idleLoopPaused); paused: root.idleLoopPaused && running; loops: Animation.Infinite
         NumberAnimation { to: 1; duration: 2800; easing.type: Easing.InOutSine }
         NumberAnimation { to: 0; duration: 4300; easing.type: Easing.InOutSine }
     }
-    NumberAnimation on orbitPhase {
-        running: root.motionEnabled && root.visible && root.bubblesEnabled && !root.bubble2DMode
-        paused: running && (!root._windowVisible || root.motionAmount <= 0.001 || (root.powerProfile !== "performance" && !root.effectiveNearbyInteraction))
-        from: 0; to: 1; duration: curves.clips.orbit.duration
-        loops: Animation.Infinite
+    Timer {
+        id: orbitTickTimer
+        interval: root.effectiveNearbyInteraction ? 33 : 125
+        repeat: true
+        running: root.motionEnabled
+            && root.visible
+            && root.bubblesEnabled
+            && !root.bubble2DMode
+            && root._windowVisible
+            && root.motionAmount > 0.001
+            && (root.powerProfile === "performance" || root.effectiveNearbyInteraction)
+            && !(root.powerSaverActive && root.quietSettled && !root.effectiveNearbyInteraction)
+        onTriggered: {
+            const dur = Math.max(1000, Number(curves?.clips?.orbit?.duration ?? 18000))
+            root.orbitPhase = (root.orbitPhase + (orbitTickTimer.interval / dur)) % 1.0
+        }
     }
 }

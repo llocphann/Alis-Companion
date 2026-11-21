@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Services.UPower
 import Quickshell.Wayland
 import qs.services
 import qs.modules.common
@@ -4130,6 +4131,7 @@ Singleton {
             return 720000;
         }
     }
+    property double _lastAmbientSkipMs: 0
     function requestAmbientMascotCommentary(force = false): bool {
         if (!ambientMascotEnabled || !talkEnabled || !available || !hostVisible || hostBlocked)
             return false;
@@ -4150,6 +4152,8 @@ Singleton {
         const now = new Date();
         const nowMs = now.getTime();
         if (!force && lastMascotRemarkMs > 0 && (nowMs - lastMascotRemarkMs) < _mascotCooldownMs())
+            return false;
+        if (!force && _lastAmbientSkipMs > 0 && (nowMs - _lastAmbientSkipMs) < 300000)
             return false;
         if (Date.now() - startedAt < 45000 && !force)
             return false;
@@ -4187,7 +4191,9 @@ Singleton {
             personality: String(Config.options?.abyss?.companion?.personality ?? "balanced"),
             language: "auto",
             visualPeekEnabled: root.ambientVisualPeek,
-            powerProfile: String(Config.options?.abyss?.companion?.renderQuality ?? "") === "performance" ? "power-saver" : "balanced",
+            powerProfile: (Boolean(Config.options?.performance?.lowPower ?? false) || (typeof PowerProfiles !== "undefined" && PowerProfiles.profile === PowerProfile.PowerSaver))
+                ? "power-saver"
+                : ((typeof PowerProfiles !== "undefined" && PowerProfiles.profile === PowerProfile.Performance) ? "performance" : "balanced"),
             batteryPercent: battPct,
             batteryCharging: battChg,
             fullscreen: false,
@@ -5722,30 +5728,61 @@ Singleton {
             root.reconcileAvailableModels();
         }
     }
+    property bool _bootInitialized: false
+    function _ensureBootInitialized(): void {
+        if (root._bootInitialized)
+            return;
+        root._bootInitialized = true;
+        if (root.liveModelAutoDetectAllowed) {
+            root.refreshAvailableModels(true);
+            root.refreshAgentStatus();
+            root.refreshThinkingRouterStatus();
+        } else {
+            root.reconcileAvailableModels();
+        }
+    }
+    onConversationOpenChanged: {
+        if (conversationOpen)
+            root._ensureBootInitialized();
+    }
+    Timer {
+        id: _deferredBootProbeTimer
+        interval: 8000
+        repeat: false
+        running: Config.ready && !root._bootInitialized
+        onTriggered: root._ensureBootInitialized()
+    }
     Connections {
         target: Config
         function onReadyChanged(): void {
             if (Config.ready) {
-                if (root.liveModelAutoDetectAllowed) {
-                    root.refreshAvailableModels(true);
-                    root.refreshAgentStatus();
-                    root.refreshThinkingRouterStatus();
-                } else {
-                    root.reconcileAvailableModels();
-                }
+                root.reconcileAvailableModels();
+                if (root.conversationOpen || root.sidebarChatOpen)
+                    root._ensureBootInitialized();
             }
         }
     }
     Component.onCompleted: {
         if (Config.ready) {
-            if (root.liveModelAutoDetectAllowed) {
-                Qt.callLater(() => {
-                    root.refreshAvailableModels(true);
-                    root.refreshAgentStatus();
-                    root.refreshThinkingRouterStatus();
-                });
-            } else {
-                root.reconcileAvailableModels();
+            root.reconcileAvailableModels();
+            if (root.conversationOpen || root.sidebarChatOpen)
+                Qt.callLater(() => root._ensureBootInitialized());
+        }
+    }
+    Component.onDestruction: {
+        const procs = [
+            llmUnloadWorker, reminderPopup, historyClearWorker, worker,
+            agentFileWorker, agentTurnWorker, threadWorker, agentRuleWorker,
+            agentStatusWorker, swarmActionWorker, skillActionWorker, mcpActionWorker,
+            storagePathWorker, filePickerWorker, voiceCaptureWorker, voiceWorker,
+            ttsStopWorker, fileRollbackWorker, primarySelectionWorker, pocketSaveWorker,
+            finetuneExportWorker, browserOpenWorker, cancelledPrefixWorker,
+            _thinkingRouterStatusProc, _thinkingRouterInstallProc,
+            _thinkingRouterUninstallProc, providerWarmupWorker, ambientCommentaryWorker
+        ];
+        for (const p of procs) {
+            if (p && p.running) {
+                try { p.signal(15); } catch (_e) { p.running = false; }
             }
         }
     }
@@ -7259,8 +7296,11 @@ Singleton {
             ambientCommentaryWorker._finalized = true;
             ambientCommentaryFlushTimer.stop();
             const parsed = AquaHelperReplyGuard.parse("ambient_commentary", String(ambientCommentaryReply.text ?? ""), ambientCommentaryWorker._exitCode);
-            if (!parsed.ok || !parsed.result || parsed.result.skipped === true)
+            if (!parsed.ok || !parsed.result || parsed.result.skipped === true) {
+                root._lastAmbientSkipMs = Date.now();
                 return;
+            }
+            root._lastAmbientSkipMs = 0;
             const remark = String(parsed.result.remark ?? "").trim();
             const expr = String(parsed.result.expression ?? "happy").trim();
             if (remark.length > 0 && !root.conversationOpen && !root.contextOpen && !root.isWorking && !root.busy) {

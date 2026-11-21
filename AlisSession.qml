@@ -307,6 +307,8 @@ Item {
         directorState:root._contextRevision >= 0 ? root.contextState.director : null
         hostContext:root._contextRevision >= 0 ? root.coworkHostContext() : null
         quietSettled:root.companionMotionSettled
+        powerProfile: AbyssRenderPolicy.powerProfile
+        powerSaver: AbyssRenderPolicy.powerSaver
         onActiveChanged:root.syncQuietIdle()
         onPhaseChanged:root.syncQuietIdle()
     }

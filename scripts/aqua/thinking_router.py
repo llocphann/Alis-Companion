@@ -21,6 +21,7 @@ import math
 import os
 from pathlib import Path
 import re
+import signal
 import socket
 import subprocess
 import sys
@@ -902,8 +903,38 @@ def _stop_daemon() -> bool:
     return stopped
 
 
-def _run_daemon() -> int:
-    idle_sec = max(30, int(os.environ.get("ALIS_THINKING_ROUTER_IDLE_SEC") or "600"))
+def _router_parent_alive(parent_pid: int | None) -> bool:
+    if parent_pid is None or parent_pid <= 1:
+        return True
+    try:
+        os.kill(parent_pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+def _run_daemon(parent_pid: int | None = None) -> int:
+    idle_sec = max(30, int(os.environ.get("ALIS_THINKING_ROUTER_IDLE_SEC") or "300"))
+    eff_parent_pid = parent_pid
+    if eff_parent_pid is None:
+        raw_parent = str(os.environ.get("ALIS_PARENT_PID") or "").strip()
+        if raw_parent.isdigit():
+            eff_parent_pid = int(raw_parent)
+    shutdown_flag = {"stop": False}
+
+    def _handle_stop(_signum: int, _frame) -> None:
+        shutdown_flag["stop"] = True
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, _handle_stop)
+        except Exception:
+            pass
+
     p = _paths()
     sock_path = p["socket"]
     sock_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -920,13 +951,15 @@ def _run_daemon() -> int:
         srv.bind(str(sock_path))
         os.chmod(sock_path, 0o600)
         srv.listen(16)
-        srv.settimeout(5.0)
+        srv.settimeout(2.0)
         last_active = time.monotonic()
 
-        while True:
+        while not shutdown_flag["stop"] and _router_parent_alive(eff_parent_pid):
             try:
                 conn, _ = srv.accept()
             except TimeoutError:
+                if shutdown_flag["stop"] or not _router_parent_alive(eff_parent_pid):
+                    break
                 if time.monotonic() - last_active >= idle_sec:
                     break
                 continue
@@ -984,6 +1017,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Alis Companion Auto Thinking Effort Router")
     parser.add_argument("--status", action="store_true", help="Print router installation & daemon status")
     parser.add_argument("--daemon", action="store_true", help="Run warm Unix-socket ONNX daemon")
+    parser.add_argument("--parent-pid", type=int, default=None, help="Optional parent PID to exit when parent disappears")
     parser.add_argument("--stop-daemon", action="store_true", help="Stop running Unix-socket daemon")
     parser.add_argument("--uninstall", action="store_true", help="Remove local ML router files and venv")
     parser.add_argument("--classify", type=str, default=None, help="Classify prompt and print JSON routing output")
@@ -996,7 +1030,7 @@ def main(argv: list[str]) -> int:
         print(json.dumps(get_status(), ensure_ascii=False))
         return 0
     if args.daemon:
-        return _run_daemon()
+        return _run_daemon(parent_pid=args.parent_pid)
     if args.stop_daemon:
         print(json.dumps({"stopped": _stop_daemon()}))
         return 0

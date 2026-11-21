@@ -7,6 +7,8 @@ Item {
     property var directorState: null
     property var hostContext: null
     property bool quietSettled: false
+    property bool powerSaver: false
+    property string powerProfile: "balanced"
     property var clock: () => Date.now()
     property var performanceState: Performance.newState(character === "octo" ? "octo" : "aqua")
     property bool active: false
@@ -92,7 +94,8 @@ Item {
         if (v.active) {
             const blending = Boolean(performanceState.blendFrom) && (now - performanceState.started < 140)
             const settling = performanceState.lostSince >= 0
-            if (v.phase === "loop" && !blending && !settling && isConstantClip(performanceState, v.clip)) {
+            const saverActive = root.powerSaver || root.powerProfile === "power-saver"
+            if (v.phase === "loop" && !blending && !settling && (isConstantClip(performanceState, v.clip) || (saverActive && root.quietSettled))) {
                 const deadline = nextSessionDeadlineMs(directorState, now)
                 if (deadline > 0) {
                     if (tick.interval !== deadline) tick.interval = deadline
@@ -101,7 +104,7 @@ Item {
                     tick.stop()
                 }
             } else {
-                const targetInterval = v.phase === "loop" ? 50 : 33
+                const targetInterval = (v.phase === "loop" && root.quietSettled) ? 160 : (v.phase === "loop" ? 50 : 33)
                 if (tick.interval !== targetInterval) tick.interval = targetInterval
                 if (!tick.running) tick.start()
             }
