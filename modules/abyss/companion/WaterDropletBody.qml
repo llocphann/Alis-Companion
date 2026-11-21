@@ -883,21 +883,12 @@ Item {
         NumberAnimation { to: 1; duration: 2800; easing.type: Easing.InOutSine }
         NumberAnimation { to: 0; duration: 4300; easing.type: Easing.InOutSine }
     }
-    Timer {
-        id: orbitTickTimer
-        interval: root.effectiveNearbyInteraction ? 33 : 125
-        repeat: true
-        running: root.motionEnabled
-            && root.visible
-            && root.bubblesEnabled
-            && !root.bubble2DMode
-            && root._windowVisible
-            && root.motionAmount > 0.001
-            && (root.powerProfile === "performance" || root.effectiveNearbyInteraction)
-            && !(root.powerSaverActive && root.quietSettled && !root.effectiveNearbyInteraction)
-        onTriggered: {
-            const dur = Math.max(1000, Number(curves?.clips?.orbit?.duration ?? 18000))
-            root.orbitPhase = (root.orbitPhase + (orbitTickTimer.interval / dur)) % 1.0
-        }
+    NumberAnimation on orbitPhase {
+        running: root.motionEnabled && root.visible && root.bubblesEnabled && !root.bubble2DMode
+            && !(root.powerSaverActive && !root.effectiveNearbyInteraction)
+        paused: running && (!root._windowVisible || root.motionAmount <= 0.001
+            || (root.powerProfile !== "performance" && !root.effectiveNearbyInteraction))
+        from: 0; to: 1; duration: curves.clips.orbit.duration
+        loops: Animation.Infinite
     }
 }

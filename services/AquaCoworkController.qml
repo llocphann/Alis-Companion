@@ -104,7 +104,7 @@ Item {
                     tick.stop()
                 }
             } else {
-                const targetInterval = (v.phase === "loop" && root.quietSettled) ? 160 : (v.phase === "loop" ? 50 : 33)
+                const targetInterval = (v.phase === "loop" ? 50 : 33)
                 if (tick.interval !== targetInterval) tick.interval = targetInterval
                 if (!tick.running) tick.start()
             }
