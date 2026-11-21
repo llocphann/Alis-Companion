@@ -178,6 +178,29 @@ Item {
     readonly property color voiceOnContainerColor: AquaMind.voiceTranscribing ? (Appearance.colors.colOnTertiaryContainer ?? Appearance.colors.colOnPrimaryContainer) : Appearance.colors.colOnPrimaryContainer
     readonly property color voiceLayer1Color: Appearance.colors.colLayer1.a < 0.85 ? (Appearance.colors.colLayer1Base ?? Appearance.colors.colLayer1) : Appearance.colors.colLayer1
     readonly property color voiceLayer2Color: Appearance.colors.colLayer2.a < 0.85 ? (Appearance.colors.colLayer2Base ?? Appearance.colors.colLayer2) : Appearance.colors.colLayer2
+    readonly property color colTonalBase: ColorUtils.applyAlpha(
+        Qt.color(Appearance.colors.colLayer1Base).valid
+            ? Appearance.colors.colLayer1Base
+            : Appearance.colors.colLayer0Base,
+        1.0
+    )
+    readonly property real tonalDir: Qt.color(root.colTonalBase).hslLightness > 0.86 ? -1 : 1
+    readonly property color colBoxSubtle: ColorUtils.applyAlpha(
+        ColorUtils.tonalStep(root.colTonalBase, root.tonalDir * 0.018, 1.04),
+        0.90
+    )
+    readonly property color colBoxLayer: ColorUtils.applyAlpha(
+        ColorUtils.tonalStep(root.colTonalBase, root.tonalDir * 0.026, 1.05),
+        0.92
+    )
+    readonly property color colBoxElevated: ColorUtils.applyAlpha(
+        ColorUtils.tonalStep(root.colTonalBase, root.tonalDir * 0.046, 1.08),
+        0.94
+    )
+    readonly property color colBoxHover: ColorUtils.applyAlpha(
+        ColorUtils.tonalStep(root.colTonalBase, root.tonalDir * 0.068, 1.10),
+        0.95
+    )
     property real voiceWavePhase: 0.0
     Timer {
         id: voiceWaveAnimTimer
@@ -1239,7 +1262,7 @@ Item {
             implicitHeight: 30
             buttonRadius: 15
             toggled: root.sidebarOpen
-            colBackground: Qt.alpha(AbyssStyle.textColor, 0.05)
+            colBackground: root.colBoxLayer
             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.14)
             colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.24)
             colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.32)
@@ -1272,7 +1295,7 @@ Item {
             Layout.preferredHeight: 30
             implicitHeight: 30
             radius: 15
-            color: Qt.alpha(AbyssStyle.textColor, 0.05)
+            color: root.colBoxLayer
             border.width: 1
             border.color: Qt.alpha(AbyssStyle.textColor, 0.09)
             RowLayout {
@@ -1398,7 +1421,7 @@ Item {
             implicitHeight: 30
             buttonRadius: 14
             toggled: AquaMind.conversationPinned
-            colBackground: Qt.alpha(AbyssStyle.textColor, 0.05)
+            colBackground: root.colBoxLayer
             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.16)
             colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.24)
             colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.32)
@@ -1424,7 +1447,7 @@ Item {
             implicitHeight: 30
             buttonRadius: 15
             toggled: root.swarmOpen
-            colBackground: Qt.alpha(AbyssStyle.textColor, 0.05)
+            colBackground: root.colBoxLayer
             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.16)
             colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.24)
             colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.32)
@@ -1650,7 +1673,7 @@ Item {
             height: visible ? implicitHeight : 0
             implicitHeight: chatCheckInCol.implicitHeight + 10
             radius: Math.max(10, Math.min(14, root.edgeRadius - 6))
-            color: Qt.alpha(AbyssStyle.textColor, 0.05)
+            color: root.colBoxLayer
             border.width: 1
             border.color: Qt.alpha(AbyssStyle.textColor, 0.08)
             ColumnLayout {
@@ -1679,7 +1702,7 @@ Item {
                             clip: true
                             buttonRadius: 11
                             toggled: root.activeChatCheckInField === "mood"
-                            colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
+                            colBackground: root.colBoxLayer
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.14)
                             colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
                             colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
@@ -1718,7 +1741,7 @@ Item {
                             clip: true
                             buttonRadius: 11
                             toggled: root.activeChatCheckInField === "energy"
-                            colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
+                            colBackground: root.colBoxLayer
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.14)
                             colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
                             colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
@@ -1757,7 +1780,7 @@ Item {
                             clip: true
                             buttonRadius: 11
                             toggled: root.activeChatCheckInField === "weight"
-                            colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
+                            colBackground: root.colBoxLayer
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.14)
                             colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
                             colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
@@ -1808,7 +1831,7 @@ Item {
                         implicitWidth: 22
                         implicitHeight: 22
                         buttonRadius: 11
-                        colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
+                        colBackground: root.colBoxLayer
                         colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.16)
                         onClicked: AquaMind.openJournal()
                         StyledToolTip {
@@ -1843,7 +1866,7 @@ Item {
                             buttonRadius: 10
                             enabled: !AquaMind.busy
                             toggled: (root.activeChatCheckInField === "energy" ? AquaMind.userEnergy : AquaMind.userMood) === modelData.value
-                            colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
+                            colBackground: root.colBoxLayer
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.14)
                             colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.24)
                             colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.32)
@@ -1889,7 +1912,7 @@ Item {
                         rightPadding: 8
                         background: Rectangle {
                             radius: 9
-                            color: Qt.alpha(AbyssStyle.textColor, 0.06)
+                            color: root.colBoxLayer
                             border.width: 1
                             border.color: chatWeightField.activeFocus ? Qt.alpha(AbyssStyle.accent, 0.6) : Qt.alpha(AbyssStyle.textColor, 0.10)
                         }
@@ -2163,7 +2186,7 @@ Item {
                         height: Math.max(28, measuredTextHeight + imagesRowHeight + bubbleRow.vPad * 2 + actionFooterHeight)
                         x: bubbleRow.fromUser ? Math.max(0, bubbleRow.availableWidth - width) : 0
                         radius: Math.max(10, Math.min(14, root.edgeRadius - 6))
-                        color: bubbleRow.fromUser ? Qt.alpha(AbyssStyle.accent, .14) : Qt.alpha(AbyssStyle.textColor, .06)
+                        color: bubbleRow.fromUser ? Qt.alpha(AbyssStyle.accent, .14) : root.colBoxLayer
                         border.width: 1
                         border.color: String(messageText.selectedText ?? "").length > 0 ? Qt.alpha(AbyssStyle.accent, .48) : (bubbleRow.fromUser ? Qt.alpha(AbyssStyle.accent, .22) : Qt.alpha(AbyssStyle.textColor, .08))
                         opacity: bubbleRow.modelData?.failed === true ? .58 : 1
@@ -2203,7 +2226,7 @@ Item {
                                     height: bubble.thumbH
                                     radius: bubbleRow.fromUser ? 8 : 10
                                     clip: true
-                                    color: Qt.alpha(AbyssStyle.textColor, 0.08)
+                                    color: root.colBoxElevated
                                     border.width: 1
                                     border.color: Qt.alpha(AbyssStyle.accent, 0.28)
                                     Image {
@@ -2520,7 +2543,7 @@ Item {
                             implicitWidth: width
                             implicitHeight: 20
                             buttonRadius: 10
-                            colBackground: Qt.alpha(AbyssStyle.textColor, 0.08)
+                            colBackground: root.colBoxElevated
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.20)
                             onClicked: root.copyTextToClipboard(bubbleRow.firstCodeBlock, bubbleRow.index)
                             contentItem: Item {
@@ -2553,7 +2576,7 @@ Item {
                             implicitWidth: width
                             implicitHeight: 20
                             buttonRadius: 10
-                            colBackground: Qt.alpha(AbyssStyle.textColor, 0.08)
+                            colBackground: root.colBoxElevated
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.20)
                             onClicked: AquaMind.openEditorPopup({
                                 title: "Code Snippet",
@@ -2592,7 +2615,7 @@ Item {
                             implicitWidth: width
                             implicitHeight: 20
                             buttonRadius: 10
-                            colBackground: bubbleRow.rolledBack ? Qt.alpha(AbyssStyle.textColor, 0.06) : Qt.alpha(AbyssStyle.accent, 0.14)
+                            colBackground: bubbleRow.rolledBack ? root.colBoxLayer : Qt.alpha(AbyssStyle.accent, 0.14)
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.26)
                             onClicked: {
                                 if (bubbleRow.receiptId.length > 0 && !bubbleRow.rolledBack) {
@@ -2952,7 +2975,7 @@ Item {
                         implicitHeight: 18
                         radius: 9
                         clip: true
-                        color: AquaMind.activeRoutedRole === "thinking" ? Qt.alpha(AbyssStyle.accent, 0.20) : Qt.alpha(AbyssStyle.textColor, 0.10)
+                        color: AquaMind.activeRoutedRole === "thinking" ? Qt.alpha(AbyssStyle.accent, 0.20) : root.colBoxElevated
                         border.width: 1
                         border.color: AquaMind.activeRoutedRole === "thinking" ? Qt.alpha(AbyssStyle.accent, 0.42) : Qt.alpha(AbyssStyle.textColor, 0.18)
                         HoverHandler {
@@ -3200,7 +3223,7 @@ Item {
                         implicitHeight: 24
                         implicitWidth: 68
                         buttonRadius: 10
-                        colBackground: Qt.alpha(AbyssStyle.textColor, 0.07)
+                        colBackground: root.colBoxElevated
                         colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.16)
                         onClicked: AquaMind.openFileInEditor(AquaMind.editorFilePath, true)
                         StyledToolTip {
@@ -3239,7 +3262,7 @@ Item {
                         implicitWidth: 56
                         buttonRadius: 10
                         enabled: !AquaMind.editorSaving
-                        colBackground: AquaMind.editorDirty ? Qt.alpha(AbyssStyle.accent, 0.24) : Qt.alpha(AbyssStyle.textColor, 0.08)
+                        colBackground: AquaMind.editorDirty ? Qt.alpha(AbyssStyle.accent, 0.24) : root.colBoxElevated
                         colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.34)
                         onClicked: AquaMind.saveEditorPopup()
                         contentItem: StyledText {
@@ -3258,8 +3281,8 @@ Item {
                         implicitHeight: 24
                         implicitWidth: 24
                         buttonRadius: 12
-                        colBackground: Qt.alpha(AbyssStyle.textColor, 0.07)
-                        colBackgroundHover: Qt.alpha(AbyssStyle.textColor, 0.16)
+                        colBackground: root.colBoxElevated
+                        colBackgroundHover: root.colBoxHover
                         onClicked: AquaMind.closeEditorPopup()
                         StyledToolTip {
                             extraVisibleCondition: editorCloseBtn.buttonHovered
@@ -3278,7 +3301,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     radius: 8
-                    color: Qt.alpha(AbyssStyle.textColor, 0.04)
+                    color: root.colBoxSubtle
                     border.width: 1
                     border.color: editorTextArea.activeFocus ? Qt.alpha(AbyssStyle.accent, 0.32) : Qt.alpha(AbyssStyle.textColor, 0.08)
                     clip: true
@@ -3293,7 +3316,7 @@ Item {
                             Layout.preferredWidth: 28
                             Layout.fillHeight: true
                             radius: 5
-                            color: Qt.alpha(AbyssStyle.textColor, 0.03)
+                            color: root.colBoxSubtle
                             clip: true
                             StyledText {
                                 x: 4
@@ -3448,7 +3471,7 @@ Item {
                 Layout.preferredHeight: implicitHeight
                 implicitHeight: Math.round((profilePanel.syncImplicitHeight + 16) * profileSlideProgress)
                 radius: Math.max(10, Math.min(14, root.edgeRadius - 6))
-                color: Qt.alpha(AbyssStyle.textColor, .05)
+                color: root.colBoxLayer
                 border.width: 1
                 border.color: AquaMind.pendingDeleteStage > 0 ? Qt.alpha(Appearance.colors.colError, 0.45) : Qt.alpha(AbyssStyle.textColor, .08)
                 Item {
@@ -3508,8 +3531,8 @@ Item {
                             implicitWidth: 26
                             implicitHeight: 26
                             buttonRadius: 13
-                            colBackground: Qt.alpha(AbyssStyle.textColor, 0.08)
-                            colBackgroundHover: Qt.alpha(AbyssStyle.textColor, 0.16)
+                            colBackground: root.colBoxElevated
+                            colBackgroundHover: root.colBoxHover
                             onClicked: AquaMind.cancelAgentDelete()
                             StyledToolTip {
                                 extraVisibleCondition: cancelDelBtn.buttonHovered
@@ -3554,7 +3577,7 @@ Item {
                                 toggled: isSelected
                                 enabled: !AquaMind.busy
                                 buttonRadius: 10
-                                colBackground: Qt.alpha(AbyssStyle.textColor, 0.08)
+                                colBackground: root.colBoxElevated
                                 colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.16)
                                 colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
                                 colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.28)
@@ -3790,7 +3813,7 @@ Item {
                                 implicitHeight: 20
                                 toggled: !modelPickerPanel.isCustomRoleMode
                                 buttonRadius: 8
-                                colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
+                                colBackground: root.colBoxLayer
                                 colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.14)
                                 colBackgroundToggled: Appearance.colors.colPrimaryContainer
                                 colBackgroundToggledHover: Appearance.colors.colPrimaryContainerHover
@@ -3822,7 +3845,7 @@ Item {
                                 implicitHeight: 20
                                 toggled: modelPickerPanel.isCustomRoleMode
                                 buttonRadius: 8
-                                colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
+                                colBackground: root.colBoxLayer
                                 colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.14)
                                 colBackgroundToggled: Appearance.colors.colPrimaryContainer
                                 colBackgroundToggledHover: Appearance.colors.colPrimaryContainerHover
@@ -3857,7 +3880,7 @@ Item {
                                 implicitWidth: modeHeaderRow.refreshBtnW
                                 enabled: !AquaMind.refreshingModels
                                 buttonRadius: 8
-                                colBackground: Qt.alpha(AbyssStyle.textColor, 0.08)
+                                colBackground: root.colBoxElevated
                                 colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.16)
                                 onClicked: AquaMind.refreshAvailableModels(true)
                                 StyledToolTip {
@@ -3896,7 +3919,7 @@ Item {
                                 implicitHeight: 20
                                 toggled: root.modelPickerRole === "action"
                                 buttonRadius: 8
-                                colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
+                                colBackground: root.colBoxLayer
                                 colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.14)
                                 colBackgroundToggled: Appearance.colors.colPrimaryContainer
                                 colBackgroundToggledHover: Appearance.colors.colPrimaryContainerHover
@@ -3928,7 +3951,7 @@ Item {
                                 implicitHeight: 20
                                 toggled: root.modelPickerRole === "thinking"
                                 buttonRadius: 8
-                                colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
+                                colBackground: root.colBoxLayer
                                 colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.14)
                                 colBackgroundToggled: Appearance.colors.colPrimaryContainer
                                 colBackgroundToggledHover: Appearance.colors.colPrimaryContainerHover
@@ -4088,8 +4111,8 @@ Item {
                             implicitWidth: 22
                             implicitHeight: 22
                             buttonRadius: 11
-                            colBackground: Qt.alpha(AbyssStyle.textColor, 0.07)
-                            colBackgroundHover: Qt.alpha(AbyssStyle.textColor, 0.15)
+                            colBackground: root.colBoxElevated
+                            colBackgroundHover: root.colBoxHover
                             onClicked: AquaMind.dismissClarification()
                             StyledToolTip {
                                 extraVisibleCondition: clarificationDismissBtn.buttonHovered
@@ -4128,7 +4151,7 @@ Item {
                                 height: implicitHeight
                                 enabled: !AquaMind.busy
                                 buttonRadius: 8
-                                colBackground: isRecommended ? Qt.alpha(AbyssStyle.accent, 0.12) : Qt.alpha(AbyssStyle.textColor, 0.05)
+                                colBackground: isRecommended ? Qt.alpha(AbyssStyle.accent, 0.12) : root.colBoxLayer
                                 colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.22)
                                 onClicked: AquaMind.selectClarificationOption(index)
 
@@ -4152,7 +4175,7 @@ Item {
                                         implicitWidth: 18
                                         implicitHeight: 18
                                         radius: 5
-                                        color: clarOptBtn.isRecommended ? AbyssStyle.accent : Qt.alpha(AbyssStyle.textColor, 0.12)
+                                        color: clarOptBtn.isRecommended ? AbyssStyle.accent : root.colBoxElevated
                                         StyledText {
                                             anchors.centerIn: parent
                                             text: String(clarOptBtn.index + 1)
@@ -4240,7 +4263,7 @@ Item {
                             Layout.preferredHeight: 26
                             implicitHeight: 26
                             radius: 8
-                            color: Qt.alpha(AbyssStyle.textColor, 0.05)
+                            color: root.colBoxLayer
                             border.width: 1
                             border.color: clarificationCustomField.activeFocus ? Qt.alpha(AbyssStyle.accent, 0.48) : Qt.alpha(AbyssStyle.textColor, 0.10)
 
@@ -4293,7 +4316,7 @@ Item {
                             implicitHeight: 26
                             buttonRadius: 13
                             enabled: clarificationCustomField.text.trim().length > 0 && !AquaMind.busy
-                            colBackground: enabled ? AbyssStyle.accent : Qt.alpha(AbyssStyle.textColor, 0.08)
+                            colBackground: enabled ? AbyssStyle.accent : root.colBoxElevated
                             colBackgroundHover: Qt.lighter(AbyssStyle.accent, 1.08)
                             onClicked: {
                                 const val = clarificationCustomField.text.trim();
@@ -4458,7 +4481,7 @@ Item {
                 Layout.preferredHeight: implicitHeight
                 implicitHeight: composerContent.height + 10
                 radius: Math.max(12, Math.min(18, root.edgeRadius - 4))
-                color: root.voiceStageActive ? ColorUtils.transparentize(ColorUtils.mix(root.voiceLayer1Color, root.voiceContainerColor, 0.78), 0.08) : Qt.alpha(AbyssStyle.textColor, .05)
+                color: root.voiceStageActive ? ColorUtils.transparentize(ColorUtils.mix(root.voiceLayer1Color, root.voiceContainerColor, 0.78), 0.08) : root.colBoxLayer
                 border.width: 1
                 border.color: chatImageDropArea.containsDrag ? AbyssStyle.accent : (root.voiceStageActive ? ColorUtils.transparentize(root.voiceAccentColor, 0.45) : (root.slashMenuOpen ? Qt.alpha(AbyssStyle.accent, 0.35) : Qt.alpha(AbyssStyle.textColor, .09)))
                 Behavior on color {
@@ -4539,7 +4562,7 @@ Item {
                                         height: 24
                                         radius: 5
                                         clip: true
-                                        color: Qt.alpha(AbyssStyle.textColor, 0.08)
+                                        color: root.colBoxElevated
                                         Image {
                                             anchors.fill: parent
                                             fillMode: Image.PreserveAspectCrop
@@ -4571,7 +4594,7 @@ Item {
                                         implicitWidth: 18
                                         implicitHeight: 18
                                         buttonRadius: 9
-                                        colBackground: Qt.alpha(AbyssStyle.textColor, 0.10)
+                                        colBackground: root.colBoxElevated
                                         colBackgroundHover: Qt.alpha(Appearance.colors.colError, 0.24)
                                         onClicked: AquaMind.removeAttachedImage(imgChip.index)
                                         contentItem: Item {
@@ -4641,7 +4664,7 @@ Item {
                                         implicitWidth: 18
                                         implicitHeight: 18
                                         buttonRadius: 9
-                                        colBackground: Qt.alpha(AbyssStyle.textColor, 0.10)
+                                        colBackground: root.colBoxElevated
                                         colBackgroundHover: Qt.alpha(Appearance.colors.colError, 0.24)
                                         onClicked: AquaMind.removeAttachedFile(fileChip.index)
                                         contentItem: Item {
@@ -4836,7 +4859,7 @@ Item {
                             implicitHeight: 30
                             enabled: !AquaMind.busy
                             buttonRadius: 15
-                            colBackground: (AquaMind.attachedImages.length > 0 || AquaMind.attachedFiles.length > 0) ? Qt.alpha(AbyssStyle.accent, 0.20) : Qt.alpha(AbyssStyle.textColor, 0.08)
+                            colBackground: (AquaMind.attachedImages.length > 0 || AquaMind.attachedFiles.length > 0) ? Qt.alpha(AbyssStyle.accent, 0.20) : root.colBoxElevated
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.24)
                             onClicked: AquaMind.pickAndAttachFile()
                             StyledToolTip {
@@ -4864,7 +4887,7 @@ Item {
                             enabled: !AquaMind.busy && AquaMind.selectableModels.length > 0
                             toggled: root.profileStage === 2
                             buttonRadius: 15
-                            colBackground: root.profileStage === 2 ? Qt.alpha(AbyssStyle.accent, 0.22) : Qt.alpha(AbyssStyle.textColor, 0.08)
+                            colBackground: root.profileStage === 2 ? Qt.alpha(AbyssStyle.accent, 0.22) : root.colBoxElevated
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.24)
                             colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
                             colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
@@ -4918,7 +4941,7 @@ Item {
                             enabled: !AquaMind.busy && AquaMind.thinkingSupported
                             toggled: root.profileStage === 1
                             buttonRadius: 15
-                            colBackground: root.profileStage === 1 ? Qt.alpha(AbyssStyle.accent, 0.22) : Qt.alpha(AbyssStyle.textColor, 0.08)
+                            colBackground: root.profileStage === 1 ? Qt.alpha(AbyssStyle.accent, 0.22) : root.colBoxElevated
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.24)
                             colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.22)
                             colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.30)
@@ -4974,7 +4997,7 @@ Item {
                             enabled: !AquaMind.busy
                             toggled: root.voiceStageActive
                             buttonRadius: 14
-                            colBackground: root.voiceStageActive ? ColorUtils.transparentize(root.voiceContainerColor, 0.15) : Qt.alpha(AbyssStyle.textColor, 0.08)
+                            colBackground: root.voiceStageActive ? ColorUtils.transparentize(root.voiceContainerColor, 0.15) : root.colBoxElevated
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.24)
                             colBackgroundToggled: ColorUtils.transparentize(root.voiceContainerColor, 0.15)
                             colBackgroundToggledHover: Appearance.colors.colPrimaryContainerHover

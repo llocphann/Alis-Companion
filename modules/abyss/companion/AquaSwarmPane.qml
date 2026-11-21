@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import qs.services
 import "../../../services"
 import qs.modules.common
+import qs.modules.common.functions
 import qs.modules.common.widgets
 import qs.modules.abyss.looks
 
@@ -20,6 +21,25 @@ Item {
     signal prefillChatRequested(string text)
 
     readonly property bool hovered: root.visible && swarmHover.hovered
+    readonly property color colTonalBase: ColorUtils.applyAlpha(
+        Qt.color(Appearance.colors.colLayer1Base).valid
+            ? Appearance.colors.colLayer1Base
+            : Appearance.colors.colLayer0Base,
+        1.0
+    )
+    readonly property real tonalDir: Qt.color(root.colTonalBase).hslLightness > 0.86 ? -1 : 1
+    readonly property color colBoxSubtle: ColorUtils.applyAlpha(
+        ColorUtils.tonalStep(root.colTonalBase, root.tonalDir * 0.018, 1.04),
+        0.90
+    )
+    readonly property color colBoxLayer: ColorUtils.applyAlpha(
+        ColorUtils.tonalStep(root.colTonalBase, root.tonalDir * 0.026, 1.05),
+        0.92
+    )
+    readonly property color colBoxElevated: ColorUtils.applyAlpha(
+        ColorUtils.tonalStep(root.colTonalBase, root.tonalDir * 0.046, 1.08),
+        0.94
+    )
     readonly property bool hasActiveInputFocus: false
     readonly property string swarmStatus: String(AquaMind.swarmState?.status ?? "idle")
     readonly property string swarmTitle: String(AquaMind.swarmState?.title ?? "Companion Swarm")
@@ -124,7 +144,7 @@ Item {
             Layout.preferredHeight: headerInnerCol.implicitHeight + 12
             implicitHeight: headerInnerCol.implicitHeight + 12
             radius: 12
-            color: Qt.alpha(AbyssStyle.textColor, 0.04)
+            color: root.colBoxSubtle
             border.width: 1
             border.color: Qt.alpha(AbyssStyle.textColor, 0.08)
 
@@ -218,7 +238,7 @@ Item {
                         topPadding: 0
                         bottomPadding: 0
                         buttonRadius: 12
-                        colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
+                        colBackground: root.colBoxLayer
                         colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.16)
                         onClicked: {
                             root.selectedNodeId = "coordinator";
@@ -246,7 +266,7 @@ Item {
                     Layout.preferredHeight: 26
                     implicitHeight: 26
                     radius: 13
-                    color: Qt.alpha(AbyssStyle.textColor, 0.05)
+                    color: root.colBoxLayer
                     border.width: 1
                     border.color: Qt.alpha(AbyssStyle.textColor, 0.08)
 
@@ -419,7 +439,7 @@ Item {
                         readonly property bool isUser: postKind === "user"
                         color: isSynthesis
                             ? Qt.alpha(AbyssStyle.accent, 0.11)
-                            : (isUser ? Qt.alpha(AbyssStyle.textColor, 0.08) : Qt.alpha(AbyssStyle.textColor, 0.04))
+                            : (isUser ? root.colBoxElevated : root.colBoxSubtle)
                         border.width: 1
                         border.color: isSynthesis ? Qt.alpha(AbyssStyle.accent, 0.32) : Qt.alpha(AbyssStyle.textColor, 0.08)
 
@@ -517,7 +537,7 @@ Item {
                     implicitHeight: memberCol.implicitHeight + 16
                     height: implicitHeight
                     radius: 11
-                    color: memberStatus === "working" ? Qt.alpha(AbyssStyle.accent, 0.10) : Qt.alpha(AbyssStyle.textColor, 0.04)
+                    color: memberStatus === "working" ? Qt.alpha(AbyssStyle.accent, 0.10) : root.colBoxSubtle
                     border.width: 1
                     border.color: memberStatus === "working" ? Qt.alpha(AbyssStyle.accent, 0.38) : Qt.alpha(AbyssStyle.textColor, 0.08)
 
@@ -557,7 +577,7 @@ Item {
                                 implicitHeight: 18
                                 implicitWidth: roLabel.implicitWidth + 8
                                 radius: 9
-                                color: Qt.alpha(AbyssStyle.textColor, 0.07)
+                                color: root.colBoxElevated
                                 StyledText {
                                     id: roLabel
                                     anchors.centerIn: parent
@@ -619,7 +639,7 @@ Item {
                                 topPadding: 0
                                 bottomPadding: 0
                                 buttonRadius: 11
-                                colBackground: Qt.alpha(AbyssStyle.textColor, 0.06)
+                                colBackground: root.colBoxLayer
                                 colBackgroundHover: Qt.alpha(Appearance.colors.colError, 0.20)
                                 onClicked: AquaMind.removeSwarmMember(memberCard.memberId)
                                 contentItem: Item {
@@ -665,7 +685,7 @@ Item {
                 Layout.fillWidth: true
                 implicitHeight: addWorkerCol.implicitHeight + 14
                 radius: 12
-                color: Qt.alpha(AbyssStyle.textColor, 0.04)
+                color: root.colBoxSubtle
                 border.width: 1
                 border.color: Qt.alpha(AbyssStyle.textColor, 0.09)
 
@@ -696,7 +716,7 @@ Item {
                                 bottomPadding: 0
                                 buttonRadius: 11
                                 toggled: chosen
-                                colBackground: Qt.alpha(AbyssStyle.textColor, 0.05)
+                                colBackground: root.colBoxLayer
                                 colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.14)
                                 colBackgroundToggled: Qt.alpha(AbyssStyle.accent, 0.24)
                                 colBackgroundToggledHover: Qt.alpha(AbyssStyle.accent, 0.32)
@@ -781,7 +801,7 @@ Item {
                 Layout.fillHeight: true
                 radius: 12
                 clip: true
-                color: Qt.alpha(AbyssStyle.textColor, 0.03)
+                color: root.colBoxSubtle
                 border.width: 1
                 border.color: Qt.alpha(AbyssStyle.textColor, 0.08)
 
@@ -941,7 +961,7 @@ Item {
                 visible: root.selectedNodeObj !== null
                 implicitHeight: inspectorCol.implicitHeight + 14
                 radius: 11
-                color: Qt.alpha(AbyssStyle.textColor, 0.04)
+                color: root.colBoxSubtle
                 border.width: 1
                 border.color: Qt.alpha(AbyssStyle.textColor, 0.09)
 

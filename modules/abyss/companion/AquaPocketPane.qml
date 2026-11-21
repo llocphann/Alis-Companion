@@ -6,6 +6,7 @@ import Quickshell
 import qs.services
 import "../../../services"
 import qs.modules.common
+import qs.modules.common.functions
 import qs.modules.common.widgets
 import qs.modules.abyss.looks
 import qs.modules.settings
@@ -23,6 +24,21 @@ Item {
             AquaPocket.close()
     }
     readonly property bool hovered: root.visible && pocketPaneHover.hovered
+    readonly property color colTonalBase: ColorUtils.applyAlpha(
+        Qt.color(Appearance.colors.colLayer1Base).valid
+            ? Appearance.colors.colLayer1Base
+            : Appearance.colors.colLayer0Base,
+        1.0
+    )
+    readonly property real tonalDir: Qt.color(root.colTonalBase).hslLightness > 0.86 ? -1 : 1
+    readonly property color colBoxLayer: ColorUtils.applyAlpha(
+        ColorUtils.tonalStep(root.colTonalBase, root.tonalDir * 0.026, 1.05),
+        0.92
+    )
+    readonly property color colBoxBorder: ColorUtils.applyAlpha(
+        ColorUtils.tonalStep(root.colTonalBase, root.tonalDir * 0.22, 1.10),
+        0.14
+    )
     implicitHeight: layoutCol.implicitHeight
     focus:true
     Component.onCompleted: Qt.callLater(() => { if (root.visible) root.forceActiveFocus() })
@@ -162,9 +178,9 @@ Item {
                 width:list.width
                 height:40
                 radius:10
-                color:Qt.alpha(AbyssStyle.textColor, 0.05)
+                color:root.colBoxLayer
                 border.width:1
-                border.color:Qt.alpha(AbyssStyle.textColor, 0.08)
+                border.color:root.colBoxBorder
                 RowLayout {
                     anchors.fill:parent
                     anchors.leftMargin:8
