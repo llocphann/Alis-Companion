@@ -13,7 +13,7 @@ import sys
 import tempfile
 import time
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(os.environ.get("ALIS_COMPANION_SOURCE", str(Path(__file__).resolve().parents[1]))).resolve()
 HOST = Path(os.environ.get("ALIS_ROOT") or (ROOT.parent / "Alis")).resolve()
 SCRIPTS_AQUA = ROOT / "scripts" / "aqua"
 if str(SCRIPTS_AQUA) not in sys.path:

@@ -14,7 +14,11 @@ import sys
 import tempfile
 import threading
 
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from aqua_png_stdlib import Image
 
 ROOT = Path(os.environ.get("ALIS_COMPANION_SOURCE", Path(__file__).resolve().parents[1])).resolve()
 ALIS_ROOT = Path(os.environ.get("ALIS_ROOT") or (ROOT.parent / "Alis")).resolve()

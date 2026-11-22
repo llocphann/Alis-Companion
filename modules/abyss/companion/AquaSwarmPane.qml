@@ -118,6 +118,17 @@ Item {
         root.prefillChatRequested("/swarm @" + mid + " ");
     }
 
+    function retryNodeOnBoard(memberId, taskText): void {
+        const mid = String(memberId ?? "").trim();
+        if (!mid)
+            return;
+        const cleanTask = String(taskText ?? "").trim().slice(0, 180);
+        root.activeSubTab = "board";
+        root.prefillChatRequested("/swarm @" + mid + " Retry" + (cleanTask ? (": " + cleanTask) : ""));
+    }
+
+    property bool swarmPaused: false
+
     Component.onCompleted: {
         AquaMind.refreshSwarmState();
     }
@@ -193,6 +204,46 @@ Item {
                         font.pixelSize: Appearance.font.pixelSize.smaller
                         font.weight: Font.DemiBold
                         color: AbyssStyle.textColor
+                    }
+
+                    RippleButton {
+                        id: pauseResumeSwarmBtn
+                        objectName: "aquaSwarmPauseResumeButton"
+                        visible: AquaMind.swarmBusy || root.swarmPaused || root.swarmStatus === "stopped"
+                        Layout.preferredWidth: 24
+                        Layout.preferredHeight: 24
+                        implicitWidth: 24
+                        implicitHeight: 24
+                        leftPadding: 0
+                        rightPadding: 0
+                        topPadding: 0
+                        bottomPadding: 0
+                        buttonRadius: 12
+                        focusPolicy: Qt.NoFocus
+                        colBackground: Qt.alpha(AbyssStyle.accent, 0.16)
+                        colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.28)
+                        onClicked: {
+                            if (AquaMind.swarmBusy) {
+                                root.swarmPaused = true;
+                                AquaMind.stopSwarm();
+                            } else {
+                                root.swarmPaused = false;
+                                const g = root.swarmGoal.trim();
+                                root.prefillChatRequested(g ? ("/swarm " + g) : "/swarm ");
+                            }
+                        }
+                        StyledToolTip {
+                            extraVisibleCondition: pauseResumeSwarmBtn.buttonHovered
+                            text: AquaMind.swarmBusy ? "Pause /swarm" : "Resume /swarm"
+                        }
+                        contentItem: Item {
+                            MaterialSymbol {
+                                anchors.centerIn: parent
+                                text: AquaMind.swarmBusy ? "pause_circle" : "play_circle"
+                                iconSize: 14
+                                color: AbyssStyle.accent
+                            }
+                        }
                     }
 
                     RippleButton {
@@ -988,6 +1039,38 @@ Item {
                             elide: Text.ElideRight
                             font.pixelSize: Appearance.font.pixelSize.smallest
                             color: Appearance.colors.colSubtext
+                        }
+                        RippleButton {
+                            objectName: "aquaSwarmRetryNodeButton"
+                            visible: String(root.selectedNodeObj?.id ?? "") !== "coordinator"
+                            implicitHeight: 22
+                            implicitWidth: retryWorkerLabel.implicitWidth + 14
+                            width: implicitWidth
+                            height: 22
+                            leftPadding: 0
+                            rightPadding: 0
+                            topPadding: 0
+                            bottomPadding: 0
+                            buttonRadius: 11
+                            focusPolicy: Qt.NoFocus
+                            colBackground: root.colBoxLayer
+                            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.20)
+                            onClicked: root.retryNodeOnBoard(
+                                String(root.selectedNodeObj?.id ?? ""),
+                                String(root.selectedNodeObj?.task ?? "")
+                            )
+                            contentItem: Item {
+                                StyledText {
+                                    id: retryWorkerLabel
+                                    anchors.centerIn: parent
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    text: "Retry"
+                                    font.pixelSize: Appearance.font.pixelSize.smallest - 1
+                                    font.weight: Font.DemiBold
+                                    color: AbyssStyle.textColor
+                                }
+                            }
                         }
                         RippleButton {
                             visible: String(root.selectedNodeObj?.id ?? "") !== "coordinator"

@@ -216,6 +216,7 @@ class Phase2RuntimeTests(unittest.TestCase):
                         assert chat_proc.stdin is not None
                         chat_proc.stdin.write(json.dumps(chat_req) + "\n")
                         chat_proc.stdin.close()
+                        chat_proc.stdin = None
 
                         self.assertTrue(server_started.wait(timeout=5.0), "Slow SSE server never received daemon call")
                         time.sleep(0.15)

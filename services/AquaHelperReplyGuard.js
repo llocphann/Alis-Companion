@@ -31,7 +31,9 @@ function history(result) {
             && integer(row.createdMs, 0, Number.MAX_SAFE_INTEGER)
             && string(row.model, 160, true)
             && (row.interrupted === undefined || typeof row.interrupted === "boolean")
-            && (row.stopReason === undefined || string(row.stopReason, 64, true)))
+            && (row.stopReason === undefined || string(row.stopReason, 64, true))
+            && (row.spokenText === undefined || string(row.spokenText, 2400, true))
+            && (row.uiSurface === undefined || (object(row.uiSurface) && row.uiSurface.version === "1.0" && object(row.uiSurface.createSurface))))
 }
 
 function context(result) {
@@ -156,6 +158,12 @@ function validResult(action, result) {
         && string(result.intent, 64, false)
         && ["vi", "en"].includes(result.language)
         && (!result.handled || (string(result.text, 16000, false) && string(result.status, 64, false)))
+    if (action === "a2ui_action") return typeof result.ok === "boolean"
+        && result.op === "a2ui_action"
+        && string(result.eventName, 64, false)
+        && (result.surfaceId === undefined || string(result.surfaceId, 96, true))
+        && (result.dataPatch === undefined || (Array.isArray(result.dataPatch) && result.dataPatch.length <= 32))
+        && (result.text === undefined || string(result.text, 6000, true))
     if (action === "agent_cancel") return result.cancelled === true && Array.isArray(result.cancelledRunIds)
     if (action === "agent_permissions") return integer(result.schemaVersion, 1, 10)
         && typeof result.networkAllowed === "boolean"
@@ -231,7 +239,7 @@ function validResult(action, result) {
 function invalid() { return {ok:false, malformed:true, error:{message:invalidMessage}} }
 
 function parse(action, raw, exitCode) {
-    if (typeof raw !== "string" || raw.length > (["memory_list", "agent_file_op", "file_receipt_rollback", "read_spill", "context_enqueue", "context_drain", "primary_selection_get", "export_finetune", "pocket_save_item", "agent_turn", "rag_action", "mcp_action", "skill_action", "swarm_action", "agent_status", "chat_threads", "history", "history_append", "history_append_cancelled", "history_clear"].includes(action) ? 786432 : 32768) || exitCode !== 0) return invalid()
+    if (typeof raw !== "string" || raw.length > (["memory_list", "agent_file_op", "file_receipt_rollback", "read_spill", "context_enqueue", "context_drain", "primary_selection_get", "export_finetune", "pocket_save_item", "agent_turn", "a2ui_action", "rag_action", "mcp_action", "skill_action", "swarm_action", "agent_status", "chat_threads", "history", "history_append", "history_append_cancelled", "history_clear"].includes(action) ? 786432 : 32768) || exitCode !== 0) return invalid()
     const cleaned = raw.indexOf("__AQUA_") !== -1
         ? raw.split("\n").filter(ln => !ln.startsWith("__AQUA_CURSOR__:") && !ln.startsWith("__AQUA_STEP__:") && !ln.startsWith("__AQUA_SWARM__:") && !ln.startsWith("__AQUA_PROGRESS__:")).join("\n")
         : raw

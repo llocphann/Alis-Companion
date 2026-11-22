@@ -33,6 +33,8 @@ TOOL_CATEGORIES = frozenset((
     "preference_edit",
 ))
 TRUSTED_GRANT_SOURCES = frozenset(("user_prompt", "settings_ui", "legacy_migration"))
+TRUSTED_CONFIRM_SOURCES = TRUSTED_GRANT_SOURCES | frozenset(("a2ui_confirm",))
+TRUSTED_CANCEL_ONLY_SOURCES = frozenset(("thread_switch",))
 
 
 class AgentPermissionError(Exception):
@@ -582,7 +584,7 @@ def check_permission(
 
 def grant_permission(scope_type, target="", levels=None, ttl_ms=0, source="user_prompt", now_ms=None):
     ts = _now_ms(now_ms)
-    if source not in TRUSTED_GRANT_SOURCES:
+    if source not in TRUSTED_CONFIRM_SOURCES:
         raise AgentPermissionError("untrusted_grant_source", "Untrusted content cannot grant or modify permissions.")
     state = load_state(ts)
     expires = (ts + int(ttl_ms)) if isinstance(ttl_ms, int) and ttl_ms > 0 else 0
@@ -717,11 +719,13 @@ def create_pending_confirmation(action_kind, target_path, summary, payload=None,
 
 def resolve_pending_confirmation(confirm_id="", decision="confirm", source="user_prompt", now_ms=None):
     ts = _now_ms(now_ms)
-    if source not in TRUSTED_GRANT_SOURCES:
+    allow_cancel_only = (decision == "cancel" and source in TRUSTED_CANCEL_ONLY_SOURCES)
+    if source not in TRUSTED_CONFIRM_SOURCES and not allow_cancel_only:
         raise AgentPermissionError("untrusted_confirmation", "Untrusted data cannot confirm pending actions.")
     state = load_state(ts)
     pending = state.get("pendingConfirmations", [])
     matched = None
+    cancel_all = bool(allow_cancel_only and not confirm_id)
     for item in reversed(pending):
         if item.get("status") != "pending":
             continue
@@ -730,13 +734,20 @@ def resolve_pending_confirmation(confirm_id="", decision="confirm", source="user
         if int(item.get("expiresAtMs", 0)) <= ts:
             item["status"] = "expired"
             continue
+        if cancel_all:
+            item["status"] = "cancelled"
+            item["resolvedAtMs"] = ts
+            if matched is None:
+                matched = item
+            continue
         matched = item
         break
     if not matched:
         save_state(state)
         return None
-    matched["status"] = "confirmed" if decision == "confirm" else "cancelled"
-    matched["resolvedAtMs"] = ts
+    if not cancel_all:
+        matched["status"] = "confirmed" if decision == "confirm" else "cancelled"
+        matched["resolvedAtMs"] = ts
     state["updatedAtMs"] = ts
     save_state(state)
     return matched

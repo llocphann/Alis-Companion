@@ -94,10 +94,11 @@ def probe_live_context_window(endpoint: str, model: str = "", timeout_sec: float
             return cached[1]
 
     detected: int | None = None
+    _local_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     # 1. LM Studio native REST endpoint (/api/v0/models)
     try:
         req = urllib.request.Request(f"{origin}/api/v0/models", headers={"Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+        with _local_opener.open(req, timeout=timeout_sec) as resp:
             payload = json.loads(resp.read().decode("utf-8", errors="replace"))
         entries = payload.get("data") if isinstance(payload, dict) else (payload if isinstance(payload, list) else [])
         matched = None
@@ -131,7 +132,7 @@ def probe_live_context_window(endpoint: str, model: str = "", timeout_sec: float
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+            with _local_opener.open(req, timeout=timeout_sec) as resp:
                 show_data = json.loads(resp.read().decode("utf-8", errors="replace"))
             if isinstance(show_data, dict):
                 mi = show_data.get("model_info") if isinstance(show_data.get("model_info"), dict) else {}

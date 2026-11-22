@@ -566,6 +566,8 @@ def manage_desktop(action: str, target: str = "", value: str = "") -> dict:
         }
 
     if act == "brightness":
+        import native_host_bridge
+
         bctl = _resolve_safe_session_binary("brightnessctl")
         norm_val = val.lower()
         if norm_val == "up":
@@ -579,39 +581,91 @@ def manage_desktop(action: str, target: str = "", value: str = "") -> dict:
         else:
             b_val = val
         if bctl:
+            set_ok = True
             if b_val:
-                run_user_command([bctl, "set", b_val], shell=False, timeout_sec=4.0)
+                ran_set = run_user_command([bctl, "set", b_val], shell=False, timeout_sec=4.0)
+                set_ok = ran_set["exitCode"] == 0
             cur = run_user_command([bctl, "info", "-m"], shell=False, timeout_sec=4.0)
-            b_line = cur["lines"][0] if cur["lines"] else "Brightness updated"
+            b_line = cur["lines"][0] if cur["lines"] else ("Brightness updated" if set_ok else "Brightness command failed")
             return {
+                "ok": set_ok,
+                "action": "brightness",
+                "status": "completed" if set_ok else "failed",
+                "value": b_val or norm_val or "status",
+                "backend": "brightnessctl",
+                "summary": f"Screen brightness: {b_line}" if set_ok else f"Failed to adjust brightness: {b_line}",
+                "lines": [b_line],
+            }
+        # Route natively to Alis's Rust `alis-native backlight`
+        if b_val:
+            ok_set, set_detail = native_host_bridge.backlight_set(b_val)
+            if not ok_set:
+                return {
+                    "ok": False,
+                    "action": "brightness",
+                    "status": "failed",
+                    "error": "backlight_unavailable",
+                    "value": b_val or norm_val or "status",
+                    "summary": f"Brightness control unavailable or failed ({set_detail}).",
+                    "lines": [],
+                }
+        ok_get, _cur_v, _max_v, _pct_v, b_label = native_host_bridge.backlight_get()
+        if ok_get:
+            return {
+                "ok": True,
                 "action": "brightness",
                 "status": "completed",
                 "value": b_val or norm_val or "status",
-                "summary": f"Screen brightness: {b_line}",
-                "lines": [b_line],
+                "backend": "alis-native",
+                "summary": f"Screen brightness: {b_label}",
+                "lines": [f"Brightness: {b_label}"],
             }
         return {
+            "ok": False,
             "action": "brightness",
-            "status": "completed",
+            "status": "failed",
+            "error": "backlight_unavailable",
             "value": b_val or norm_val or "status",
-            "summary": f"Brightness request ({b_val or norm_val or 'status'}).",
-            "lines": [f"Brightness: 50% ({b_val or norm_val or 'status'})"],
+            "summary": "Screen brightness control unavailable (no native backlight or brightnessctl backend available).",
+            "lines": [],
         }
 
     if act == "media":
+        import native_host_bridge
+
+        sub = val if val in ("play", "pause", "play-pause", "next", "previous", "stop", "status") else "play-pause"
         pctl = _resolve_safe_session_binary("playerctl")
         if pctl:
-            sub = val if val in ("play", "pause", "play-pause", "next", "previous", "stop", "status") else "play-pause"
             ran = run_user_command([pctl, sub], shell=False, timeout_sec=4.0)
+            ok_p = ran["exitCode"] == 0
             meta = run_user_command([pctl, "metadata", "--format", "{{Status}}: {{artist}} - {{title}}"], shell=False, timeout_sec=4.0)
             m_line = meta["lines"][0] if meta["lines"] else (ran["lines"][0] if ran["lines"] else f"Media {sub}")
             return {
+                "ok": ok_p,
                 "action": "media",
-                "status": "completed",
-                "summary": f"Media control ({sub}): {m_line}",
+                "status": "completed" if ok_p else "failed",
+                "backend": "playerctl",
+                "summary": f"Media control ({sub}): {m_line}" if ok_p else f"Media control failed ({sub}): {m_line}",
                 "lines": [m_line],
             }
-        return {"action": "media", "status": "completed", "summary": f"Media action ({val or 'play-pause'}).", "lines": []}
+        ok_mpris, mpris_line, _mpris_meta = native_host_bridge.mpris_media_control(sub)
+        if ok_mpris:
+            return {
+                "ok": True,
+                "action": "media",
+                "status": "completed",
+                "backend": "mpris-dbus",
+                "summary": f"Media control ({sub}): {mpris_line}",
+                "lines": [mpris_line],
+            }
+        return {
+            "ok": False,
+            "action": "media",
+            "status": "failed",
+            "error": "media_player_unavailable",
+            "summary": mpris_line or f"Media action ({sub}) failed: no active MPRIS player or playerctl available.",
+            "lines": [],
+        }
 
     if act == "clipboard_get":
         return clipboard_get()
@@ -620,21 +674,47 @@ def manage_desktop(action: str, target: str = "", value: str = "") -> dict:
         return primary_selection_get()
 
     if act == "clipboard_set":
+        import native_host_bridge
+
         wl_copy = _resolve_safe_session_binary("wl-copy")
         if wl_copy and os.environ.get("WAYLAND_DISPLAY"):
-            proc = subprocess.Popen(
-                [wl_copy],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            proc.communicate(input=val.encode("utf-8"), timeout=3.0)
+            try:
+                proc = subprocess.Popen(
+                    [wl_copy],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                proc.communicate(input=val.encode("utf-8"), timeout=3.0)
+                if proc.returncode == 0:
+                    return {
+                        "ok": True,
+                        "action": "clipboard_set",
+                        "status": "completed",
+                        "backend": "wl-copy",
+                        "summary": f"Copied {len(val)} character(s) to clipboard.",
+                        "lines": [val[:180]],
+                    }
+            except Exception:
+                pass
+        ok_clip, clip_detail = native_host_bridge.clipboard_copy(val)
+        if ok_clip:
+            return {
+                "ok": True,
+                "action": "clipboard_set",
+                "status": "completed",
+                "backend": "alis-native",
+                "summary": f"Copied {len(val)} character(s) to clipboard.",
+                "lines": [val[:180]],
+            }
         return {
+            "ok": False,
             "action": "clipboard_set",
-            "status": "completed",
-            "summary": f"Copied {len(val)} character(s) to clipboard.",
-            "lines": [val[:180]],
+            "status": "failed",
+            "error": "clipboard_unavailable",
+            "summary": f"Clipboard copy failed ({clip_detail}).",
+            "lines": [],
         }
 
     if act == "notify":
@@ -1568,7 +1648,9 @@ def voice_stt(audio_path: str = "", duration_sec: float = 4.0, lang: str = "auto
 
 
 def clipboard_get() -> dict:
-    """Read current system clipboard text via Wayland wl-paste or X11 xclip."""
+    """Read current system clipboard text via Wayland alis-native / wl-paste or X11 xclip."""
+    import native_host_bridge
+
     is_mocked = (
         getattr(subprocess.run, "__module__", "") != "subprocess"
         or getattr(shutil.which, "__module__", "") != "shutil"
@@ -1589,6 +1671,7 @@ def clipboard_get() -> dict:
                     "ok": True,
                     "action": "clipboard_get",
                     "status": "completed",
+                    "backend": "wl-paste",
                     "text": text,
                     "source": "clipboard",
                     "summary": f"Clipboard content ({len(text)} chars):",
@@ -1596,6 +1679,20 @@ def clipboard_get() -> dict:
                 }
         except Exception:
             pass
+    if not is_mocked and os.environ.get("WAYLAND_DISPLAY"):
+        ok_native, native_txt = native_host_bridge.clipboard_paste(primary=False)
+        if ok_native:
+            text = str(native_txt or "")[:2000]
+            return {
+                "ok": True,
+                "action": "clipboard_get",
+                "status": "completed",
+                "backend": "alis-native",
+                "text": text,
+                "source": "clipboard",
+                "summary": f"Clipboard content ({len(text)} chars):",
+                "lines": [ln[:200] for ln in text.splitlines()[:25]] or ["(clipboard is empty)"],
+            }
     xclip = shutil.which("xclip") if is_mocked else _resolve_safe_session_binary("xclip")
     if xclip and (os.environ.get("DISPLAY") or is_mocked):
         try:
@@ -1612,6 +1709,7 @@ def clipboard_get() -> dict:
                     "ok": True,
                     "action": "clipboard_get",
                     "status": "completed",
+                    "backend": "xclip",
                     "text": text,
                     "source": "clipboard",
                     "summary": f"Clipboard content ({len(text)} chars):",
@@ -1620,18 +1718,21 @@ def clipboard_get() -> dict:
         except Exception:
             pass
     return {
-        "ok": True,
+        "ok": False,
         "action": "clipboard_get",
-        "status": "completed",
+        "status": "failed",
+        "error": "clipboard_unavailable",
         "text": "",
         "source": "clipboard",
-        "summary": "Clipboard inspected.",
-        "lines": ["(empty)"],
+        "summary": "Clipboard unavailable (no active Wayland/X11 clipboard backend responded).",
+        "lines": [],
     }
 
 
 def primary_selection_get() -> dict:
     """Read highlighted text from Wayland/X11 primary selection without requiring Ctrl+C, falling back to clipboard."""
+    import native_host_bridge
+
     is_mocked = (
         getattr(subprocess.run, "__module__", "") != "subprocess"
         or getattr(shutil.which, "__module__", "") != "shutil"
@@ -1652,6 +1753,7 @@ def primary_selection_get() -> dict:
                     "ok": True,
                     "action": "primary_selection_get",
                     "status": "completed",
+                    "backend": "wl-paste",
                     "text": text,
                     "source": "primary",
                     "summary": f"Primary selection ({len(text)} chars):",
@@ -1659,6 +1761,20 @@ def primary_selection_get() -> dict:
                 }
         except Exception:
             pass
+    if not is_mocked and os.environ.get("WAYLAND_DISPLAY"):
+        ok_native, native_txt = native_host_bridge.clipboard_paste(primary=True)
+        if ok_native and native_txt.strip():
+            text = native_txt.strip()[:4000]
+            return {
+                "ok": True,
+                "action": "primary_selection_get",
+                "status": "completed",
+                "backend": "alis-native",
+                "text": text,
+                "source": "primary",
+                "summary": f"Primary selection ({len(text)} chars):",
+                "lines": [ln[:200] for ln in text.splitlines()[:25]],
+            }
     xclip = shutil.which("xclip") if is_mocked else _resolve_safe_session_binary("xclip")
     if xclip and (os.environ.get("DISPLAY") or is_mocked):
         try:
@@ -1675,6 +1791,7 @@ def primary_selection_get() -> dict:
                     "ok": True,
                     "action": "primary_selection_get",
                     "status": "completed",
+                    "backend": "xclip",
                     "text": text,
                     "source": "primary",
                     "summary": f"Primary selection ({len(text)} chars):",

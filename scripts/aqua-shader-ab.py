@@ -211,7 +211,12 @@ def rgba_difference(before, after):
 
 
 def compare_pngs(output, samples):
-    from PIL import Image
+    try:
+        from PIL import Image
+    except ImportError:
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from aqua_png_stdlib import Image
     results = []
     for index, sample in enumerate(samples):
         images = {}
@@ -309,7 +314,12 @@ def main():
     if not os.environ.get('WAYLAND_DISPLAY') or not os.environ.get('XDG_RUNTIME_DIR'):
         parser.error('real Wayland session required; no false GPU PASS on software/offscreen')
     try:
-        from PIL import Image  # noqa: F401 - fail before allocating the evidence directory
+        try:
+            from PIL import Image  # noqa: F401
+        except ImportError:
+            import sys as _sys
+            _sys.path.insert(0, str(Path(__file__).resolve().parent))
+            from aqua_png_stdlib import Image  # noqa: F401
     except ImportError:
         parser.error('Python Pillow is required for RGBA validation')
     quickshell = shutil.which('qs') or shutil.which('quickshell')

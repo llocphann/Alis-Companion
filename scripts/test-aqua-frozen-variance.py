@@ -4,8 +4,13 @@ import copy
 import importlib.util
 import json
 from pathlib import Path
+import sys
 import tempfile
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from aqua_png_stdlib import Image
 
 spec=importlib.util.spec_from_file_location('frozen',Path(__file__).with_name('aqua-frozen-variance.py'))
 api=importlib.util.module_from_spec(spec);spec.loader.exec_module(api)

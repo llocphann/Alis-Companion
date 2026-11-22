@@ -699,6 +699,7 @@ def test_upgrade_4_cancelled_stream_prefix_finalize_and_legacy_history(tmp_root:
         "messages": [{"role": "user", "content": "Wrap test"}],
     }) + "\n")
     proc.stdin.close()
+    proc.stdin = None
 
     collected_lines: list[str] = []
     while True:

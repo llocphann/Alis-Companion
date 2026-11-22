@@ -1695,22 +1695,45 @@ def _execute_curated_tool(
             url = str(arguments.get("url") or arguments.get("target") or "").strip()
             selector = str(arguments.get("selector") or "document.body").strip()
             expr = str(arguments.get("expression") or arguments.get("query") or "").strip()
+            cdp_targets: list[dict] = []
+            try:
+                import native_host_bridge
+
+                if not native_host_bridge.is_test_or_isolated_env():
+                    cdp_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                    with cdp_opener.open("http://127.0.0.1:9222/json/list", timeout=0.6) as resp:
+                        raw_t = json.loads(resp.read(65536).decode("utf-8", errors="replace"))
+                        if isinstance(raw_t, list):
+                            cdp_targets = [t for t in raw_t if isinstance(t, dict)][:10]
+            except Exception:
+                cdp_targets = []
             if url:
                 from web_tools import WebToolError, fetch_url_excerpt
                 try:
                     fetched = fetch_url_excerpt(url)
-                    text = f"DevTools {tool_name} ({url}): {fetched.get('title') or 'OK'}\n" + "\n".join(fetched.get("lines", [])[:10])
+                    text = (
+                        f"DevTools {tool_name} ({url}) [HTTP HTML fallback; CDP={'connected' if cdp_targets else 'unavailable'}]: "
+                        f"{fetched.get('title') or 'OK'}\n" + "\n".join(fetched.get("lines", [])[:10])
+                    )
                 except WebToolError as exc:
                     text = f"DevTools {tool_name} ({url}): {exc.message}"
             else:
                 from screen_context import observe_active_window
                 obs = observe_active_window(allow_screenshot=False)
-                text = f"DevTools {tool_name} on active window '{obs.get('packageId', 'browser')}' (selector={selector}, expr={expr or 'none'})"
+                if cdp_targets:
+                    tabs_txt = ", ".join(str(t.get("title") or t.get("url") or "tab")[:60] for t in cdp_targets[:4])
+                    text = f"DevTools {tool_name} (CDP connected, {len(cdp_targets)} target(s): {tabs_txt}; selector={selector}, expr={expr or 'none'})"
+                else:
+                    text = (
+                        f"DevTools {tool_name} [CDP port 9222 unavailable — active window metadata only] on "
+                        f"'{obs.get('packageId', 'browser')}' (selector={selector}, expr={expr or 'none'})"
+                    )
             return {
                 "server": server_name,
                 "tool": tool_name,
                 "isError": False,
                 "content": [{"type": "text", "text": text.strip()}],
+                "structured": {"cdpConnected": bool(cdp_targets), "targets": len(cdp_targets), "simulated": not bool(cdp_targets)},
             }
         raise McpError("tool_not_found", f"Unknown tool '{tool_name}' on server '{server_name}'.")
 
@@ -1791,9 +1814,14 @@ def _execute_curated_tool(
         if raw_db:
             hist_db_env = os.environ.get("ALIS_AQUA_HISTORY_DB", "").strip()
             xdg_state_env = os.environ.get("XDG_STATE_HOME", "").strip()
+            companion_state_dir = (
+                (Path(xdg_state_env).expanduser().resolve(strict=False) / "alis-companion")
+                if xdg_state_env
+                else (Path.home() / ".local" / "state" / "alis-companion").resolve(strict=False)
+            )
             is_configured_state_db = bool(
                 (hist_db_env and db_path == Path(hist_db_env).expanduser().resolve(strict=False))
-                or (xdg_state_env and db_path.is_relative_to(Path(xdg_state_env).expanduser().resolve(strict=False)))
+                or db_path.is_relative_to(companion_state_dir)
             )
             if not is_configured_state_db:
                 perm = check_permission("file_read", target_path=str(db_path), source="agent_step")
@@ -1811,6 +1839,9 @@ def _execute_curated_tool(
             quoted_db = urllib.parse.quote(str(db_path), safe="/")
             conn = sqlite3.connect(f"file:{quoted_db}?mode=ro", uri=True, timeout=3.0)
             conn.row_factory = sqlite3.Row
+            # Guard against runaway recursive CTEs / expensive queries hanging the worker
+            _query_deadline = time.monotonic() + 2.0
+            conn.set_progress_handler(lambda: 1 if time.monotonic() > _query_deadline else 0, 1000)
             try:
                 if tool_name == "list_tables":
                     cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -1866,7 +1897,10 @@ def _execute_curated_tool(
                     proc = subprocess.run(["playerctl", "metadata", "--format", "{{playerName}}: {{artist}} - {{title}} ({{status}})"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2.0, check=False, text=True)
                     status_txt = proc.stdout.strip() or "No active MPRIS media player."
                 else:
-                    status_txt = "playerctl not installed or no active MPRIS player."
+                    import native_host_bridge
+
+                    _ok_m, m_line, _m_meta = native_host_bridge.mpris_media_control("status")
+                    status_txt = m_line or "No active MPRIS media player."
                 return {
                     "server": server_name,
                     "tool": tool_name,
@@ -2033,11 +2067,24 @@ def _load_or_build_graphify_data(project_root: Path) -> dict:
 
 
 def _execute_graphify_tool(tool_name: str, arguments: dict, companion_root: Path | None = None) -> dict:
-    comp_root = companion_root or Path(__file__).resolve().parents[2]
-    raw_proj = str(arguments.get("project_path") or arguments.get("projectPath") or arguments.get("workspace") or comp_root).strip()
-    proj_path = Path(raw_proj).expanduser().resolve(strict=False)
-    if not proj_path.is_dir():
-        proj_path = comp_root.resolve(strict=False)
+    from permission_store import check_permission, is_forbidden_path, is_sensitive_path, is_symlink_raw
+
+    comp_root = (companion_root or Path(__file__).resolve().parents[2]).resolve(strict=False)
+    raw_proj = str(arguments.get("project_path") or arguments.get("projectPath") or arguments.get("workspace") or "").strip()
+    if raw_proj:
+        if is_symlink_raw(raw_proj) or is_sensitive_path(raw_proj):
+            raise McpError("permission_denied", f"Project path '{raw_proj}' is restricted.")
+        proj_path = Path(raw_proj).expanduser().resolve(strict=False)
+        if is_forbidden_path(proj_path) or is_sensitive_path(proj_path):
+            raise McpError("permission_denied", f"Project path '{proj_path}' is restricted.")
+        if proj_path != comp_root and not proj_path.is_relative_to(comp_root):
+            perm = check_permission("file_read", target_path=str(proj_path), source="agent_step")
+            if not perm.get("allowed"):
+                raise McpError("permission_denied", f"Graphify project read blocked by permission store: {perm.get('reason')}")
+        if not proj_path.is_dir():
+            raise McpError("invalid_arguments", f"Project directory '{proj_path}' does not exist.")
+    else:
+        proj_path = comp_root
 
     gdata = _load_or_build_graphify_data(proj_path)
     nodes = gdata["nodes"]
@@ -2350,14 +2397,43 @@ def _execute_graphify_tool(tool_name: str, arguments: dict, companion_root: Path
         }
 
     if tool_name in ("list_prs", "get_pr_impact", "triage_prs"):
-        pr_num = int(arguments.get("pr_number") or 0)
-        text = f"Graphify PR analysis ({tool_name}) on `{proj_path.name}` (nodes={len(nodes)}, edges={len(links)}, pr={pr_num or 'all'})."
+        try:
+            pr_num = int(arguments.get("pr_number") or 0)
+        except (TypeError, ValueError):
+            pr_num = 0
+        gh_bin = shutil.which("gh")
+        gh_output = ""
+        if gh_bin and (proj_path / ".git").exists():
+            try:
+                cmd = (
+                    [gh_bin, "pr", "view", str(pr_num), "--json", "number,title,state,files"]
+                    if (tool_name == "get_pr_impact" and pr_num > 0)
+                    else [gh_bin, "pr", "list", "--limit", "10", "--json", "number,title,state,author"]
+                )
+                proc = subprocess.run(cmd, cwd=str(proj_path), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=3.0, check=False)
+                if proc.returncode == 0 and proc.stdout.strip():
+                    gh_output = proc.stdout.strip()[:1200]
+            except Exception:
+                gh_output = ""
+        if gh_output:
+            text = f"Graphify PR analysis ({tool_name}) on `{proj_path.name}` (nodes={len(nodes)}, edges={len(links)}, pr={pr_num or 'all'}):\n{gh_output}"
+        else:
+            text = (
+                f"Graphify PR analysis ({tool_name}) on `{proj_path.name}` "
+                f"[live GitHub PR query unavailable; graph summary only: nodes={len(nodes)}, edges={len(links)}, pr={pr_num or 'all'}]."
+            )
         return {
             "server": "graphify-mcp",
             "tool": tool_name,
             "isError": False,
             "content": [{"type": "text", "text": text}],
-            "structured": {"tool": tool_name, "projectPath": str(proj_path), "prNumber": pr_num},
+            "structured": {
+                "tool": tool_name,
+                "projectPath": str(proj_path),
+                "prNumber": pr_num,
+                "livePrData": bool(gh_output),
+                "simulated": not bool(gh_output),
+            },
         }
 
     raise McpError("tool_not_found", f"Unknown tool '{tool_name}' on server 'graphify-mcp'.")
@@ -2727,6 +2803,7 @@ def update_server(name: str, target_version: str = "") -> dict:
             s["latestVersion"] = new_version
             s["hasUpdate"] = False
             s["updatedAtMs"] = int(time.time() * 1000)
+            s["updateMode"] = "manifest_metadata_only"
             folder = _mcp_server_folder(sname)
             manifest = {
                 "name": sname,
@@ -2866,6 +2943,9 @@ def call_tool(
 
     if target["name"] in CURATED_TOOLS or target.get("transport") == "builtin":
         return _execute_curated_tool(target["name"], tname, args, companion_root=companion_root)
+
+    # Always enforce tool manifest integrity (rug-pull detection) before invoking an external MCP server.
+    list_tools(target["name"])
 
     rpc_params = {"name": tname, "arguments": args}
     res = (

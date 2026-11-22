@@ -8,6 +8,8 @@ import qs.modules.common
 import qs.modules.common.functions
 import qs.modules.common.widgets
 import qs.modules.abyss.looks
+import "a2ui"
+import "a2ui/A2uiDataModel.js" as A2ui
 
 // One question offers one choice row. Only explicit chat requests input focus.
 Item {
@@ -25,7 +27,9 @@ Item {
     property bool swarmOpen: false
     readonly property AquaSwarmPane activeSwarmPane: (root.visible && swarmPaneLoader.active) ? (swarmPaneLoader.item as AquaSwarmPane) : null
     readonly property bool hasSwarmInputFocus: Boolean(activeSwarmPane && activeSwarmPane.visible && activeSwarmPane.hasActiveInputFocus)
-    readonly property bool hasActiveTextInputFocus: message.activeFocus || editorTextArea.activeFocus || clarificationCustomField.activeFocus || chatWeightField.activeFocus || root.hasSidebarInputFocus || root.hasSwarmInputFocus || root.anySelectableTextFocused || root.voiceStageActive
+    property int focusedA2uiInputCount: 0
+    readonly property bool hasA2uiInputFocus: focusedA2uiInputCount > 0
+    readonly property bool hasActiveTextInputFocus: message.activeFocus || editorTextArea.activeFocus || clarificationCustomField.activeFocus || chatWeightField.activeFocus || root.hasSidebarInputFocus || root.hasSwarmInputFocus || root.hasA2uiInputFocus || root.anySelectableTextFocused || root.voiceStageActive
     readonly property bool keyboardFocusActive: root.visible && (root.wantsKeyboardFocus || root.hasActiveTextInputFocus)
     readonly property bool cloudHovered: root.visible && talkCloudHover.hovered
     readonly property AquaPocketPane activePocketPane: (root.visible && pocketPaneLoader.active) ? (pocketPaneLoader.item as AquaPocketPane) : null
@@ -59,6 +63,8 @@ Item {
         root.wantsKeyboardFocus = true
     onHasSwarmInputFocusChanged: if (hasSwarmInputFocus)
         root.wantsKeyboardFocus = true
+    onHasA2uiInputFocusChanged: if (hasA2uiInputFocus)
+        root.wantsKeyboardFocus = true
     function focusPrimaryInput(): void {
         root.wantsKeyboardFocus = true;
         if (root.hasSwarmInputFocus && root.activeSwarmPane) {
@@ -83,6 +89,10 @@ Item {
             clarificationCustomField.focus = false;
         if (chatWeightField.activeFocus)
             chatWeightField.focus = false;
+        if (root.hasA2uiInputFocus) {
+            root.focusedA2uiInputCount = 0;
+            root.forceActiveFocus();
+        }
         if (root.activeFocus)
             root.focus = false;
     }
@@ -855,28 +865,107 @@ Item {
         const s = String(raw ?? "");
         if (!s)
             return false;
-        return s.indexOf("**") !== -1 || s.indexOf("`") !== -1 || /(^|\n)\s*[-*•]\s+\S/.test(s) || /(^|\n)\s*\d+\.\s+\S/.test(s) || /(^|\n)\s*#{1,4}\s+\S/.test(s) || /\*[^*\n]+\*/.test(s) || /\[[^\]]+\]\([^)]+\)/.test(s);
+        return s.indexOf("**") !== -1 || s.indexOf("`") !== -1 || s.indexOf("~~") !== -1 || /(^|\n)\s*[-*•>]\s+\S/.test(s) || /(^|\n)\s*\d+\.\s+\S/.test(s) || /(^|\n)\s*#{1,4}\s+\S/.test(s) || /(^|\n)\s*\|.+\|\s*(\n|$)/.test(s) || /\*[^*\n]+\*/.test(s) || /\[[^\]]+\]\([^)]+\)/.test(s);
     }
-    function formatBubbleMarkdown(raw): string {
+    property var _renderedCodeBlockRegistry: ({})
+    property string speakingMessageKey: ""
+    Connections {
+        target: AquaMind
+        function onTtsSpeakingChanged(): void {
+            if (!AquaMind.ttsSpeaking)
+                root.speakingMessageKey = "";
+        }
+    }
+    function _highlightCodeHtml(rawCode): string {
+        const esc = String(rawCode ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+        const accentHex = String(AbyssStyle.accent);
+        const mutedHex = String(Appearance?.colors?.colSubtext ?? "#8b949e");
+        const strColor = String(Appearance?.colors?.colSuccess ?? "#7ee787");
+        const tokenRe = /(&quot;(?:\\.|[^&]|&(?!quot;))*?&quot;|'(?:\\.|[^'\\])*?')|\b(const|let|var|function|return|if|else|for|while|switch|case|break|continue|import|from|export|default|class|def|async|await|try|except|finally|raise|with|as|pass|None|True|False|true|false|null|undefined|fn|pub|struct|enum|impl|match|mut|property|readonly|signal|int|real|bool|string)\b/g;
+        const lines = esc.split("\n");
+        const out = [];
+        for (let i = 0; i < lines.length; ++i) {
+            const ln = lines[i];
+            const cmtMatch = /^(\s*)(\/\/.*|#.*)$/.exec(ln);
+            if (cmtMatch) {
+                out.push(cmtMatch[1] + `<span style="color:${mutedHex};font-style:italic;">${cmtMatch[2]}</span>`);
+                continue;
+            }
+            out.push(ln.replace(tokenRe, (m, strTok, kwTok) => {
+                if (strTok !== undefined)
+                    return `<span style="color:${strColor};">${strTok}</span>`;
+                if (kwTok !== undefined)
+                    return `<span style="color:${accentHex};font-weight:600;">${kwTok}</span>`;
+                return m;
+            }));
+        }
+        return out.join("<br/>");
+    }
+    function handleBubbleLink(rawLink, bubbleIdx = -1): void {
+        const link = String(rawLink ?? "").trim();
+        if (!link)
+            return;
+        if (link.startsWith("copycode://")) {
+            const key = link.slice(11);
+            const codeVal = root._renderedCodeBlockRegistry[key];
+            if (codeVal !== undefined)
+                root.copyTextToClipboard(String(codeVal), bubbleIdx);
+            return;
+        }
+        if (link.startsWith("nexus://")) {
+            let target = link.slice(8);
+            try {
+                target = decodeURIComponent(target);
+            } catch (e) {}
+            if (target.trim().length > 0)
+                AquaMind.executeClientActions([{ action: "nexus_open_note", target: target.trim() }]);
+            return;
+        }
+        if (AquaMind.liveModelAutoDetectAllowed)
+            AquaMind.openExternalUrl(link);
+    }
+    function formatBubbleMarkdown(raw, scopeKey = ""): string {
         let s = String(raw ?? "");
         if (!s)
             return "";
+        const accentHex = String(AbyssStyle.accent);
+        const mutedHex = String(Appearance?.colors?.colSubtext ?? "#9aa5b1");
+        const codeBgHex = String(root.colBoxElevated);
         const codeBlocks = [];
-        s = s.replace(/```(?:[a-zA-Z0-9_-]+)?\n?([\s\S]*?)```/g, (_, code) => {
+        s = s.replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, (_, langTag, code) => {
             const idx = codeBlocks.length;
-            const esc = String(code ?? "").trim().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
-            codeBlocks.push(`<span style="font-family:monospace;">${esc}</span>`);
+            const trimmedCode = String(code ?? "").trim();
+            const regKey = (scopeKey ? (scopeKey + "_") : "g_") + String(idx);
+            root._renderedCodeBlockRegistry[regKey] = trimmedCode;
+            const highlighted = root._highlightCodeHtml(trimmedCode);
+            const langLabel = String(langTag ?? "").trim();
+            const hdr = `<div style="margin-top:4px;margin-bottom:4px;padding:6px 8px;background-color:${codeBgHex};font-family:monospace;font-size:0.92em;">`
+                + `<div style="margin-bottom:4px;color:${mutedHex};font-size:0.85em;">${langLabel ? (langLabel + " · ") : ""}<a href="copycode://${regKey}" style="color:${accentHex};text-decoration:none;">Copy</a></div>`
+                + `${highlighted}</div>`;
+            codeBlocks.push(hdr);
             return `\u0000CODEBLOCK_${idx}\u0000`;
         });
         const inlineCodes = [];
         s = s.replace(/`([^`\n]+)`/g, (_, code) => {
             const idx = inlineCodes.length;
             const esc = String(code ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-            inlineCodes.push(`<span style="font-family:monospace;">${esc}</span>`);
+            inlineCodes.push(`<span style="font-family:monospace;background-color:${codeBgHex};">&nbsp;${esc}&nbsp;</span>`);
             return `\u0000INLINECODE_${idx}\u0000`;
         });
         s = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "<a href=\"$2\" style=\"color:#7aa2f7;text-decoration:underline;\">$1</a>");
+        s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, `<a href="$2" style="color:${accentHex};text-decoration:underline;">$1</a>`);
+        s = s.replace(/\[([^\]]+)\]\((nexus:\/\/[^\s)]+)\)/g, `<a href="$2" style="color:${accentHex};text-decoration:underline;">$1</a>`);
+        s = s.replace(/\[Nexus:\s*([^\]>]+?)(?:\s*&gt;\s*[^\]]+)?\]/g, (m, relPath) => {
+            const cleanRel = String(relPath ?? "").trim();
+            if (!cleanRel)
+                return m;
+            return `<a href="nexus://${encodeURIComponent(cleanRel)}" style="color:${accentHex};text-decoration:underline;">[${cleanRel}]</a>`;
+        });
+        s = s.replace(/~~([^~\n]+)~~/g, "<s>$1</s>");
         s = s.replace(/\*\*\*([^*\n]+)\*\*\*/g, "<b><i>$1</i></b>");
         s = s.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
         s = s.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?:;]|$)/g, "$1<i>$2</i>");
@@ -885,7 +974,32 @@ Item {
         const renderedLines = [];
         for (let i = 0; i < lines.length; ++i) {
             let ln = lines[i];
-            if (/^\s*#{1,4}\s+/.test(ln)) {
+            // Markdown table detection: header row + |---|---| separator row
+            if (/^\s*\|.+\|\s*$/.test(ln) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+                const parseCells = rowStr => rowStr.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+                const headers = parseCells(ln);
+                let tbl = `<table cellspacing="0" cellpadding="3" style="margin:4px 0;border-collapse:collapse;"><tr>`;
+                for (let h = 0; h < headers.length; ++h)
+                    tbl += `<th align="left" style="border-bottom:1px solid ${mutedHex};padding-right:10px;"><b>${headers[h]}</b></th>`;
+                tbl += `</tr>`;
+                i += 2;
+                while (i < lines.length && /^\s*\|.+\|\s*$/.test(lines[i])) {
+                    const cells = parseCells(lines[i]);
+                    tbl += `<tr>`;
+                    for (let c = 0; c < Math.max(headers.length, cells.length); ++c)
+                        tbl += `<td style="padding-right:10px;">${cells[c] ?? ""}</td>`;
+                    tbl += `</tr>`;
+                    i += 1;
+                }
+                i -= 1;
+                tbl += `</table>`;
+                renderedLines.push(tbl);
+                continue;
+            }
+            if (/^\s*&gt;\s?/.test(ln)) {
+                const body = ln.replace(/^\s*&gt;\s?/, "");
+                ln = `<span style="color:${mutedHex};">&nbsp;┃&nbsp;<i>${body}</i></span>`;
+            } else if (/^\s*#{1,4}\s+/.test(ln)) {
                 ln = "<b>" + ln.replace(/^\s*#{1,4}\s+/, "") + "</b>";
             } else if (/^\s*[-*•]\s+/.test(ln)) {
                 ln = "• " + ln.replace(/^\s*[-*•]\s+/, "");
@@ -1085,7 +1199,7 @@ Item {
     readonly property real expandedSwarmWidth: Math.min(Math.max(420, outputWidth - 24), Math.round(compactPanelWidth + swarmSidebarTargetWidth + 10))
     readonly property real baseCloudWidth: embeddedMode ? (parent ? parent.width : outputWidth) : panelMode ? Math.round(compactPanelWidth + (expandedSwarmWidth - compactPanelWidth) * swarmExpandProgress) : Math.min(380, Math.max(220, outputWidth - 32))
     width: embeddedMode ? baseCloudWidth : Math.round(baseCloudWidth * editorScaleFactor)
-    focus: visible && (!editing || (!message.activeFocus && !editorTextArea.activeFocus && !root.anySelectableTextFocused))
+    focus: visible && (!editing || (!message.activeFocus && !editorTextArea.activeFocus && !root.hasA2uiInputFocus && !root.hasSidebarInputFocus && !root.anySelectableTextFocused))
     function closePopup(): void {
         root.profileStage = 0;
         root.chatCheckInField = "";
@@ -1110,6 +1224,11 @@ Item {
         }
         if (root.slashMenuOpen) {
             root.slashMenuDismissed = true;
+            return true;
+        }
+        if (root.hasA2uiInputFocus) {
+            root.focusedA2uiInputCount = 0;
+            root.focusPrimaryInput();
             return true;
         }
         if (clarificationCard.visible) {
@@ -1517,13 +1636,21 @@ Item {
 
     Loader {
         id: chatSidebarLoader
+        objectName: "aquaChatSidebar"
         active: root.sidebarOpen && root.editing && !root.pocketOpen
         visible: active
         x: 12
         y: root.bodyTop
         width: root.sidebarWidth
         height: Math.max(0, root.height - root.bodyTop - 12)
-        asynchronous: status !== Loader.Ready && (typeof Quickshell === "undefined" || Quickshell.env("QT_QUICK_BACKEND") !== "software")
+        readonly property bool isNarrow: item ? item.isNarrow : (width < 176)
+        readonly property bool isVeryNarrow: item ? item.isVeryNarrow : (width < 156)
+        readonly property bool isWide: item ? item.isWide : (width >= 230)
+        readonly property string searchQuery: item ? item.searchQuery : ""
+        function threadMatchesFilter(thread): bool {
+            return item ? item.threadMatchesFilter(thread) : false;
+        }
+        asynchronous: false
         sourceComponent: Component {
             AquaChatSidebar {
                 anchors.fill: parent
@@ -1635,15 +1762,12 @@ Item {
             width: content.width
             Layout.fillWidth: true
             visible: !root.editing
-            text: useRichSpeech ? root.formatBubbleMarkdown(displaySpeech) : displaySpeech
+            text: useRichSpeech ? root.formatBubbleMarkdown(displaySpeech, "speech") : displaySpeech
             textFormat: useRichSpeech ? Text.RichText : Text.PlainText
             wrapMode: Text.WordWrap
             font.pixelSize: Appearance.font.pixelSize.small
             Accessible.description: AquaMind.source === "ai" ? "AI reply" : "Companion message"
-            onLinkActivated: link => {
-                if (link && AquaMind.liveModelAutoDetectAllowed)
-                    AquaMind.openExternalUrl(link);
-            }
+            onLinkActivated: link => root.handleBubbleLink(link, -1)
         }
         ColumnLayout {
             id: todayContextRows
@@ -1830,7 +1954,7 @@ Item {
                     }
                     RippleButton {
                         id: chatOpenJournalBtn
-                        objectName: "aquaChatOpenJournal"
+                        objectName: "aquaChatOpenNexusJournal"
                         visible: AquaMind.journal.journalPath.length > 0 || (typeof AlisIntergration !== "undefined" && Boolean(AlisIntergration?.nexus?.vaultConfigured))
                         Layout.preferredWidth: 22
                         Layout.preferredHeight: 22
@@ -2089,18 +2213,24 @@ Item {
                         const m = /```(?:[a-zA-Z0-9_-]+)?\n([\s\S]*?)```/.exec(String(modelData?.content ?? ""));
                         return m ? String(m[1] ?? "").trim() : "";
                     }
-                    readonly property bool hasCodeBlock: !fromUser && firstCodeBlock.length > 0
+                    readonly property var uiSurface: (!fromUser && root.editing && AquaMind.a2uiEnabled && !voiceTranscriptPending && modelData?.uiSurface && typeof modelData.uiSurface === "object") ? modelData.uiSurface : null
+                    readonly property bool hasUiSurface: uiSurface !== null && uiSurface.version === "1.0" && uiSurface.createSurface !== undefined
+                    readonly property bool dedupeUndoChip: hasUiSurface && A2ui.surfaceMetaFlag(uiSurface, "dedupeUndoChip")
+                    readonly property bool dedupeCodeChips: hasUiSurface && A2ui.surfaceMetaFlag(uiSurface, "dedupeCodeChips")
+                    readonly property bool dedupeImagesRow: hasUiSurface && A2ui.surfaceMetaFlag(uiSurface, "dedupeImagesRow")
+                    readonly property bool hasCodeBlock: !fromUser && !dedupeCodeChips && firstCodeBlock.length > 0
                     readonly property string receiptId: !fromUser ? String(modelData?.receiptId ?? "") : ""
                     readonly property int addedLines: !fromUser ? Math.max(0, Number(modelData?.addedLines ?? 0)) : 0
                     readonly property int removedLines: !fromUser ? Math.max(0, Number(modelData?.removedLines ?? 0)) : 0
                     readonly property bool rolledBack: modelData?.rolledBack === true
-                    readonly property bool hasFileDiff: !fromUser && (receiptId.length > 0 || addedLines > 0 || removedLines > 0)
+                    readonly property bool hasFileDiff: !fromUser && !dedupeUndoChip && (receiptId.length > 0 || addedLines > 0 || removedLines > 0)
                     readonly property bool hasFailedNotice: fromUser && modelData?.failed === true
                     readonly property string failedNoticeText: hasFailedNotice ? String(modelData?.errorText || AquaMind.errorMessage || "Request timed out or failed.") : ""
                     readonly property real metaChipsOffset: (hasCodeBlock || hasFileDiff || hasFailedNotice) ? 23 : 0
                     width: transcript.width
                     height: activityOffset + bubble.height + metaChipsOffset + 2
-                    readonly property real navReserve: dotNavigatorRail.visible ? (dotNavigatorRail.width + 4) : 0
+                    // transcript.width already reserves dotNavigatorRail; avoid subtracting navReserve a second time (+16px reclaimed).
+                    readonly property real navReserve: 0
                     readonly property real copyReserve: 26
                     readonly property real availableWidth: Math.max(140, width - navReserve)
                     readonly property real maxBubbleWidth: Math.max(120, Math.min(availableWidth - copyReserve, Math.floor(availableWidth * (fromUser ? 0.85 : 0.92))))
@@ -2177,20 +2307,21 @@ Item {
                             }
                             return out;
                         }
-                        readonly property bool hasBubbleImages: bubbleImages.length > 0
+                        readonly property bool hasBubbleImages: !bubbleRow.dedupeImagesRow && bubbleImages.length > 0
                         readonly property real thumbW: bubbleRow.fromUser ? 46 : Math.min(216, Math.max(120, bubbleRow.maxTextWidth))
                         readonly property real thumbH: bubbleRow.fromUser ? 46 : 122
                         readonly property real imagesRowHeight: hasBubbleImages ? (thumbH + 6) : 0
                         readonly property real imagesRowWidth: hasBubbleImages ? Math.min(bubbleRow.maxTextWidth, bubbleImages.length * (thumbW + 6) - 6) : 0
                         readonly property real measuredTextWidth: messageText.contentWidth > 0 ? Math.ceil(messageText.contentWidth) + 2 : Math.min(Math.ceil(messageText.implicitWidth) + 2, bubbleRow.maxTextWidth)
                         readonly property real measuredTextHeight: messageText.contentHeight > 0 ? Math.ceil(messageText.contentHeight) : Math.ceil(messageText.implicitHeight)
-                        readonly property real unclampedWidth: Math.max(32, Math.min(bubbleRow.maxBubbleWidth, Math.max(measuredTextWidth, imagesRowWidth) + bubbleRow.hPad * 2))
+                        readonly property real a2uiHeight: (a2uiSurfaceLoader.active && a2uiSurfaceLoader.item && a2uiSurfaceLoader.item.implicitHeight > 0) ? (Math.ceil(a2uiSurfaceLoader.item.implicitHeight) + 8) : 0
+                        readonly property real unclampedWidth: bubbleRow.hasUiSurface ? bubbleRow.maxBubbleWidth : Math.max(32, Math.min(bubbleRow.maxBubbleWidth, Math.max(measuredTextWidth, imagesRowWidth) + bubbleRow.hPad * 2))
                         readonly property real actionClusterOuterReserve: bubbleRow.fromUser ? 86 : 138
                         readonly property bool fitsActionClusterOutside: (unclampedWidth + actionClusterOuterReserve) <= bubbleRow.availableWidth
                         readonly property real minInnerClusterWidth: bubbleRow.fromUser ? 92 : 142
                         readonly property real actionFooterHeight: fitsActionClusterOutside ? 0 : 22
                         width: fitsActionClusterOutside ? unclampedWidth : Math.min(bubbleRow.maxBubbleWidth, Math.max(unclampedWidth, minInnerClusterWidth))
-                        height: Math.max(28, measuredTextHeight + imagesRowHeight + bubbleRow.vPad * 2 + actionFooterHeight)
+                        height: Math.max(28, measuredTextHeight + imagesRowHeight + a2uiHeight + bubbleRow.vPad * 2 + actionFooterHeight)
                         x: bubbleRow.fromUser ? Math.max(0, bubbleRow.availableWidth - width) : 0
                         radius: Math.max(10, Math.min(14, root.edgeRadius - 6))
                         color: bubbleRow.fromUser ? Qt.alpha(AbyssStyle.accent, .14) : root.colBoxLayer
@@ -2200,17 +2331,28 @@ Item {
                         HoverHandler {
                             id: bubbleHover
                             blocking: false
-                            cursorShape: messageText.hoveredLink ? Qt.PointingHandCursor : Qt.IBeamCursor
+                            cursorShape: messageText.hoveredLink ? Qt.PointingHandCursor : ((a2uiSurfaceLoader.active && a2uiSurfaceHover.hovered) ? Qt.ArrowCursor : Qt.IBeamCursor)
                         }
                         PointHandler {
                             id: bubblePressHandler
                             acceptedButtons: Qt.LeftButton
+                            property bool _countedPress: false
                             onActiveChanged: {
-                                root.activePressBubbleCount = Math.max(0, root.activePressBubbleCount + (active ? 1 : -1));
+                                if (active) {
+                                    if (a2uiSurfaceLoader.active && a2uiSurfaceHover.hovered)
+                                        return;
+                                    _countedPress = true;
+                                    root.activePressBubbleCount = Math.max(0, root.activePressBubbleCount + 1);
+                                } else if (_countedPress) {
+                                    _countedPress = false;
+                                    root.activePressBubbleCount = Math.max(0, root.activePressBubbleCount - 1);
+                                }
                             }
                             Component.onDestruction: {
-                                if (active)
+                                if (_countedPress) {
+                                    _countedPress = false;
                                     root.activePressBubbleCount = Math.max(0, root.activePressBubbleCount - 1);
+                                }
                             }
                         }
                         Row {
@@ -2293,7 +2435,7 @@ Item {
                             x: bubbleRow.hPad
                             y: bubbleRow.vPad + bubble.imagesRowHeight
                             width: Math.min(Math.max(1, Math.ceil(implicitWidth) + 2), bubbleRow.maxTextWidth)
-                            text: useRichMarkdown ? root.formatBubbleMarkdown(displaySource) : displaySource
+                            text: useRichMarkdown ? root.formatBubbleMarkdown(displaySource, String(bubbleRow.modelData?.id ?? bubbleRow.modelData?.clientId ?? bubbleRow.index)) : displaySource
                             textFormat: useRichMarkdown ? TextEdit.RichText : TextEdit.PlainText
                             wrapMode: TextEdit.Wrap
                             readOnly: true
@@ -2312,10 +2454,7 @@ Item {
                             font.family: Appearance.font.family.main ?? "Roboto Flex"
                             font.pixelSize: Appearance.font.pixelSize.small
                             font.variableAxes: Appearance.font.variableAxes.main
-                            onLinkActivated: link => {
-                                if (link && AquaMind.liveModelAutoDetectAllowed)
-                                    AquaMind.openExternalUrl(link);
-                            }
+                            onLinkActivated: link => root.handleBubbleLink(link, bubbleRow.index)
                             onSelectedTextChanged: {
                                 const curSel = String(selectedText ?? "");
                                 if (curSel.length > 0) {
@@ -2346,6 +2485,46 @@ Item {
                                 } else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_A) {
                                     messageText.selectAll();
                                     event.accepted = true;
+                                }
+                            }
+                        }
+                        Item {
+                            id: a2uiSurfaceContainer
+                            visible: a2uiSurfaceLoader.active
+                            x: bubbleRow.hPad
+                            y: bubbleRow.vPad + bubble.imagesRowHeight + bubble.measuredTextHeight + 8
+                            width: Math.max(60, bubble.width - bubbleRow.hPad * 2)
+                            height: a2uiSurfaceLoader.item ? a2uiSurfaceLoader.item.implicitHeight : 0
+                            HoverHandler {
+                                id: a2uiSurfaceHover
+                                blocking: false
+                                cursorShape: Qt.ArrowCursor
+                            }
+                            Loader {
+                                id: a2uiSurfaceLoader
+                                active: bubbleRow.hasUiSurface
+                                width: parent.width
+                                sourceComponent: A2uiSurfaceView {
+                                    id: a2uiViewInst
+                                    width: a2uiSurfaceContainer.width
+                                    surface: bubbleRow.uiSurface
+                                    compactMode: a2uiSurfaceContainer.width < 320
+                                    colBoxSubtle: root.colBoxSubtle
+                                    colBoxLayer: root.colBoxLayer
+                                    colBoxElevated: root.colBoxElevated
+                                    colBoxHover: root.colBoxHover
+                                    Connections {
+                                        target: AquaMind
+                                        function onA2uiSurfacePatched(sid, patches, lockInfo): void {
+                                            if (sid && sid === a2uiViewInst.surfaceId)
+                                                a2uiViewInst.applyDataPatches(patches);
+                                        }
+                                    }
+                                    onServerEvent: (sid, ev, ctx) => AquaMind.sendA2uiAction(sid, ev, ctx, Number(bubbleRow.modelData?.id ?? 0))
+                                    onFunctionCallRequested: (fn, args) => AquaMind.handleA2uiFunctionCall(fn, args, String(bubbleRow.uiSurface?.createSurface?.surfaceId ?? ""))
+                                    onTextInputFocusChanged: focused => {
+                                        root.focusedA2uiInputCount = Math.max(0, root.focusedA2uiInputCount + (focused ? 1 : -1));
+                                    }
                                 }
                             }
                         }
@@ -2399,8 +2578,11 @@ Item {
                     Row {
                         id: bubbleHoverActionsRow
                         objectName: "aquaChatBubbleActions-" + bubbleRow.index
-                        readonly property int clusterWidth: bubbleRow.fromUser ? 22 : 72
-                        visible: bubbleHover.hovered || rowHover.hovered || bubbleCopyBtn.buttonHovered || bubbleEditBtn.buttonHovered || bubbleRegenBtn.buttonHovered || bubbleTtsBtn.buttonHovered || bubblePocketBtn.buttonHovered
+                        readonly property string bubbleMsgKey: String(bubbleRow.modelData?.id ?? bubbleRow.modelData?.clientId ?? bubbleRow.index)
+                        readonly property bool isThisBubbleSpeaking: AquaMind.ttsSpeaking && (root.speakingMessageKey === bubbleMsgKey || root.speakingMessageKey.length === 0 && bubbleRow.index === (AquaMind.history.length - 1))
+                        readonly property bool nexusSaveAvailable: !bubbleRow.fromUser && (typeof AlisIntergration !== "undefined" && Boolean(AlisIntergration?.nexusEnabled))
+                        readonly property int clusterWidth: bubbleRow.fromUser ? 22 : (nexusSaveAvailable ? 97 : 72)
+                        visible: bubbleHover.hovered || rowHover.hovered || bubbleCopyBtn.buttonHovered || bubbleEditBtn.buttonHovered || bubbleRegenBtn.buttonHovered || bubbleTtsBtn.buttonHovered || bubblePocketBtn.buttonHovered || bubbleNexusBtn.buttonHovered
                         spacing: 3
                         height: 20
                         x: bubbleRow.fromUser ? (bubbleCopyBtn.fitsOutside ? Math.max(2, bubbleCopyBtn.x - clusterWidth - 4) : (bubbleCopyBtn.x + bubbleCopyBtn.width + 4)) : (bubbleCopyBtn.fitsOutside ? Math.min(bubbleRow.availableWidth - clusterWidth - 2, bubbleCopyBtn.x + bubbleCopyBtn.width + 4) : (bubble.x + bubble.width - clusterWidth - 6))
@@ -2411,6 +2593,7 @@ Item {
                             id: bubbleEditBtn
                             objectName: "aquaChatBubbleEdit-" + bubbleRow.index
                             visible: bubbleRow.fromUser
+                            focusPolicy: Qt.NoFocus
                             width: 22
                             height: 20
                             implicitWidth: 22
@@ -2431,11 +2614,14 @@ Item {
                                 extraVisibleCondition: bubbleEditBtn.buttonHovered
                                 text: "Edit prompt in composer"
                             }
-                            contentItem: MaterialSymbol {
-                                anchors.centerIn: parent
-                                text: "edit"
-                                iconSize: 12
-                                color: AbyssStyle.textColor
+                            contentItem: Item {
+                                MaterialSymbol {
+                                    anchors.centerIn: parent
+                                    text: "edit"
+                                    iconSize: 12
+                                    textRenderType: Text.CurveRendering
+                                    color: AbyssStyle.textColor
+                                }
                             }
                         }
 
@@ -2443,32 +2629,28 @@ Item {
                             id: bubbleRegenBtn
                             objectName: "aquaChatBubbleRegen-" + bubbleRow.index
                             visible: !bubbleRow.fromUser
+                            focusPolicy: Qt.NoFocus
                             width: 22
                             height: 20
                             implicitWidth: 22
                             implicitHeight: 20
-                            enabled: !AquaMind.busy
+                            enabled: !AquaMind.busy && !AquaMind.regenerating
                             buttonRadius: 10
                             colBackground: Qt.rgba(Appearance.colors.colLayer1.r, Appearance.colors.colLayer1.g, Appearance.colors.colLayer1.b, 0.92)
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.22)
-                            onClicked: {
-                                const hist = Array.isArray(AquaMind.history) ? AquaMind.history : [];
-                                for (let i = bubbleRow.index - 1; i >= 0; --i) {
-                                    if (hist[i]?.role === "user" && String(hist[i]?.content ?? "").trim().length > 0) {
-                                        AquaMind.sendMessage(String(hist[i].content));
-                                        break;
-                                    }
-                                }
-                            }
+                            onClicked: AquaMind.regenerateReply(bubbleRow.index)
                             StyledToolTip {
                                 extraVisibleCondition: bubbleRegenBtn.buttonHovered
                                 text: "Regenerate reply"
                             }
-                            contentItem: MaterialSymbol {
-                                anchors.centerIn: parent
-                                text: "refresh"
-                                iconSize: 12
-                                color: AbyssStyle.textColor
+                            contentItem: Item {
+                                MaterialSymbol {
+                                    anchors.centerIn: parent
+                                    text: "refresh"
+                                    iconSize: 12
+                                    textRenderType: Text.CurveRendering
+                                    color: AbyssStyle.textColor
+                                }
                             }
                         }
 
@@ -2476,6 +2658,7 @@ Item {
                             id: bubbleTtsBtn
                             objectName: "aquaChatBubbleTts-" + bubbleRow.index
                             visible: !bubbleRow.fromUser
+                            focusPolicy: Qt.NoFocus
                             width: 22
                             height: 20
                             implicitWidth: 22
@@ -2484,20 +2667,29 @@ Item {
                             colBackground: Qt.rgba(Appearance.colors.colLayer1.r, Appearance.colors.colLayer1.g, Appearance.colors.colLayer1.b, 0.92)
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.22)
                             onClicked: {
-                                if (AquaMind.ttsSpeaking)
+                                if (bubbleHoverActionsRow.isThisBubbleSpeaking) {
+                                    root.speakingMessageKey = "";
                                     AquaMind.stopVoiceTts();
-                                else
-                                    AquaMind.speakText(root.stripMarkdownToPlain(messageText.rawContent));
+                                } else {
+                                    if (AquaMind.ttsSpeaking)
+                                        AquaMind.stopVoiceTts();
+                                    root.speakingMessageKey = bubbleHoverActionsRow.bubbleMsgKey;
+                                    const spoken = String(bubbleRow.modelData?.spokenText ?? "").trim() || root.stripMarkdownToPlain(messageText.rawContent);
+                                    AquaMind.speakText(spoken);
+                                }
                             }
                             StyledToolTip {
                                 extraVisibleCondition: bubbleTtsBtn.buttonHovered
-                                text: AquaMind.ttsSpeaking ? "Stop reading aloud" : "Read aloud (TTS)"
+                                text: bubbleHoverActionsRow.isThisBubbleSpeaking ? "Stop reading aloud" : "Read aloud (TTS)"
                             }
-                            contentItem: MaterialSymbol {
-                                anchors.centerIn: parent
-                                text: AquaMind.ttsSpeaking ? "stop_circle" : "volume_up"
-                                iconSize: 12
-                                color: AquaMind.ttsSpeaking ? Appearance.colors.colError : AbyssStyle.textColor
+                            contentItem: Item {
+                                MaterialSymbol {
+                                    anchors.centerIn: parent
+                                    text: bubbleHoverActionsRow.isThisBubbleSpeaking ? "stop_circle" : "volume_up"
+                                    iconSize: 12
+                                    textRenderType: Text.CurveRendering
+                                    color: bubbleHoverActionsRow.isThisBubbleSpeaking ? Appearance.colors.colError : AbyssStyle.textColor
+                                }
                             }
                         }
 
@@ -2505,6 +2697,7 @@ Item {
                             id: bubblePocketBtn
                             objectName: "aquaChatBubblePocket-" + bubbleRow.index
                             visible: !bubbleRow.fromUser
+                            focusPolicy: Qt.NoFocus
                             width: 22
                             height: 20
                             implicitWidth: 22
@@ -2522,11 +2715,47 @@ Item {
                                 extraVisibleCondition: bubblePocketBtn.buttonHovered
                                 text: "Save to Pocket"
                             }
-                            contentItem: MaterialSymbol {
-                                anchors.centerIn: parent
-                                text: "bookmark_add"
-                                iconSize: 12
-                                color: AbyssStyle.textColor
+                            contentItem: Item {
+                                MaterialSymbol {
+                                    anchors.centerIn: parent
+                                    text: "bookmark_add"
+                                    iconSize: 12
+                                    textRenderType: Text.CurveRendering
+                                    color: AbyssStyle.textColor
+                                }
+                            }
+                        }
+
+                        RippleButton {
+                            id: bubbleNexusBtn
+                            objectName: "aquaChatBubbleSaveNexus-" + bubbleRow.index
+                            visible: bubbleHoverActionsRow.nexusSaveAvailable
+                            focusPolicy: Qt.NoFocus
+                            width: 22
+                            height: 20
+                            implicitWidth: 22
+                            implicitHeight: 20
+                            buttonRadius: 10
+                            colBackground: Qt.rgba(Appearance.colors.colLayer1.r, Appearance.colors.colLayer1.g, Appearance.colors.colLayer1.b, 0.92)
+                            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.22)
+                            onClicked: {
+                                const body = String(messageText.rawContent || "").trim();
+                                if (body.length > 0) {
+                                    AquaMind.saveReplyToNexus(body, "");
+                                }
+                            }
+                            StyledToolTip {
+                                extraVisibleCondition: bubbleNexusBtn.buttonHovered
+                                text: "Save to Nexus"
+                            }
+                            contentItem: Item {
+                                MaterialSymbol {
+                                    anchors.centerIn: parent
+                                    text: "note_add"
+                                    iconSize: 12
+                                    textRenderType: Text.CurveRendering
+                                    color: AbyssStyle.textColor
+                                }
                             }
                         }
                     }
@@ -5299,7 +5528,7 @@ Item {
                                             width: Math.max(2.0, Math.min(5.0, (voiceWaveform.width - (voiceWaveform.barCount - 1) * waveBarRow.spacing) / voiceWaveform.barCount))
                                             height: targetBarHeight
                                             Behavior on height {
-                                                enabled: root.visible
+                                                enabled: root.visible && waveBar.targetBarHeight < waveBar.height
                                                 NumberAnimation {
                                                     duration: 24
                                                     easing.type: Easing.OutQuad

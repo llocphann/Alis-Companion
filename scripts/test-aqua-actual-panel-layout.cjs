@@ -32,7 +32,7 @@ assert.equal(typeof geo.barZones, "function");
 assert.equal(typeof host.alongPosition, "function");
 const output = read("optional/alis-companion/AlisOutput.qml");
 assert.ok(output.includes("AquaScene.fromParticipants("));
-assert.ok(output.includes("bar.layoutRecords.map(record=>({"));
+assert.ok(output.includes("bar.layoutRecords.map(record=>({") || output.includes("(bar.layoutRecords ?? []).map(record=>({"));
 assert.match(perimeter.replace(/\s+/g, ""), /ModuleLayout\.clearanceInsets\(nativeInsets,bar\.visible\?bar\.(?:clearanceDeformations|deformations):\[\],edge,along,span,ownLauncherKind\)/);
 for (const contract of [
     "Layout.resolve(", "Layout.seed(zones,edge,width,height)",

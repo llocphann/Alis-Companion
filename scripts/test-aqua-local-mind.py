@@ -355,4 +355,41 @@ class Tests(unittest.TestCase):
             self.assertNotIn('repeat_penalty',Handler.calls[-1][1]['options'])
             self.assertEqual(Handler.calls[-1][1]['options']['temperature'],0.65)
 
+    def test_regenerate_delete_last_turn_syncs_sqlite_across_restart(self):
+        with tempfile.TemporaryDirectory(prefix='aqua-regen-') as temporary, patch.dict(
+                os.environ, {'ALIS_AQUA_HISTORY_DB':str(Path(temporary)/'chat.sqlite3')}):
+            # Empty thread is a safe no-op
+            empty_res=mind.dispatch({'action':'history_delete_last_turn'})
+            self.assertEqual(empty_res['deletedCount'],0)
+            first=mind.chat({'endpoint':self.base,'model':'tiny:local','prompt':'First question','persistHistory':True})
+            Handler.content=json.dumps({'text':'Old draft answer to discard.','expression':'happy'})
+            second=mind.chat({'endpoint':self.base,'model':'tiny:local','prompt':'Second question','persistHistory':True})
+            # Stale/non-existent messageId must NOT delete a different turn
+            stale=mind.dispatch({'action':'history_delete_last_turn','messageId':999999,'includeUser':True})
+            self.assertEqual(stale['deletedCount'],0)
+            self.assertEqual(len(mind.chat_history({'limit':20})['messages']),4)
+            # Delete the discarded second turn by messageId
+            deleted=mind.dispatch({'action':'history_delete_last_turn','messageId':second['assistantMessageId'],'includeUser':True})
+            self.assertEqual(deleted['deletedCount'],2)
+            self.assertEqual(set(deleted['deletedIds']),{second['assistantMessageId'],second['userMessageId']})
+            # Re-send regenerated answer and verify restart/fresh subprocess never resurrects the discarded turn
+            Handler.content=json.dumps({'text':'Fresh regenerated answer.','expression':'happy'})
+            third=mind.chat({'endpoint':self.base,'model':'tiny:local','prompt':'Second question','persistHistory':True})
+            self.assertTrue(third['historySaved'])
+            command=[sys.executable,str(ROOT/'scripts/aqua/local_mind.py')]
+            restarted=subprocess.run(command,input=json.dumps({'action':'history','limit':20}),
+                                     text=True,capture_output=True,check=True)
+            rows=json.loads(restarted.stdout)['result']['messages']
+            self.assertEqual([(r['role'],r['content']) for r in rows],[
+                ('user','First question'),
+                ('assistant','Splish! I am right here with you.'),
+                ('user','Second question'),
+                ('assistant','Fresh regenerated answer.'),
+            ])
+            # includeUser=False deletes only the assistant message when messageId is omitted
+            only_asst=mind.dispatch({'action':'history_delete_last_turn','includeUser':False})
+            self.assertEqual(only_asst['deletedIds'],[third['assistantMessageId']])
+            self.assertEqual(len(mind.chat_history({'limit':20})['messages']),3)
+            self.assertEqual(first['userMessageId'],mind.chat_history({'limit':20})['messages'][0]['id'])
+
 if __name__=='__main__':unittest.main()

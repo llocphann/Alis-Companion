@@ -187,6 +187,8 @@ def _prewarm_modules() -> list[str]:
         "run_store",
         "mcp_transport",
         "mcp_client",
+        "a2ui_validator",
+        "a2ui_builder",
         "agent_runtime",
     ):
         try:
@@ -318,8 +320,14 @@ def _serve_client(conn: socket.socket, sock_path: Path, prewarmed: list[str], to
 
         import local_mind
 
-        _TOTAL_REQUESTS += 1
-        req_id = str(parsed.get("requestId") or f"req_{int(time.time() * 1000)}_{_TOTAL_REQUESTS}")
+        with _ACTIVE_REQUESTS_LOCK:
+            _TOTAL_REQUESTS += 1
+            req_seq = _TOTAL_REQUESTS
+        req_id = str(
+            parsed.get("_aqua_request_id")
+            or parsed.get("requestId")
+            or f"req_{int(time.time() * 1000)}_{req_seq}"
+        )
         cancel_ev = threading.Event()
         stream_stdout = bool(parsed.get("streamStdout"))
 
@@ -339,6 +347,14 @@ def _serve_client(conn: socket.socket, sock_path: Path, prewarmed: list[str], to
                 envelope = {"ok": False, "error": {"code": "file_unavailable", "message": "Configured local file is unavailable"}}
             except (ValueError, TypeError, KeyError, UnicodeError):
                 envelope = {"ok": False, "error": {"code": "invalid_request", "message": "Invalid companion data"}}
+            except Exception as exc:
+                envelope = {
+                    "ok": False,
+                    "error": {
+                        "code": "daemon_dispatch_error",
+                        "message": f"{type(exc).__name__}: {str(exc)[:140]}",
+                    },
+                }
 
         touch_fn()
         _send_obj({"type": "result", "payload": envelope})
@@ -544,8 +560,12 @@ def ensure_daemon_running(sock_path: Path | None = None, timeout: float = 5.0) -
                 return True
             env = dict(os.environ)
             env["ALIS_COMPANION_DAEMON_SOCK"] = str(target)
+            spawn_cmd = [sys.executable, str(Path(__file__).resolve()), "--daemon"]
+            parent_pid_env = str(env.get("ALIS_PARENT_PID") or "").strip()
+            if parent_pid_env.isdigit() and int(parent_pid_env) > 1:
+                spawn_cmd.extend(["--parent-pid", parent_pid_env])
             subprocess.Popen(
-                [sys.executable, str(Path(__file__).resolve()), "--daemon"],
+                spawn_cmd,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -559,7 +579,7 @@ def ensure_daemon_running(sock_path: Path | None = None, timeout: float = 5.0) -
                     return True
                 time.sleep(0.04)
         finally:
-            fcntl.flock(lock_path.fileno(), fcntl.LOCK_UN)
+            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
     return False
 
 

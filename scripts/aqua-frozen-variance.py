@@ -6,7 +6,12 @@ from io import BytesIO
 import json
 from pathlib import Path
 import re
-from PIL import Image
+import sys
+try:
+    from PIL import Image
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from aqua_png_stdlib import Image
 
 
 def digest(raw):return hashlib.sha256(raw).hexdigest()

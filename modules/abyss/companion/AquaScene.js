@@ -26,28 +26,135 @@ function workspaceBox(scene) {
     const ib = scene.insets.bottom > 0.001 ? scene.insets.bottom : -64
     return {x:il,y:it,width:scene.width-il-ir,height:scene.height-it-ib}
 }
+function roundedBoxDXY(px, py, cx, cy, hx, hy, r) {
+    const qx = Math.abs(px - cx) - hx + r
+    const qy = Math.abs(py - cy) - hy + r
+    return (qx <= 0 || qy <= 0)
+        ? (Math.max(qx, qy) - r)
+        : (Math.sqrt(qx * qx + qy * qy) - r)
+}
+function walkScreenRadius(scene) {
+    const s = scene.scale || 1
+    return Math.min(6 * s, FOOT_OFFSET * s * 0.25)
+}
+function makeContourGeom(scene) {
+    const pr = scene.perimeterRadius !== undefined ? scene.perimeterRadius : (scene.rimRadius || 28)
+    const k = scene.connectionDepth !== undefined ? scene.connectionDepth : 14
+    const kk = Math.max(0.1, k)
+    const wr = scene._workspaceBox || workspaceBox(scene)
+    const whx = wr.width * 0.5, why = wr.height * 0.5
+    const wcx = wr.x + whx, wcy = wr.y + why
+    const wrad = Math.min(Math.max(0, Number(pr) || 0), Math.min(wr.width, wr.height) * 0.5)
+    const sw = scene.width, sh = scene.height
+    const shx = sw * 0.5, shy = sh * 0.5
+    const srad = Math.min(Math.max(0, Number(walkScreenRadius(scene)) || 0), Math.min(sw, sh) * 0.5)
+    const srcMods = scene.moduleSurfaces || []
+    const modCount = srcMods.length
+    const mx1 = new Float64Array(modCount), my1 = new Float64Array(modCount)
+    const mx2 = new Float64Array(modCount), my2 = new Float64Array(modCount)
+    const mcx = new Float64Array(modCount), mcy = new Float64Array(modCount)
+    const mhx = new Float64Array(modCount), mhy = new Float64Array(modCount)
+    const mrad = new Float64Array(modCount)
+    for (let i = 0; i < modCount; i++) {
+        const ms = srcMods[i], r = ms.surface
+        const hx = r.width * 0.5, hy = r.height * 0.5
+        mx1[i] = r.x; my1[i] = r.y
+        mx2[i] = r.x + r.width; my2[i] = r.y + r.height
+        mhx[i] = hx; mhy[i] = hy
+        mcx[i] = r.x + hx; mcy[i] = r.y + hy
+        const minHalf = hx < hy ? hx : hy
+        const radRaw = Number(ms.radius) || 0
+        const radPos = radRaw > 0 ? radRaw : 0
+        mrad[i] = radPos < minHalf ? radPos : minHalf
+    }
+    return {
+        w: sw, h: sh, scale: scene.scale || 1,
+        pr: pr, k: k, kk: kk, invKk: 1 / kk, kkQuarter: kk * 0.25, pad: pr + k + 1,
+        wcx: wcx, wcy: wcy, whx: whx, why: why, wrad: wrad,
+        scx: shx, scy: shy, shx: shx, shy: shy, srad: srad,
+        modCount: modCount,
+        mx1: mx1, my1: my1, mx2: mx2, my2: my2,
+        mcx: mcx, mcy: mcy, mhx: mhx, mhy: mhy, mrad: mrad
+    }
+}
+function abyssFieldDFast(g, px, py) {
+    let qx = px - g.wcx; if (qx < 0) qx = -qx; qx = qx - g.whx + g.wrad
+    let qy = py - g.wcy; if (qy < 0) qy = -qy; qy = qy - g.why + g.wrad
+    let d = -((qx <= 0 || qy <= 0)
+        ? ((qx > qy ? qx : qy) - g.wrad)
+        : (Math.sqrt(qx * qx + qy * qy) - g.wrad))
+    const n = g.modCount
+    if (n === 0) return d
+    const pad = g.pad, kk = g.kk, invKk = g.invKk, kkQuarter = g.kkQuarter
+    const mx1 = g.mx1, my1 = g.my1, mx2 = g.mx2, my2 = g.my2
+    const mcx = g.mcx, mcy = g.mcy, mhx = g.mhx, mhy = g.mhy, mrad = g.mrad
+    let thresh = d + pad
+    if (thresh < 0) return d
+    for (let i = 0; i < n; i++) {
+        if (py < my1[i] - thresh || py > my2[i] + thresh || px < mx1[i] - thresh || px > mx2[i] + thresh)
+            continue
+        const mr = mrad[i]
+        let rx = px - mcx[i]; if (rx < 0) rx = -rx; rx = rx - mhx[i] + mr
+        let ry = py - mcy[i]; if (ry < 0) ry = -ry; ry = ry - mhy[i] + mr
+        const b = (rx <= 0 || ry <= 0)
+            ? ((rx > ry ? rx : ry) - mr)
+            : (Math.sqrt(rx * rx + ry * ry) - mr)
+        let diff = d - b
+        if (diff < 0) diff = -diff
+        if (diff < kk) {
+            const h = (kk - diff) * invKk
+            d = (d < b ? d : b) - h * h * kkQuarter
+            thresh = d + pad
+            if (thresh < 0) break
+        } else if (b < d) {
+            d = b
+            thresh = d + pad
+            if (thresh < 0) break
+        }
+    }
+    return d
+}
+function walkDFast(g, px, py) {
+    const fieldD = abyssFieldDFast(g, px, py)
+    let sx = px - g.scx; if (sx < 0) sx = -sx; sx = sx - g.shx + g.srad
+    let sy = py - g.scy; if (sy < 0) sy = -sy; sy = sy - g.shy + g.srad
+    const screenD = -((sx <= 0 || sy <= 0)
+        ? ((sx > sy ? sx : sy) - g.srad)
+        : (Math.sqrt(sx * sx + sy * sy) - g.srad))
+    return fieldD < screenD ? fieldD : screenD
+}
 function abyssFieldD(scene, px, py) {
     const pr = scene.perimeterRadius !== undefined ? scene.perimeterRadius : (scene.rimRadius || 28)
     const k = scene.connectionDepth !== undefined ? scene.connectionDepth : 14
     const wr = scene._workspaceBox || workspaceBox(scene)
-    let d = -roundedBoxD(px, py, wr, pr)
+    const wrx = wr.width * 0.5, wry = wr.height * 0.5
+    const wrad = Math.min(Math.max(0, Number(pr) || 0), Math.min(wr.width, wr.height) * 0.5)
+    let d = -roundedBoxDXY(px, py, wr.x + wrx, wr.y + wry, wrx, wry, wrad)
     const mods = scene.moduleSurfaces
     if (!mods || mods.length === 0) return d
-    const support = k + 1
+    const support = k + 1, kk = Math.max(0.1, k)
     for (let i = 0; i < mods.length; i++) {
         const ms = mods[i], r = ms.surface
         const outX = Math.max(r.x - px, px - (r.x + r.width), 0)
         const outY = Math.max(r.y - py, py - (r.y + r.height), 0)
         if (Math.max(outX, outY) - pr > d + support) continue
-        d = fuseSdf(d, roundedBoxD(px, py, r, ms.radius), k)
+        const hx = r.width * 0.5, hy = r.height * 0.5
+        const rad = Math.min(Math.max(0, Number(ms.radius) || 0), Math.min(r.width, r.height) * 0.5)
+        const b = roundedBoxDXY(px, py, r.x + hx, r.y + hy, hx, hy, rad)
+        const h = Math.max(kk - Math.abs(d - b), 0) / kk
+        d = Math.min(d, b) - h * h * kk * 0.25
     }
     return d
 }
-function abyssFieldNormal(scene, px, py) {
+function abyssFieldNormal(scene, px, py, geom) {
     const eps = 1.0
-    const gx = abyssFieldD(scene, px + eps, py) - abyssFieldD(scene, px - eps, py)
-    const gy = abyssFieldD(scene, px, py + eps) - abyssFieldD(scene, px, py - eps)
-    const len = Math.hypot(gx, gy)
+    const gx = geom
+        ? abyssFieldDFast(geom, px + eps, py) - abyssFieldDFast(geom, px - eps, py)
+        : abyssFieldD(scene, px + eps, py) - abyssFieldD(scene, px - eps, py)
+    const gy = geom
+        ? abyssFieldDFast(geom, px, py + eps) - abyssFieldDFast(geom, px, py - eps)
+        : abyssFieldD(scene, px, py + eps) - abyssFieldD(scene, px, py - eps)
+    const len = Math.sqrt(gx * gx + gy * gy)
     if (!finite(len) || len < 1e-6) {
         const dl = px, dr = scene.width - px, dt = py, db = scene.height - py
         const m = Math.min(dl, dr, dt, db)
@@ -57,21 +164,23 @@ function abyssFieldNormal(scene, px, py) {
     const nx = gx / len, ny = gy / len
     return {nx:nx,ny:ny,angle:Math.atan2(nx, -ny) * 180 / Math.PI}
 }
-function walkScreenRadius(scene) {
-    const s = scene.scale || 1
-    return Math.min(6 * s, FOOT_OFFSET * s * 0.25)
-}
 function walkD(scene, px, py) {
     const fieldD = abyssFieldD(scene, px, py)
-    const screenD = -roundedBoxD(px, py, {x:0,y:0,width:scene.width,height:scene.height}, walkScreenRadius(scene))
+    const sw = scene.width, sh = scene.height
+    const srad = Math.min(Math.max(0, Number(walkScreenRadius(scene)) || 0), Math.min(sw, sh) * 0.5)
+    const screenD = -roundedBoxDXY(px, py, sw * 0.5, sh * 0.5, sw * 0.5, sh * 0.5, srad)
     return Math.min(fieldD, screenD)
 }
-function walkNormal(scene, px, py) {
+function walkNormal(scene, px, py, geom) {
     const eps = 1.0
-    const gx = walkD(scene, px + eps, py) - walkD(scene, px - eps, py)
-    const gy = walkD(scene, px, py + eps) - walkD(scene, px, py - eps)
-    const len = Math.hypot(gx, gy)
-    if (!finite(len) || len < 1e-6) return abyssFieldNormal(scene, px, py)
+    const gx = geom
+        ? walkDFast(geom, px + eps, py) - walkDFast(geom, px - eps, py)
+        : walkD(scene, px + eps, py) - walkD(scene, px - eps, py)
+    const gy = geom
+        ? walkDFast(geom, px, py + eps) - walkDFast(geom, px, py - eps)
+        : walkD(scene, px, py + eps) - walkD(scene, px, py - eps)
+    const len = Math.sqrt(gx * gx + gy * gy)
+    if (!finite(len) || len < 1e-6) return abyssFieldNormal(scene, px, py, geom)
     const nx = gx / len, ny = gy / len
     return {nx:nx,ny:ny,angle:Math.atan2(nx, -ny) * 180 / Math.PI}
 }
@@ -79,19 +188,24 @@ function dominantEdgeFromNormal(nx, ny) {
     return Math.abs(ny) >= Math.abs(nx) ? (ny <= 0 ? "bottom" : "top") : (nx >= 0 ? "left" : "right")
 }
 function edgeForContourContact(scene, cx, cy, nx, ny) {
-    const dists = [
-        {e:"top", d:Math.max(0, cy)},
-        {e:"right", d:Math.max(0, scene.width - cx)},
-        {e:"bottom", d:Math.max(0, scene.height - cy)},
-        {e:"left", d:Math.max(0, cx)}
-    ]
-    dists.sort((a, b) => a.d - b.d)
+    const dt = Math.max(0, cy)
+    const dr = Math.max(0, scene.width - cx)
+    const db = Math.max(0, scene.height - cy)
+    const dl = Math.max(0, cx)
+    // Preserve [top, right, bottom, left] tie order without array+sort allocations.
+    let e1 = "top", d1 = dt
+    let e2 = "right", d2 = dr
+    if (dr < dt) { e1 = "right"; d1 = dr; e2 = "top"; d2 = dt }
+    if (db < d1) { e2 = e1; d2 = d1; e1 = "bottom"; d1 = db }
+    else if (db < d2) { e2 = "bottom"; d2 = db }
+    if (dl < d1) { e2 = e1; d2 = d1; e1 = "left"; d1 = dl }
+    else if (dl < d2) { e2 = "left"; d2 = dl }
     const tieTol = Math.max(10 * (scene.scale || 1), 10)
-    if (dists[1].d - dists[0].d <= tieTol) {
+    if (d2 - d1 <= tieTol) {
         const dom = dominantEdgeFromNormal(nx, ny)
-        if (dom === dists[0].e || dom === dists[1].e) return dom
+        if (dom === e1 || dom === e2) return dom
     }
-    return dists[0].e
+    return e1
 }
 function hostPointFromBody(scene, bx, by, nx, ny) {
     const W = scene.hostWidth, H = scene.hostHeight, F = FOOT_OFFSET * scene.scale
@@ -100,14 +214,40 @@ function hostPointFromBody(scene, bx, by, nx, ny) {
         y: by - H * 0.5 + (H * 0.5 - F) * ny
     }
 }
-function contourSampleAtBody(scene, bx, by, preferredEdge = "") {
-    const norm = walkNormal(scene, bx, by)
-    const nx = norm.nx, ny = norm.ny
+function contourSampleAtBody(scene, bx, by, preferredEdge = "", geom = null) {
+    let nx, ny, angle
+    if (geom) {
+        let gx = walkDFast(geom, bx + 1.0, by) - walkDFast(geom, bx - 1.0, by)
+        let gy = walkDFast(geom, bx, by + 1.0) - walkDFast(geom, bx, by - 1.0)
+        let len = Math.sqrt(gx * gx + gy * gy)
+        if (!finite(len) || len < 1e-6) {
+            gx = abyssFieldDFast(geom, bx + 1.0, by) - abyssFieldDFast(geom, bx - 1.0, by)
+            gy = abyssFieldDFast(geom, bx, by + 1.0) - abyssFieldDFast(geom, bx, by - 1.0)
+            len = Math.sqrt(gx * gx + gy * gy)
+        }
+        if (!finite(len) || len < 1e-6) {
+            const dl = bx, dr = geom.w - bx, dt = by, db = geom.h - by
+            let m = dl; if (dr < m) m = dr; if (dt < m) m = dt; if (db < m) m = db
+            if (m === dt) { nx = 0; ny = 1; angle = 180 }
+            else if (m === db) { nx = 0; ny = -1; angle = 0 }
+            else if (m === dl) { nx = 1; ny = 0; angle = 90 }
+            else { nx = -1; ny = 0; angle = -90 }
+        } else {
+            nx = gx / len; ny = gy / len
+            angle = Math.atan2(nx, -ny) * 180 / Math.PI
+        }
+    } else {
+        const norm = walkNormal(scene, bx, by, null)
+        nx = norm.nx; ny = norm.ny; angle = norm.angle
+    }
     const F = FOOT_OFFSET * scene.scale
-    const hp = hostPointFromBody(scene, bx, by, nx, ny)
     const W = scene.hostWidth, H = scene.hostHeight
-    const clampedX = clamp(hp.x, 2, Math.max(2, scene.width - W - 2))
-    const clampedY = clamp(hp.y, 2, Math.max(2, scene.height - H - 2))
+    const hpX = bx - W * 0.5 + (W * 0.5 - F) * nx
+    const hpY = by - H * 0.5 + (H * 0.5 - F) * ny
+    const limX = scene.width - W - 2 > 2 ? scene.width - W - 2 : 2
+    const limY = scene.height - H - 2 > 2 ? scene.height - H - 2 : 2
+    const clampedX = hpX < 2 ? 2 : (hpX > limX ? limX : hpX)
+    const clampedY = hpY < 2 ? 2 : (hpY > limY ? limY : hpY)
     const cx = bx - F * nx, cy = by - F * ny
     const edge = (preferredEdge && ((preferredEdge === "top" && ny > 0.2) || (preferredEdge === "bottom" && ny < -0.2)
         || (preferredEdge === "left" && nx > 0.2) || (preferredEdge === "right" && nx < -0.2)))
@@ -116,122 +256,219 @@ function contourSampleAtBody(scene, bx, by, preferredEdge = "") {
         bx: bx, by: by,
         cx: cx, cy: cy,
         x: clampedX, y: clampedY,
-        nx: nx, ny: ny, angle: norm.angle,
+        nx: nx, ny: ny, angle: angle,
         edge: edge, s: 0
     }
 }
-function newtonProjectWalk(scene, px, py, targetOffset) {
-    const s = scene.scale || 1
-    const margin = Math.max(1, targetOffset * 0.4)
-    let bx = clamp(px, margin, Math.max(margin, scene.width - margin))
-    let by = clamp(py, margin, Math.max(margin, scene.height - margin))
+function newtonProjectWalk(scene, px, py, targetOffset, geom = null) {
+    const g = geom || makeContourGeom(scene)
+    const s = g.scale
+    const margin = targetOffset * 0.4 > 1 ? targetOffset * 0.4 : 1
+    const maxBx = g.w - margin > margin ? g.w - margin : margin
+    const maxBy = g.h - margin > margin ? g.h - margin : margin
+    let bx = px < margin ? margin : (px > maxBx ? maxBx : px)
+    let by = py < margin ? margin : (py > maxBy ? maxBy : py)
     const maxStep = 14 * s
+    const tol = 0.12 * s
+    const limX = g.w - 1 > 1 ? g.w - 1 : 1
+    const limY = g.h - 1 > 1 ? g.h - 1 : 1
+    let stepped = false
+    let finalErr = 0
     for (let it = 0; it < 6; it++) {
-        const d = walkD(scene, bx, by)
+        const d = walkDFast(g, bx, by)
         const err = targetOffset - d
-        if (Math.abs(err) < 0.12 * s) break
-        const n = walkNormal(scene, bx, by)
-        const step = clamp(err, -maxStep, maxStep)
-        bx = clamp(bx + n.nx * step, 1, Math.max(1, scene.width - 1))
-        by = clamp(by + n.ny * step, 1, Math.max(1, scene.height - 1))
+        const absErr = err < 0 ? -err : err
+        if (absErr < tol) {
+            finalErr = absErr
+            stepped = false
+            break
+        }
+        let gx = walkDFast(g, bx + 1.0, by) - walkDFast(g, bx - 1.0, by)
+        let gy = walkDFast(g, bx, by + 1.0) - walkDFast(g, bx, by - 1.0)
+        let len = Math.sqrt(gx * gx + gy * gy)
+        if (!finite(len) || len < 1e-6) {
+            gx = abyssFieldDFast(g, bx + 1.0, by) - abyssFieldDFast(g, bx - 1.0, by)
+            gy = abyssFieldDFast(g, bx, by + 1.0) - abyssFieldDFast(g, bx, by - 1.0)
+            len = Math.sqrt(gx * gx + gy * gy)
+        }
+        let nx, ny
+        if (!finite(len) || len < 1e-6) {
+            const dl = bx, dr = g.w - bx, dt = by, db = g.h - by
+            let m = dl; if (dr < m) m = dr; if (dt < m) m = dt; if (db < m) m = db
+            if (m === dt) { nx = 0; ny = 1 }
+            else if (m === db) { nx = 0; ny = -1 }
+            else if (m === dl) { nx = 1; ny = 0 }
+            else { nx = -1; ny = 0 }
+        } else {
+            nx = gx / len; ny = gy / len
+        }
+        const step = err < -maxStep ? -maxStep : (err > maxStep ? maxStep : err)
+        const nbx = bx + nx * step
+        const nby = by + ny * step
+        bx = nbx < 1 ? 1 : (nbx > limX ? limX : nbx)
+        by = nby < 1 ? 1 : (nby > limY ? limY : nby)
+        stepped = true
     }
-    return {bx:bx,by:by,err:Math.abs(targetOffset - walkD(scene, bx, by))}
+    if (stepped) {
+        const diff = targetOffset - walkDFast(g, bx, by)
+        finalErr = diff < 0 ? -diff : diff
+    }
+    return {bx:bx, by:by, err:finalErr}
 }
-function projectRayToWalkOffset(scene, startX, startY, dirX, dirY, maxReach, targetOffset) {
-    const d0 = walkD(scene, startX, startY)
-    if (d0 >= targetOffset) return contourSampleAtBody(scene, startX + dirX * targetOffset, startY + dirY * targetOffset)
-    let lo = 0, hi = Math.min(maxReach, Math.max(scene.width, scene.height) * 0.45)
-    for (let k = 0; k < 6 && walkD(scene, startX + dirX * hi, startY + dirY * hi) < targetOffset; k++)
-        hi = Math.min(Math.max(scene.width, scene.height) * 0.65, hi * 1.6)
-    if (walkD(scene, startX + dirX * hi, startY + dirY * hi) < targetOffset) return null
+function projectRayToWalkOffset(scene, startX, startY, dirX, dirY, maxReach, targetOffset, geom = null) {
+    const g = geom || makeContourGeom(scene)
+    const d0 = walkDFast(g, startX, startY)
+    if (d0 >= targetOffset) return contourSampleAtBody(scene, startX + dirX * targetOffset, startY + dirY * targetOffset, "", g)
+    let lo = 0, hi = Math.min(maxReach, Math.max(g.w, g.h) * 0.45)
+    for (let k = 0; k < 6 && walkDFast(g, startX + dirX * hi, startY + dirY * hi) < targetOffset; k++)
+        hi = Math.min(Math.max(g.w, g.h) * 0.65, hi * 1.6)
+    if (walkDFast(g, startX + dirX * hi, startY + dirY * hi) < targetOffset) return null
     for (let it = 0; it < 14; it++) {
         const mid = (lo + hi) * 0.5
-        if (walkD(scene, startX + dirX * mid, startY + dirY * mid) < targetOffset) lo = mid
+        if (walkDFast(g, startX + dirX * mid, startY + dirY * mid) < targetOffset) lo = mid
         else hi = mid
     }
     const dist = (lo + hi) * 0.5
-    const proj = newtonProjectWalk(scene, startX + dirX * dist, startY + dirY * dist, targetOffset)
-    return contourSampleAtBody(scene, proj.bx, proj.by)
+    const proj = newtonProjectWalk(scene, startX + dirX * dist, startY + dirY * dist, targetOffset, g)
+    return contourSampleAtBody(scene, proj.bx, proj.by, "", g)
+}
+var _contourCache = []
+var CONTOUR_CACHE_MAX = 8
+function contourInputsEqual(entry, w, h, hw, hh, s, il, it, ir, ib, pr, k, mods) {
+    if (entry.w !== w || entry.h !== h || entry.hw !== hw || entry.hh !== hh || entry.s !== s
+            || entry.il !== il || entry.it !== it || entry.ir !== ir || entry.ib !== ib
+            || entry.pr !== pr || entry.k !== k)
+        return false
+    const em = entry.mods
+    const n = mods ? mods.length : 0
+    if (em.length !== n) return false
+    for (let i = 0; i < n; i++) {
+        const a = em[i], b = mods[i], r = b.surface
+        if (a.x !== r.x || a.y !== r.y || a.width !== r.width || a.height !== r.height
+                || a.radius !== (Number(b.radius) || 0) || a.depth !== (Number(b.depth) || 0))
+            return false
+    }
+    return true
 }
 function buildContour(scene) {
     const W = scene.width, H = scene.height, s = scene.scale || 1
-    const targetOffset = FOOT_OFFSET * s
+    const hw = scene.hostWidth, hh = scene.hostHeight
+    const ins = scene.insets || {}
+    const il = Number(ins.left) || 0, it = Number(ins.top) || 0
+    const ir = Number(ins.right) || 0, ib = Number(ins.bottom) || 0
+    const pr = scene.perimeterRadius !== undefined ? scene.perimeterRadius : (scene.rimRadius || 28)
+    const k = scene.connectionDepth !== undefined ? scene.connectionDepth : 14
     const mods = scene.moduleSurfaces || []
+    for (let ci = 0; ci < _contourCache.length; ci++) {
+        const entry = _contourCache[ci]
+        if (contourInputsEqual(entry, W, H, hw, hh, s, il, it, ir, ib, pr, k, mods)) {
+            if (ci > 0) {
+                _contourCache.splice(ci, 1)
+                _contourCache.unshift(entry)
+            }
+            return entry.value
+        }
+    }
+    const g = makeContourGeom(scene)
+    const targetOffset = FOOT_OFFSET * s
     let maxModDepth = 0
-    for (const ms of mods) {
-        const r = ms.surface
+    for (let mi = 0; mi < mods.length; mi++) {
+        const ms = mods[mi], r = ms.surface
         maxModDepth = Math.max(maxModDepth, ms.depth || 0, Math.min(r.width, r.height))
     }
-    const pr = scene.perimeterRadius !== undefined ? scene.perimeterRadius : (scene.rimRadius || 28)
-    const maxReach = Math.max(scene.insets.top, scene.insets.right, scene.insets.bottom, scene.insets.left, maxModDepth) + targetOffset + pr + 48
+    const maxReach = Math.max(it, ir, ib, il, maxModDepth) + targetOffset + pr + 48
     let seed = null
     const seedFracs = [0.5, 0.25, 0.75, 0.15, 0.85, 0.35, 0.65]
     for (let i = 0; i < seedFracs.length && !seed; i++)
-        seed = projectRayToWalkOffset(scene, W * seedFracs[i], 0, 0, 1, maxReach, targetOffset)
-    if (!seed) return {contour:[],contourLength:0}
-    const baseStep = 10 * s
-    const minStep = 3.5 * s
-    const maxPts = 1400
-    const maxArc = (W + H) * 3.5
-    const pts = [seed]
-    let totalS = 0
-    let cur = seed
-    let closed = false
-    for (let iter = 0; iter < maxPts && totalS < maxArc; iter++) {
-        let tx = cur.ny, ty = -cur.nx
-        const tLen = Math.hypot(tx, ty)
-        if (!finite(tLen) || tLen < 1e-6) break
-        tx /= tLen; ty /= tLen
-        let h = baseStep
-        let nextSample = null
-        let seg = 0
-        for (let attempt = 0; attempt < 3; attempt++) {
-            const predX = cur.bx + tx * h, predY = cur.by + ty * h
-            const proj = newtonProjectWalk(scene, predX, predY, targetOffset)
-            if (proj.err > 3.5 * s && attempt < 2) {
-                h = Math.max(minStep, h * 0.5)
-                continue
+        seed = projectRayToWalkOffset(scene, W * seedFracs[i], 0, 0, 1, maxReach, targetOffset, g)
+    let result
+    if (!seed) {
+        result = {contour:[],contourLength:0}
+    } else {
+        const baseStep = 10 * s
+        const minStep = 3.5 * s
+        const maxPts = 1400
+        const maxArc = (W + H) * 3.5
+        const pts = [seed]
+        let totalS = 0
+        let cur = seed
+        let closed = false
+        for (let iter = 0; iter < maxPts && totalS < maxArc; iter++) {
+            let tx = cur.ny, ty = -cur.nx
+            const tLen = Math.sqrt(tx * tx + ty * ty)
+            if (!finite(tLen) || tLen < 1e-6) break
+            tx /= tLen; ty /= tLen
+            let h = baseStep
+            let nextSample = null
+            let seg = 0
+            for (let attempt = 0; attempt < 3; attempt++) {
+                const predX = cur.bx + tx * h, predY = cur.by + ty * h
+                const proj = newtonProjectWalk(scene, predX, predY, targetOffset, g)
+                if (proj.err > 3.5 * s && attempt < 2) {
+                    h = Math.max(minStep, h * 0.5)
+                    continue
+                }
+                const cand = contourSampleAtBody(scene, proj.bx, proj.by, "", g)
+                const sdx = cand.bx - cur.bx, sdy = cand.by - cur.by
+                seg = Math.sqrt(sdx * sdx + sdy * sdy)
+                const angDiff = Math.abs(((cand.angle - cur.angle + 540) % 360) - 180)
+                nextSample = cand
+                if ((angDiff > 11 || seg > 15 * s) && h > minStep && attempt < 2) {
+                    h = Math.max(minStep, h * 0.5)
+                    continue
+                }
+                break
             }
-            const cand = contourSampleAtBody(scene, proj.bx, proj.by)
-            seg = Math.hypot(cand.bx - cur.bx, cand.by - cur.by)
-            const angDiff = Math.abs(((cand.angle - cur.angle + 540) % 360) - 180)
-            nextSample = cand
-            if ((angDiff > 11 || seg > 15 * s) && h > minStep && attempt < 2) {
-                h = Math.max(minStep, h * 0.5)
-                continue
-            }
-            break
-        }
-        if (!nextSample || seg < 0.25 * s) break
-        if (pts.length >= 16 && totalS > 120 * s) {
-            const dx0 = nextSample.bx - seed.bx, dy0 = nextSample.by - seed.by
-            const dist0 = Math.hypot(dx0, dy0)
-            const normalDot = nextSample.nx * seed.nx + nextSample.ny * seed.ny
-            if (dist0 <= baseStep * 1.15 && normalDot > 0.7) {
-                const fwd = dx0 * seed.ny + dy0 * (-seed.nx)
-                if (fwd >= -minStep * 0.5) {
+            if (!nextSample || seg < 0.25 * s) break
+            if (pts.length >= 16 && totalS > 120 * s) {
+                const dx0 = nextSample.bx - seed.bx, dy0 = nextSample.by - seed.by
+                const dist0 = Math.sqrt(dx0 * dx0 + dy0 * dy0)
+                const normalDot = nextSample.nx * seed.nx + nextSample.ny * seed.ny
+                if (dist0 <= baseStep * 1.15 && normalDot > 0.7) {
+                    const fwd = dx0 * seed.ny + dy0 * (-seed.nx)
+                    if (fwd >= -minStep * 0.5) {
+                        closed = true
+                        break
+                    }
+                    totalS += seg
+                    nextSample.s = totalS
+                    pts.push(nextSample)
                     closed = true
                     break
                 }
-                totalS += seg
-                nextSample.s = totalS
-                pts.push(nextSample)
-                closed = true
-                break
             }
+            totalS += seg
+            nextSample.s = totalS
+            pts.push(nextSample)
+            cur = nextSample
         }
-        totalS += seg
-        nextSample.s = totalS
-        pts.push(nextSample)
-        cur = nextSample
+        if (!closed && pts.length > 16) {
+            const last = pts[pts.length - 1]
+            const cgx = seed.bx - last.bx, cgy = seed.by - last.by
+            const closingGap = Math.sqrt(cgx * cgx + cgy * cgy)
+            if (closingGap > maxArc * 0.5) {
+                result = {contour:[],contourLength:0}
+            } else {
+                const clx = pts.length > 1 ? pts[0].bx - pts[pts.length - 1].bx : 0
+                const cly = pts.length > 1 ? pts[0].by - pts[pts.length - 1].by : 0
+                const closingLen = pts.length > 1 ? Math.sqrt(clx * clx + cly * cly) : 0
+                result = {contour:pts,contourLength:totalS + closingLen}
+            }
+        } else {
+            const clx = pts.length > 1 ? pts[0].bx - pts[pts.length - 1].bx : 0
+            const cly = pts.length > 1 ? pts[0].by - pts[pts.length - 1].by : 0
+            const closingLen = pts.length > 1 ? Math.sqrt(clx * clx + cly * cly) : 0
+            result = {contour:pts,contourLength:totalS + closingLen}
+        }
     }
-    if (!closed && pts.length > 16) {
-        const last = pts[pts.length - 1]
-        const closingGap = Math.hypot(seed.bx - last.bx, seed.by - last.by)
-        if (closingGap > maxArc * 0.5) return {contour:[],contourLength:0}
+    const modsSnap = []
+    for (let mi = 0; mi < mods.length; mi++) {
+        const ms = mods[mi], r = ms.surface
+        modsSnap.push({x:r.x,y:r.y,width:r.width,height:r.height,radius:Number(ms.radius) || 0,depth:Number(ms.depth) || 0})
     }
-    const closingLen = pts.length > 1 ? Math.hypot(pts[0].bx - pts[pts.length - 1].bx, pts[0].by - pts[pts.length - 1].by) : 0
-    return {contour:pts,contourLength:totalS + closingLen}
+    _contourCache.unshift({w:W,h:H,hw:hw,hh:hh,s:s,il:il,it:it,ir:ir,ib:ib,pr:pr,k:k,mods:modsSnap,value:result})
+    if (_contourCache.length > CONTOUR_CACHE_MAX) _contourCache.pop()
+    return result
 }
 function bodyCenterFromPoint(scene, point, fallbackNx, fallbackNy) {
     const W = scene.hostWidth, H = scene.hostHeight, F = FOOT_OFFSET * scene.scale
@@ -327,10 +564,14 @@ function fromParticipants(base, participants, modules) {
     })
     for (const key of keys) {
         const participant=participants[key]
-        const liveGeometry=participant?.geometry, resting=participant?.restingRecord, settled=participant?.surfaceSettled===true
-        const useResting=excluded.includes(key) && !(key==="dock" && dockSuppressed)
-            && resting?.surface?.width>0 && resting?.surface?.height>0
-        const geometry=useResting ? resting : liveGeometry
+        const liveGeometry=participant?.geometry, settled=participant?.surfaceSettled===true
+        const isExcluded=excluded.includes(key)
+        let geometry=liveGeometry
+        if (isExcluded && !(key==="dock" && dockSuppressed)) {
+            const resting=participant?.restingRecord
+            if (resting?.surface?.width>0 && resting?.surface?.height>0)
+                geometry=resting
+        }
         const r=geometry?.surface
         if (!geometry) continue
         if (!r || ![r.x,r.y,r.width,r.height].every(finite)
@@ -765,10 +1006,10 @@ function contourArc(scene, a, b, from, to) {
         const prev = dense[dense.length - 1], curr = raw[i]
         if (distance(prev, curr) < 0.4 && i < raw.length - 1) continue
         if (!clearSegment(scene, prev, curr)) {
-            const mid = newtonProjectToOffset(scene,
-                (bodyCenterFromPoint(scene, prev, prev.nx || 0, prev.ny || -1).bx + bodyCenterFromPoint(scene, curr, curr.nx || 0, curr.ny || -1).bx) * 0.5,
-                (bodyCenterFromPoint(scene, prev, prev.nx || 0, prev.ny || -1).by + bodyCenterFromPoint(scene, curr, curr.nx || 0, curr.ny || -1).by) * 0.5,
-                FOOT_OFFSET * s)
+            const bcPrev = bodyCenterFromPoint(scene, prev, prev.nx || 0, prev.ny || -1)
+            const bcCurr = bodyCenterFromPoint(scene, curr, curr.nx || 0, curr.ny || -1)
+            const projMid = newtonProjectWalk(scene, (bcPrev.bx + bcCurr.bx) * 0.5, (bcPrev.by + bcCurr.by) * 0.5, FOOT_OFFSET * s)
+            const mid = contourSampleAtBody(scene, projMid.bx, projMid.by)
             const midPt = {x:mid.x,y:mid.y,edge:mid.edge,angle:mid.angle,nx:mid.nx,ny:mid.ny}
             if (!clearAt(scene, midPt) || !clearSegment(scene, prev, midPt) || !clearSegment(scene, midPt, curr))
                 return {qualified:false}

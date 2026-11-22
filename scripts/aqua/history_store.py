@@ -10,15 +10,20 @@ migrated idempotently in place to `chat_default` without losing any history.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
 import sqlite3
 import stat
 import time
+from typing import Any
 
 MAX_ROWS = 2000
 MAX_CONTENT = 6000
+MAX_SPOKEN_TEXT = 2400
+MAX_SURFACE_BYTES = 6144
+HYDRATE_SURFACE_LIMIT = 20
 MAX_THREADS = 200
 MAX_PROJECTS = 64
 DEFAULT_THREAD_ID = "chat_default"
@@ -154,11 +159,7 @@ def _maybe_repair_missed_sep_rows(db: sqlite3.Connection) -> None:
         db.commit()
 
 
-def _ensure_schema_and_migrate(db: sqlite3.Connection) -> bool:
-    uv_row = db.execute("PRAGMA user_version").fetchone()
-    uv = int(uv_row[0] or 0) if uv_row else 0
-    if uv >= 2:
-        return False
+def _migrate_to_v2(db: sqlite3.Connection) -> None:
     db.execute(
         """CREATE TABLE IF NOT EXISTS messages(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -250,6 +251,12 @@ def _ensure_schema_and_migrate(db: sqlite3.Connection) -> bool:
             value TEXT NOT NULL
         )"""
     )
+    try:
+        db.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, thread_id UNINDEXED, content_folded, tokenize='unicode61')"
+        )
+    except sqlite3.Error:
+        pass
 
     now = int(time.time() * 1000)
     thread_count = db.execute("SELECT COUNT(*) FROM threads").fetchone()[0]
@@ -318,6 +325,42 @@ def _ensure_schema_and_migrate(db: sqlite3.Connection) -> bool:
             (chosen,),
         )
     db.execute("PRAGMA user_version = 2")
+
+
+def _migrate_to_v3(db: sqlite3.Connection) -> None:
+    meta_cols = {row[1] for row in db.execute("PRAGMA table_info(message_meta)").fetchall()}
+    if "spoken_text" not in meta_cols:
+        db.execute("ALTER TABLE message_meta ADD COLUMN spoken_text TEXT NOT NULL DEFAULT ''")
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS message_surfaces(
+            message_id INTEGER PRIMARY KEY,
+            surface_id TEXT NOT NULL,
+            version TEXT NOT NULL DEFAULT '1.0',
+            surface_json TEXT NOT NULL,
+            updated_ms INTEGER NOT NULL
+        )"""
+    )
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_message_surfaces_sid ON message_surfaces(surface_id)"
+    )
+    try:
+        db.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, thread_id UNINDEXED, content_folded, tokenize='unicode61')"
+        )
+    except sqlite3.Error:
+        pass
+    db.execute("PRAGMA user_version = 3")
+
+
+def _ensure_schema_and_migrate(db: sqlite3.Connection) -> bool:
+    uv_row = db.execute("PRAGMA user_version").fetchone()
+    uv = int(uv_row[0] or 0) if uv_row else 0
+    if uv >= 3:
+        return False
+    if uv < 2:
+        _migrate_to_v2(db)
+    if uv < 3:
+        _migrate_to_v3(db)
     return True
 
 
@@ -498,7 +541,39 @@ def normalize_message_record(record: dict) -> dict:
         out["stopReason"] = str(out["stopReason"])
     if "reasoning" in out and out["reasoning"] is None:
         out["reasoning"] = ""
+    if "spokenText" in out and out["spokenText"] is None:
+        out["spokenText"] = ""
     return out
+
+
+def _encode_validated_surface(ui_surface: Any) -> tuple[str, str, str] | None:
+    if not isinstance(ui_surface, dict):
+        return None
+    try:
+        import a2ui_validator
+
+        raw_cs = ui_surface.get("createSurface") if isinstance(ui_surface.get("createSurface"), dict) else {}
+        raw_meta = raw_cs.get("surfaceMeta") if isinstance(raw_cs.get("surfaceMeta"), dict) else {}
+        is_gen = str(raw_meta.get("sourceKind") or raw_meta.get("kind") or "").strip().lower() == "generative"
+        is_tainted = bool(raw_meta.get("tainted", False))
+
+        clean, err = a2ui_validator.validate_and_sanitize_surface(
+            ui_surface,
+            max_bytes=MAX_SURFACE_BYTES,
+            untrusted_generative=is_gen,
+            tainted=is_tainted,
+        )
+        if err or not clean:
+            return None
+        cs = clean.get("createSurface") or {}
+        sid = str(cs.get("surfaceId") or "").strip()
+        ver = str(clean.get("version") or "1.0").strip()
+        encoded = json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
+        if not sid or len(encoded.encode("utf-8")) > MAX_SURFACE_BYTES:
+            return None
+        return sid, ver, encoded
+    except Exception:
+        return None
 
 
 def _query_messages(
@@ -509,7 +584,8 @@ def _query_messages(
     if before:
         rows = db.execute(
             "SELECT m.id,m.role,m.content,m.created_ms,m.model,"
-            "COALESCE(mm.interrupted,0),COALESCE(mm.stop_reason,''),COALESCE(mm.reasoning,'') "
+            "COALESCE(mm.interrupted,0),COALESCE(mm.stop_reason,''),"
+            "COALESCE(mm.reasoning,''),COALESCE(mm.spoken_text,'') "
             "FROM messages m "
             "JOIN thread_messages tm ON tm.message_id = m.id "
             "LEFT JOIN message_meta mm ON mm.message_id = m.id "
@@ -519,18 +595,39 @@ def _query_messages(
     else:
         rows = db.execute(
             "SELECT m.id,m.role,m.content,m.created_ms,m.model,"
-            "COALESCE(mm.interrupted,0),COALESCE(mm.stop_reason,''),COALESCE(mm.reasoning,'') "
+            "COALESCE(mm.interrupted,0),COALESCE(mm.stop_reason,''),"
+            "COALESCE(mm.reasoning,''),COALESCE(mm.spoken_text,'') "
             "FROM messages m "
             "JOIN thread_messages tm ON tm.message_id = m.id "
             "LEFT JOIN message_meta mm ON mm.message_id = m.id "
             "WHERE tm.thread_id=? ORDER BY m.id DESC LIMIT ?",
             (thread_id, limit),
         ).fetchall()
+
+    # Hydrate A2UI surfaces only for the latest HYDRATE_SURFACE_LIMIT (20) messages to keep payloads bounded.
+    surface_map: dict[int, dict] = {}
+    recent_ids = [int(r[0]) for r in rows[:HYDRATE_SURFACE_LIMIT] if r[1] == "assistant"]
+    if recent_ids:
+        placeholders = ",".join("?" for _ in recent_ids)
+        surf_rows = db.execute(
+            f"SELECT message_id, surface_json FROM message_surfaces WHERE message_id IN ({placeholders})",
+            tuple(recent_ids),
+        ).fetchall()
+        for mid, sjson in surf_rows:
+            if not sjson or len(str(sjson).encode("utf-8", errors="ignore")) > MAX_SURFACE_BYTES + 256:
+                continue
+            try:
+                parsed_surf = json.loads(str(sjson))
+                if isinstance(parsed_surf, dict) and isinstance(parsed_surf.get("createSurface"), dict):
+                    surface_map[int(mid)] = parsed_surf
+            except Exception:
+                continue
+
     result: list[dict] = []
     for row in reversed(rows):
         is_int = bool(row[5])
         stop_r = str(row[6] or ("cancelled" if is_int else ""))
-        item = {
+        item: dict[str, Any] = {
             "id": row[0],
             "role": row[1],
             "content": row[2],
@@ -541,6 +638,10 @@ def _query_messages(
         }
         if row[7]:
             item["reasoning"] = str(row[7])
+        if row[8]:
+            item["spokenText"] = str(row[8])
+        if int(row[0]) in surface_map:
+            item["uiSurface"] = surface_map[int(row[0])]
         result.append(item)
     return result
 
@@ -602,6 +703,12 @@ def _trim(db: sqlite3.Connection, thread_id: str) -> None:
     ).fetchone()
     if cutoff:
         db.execute(
+            """DELETE FROM message_surfaces WHERE message_id IN (
+                   SELECT message_id FROM thread_messages WHERE thread_id=? AND message_id<?
+               )""",
+            (thread_id, cutoff[0]),
+        )
+        db.execute(
             """DELETE FROM message_meta WHERE message_id IN (
                    SELECT message_id FROM thread_messages WHERE thread_id=? AND message_id<?
                )""",
@@ -660,11 +767,14 @@ def append(
     interrupted: bool = False,
     stop_reason: str = "",
     reasoning: str = "",
+    spoken_text: str = "",
+    ui_surface: dict | None = None,
 ) -> int:
     if role not in ("user", "assistant"):
         raise HistoryError("invalid_role")
     raw_content = str(content or "").strip()
     raw_reasoning = str(reasoning or "").strip()[:MAX_CONTENT]
+    raw_spoken = str(spoken_text or "").strip()[:MAX_SPOKEN_TEXT]
     if not raw_content and interrupted and raw_reasoning:
         raw_content = "[Interrupted during reasoning]"
     if not raw_content:
@@ -673,6 +783,7 @@ def append(
     model = str(model)[:160]
     int_flag = 1 if (interrupted and role == "assistant") else 0
     eff_stop = str(stop_reason or ("cancelled" if int_flag else ""))[:64]
+    encoded_surface = _encode_validated_surface(ui_surface) if role == "assistant" else None
     db = _connect()
     try:
         tid = _resolve_active_thread_id(db, thread_id)
@@ -683,10 +794,16 @@ def append(
                 (role, value, now, model),
             )
             msg_id = int(cursor.lastrowid)
-            if role == "assistant" and (int_flag or eff_stop or raw_reasoning):
+            if role == "assistant" and (int_flag or eff_stop or raw_reasoning or raw_spoken):
                 db.execute(
-                    "INSERT OR REPLACE INTO message_meta(message_id,interrupted,stop_reason,reasoning) VALUES(?,?,?,?)",
-                    (msg_id, int_flag, eff_stop, raw_reasoning),
+                    "INSERT OR REPLACE INTO message_meta(message_id,interrupted,stop_reason,reasoning,spoken_text) VALUES(?,?,?,?,?)",
+                    (msg_id, int_flag, eff_stop, raw_reasoning, raw_spoken),
+                )
+            if encoded_surface is not None:
+                sid, sver, sjson = encoded_surface
+                db.execute(
+                    "INSERT OR REPLACE INTO message_surfaces(message_id,surface_id,version,surface_json,updated_ms) VALUES(?,?,?,?,?)",
+                    (msg_id, sid, sver, sjson, now),
                 )
             db.execute(
                 "INSERT OR REPLACE INTO thread_messages(message_id,thread_id) VALUES(?,?)",
@@ -710,9 +827,12 @@ def append_exchange(
     interrupted: bool = False,
     stop_reason: str = "",
     reasoning: str = "",
+    spoken_text: str = "",
+    ui_surface: dict | None = None,
 ) -> tuple[int, int]:
     user = str(user_text or "").strip()[:MAX_CONTENT]
     raw_reasoning = str(reasoning or "").strip()[:MAX_CONTENT]
+    raw_spoken = str(spoken_text or "").strip()[:MAX_SPOKEN_TEXT]
     assistant = str(assistant_text or "").strip()[:MAX_CONTENT]
     if not assistant and interrupted and raw_reasoning:
         assistant = "[Interrupted during reasoning]"
@@ -721,6 +841,7 @@ def append_exchange(
     model = str(model)[:160]
     int_flag = 1 if interrupted else 0
     eff_stop = str(stop_reason or ("cancelled" if int_flag else ""))[:64]
+    encoded_surface = _encode_validated_surface(ui_surface)
     db = _connect()
     try:
         tid = _resolve_active_thread_id(db, thread_id)
@@ -740,10 +861,16 @@ def append_exchange(
                 (assistant, now + 1, model),
             )
             a_id = int(assistant_cursor.lastrowid)
-            if int_flag or eff_stop or raw_reasoning:
+            if int_flag or eff_stop or raw_reasoning or raw_spoken:
                 db.execute(
-                    "INSERT OR REPLACE INTO message_meta(message_id,interrupted,stop_reason,reasoning) VALUES(?,?,?,?)",
-                    (a_id, int_flag, eff_stop, raw_reasoning),
+                    "INSERT OR REPLACE INTO message_meta(message_id,interrupted,stop_reason,reasoning,spoken_text) VALUES(?,?,?,?,?)",
+                    (a_id, int_flag, eff_stop, raw_reasoning, raw_spoken),
+                )
+            if encoded_surface is not None:
+                sid, sver, sjson = encoded_surface
+                db.execute(
+                    "INSERT OR REPLACE INTO message_surfaces(message_id,surface_id,version,surface_json,updated_ms) VALUES(?,?,?,?,?)",
+                    (a_id, sid, sver, sjson, now + 1),
                 )
             db.execute(
                 "INSERT OR REPLACE INTO thread_messages(message_id,thread_id) VALUES(?,?)",
@@ -754,6 +881,197 @@ def append_exchange(
         return u_id, a_id
     except sqlite3.Error as exc:
         raise HistoryError("history_write_failed") from exc
+    finally:
+        db.close()
+
+
+def update_message_artifacts(
+    message_id: int,
+    *,
+    content: str | None = None,
+    spoken_text: str | None = None,
+    ui_surface: dict | None = None,
+) -> bool:
+    """Update an existing assistant turn's final text, spoken_text, and/or A2UI surface once after post-hooks."""
+    mid = int(message_id or 0)
+    if mid <= 0:
+        return False
+    encoded_surface = _encode_validated_surface(ui_surface) if ui_surface is not None else None
+    clean_spoken = str(spoken_text).strip()[:MAX_SPOKEN_TEXT] if spoken_text is not None else None
+    clean_content = str(content).strip()[:MAX_CONTENT] if content is not None else None
+    if not clean_content and clean_spoken is None and encoded_surface is None:
+        return False
+    db = _connect()
+    try:
+        now = int(time.time() * 1000)
+        with db:
+            if clean_content:
+                db.execute("UPDATE messages SET content=? WHERE id=?", (clean_content, mid))
+            if clean_spoken is not None:
+                row = db.execute(
+                    "SELECT interrupted, stop_reason, reasoning FROM message_meta WHERE message_id=?",
+                    (mid,),
+                ).fetchone()
+                if row:
+                    db.execute(
+                        "UPDATE message_meta SET spoken_text=? WHERE message_id=?",
+                        (clean_spoken, mid),
+                    )
+                elif clean_spoken:
+                    db.execute(
+                        "INSERT OR REPLACE INTO message_meta(message_id,interrupted,stop_reason,reasoning,spoken_text) VALUES(?,0,'','',?)",
+                        (mid, clean_spoken),
+                    )
+            if encoded_surface is not None:
+                sid, sver, sjson = encoded_surface
+                db.execute(
+                    "INSERT OR REPLACE INTO message_surfaces(message_id,surface_id,version,surface_json,updated_ms) VALUES(?,?,?,?,?)",
+                    (mid, sid, sver, sjson, now),
+                )
+        return True
+    except sqlite3.Error:
+        return False
+    finally:
+        db.close()
+
+
+def get_surface_by_id(surface_id: str) -> tuple[int, dict] | None:
+    sid = str(surface_id or "").strip()
+    if not sid:
+        return None
+    db = _connect()
+    try:
+        row = db.execute(
+            "SELECT message_id, surface_json FROM message_surfaces WHERE surface_id=? ORDER BY updated_ms DESC LIMIT 1",
+            (sid,),
+        ).fetchone()
+        if not row:
+            return None
+        parsed = json.loads(str(row[1] or ""))
+        if isinstance(parsed, dict) and isinstance(parsed.get("createSurface"), dict):
+            return int(row[0]), parsed
+        return None
+    except Exception:
+        return None
+    finally:
+        db.close()
+
+
+def patch_surface_by_id(
+    surface_id: str,
+    patches: list[tuple[str, Any]] | None = None,
+    *,
+    lock_resolution: str = "",
+    outcome_summary: str = "",
+) -> dict | None:
+    """Apply A2UI v1.0 `updateDataModel` patches and optional confirm lock in SQLite."""
+    sid = str(surface_id or "").strip()
+    if not sid:
+        return None
+    import a2ui_validator
+
+    db = _connect()
+    try:
+        row = db.execute(
+            "SELECT message_id, surface_json FROM message_surfaces WHERE surface_id=? ORDER BY updated_ms DESC LIMIT 1",
+            (sid,),
+        ).fetchone()
+        if not row:
+            return None
+        mid = int(row[0])
+        surf = json.loads(str(row[1] or ""))
+        if not isinstance(surf, dict) or not isinstance(surf.get("createSurface"), dict):
+            return None
+        for ptr, val in (patches or []):
+            surf = a2ui_validator.apply_update_data_model(surf, str(ptr), val)
+        if lock_resolution:
+            surf = a2ui_validator.lock_confirmation_surface(
+                surf,
+                resolution=lock_resolution,
+                outcome_summary=outcome_summary,
+            )
+        encoded = _encode_validated_surface(surf)
+        if encoded is None:
+            return None
+        nsid, nver, njson = encoded
+        now = int(time.time() * 1000)
+        with db:
+            db.execute(
+                "INSERT OR REPLACE INTO message_surfaces(message_id,surface_id,version,surface_json,updated_ms) VALUES(?,?,?,?,?)",
+                (mid, nsid, nver, njson, now),
+            )
+        return json.loads(njson)
+    except Exception:
+        return None
+    finally:
+        db.close()
+
+
+def _lock_confirm_surfaces_in_db(
+    db: sqlite3.Connection,
+    confirm_id: str = "",
+    resolution: str = "confirmed",
+    outcome_summary: str = "",
+) -> list[dict]:
+    import a2ui_validator
+
+    cid = str(confirm_id or "").strip()
+    updated: list[dict] = []
+    rows = db.execute(
+        "SELECT message_id, surface_id, surface_json FROM message_surfaces ORDER BY updated_ms DESC LIMIT 30"
+    ).fetchall()
+    now = int(time.time() * 1000)
+    for mid, _sid, sjson in rows:
+        try:
+            surf = json.loads(str(sjson or ""))
+        except Exception:
+            continue
+        cs = surf.get("createSurface") if isinstance(surf, dict) else None
+        if not isinstance(cs, dict):
+            continue
+        meta = cs.get("surfaceMeta") if isinstance(cs.get("surfaceMeta"), dict) else {}
+        dm = cs.get("dataModel") if isinstance(cs.get("dataModel"), dict) else {}
+        surf_cid = str(meta.get("confirmId") or dm.get("confirmId") or "").strip()
+        if not surf_cid and meta.get("kind") != "confirmation":
+            continue
+        if cid and surf_cid != cid:
+            continue
+        if dm.get("resolved") is True:
+            continue
+        locked = a2ui_validator.lock_confirmation_surface(
+            surf,
+            resolution=resolution,
+            outcome_summary=outcome_summary,
+        )
+        encoded = _encode_validated_surface(locked)
+        if encoded is None:
+            continue
+        nsid, nver, njson = encoded
+        db.execute(
+            "UPDATE message_surfaces SET surface_id=?, version=?, surface_json=?, updated_ms=? WHERE message_id=?",
+            (nsid, nver, njson, now, int(mid)),
+        )
+        updated.append(json.loads(njson))
+    return updated
+
+
+def lock_confirm_surfaces(
+    confirm_id: str = "",
+    resolution: str = "confirmed",
+    outcome_summary: str = "",
+) -> list[dict]:
+    """Lock persisted confirmation A2UI surfaces matching `confirm_id` (or all pending if empty)."""
+    db = _connect()
+    try:
+        with db:
+            return _lock_confirm_surfaces_in_db(
+                db,
+                confirm_id=confirm_id,
+                resolution=resolution,
+                outcome_summary=outcome_summary,
+            )
+    except Exception:
+        return []
     finally:
         db.close()
 
@@ -824,12 +1142,95 @@ def _cleanup_session_ephemera(thread_id: str) -> None:
         pass
 
 
+def delete_last_turn(
+    thread_id: str | None = None,
+    include_user: bool = True,
+    message_id: int | None = None,
+) -> dict[str, Any]:
+    """Delete the discarded assistant turn (and optionally its paired user prompt) from SQLite."""
+    db = _connect()
+    try:
+        tid = _resolve_active_thread_id(db, thread_id)
+        target_id: int | None = None
+        if message_id is not None:
+            try:
+                mid = int(message_id)
+            except (TypeError, ValueError):
+                mid = 0
+            if mid > 0:
+                row = db.execute(
+                    """SELECT m.id, m.role
+                       FROM thread_messages tm
+                       JOIN messages m ON m.id = tm.message_id
+                       WHERE tm.thread_id = ? AND m.id = ?""",
+                    (tid, mid),
+                ).fetchone()
+                if not row or row[1] != "assistant":
+                    return {"deletedIds": [], "deletedCount": 0, "threadId": tid}
+                target_id = int(row[0])
+        if target_id is None:
+            row = db.execute(
+                """SELECT m.id
+                   FROM thread_messages tm
+                   JOIN messages m ON m.id = tm.message_id
+                   WHERE tm.thread_id = ? AND m.role = 'assistant'
+                   ORDER BY m.id DESC
+                   LIMIT 1""",
+                (tid,),
+            ).fetchone()
+            if not row:
+                return {"deletedIds": [], "deletedCount": 0, "threadId": tid}
+            target_id = int(row[0])
+
+        ids_to_delete: list[int] = [target_id]
+        if include_user:
+            prev = db.execute(
+                """SELECT m.id, m.role
+                   FROM thread_messages tm
+                   JOIN messages m ON m.id = tm.message_id
+                   WHERE tm.thread_id = ? AND m.id < ?
+                   ORDER BY m.id DESC
+                   LIMIT 1""",
+                (tid, target_id),
+            ).fetchone()
+            if prev and prev[1] == "user":
+                ids_to_delete.append(int(prev[0]))
+
+        placeholders = ",".join("?" for _ in ids_to_delete)
+        now = int(time.time() * 1000)
+        with db:
+            for tbl, col in (
+                ("message_surfaces", "message_id"),
+                ("message_meta", "message_id"),
+                ("thread_messages", "message_id"),
+                ("messages", "id"),
+            ):
+                try:
+                    db.execute(f"DELETE FROM {tbl} WHERE {col} IN ({placeholders})", ids_to_delete)
+                except sqlite3.Error:
+                    pass
+            try:
+                db.execute(f"DELETE FROM messages_fts WHERE message_id IN ({placeholders})", ids_to_delete)
+            except sqlite3.Error:
+                pass
+            db.execute("UPDATE threads SET updated_ms=? WHERE id=?", (now, tid))
+        return {"deletedIds": ids_to_delete, "deletedCount": len(ids_to_delete), "threadId": tid}
+    except sqlite3.Error as exc:
+        raise HistoryError("history_delete_failed") from exc
+    finally:
+        db.close()
+
+
 def clear(thread_id: str | None = None) -> None:
     db = _connect()
     try:
         tid = _resolve_active_thread_id(db, thread_id)
         now = int(time.time() * 1000)
         with db:
+            db.execute(
+                "DELETE FROM message_surfaces WHERE message_id IN (SELECT message_id FROM thread_messages WHERE thread_id=?)",
+                (tid,),
+            )
             db.execute(
                 "DELETE FROM message_meta WHERE message_id IN (SELECT message_id FROM thread_messages WHERE thread_id=?)",
                 (tid,),
@@ -866,15 +1267,32 @@ def _sync_project_workspace_to_session(
         ctx = run_store.load_session_context()
         prev_tid = str(ctx.get("activeThreadId") or "")
         changed = False
-        if force_reset_ephemeral or (prev_tid and prev_tid != thread_id):
+        has_pending_confirm = bool(
+            ctx.get("pendingDeletePath")
+            or ctx.get("pendingMemoryForget")
+            or ctx.get("pendingSudoOp")
+            or ctx.get("pendingClientAction")
+            or ctx.get("pendingConfirmId")
+        )
+        switching_thread = (prev_tid and prev_tid != thread_id) or (
+            not prev_tid and thread_id != DEFAULT_THREAD_ID and has_pending_confirm
+        )
+        if force_reset_ephemeral or switching_thread:
             ctx["pendingClarification"] = None
             ctx["pendingDeletePath"] = ""
+            ctx["pendingDeleteConfirmId"] = ""
             ctx["pendingMemoryForget"] = None
             ctx["pendingSudoOp"] = None
+            ctx["pendingClientAction"] = None
+            ctx["pendingConfirmId"] = ""
             changed = True
             try:
                 import permission_store
                 permission_store.resolve_pending_confirmation(decision="cancel", source="thread_switch")
+            except Exception:
+                pass
+            try:
+                _lock_confirm_surfaces_in_db(db, confirm_id="", resolution="cancelled")
             except Exception:
                 pass
         if prev_tid != thread_id:
@@ -1066,6 +1484,10 @@ def execute_thread_action(payload: dict) -> dict:
                     raise HistoryError("thread_not_found", "Chat thread not found.")
                 prev_active = _resolve_active_thread_id(db)
                 db.execute(
+                    "DELETE FROM message_surfaces WHERE message_id IN (SELECT message_id FROM thread_messages WHERE thread_id=?)",
+                    (target_id,),
+                )
+                db.execute(
                     "DELETE FROM message_meta WHERE message_id IN (SELECT message_id FROM thread_messages WHERE thread_id=?)",
                     (target_id,),
                 )
@@ -1119,6 +1541,10 @@ def execute_thread_action(payload: dict) -> dict:
                 if not target_id or not db.execute("SELECT 1 FROM threads WHERE id=?", (target_id,)).fetchone():
                     raise HistoryError("thread_not_found", "Chat thread not found.")
                 db.execute(
+                    "DELETE FROM message_surfaces WHERE message_id IN (SELECT message_id FROM thread_messages WHERE thread_id=?)",
+                    (target_id,),
+                )
+                db.execute(
                     "DELETE FROM message_meta WHERE message_id IN (SELECT message_id FROM thread_messages WHERE thread_id=?)",
                     (target_id,),
                 )
@@ -1168,18 +1594,21 @@ def execute_thread_action(payload: dict) -> dict:
                     (new_id, dup_title, proj_id, 0, sort_order, now, now),
                 )
                 src_msgs = db.execute(
-                    """SELECT m.role, m.content, m.created_ms, m.model,
-                              COALESCE(mm.interrupted, 0), COALESCE(mm.stop_reason, ''), COALESCE(mm.reasoning, '')
+                    """SELECT m.id, m.role, m.content, m.created_ms, m.model,
+                              COALESCE(mm.interrupted, 0), COALESCE(mm.stop_reason, ''),
+                              COALESCE(mm.reasoning, ''), COALESCE(mm.spoken_text, ''),
+                              ms.surface_json
                        FROM messages m
                        JOIN thread_messages tm ON tm.message_id = m.id
                        LEFT JOIN message_meta mm ON mm.message_id = m.id
+                       LEFT JOIN message_surfaces ms ON ms.message_id = m.id
                        WHERE tm.thread_id=?
                        ORDER BY m.id DESC
                        LIMIT ?""",
                     (target_id, MAX_ROWS),
                 ).fetchall()
                 src_msgs.reverse()
-                for m_role, m_content, m_created, m_model, m_int, m_stop, m_reason in src_msgs:
+                for _orig_id, m_role, m_content, m_created, m_model, m_int, m_stop, m_reason, m_spoken, m_surf_json in src_msgs:
                     cur = db.execute(
                         "INSERT INTO messages(role,content,created_ms,model) VALUES(?,?,?,?)",
                         (
@@ -1190,11 +1619,30 @@ def execute_thread_action(payload: dict) -> dict:
                         ),
                     )
                     dup_msg_id = int(cur.lastrowid)
-                    if m_int or m_stop or m_reason:
+                    if m_int or m_stop or m_reason or m_spoken:
                         db.execute(
-                            "INSERT OR REPLACE INTO message_meta(message_id,interrupted,stop_reason,reasoning) VALUES(?,?,?,?)",
-                            (dup_msg_id, 1 if m_int else 0, str(m_stop or ""), str(m_reason or "")),
+                            "INSERT OR REPLACE INTO message_meta(message_id,interrupted,stop_reason,reasoning,spoken_text) VALUES(?,?,?,?,?)",
+                            (dup_msg_id, 1 if m_int else 0, str(m_stop or ""), str(m_reason or ""), str(m_spoken or "")[:MAX_SPOKEN_TEXT]),
                         )
+                    if m_surf_json:
+                        try:
+                            import a2ui_validator
+
+                            parsed_s = json.loads(str(m_surf_json))
+                            locked_s = a2ui_validator.lock_confirmation_surface(
+                                parsed_s,
+                                resolution="locked",
+                                new_surface_id=_gen_id("surf"),
+                            )
+                            enc = _encode_validated_surface(locked_s)
+                            if enc is not None:
+                                nsid, nver, njson = enc
+                                db.execute(
+                                    "INSERT OR REPLACE INTO message_surfaces(message_id,surface_id,version,surface_json,updated_ms) VALUES(?,?,?,?,?)",
+                                    (dup_msg_id, nsid, nver, njson, now),
+                                )
+                        except Exception:
+                            pass
                     db.execute(
                         "INSERT OR REPLACE INTO thread_messages(message_id,thread_id) VALUES(?,?)",
                         (dup_msg_id, new_id),
@@ -1219,6 +1667,8 @@ def execute_thread_action(payload: dict) -> dict:
                 }
 
             if op == "search_threads":
+                import knowledge_index
+
                 query = str(payload.get("query") or "").strip()
                 active_id = _resolve_active_thread_id(db)
                 all_threads = _query_threads(db)
@@ -1241,13 +1691,79 @@ def execute_thread_action(payload: dict) -> dict:
                         "threads": all_threads,
                         "projects": _query_projects(db),
                     }
+                # Incrementally backfill/sync messages_fts with diacritic-folded content for fast VI/EN search
+                try:
+                    db.execute(
+                        "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, thread_id UNINDEXED, content_folded, tokenize='unicode61')"
+                    )
+                    max_row = db.execute("SELECT COALESCE(MAX(id), 0), COUNT(*) FROM messages").fetchone()
+                    max_mid = int(max_row[0] or 0) if max_row else 0
+                    total_msgs = int(max_row[1] or 0) if max_row else 0
+                    wm_row = db.execute("SELECT value FROM state_kv WHERE key='fts_sync_sig'").fetchone()
+                    cur_sig = f"{max_mid}:{total_msgs}"
+                    if not wm_row or str(wm_row[0] or "") != cur_sig:
+                        db.execute("DELETE FROM messages_fts")
+                        all_m_rows = db.execute(
+                            """SELECT m.id, COALESCE(tm.thread_id, ?), m.content
+                               FROM messages m
+                               LEFT JOIN thread_messages tm ON tm.message_id = m.id""",
+                            (DEFAULT_THREAD_ID,),
+                        ).fetchall()
+                        db.executemany(
+                            "INSERT INTO messages_fts(message_id, thread_id, content_folded) VALUES (?, ?, ?)",
+                            [
+                                (
+                                    int(mid),
+                                    str(mtid or DEFAULT_THREAD_ID),
+                                    knowledge_index.fold_text(str(mc or ""), include_cjk_bigrams=True),
+                                )
+                                for mid, mtid, mc in all_m_rows
+                            ],
+                        )
+                        db.execute(
+                            "INSERT OR REPLACE INTO state_kv(key, value) VALUES ('fts_sync_sig', ?)",
+                            (cur_sig,),
+                        )
+                        db.commit()
+                except sqlite3.Error:
+                    pass
+
+                q_folded = knowledge_index.fold_text(query)
+                fts_terms = knowledge_index.fts5_query_terms(query, limit=8)
+                matched_set: set[str] = set()
+                matched_ids: list[str] = []
+
+                def _add_match(tid_val: str) -> None:
+                    s_tid = str(tid_val or "").strip()
+                    if s_tid and s_tid not in matched_set:
+                        matched_set.add(s_tid)
+                        matched_ids.append(s_tid)
+
+                # 1. Diacritic-insensitive title match
+                for t in all_threads:
+                    if q_folded and q_folded in knowledge_index.fold_text(str(t.get("title") or "")):
+                        _add_match(str(t.get("id") or ""))
+
+                # 2. FTS5 diacritic-insensitive message match
+                if fts_terms:
+                    try:
+                        fts_expr = knowledge_index.build_fts5_match(fts_terms, operator="AND")
+                        for (ft_tid,) in db.execute(
+                            "SELECT DISTINCT thread_id FROM messages_fts WHERE messages_fts MATCH ? LIMIT 100",
+                            (fts_expr,),
+                        ).fetchall():
+                            _add_match(ft_tid)
+                    except sqlite3.Error:
+                        pass
+
+                # 3. Exact substring LIKE fallback (e.g., punctuation/paths/short tokens)
                 escaped_q = (
                     query.replace("\\", "\\\\")
                     .replace("%", "\\%")
                     .replace("_", "\\_")
                 )
                 like_pat = f"%{escaped_q}%"
-                matched_rows = db.execute(
+                for (lt_tid,) in db.execute(
                     """SELECT DISTINCT t.id
                        FROM threads t
                        LEFT JOIN thread_messages tm ON tm.thread_id = t.id
@@ -1255,9 +1771,9 @@ def execute_thread_action(payload: dict) -> dict:
                        WHERE t.title LIKE ? ESCAPE '\\' COLLATE NOCASE
                           OR m.content LIKE ? ESCAPE '\\' COLLATE NOCASE""",
                     (like_pat, like_pat),
-                ).fetchall()
-                matched_ids = [str(r[0]) for r in matched_rows if r and r[0]]
-                matched_set = set(matched_ids)
+                ).fetchall():
+                    _add_match(lt_tid)
+
                 q_lower = query.lower()
                 matched_threads: list[dict] = []
                 for t in all_threads:
@@ -1278,6 +1794,15 @@ def execute_thread_action(payload: dict) -> dict:
                     for idx, (m_role, m_content) in enumerate(msg_rows):
                         c_str = str(m_content or "")
                         pos = c_str.lower().find(q_lower)
+                        if pos == -1 and q_folded:
+                            f_str = knowledge_index.fold_text(c_str)
+                            pos = f_str.find(q_folded)
+                            if pos == -1 and fts_terms:
+                                for ft in fts_terms:
+                                    p_ft = f_str.find(ft)
+                                    if p_ft != -1:
+                                        pos = p_ft
+                                        break
                         if pos != -1:
                             turn_idx = idx
                             matched_role = str(m_role or "user")
@@ -1461,6 +1986,10 @@ def execute_thread_action(payload: dict) -> dict:
                         ).fetchall()
                     ]
                     for tid_item in t_ids:
+                        db.execute(
+                            "DELETE FROM message_surfaces WHERE message_id IN (SELECT message_id FROM thread_messages WHERE thread_id=?)",
+                            (tid_item,),
+                        )
                         db.execute(
                             "DELETE FROM message_meta WHERE message_id IN (SELECT message_id FROM thread_messages WHERE thread_id=?)",
                             (tid_item,),

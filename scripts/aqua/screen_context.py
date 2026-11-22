@@ -531,48 +531,21 @@ def capture_screenshot_file(now_ms=None, retention_days=None, focused_output: st
             return str(target)
         except OSError:
             return ""
-    if shutil.which("grim"):
-        grim_cmds = (
-            [["grim", "-o", focused_output, str(target)], ["grim", str(target)]]
-            if focused_output
-            else [["grim", str(target)]]
-        )
-        for gcmd in grim_cmds:
-            try:
-                proc = subprocess.run(
-                    gcmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=3.0,
-                    check=False,
-                )
-                if proc.returncode == 0 and target.is_file() and target.stat().st_size > 0:
-                    try:
-                        os.chmod(target, 0o600)
-                    except OSError:
-                        pass
-                    _prune_screenshots(out_dir, retention_days=retention_days, now_ms=ts)
-                    return str(target)
-            except (OSError, subprocess.SubprocessError):
-                pass
-    if shutil.which("spectacle"):
+    import native_host_bridge
+
+    ok_cap, _cap_backend = native_host_bridge.screencopy(
+        target,
+        output=focused_output,
+        fmt="png",
+        timeout=3.5,
+    )
+    if ok_cap and target.is_file() and target.stat().st_size > 0:
         try:
-            proc = subprocess.run(
-                ["spectacle", "-b", "-n", "-o", str(target)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=3.5,
-                check=False,
-            )
-            if proc.returncode == 0 and target.is_file() and target.stat().st_size > 0:
-                try:
-                    os.chmod(target, 0o600)
-                except OSError:
-                    pass
-                _prune_screenshots(out_dir, retention_days=retention_days, now_ms=ts)
-                return str(target)
-        except (OSError, subprocess.SubprocessError):
+            os.chmod(target, 0o600)
+        except OSError:
             pass
+        _prune_screenshots(out_dir, retention_days=retention_days, now_ms=ts)
+        return str(target)
     return ""
 
 
@@ -1182,10 +1155,14 @@ def perform_gui_action(
         if orig_action_type in ("som_click", "click_mark", "click_element", "atspi_action"):
             action_type = "click"
 
+    import native_host_bridge
+
     if orig_action_type in ("fill", "set_text") or (orig_action_type == "type" and resolved_elem is not None):
         txt = str(text or "")
         cx, cy = int(x or 0), int(y or 0)
         headless_res = _execute_atspi_headless(resolved_elem, orig_action_type, text=txt) if live_input else {"executed": False}
+        executed_ok = True
+        err_reason = ""
         if headless_res.get("executed"):
             backend = str(headless_res.get("backend") or "atspi-headless-editable")
         elif not live_input and (
@@ -1196,10 +1173,10 @@ def perform_gui_action(
         ):
             backend = "atspi-headless-editable"
         else:
-            backend = "wtype" if shutil.which("wtype") else ("ydotool" if shutil.which("ydotool") else "wayland-portal")
-            if live_input and txt:
-                try:
-                    if shutil.which("ydotool"):
+            if live_input:
+                focused_via_atspi = _execute_atspi_headless(resolved_elem, "focus_element").get("executed", False)
+                if not focused_via_atspi and shutil.which("ydotool"):
+                    try:
                         subprocess.run(
                             ["ydotool", "mousemove", "--absolute", "-x", str(cx), "-y", str(cy)],
                             stdout=subprocess.DEVNULL,
@@ -1214,24 +1191,37 @@ def perform_gui_action(
                             timeout=1.5,
                             check=False,
                         )
-                    if shutil.which("wtype"):
-                        subprocess.run(
-                            ["wtype", "--", txt],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            timeout=2.0,
-                            check=False,
-                        )
+                    except Exception:
+                        pass
+                typed_ok = False
+                backend = "unavailable"
+                if txt:
+                    ok_vk, vk_detail = native_host_bridge.input_type(txt)
+                    if ok_vk:
+                        typed_ok = True
+                        backend = "atspi+alis-inputd" if focused_via_atspi else "alis-inputd"
+                    elif shutil.which("wtype"):
+                        proc = subprocess.run(["wtype", "--", txt], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.0, check=False)
+                        if proc.returncode == 0:
+                            typed_ok = True
+                            backend = "wtype"
                     elif shutil.which("ydotool"):
-                        subprocess.run(
-                            ["ydotool", "type", "--", txt],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            timeout=2.0,
-                            check=False,
-                        )
-                except Exception:
-                    pass
+                        proc = subprocess.run(["ydotool", "type", "--", txt], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.0, check=False)
+                        if proc.returncode == 0:
+                            typed_ok = True
+                            backend = "ydotool"
+                    if not typed_ok:
+                        executed_ok = False
+                        err_reason = vk_detail or "No Wayland keyboard input backend (alis-inputd/wtype/ydotool) executed."
+                else:
+                    executed_ok = focused_via_atspi
+                    backend = "atspi-headless-focus" if focused_via_atspi else "unavailable"
+            else:
+                backend = (
+                    "alis-inputd"
+                    if native_host_bridge.has_native_vkeyboard()
+                    else ("wtype" if shutil.which("wtype") else ("ydotool" if shutil.which("ydotool") else "fixture-dry-run"))
+                )
         elem_ref = str(resolved_elem.get("ref") or f"@e{resolved_elem['markId']}")
         elem_desc = f" {elem_ref} [{resolved_elem['markId']}] '{resolved_elem.get('name') or resolved_elem.get('role')}'"
         cursor_event = _emit_cursor_event(
@@ -1243,7 +1233,7 @@ def perform_gui_action(
             now_ms=now_ms,
         )
         return {
-            "ok": True,
+            "ok": executed_ok,
             "actionType": orig_action_type,
             "x": cx,
             "y": cy,
@@ -1256,36 +1246,44 @@ def perform_gui_action(
             "cursorEvent": cursor_event,
             "beforeWindowId": current_win_id,
             "afterWindowId": current_win_id,
-            "verified": True,
-            "summary": f"Filled{elem_desc} ({len(txt)} chars) at ({cx}, {cy}) via {backend}",
+            "verified": executed_ok,
+            "summary": (
+                f"Filled{elem_desc} ({len(txt)} chars) at ({cx}, {cy}) via {backend}"
+                if executed_ok
+                else f"Failed to fill{elem_desc}: {err_reason or 'no available input backend'}"
+            ),
             "observation": obs,
         }
 
     if orig_action_type == "focus_element" and resolved_elem is not None:
         cx, cy = int(x or 0), int(y or 0)
         headless_res = _execute_atspi_headless(resolved_elem, "focus_element") if live_input else {"executed": False}
+        executed_ok = True
         if headless_res.get("executed") or not live_input:
             backend = str(headless_res.get("backend") or "atspi-headless-focus")
+        elif shutil.which("ydotool"):
+            backend = "atspi+ydotool"
+            try:
+                p1 = subprocess.run(
+                    ["ydotool", "mousemove", "--absolute", "-x", str(cx), "-y", str(cy)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=1.5,
+                    check=False,
+                )
+                p2 = subprocess.run(
+                    ["ydotool", "click", "0xC0"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=1.5,
+                    check=False,
+                )
+                executed_ok = p1.returncode == 0 and p2.returncode == 0
+            except Exception:
+                executed_ok = False
         else:
-            backend = "atspi+ydotool" if shutil.which("ydotool") else "atspi+wayland-portal"
-            if shutil.which("ydotool"):
-                try:
-                    subprocess.run(
-                        ["ydotool", "mousemove", "--absolute", "-x", str(cx), "-y", str(cy)],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=1.5,
-                        check=False,
-                    )
-                    subprocess.run(
-                        ["ydotool", "click", "0xC0"],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=1.5,
-                        check=False,
-                    )
-                except Exception:
-                    pass
+            backend = "unavailable"
+            executed_ok = False
         elem_ref = str(resolved_elem.get("ref") or f"@e{resolved_elem['markId']}")
         elem_desc = f" {elem_ref} [{resolved_elem['markId']}] '{resolved_elem.get('name') or resolved_elem.get('role')}'"
         cursor_event = _emit_cursor_event(
@@ -1297,7 +1295,7 @@ def perform_gui_action(
             now_ms=now_ms,
         )
         return {
-            "ok": True,
+            "ok": executed_ok,
             "actionType": "focus_element",
             "x": cx,
             "y": cy,
@@ -1308,8 +1306,12 @@ def perform_gui_action(
             "cursorEvent": cursor_event,
             "beforeWindowId": current_win_id,
             "afterWindowId": current_win_id,
-            "verified": True,
-            "summary": f"Focused{elem_desc} at ({cx}, {cy}) via {backend}",
+            "verified": executed_ok,
+            "summary": (
+                f"Focused{elem_desc} at ({cx}, {cy}) via {backend}"
+                if executed_ok
+                else f"Failed to focus{elem_desc}: AT-SPI focus did not apply and no Wayland virtual pointer backend is installed."
+            ),
             "observation": obs,
         }
 
@@ -1323,6 +1325,7 @@ def perform_gui_action(
             btn = "left"
 
         headless_executed = False
+        executed_ok = True
         backend = ""
         if resolved_elem is not None and action_type == "click" and btn == "left":
             if live_input:
@@ -1334,36 +1337,49 @@ def perform_gui_action(
                 headless_executed = True
                 backend = "atspi-headless-action"
 
-        if not backend:
-            backend = "atspi+ydotool" if resolved_elem and shutil.which("ydotool") else (
-                "atspi+wayland-portal" if resolved_elem else ("ydotool" if shutil.which("ydotool") else "wayland-portal")
-            )
-        if live_input and not headless_executed and shutil.which("ydotool"):
-            try:
-                subprocess.run(
-                    ["ydotool", "mousemove", "--absolute", "-x", str(cx), "-y", str(cy)],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=1.5,
-                    check=False,
-                )
-                if action_type == "click":
-                    btn_code = {"left": "0xC0", "right": "0xC1", "middle": "0xC2"}[btn]
-                    subprocess.run(
-                        ["ydotool", "click", btn_code],
+        if live_input and not headless_executed:
+            if shutil.which("ydotool"):
+                backend = "atspi+ydotool" if resolved_elem else "ydotool"
+                try:
+                    p1 = subprocess.run(
+                        ["ydotool", "mousemove", "--absolute", "-x", str(cx), "-y", str(cy)],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         timeout=1.5,
                         check=False,
                     )
-            except Exception:
-                pass
+                    executed_ok = p1.returncode == 0
+                    if executed_ok and action_type == "click":
+                        btn_code = {"left": "0xC0", "right": "0xC1", "middle": "0xC2"}[btn]
+                        p2 = subprocess.run(
+                            ["ydotool", "click", btn_code],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=1.5,
+                            check=False,
+                        )
+                        executed_ok = p2.returncode == 0
+                except Exception:
+                    executed_ok = False
+            else:
+                backend = "unavailable"
+                executed_ok = False
+        elif not backend:
+            backend = "atspi+ydotool" if resolved_elem and shutil.which("ydotool") else (
+                "atspi-fixture" if resolved_elem else ("ydotool" if shutil.which("ydotool") else "fixture-dry-run")
+            )
         elem_desc = f" [{resolved_elem['markId']}] '{resolved_elem.get('name') or resolved_elem.get('role')}'" if resolved_elem else ""
-        summary = (
-            f"Clicked {btn}{elem_desc} at ({cx}, {cy}) via {backend}"
-            if action_type == "click"
-            else f"Moved cursor{elem_desc} to ({cx}, {cy}) via {backend}"
-        )
+        if executed_ok:
+            summary = (
+                f"Clicked {btn}{elem_desc} at ({cx}, {cy}) via {backend}"
+                if action_type == "click"
+                else f"Moved cursor{elem_desc} to ({cx}, {cy}) via {backend}"
+            )
+        else:
+            summary = (
+                f"Pointer {action_type}{elem_desc} at ({cx}, {cy}) could not be executed: "
+                "AT-SPI headless action did not match and no Wayland virtual pointer backend (ydotool) is available."
+            )
         cursor_event = _emit_cursor_event(
             cx,
             cy,
@@ -1373,7 +1389,7 @@ def perform_gui_action(
             now_ms=now_ms,
         )
         res_payload = {
-            "ok": True,
+            "ok": executed_ok,
             "actionType": action_type,
             "x": cx,
             "y": cy,
@@ -1382,7 +1398,7 @@ def perform_gui_action(
             "cursorEvent": cursor_event,
             "beforeWindowId": current_win_id,
             "afterWindowId": current_win_id,
-            "verified": True,
+            "verified": executed_ok,
             "summary": summary,
             "observation": obs,
         }
@@ -1394,62 +1410,93 @@ def perform_gui_action(
 
     if action_type == "type":
         txt = str(text or "")
-        backend = "wtype" if shutil.which("wtype") else ("ydotool" if shutil.which("ydotool") else "wayland-portal")
-        if live_input and txt:
-            try:
-                if shutil.which("wtype"):
-                    subprocess.run(
-                        ["wtype", "--", txt],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=2.0,
-                        check=False,
-                    )
+        executed_ok = True
+        err_reason = ""
+        if live_input:
+            backend = "unavailable"
+            if not txt:
+                backend = "alis-inputd" if native_host_bridge.has_native_vkeyboard() else "noop"
+            else:
+                ok_vk, vk_detail = native_host_bridge.input_type(txt)
+                if ok_vk:
+                    backend = "alis-inputd"
+                elif shutil.which("wtype"):
+                    proc = subprocess.run(["wtype", "--", txt], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.0, check=False)
+                    if proc.returncode == 0:
+                        backend = "wtype"
+                    else:
+                        executed_ok = False
+                        err_reason = f"wtype exited {proc.returncode}"
                 elif shutil.which("ydotool"):
-                    subprocess.run(
-                        ["ydotool", "type", "--", txt],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=2.0,
-                        check=False,
-                    )
-            except Exception:
-                pass
+                    proc = subprocess.run(["ydotool", "type", "--", txt], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.0, check=False)
+                    if proc.returncode == 0:
+                        backend = "ydotool"
+                    else:
+                        executed_ok = False
+                        err_reason = f"ydotool exited {proc.returncode}"
+                else:
+                    executed_ok = False
+                    err_reason = vk_detail or "no Wayland keyboard backend available"
+        else:
+            backend = (
+                "alis-inputd"
+                if native_host_bridge.has_native_vkeyboard()
+                else ("wtype" if shutil.which("wtype") else ("ydotool" if shutil.which("ydotool") else "fixture-dry-run"))
+            )
         return {
-            "ok": True,
+            "ok": executed_ok,
             "actionType": "type",
             "textLength": len(txt),
             "backend": backend,
             "beforeWindowId": current_win_id,
             "afterWindowId": current_win_id,
-            "verified": True,
-            "summary": f"Typed text ({len(txt)} chars) via {backend}",
+            "verified": executed_ok,
+            "summary": (
+                f"Typed text ({len(txt)} chars) via {backend}"
+                if executed_ok
+                else f"Failed to type text ({len(txt)} chars): {err_reason}"
+            ),
             "observation": obs,
         }
 
     if action_type == "key":
         k = str(key or "Return").strip() or "Return"
-        backend = "wtype" if shutil.which("wtype") else ("ydotool" if shutil.which("ydotool") else "wayland-portal")
-        if live_input and shutil.which("wtype"):
-            try:
-                subprocess.run(
-                    ["wtype", "-k", k],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=1.5,
-                    check=False,
-                )
-            except Exception:
-                pass
+        executed_ok = True
+        err_reason = ""
+        if live_input:
+            backend = "unavailable"
+            ok_vk, vk_detail = native_host_bridge.input_key(k)
+            if ok_vk:
+                backend = "alis-inputd"
+            elif shutil.which("wtype"):
+                proc = subprocess.run(["wtype", "-k", k], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5, check=False)
+                if proc.returncode == 0:
+                    backend = "wtype"
+                else:
+                    executed_ok = False
+                    err_reason = f"wtype exited {proc.returncode}"
+            else:
+                executed_ok = False
+                err_reason = vk_detail or "no Wayland keyboard backend available"
+        else:
+            backend = (
+                "alis-inputd"
+                if native_host_bridge.has_native_vkeyboard()
+                else ("wtype" if shutil.which("wtype") else ("ydotool" if shutil.which("ydotool") else "fixture-dry-run"))
+            )
         return {
-            "ok": True,
+            "ok": executed_ok,
             "actionType": "key",
             "key": k,
             "backend": backend,
             "beforeWindowId": current_win_id,
             "afterWindowId": current_win_id,
-            "verified": True,
-            "summary": f"Pressed key '{k}' via {backend}",
+            "verified": executed_ok,
+            "summary": (
+                f"Pressed key '{k}' via {backend}"
+                if executed_ok
+                else f"Failed to press key '{k}': {err_reason}"
+            ),
             "observation": obs,
         }
 

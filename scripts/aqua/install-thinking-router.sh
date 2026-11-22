@@ -11,10 +11,6 @@ MODEL_DIR="$ROUTER_ROOT/model"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 HF_BASE="https://huggingface.co/Horizon-Labs/multilingual-prompt-task-complexity-small/resolve/main"
 
-if ! command -v uv >/dev/null 2>&1; then
-    echo "ERROR: 'uv' is required to install the local Thinking Router environment (sudo pacman -S uv)." >&2
-    exit 1
-fi
 if ! command -v curl >/dev/null 2>&1; then
     echo "ERROR: 'curl' is required to download mmBERT ONNX artifacts." >&2
     exit 1
@@ -23,13 +19,32 @@ fi
 mkdir -p "$ROUTER_ROOT" "$MODEL_DIR"
 
 echo "[thinking-router] Creating isolated CPU Python environment at $VENV_DIR..."
-# Prefer Python 3.12 when available so prebuilt onnxruntime/tokenizers wheels install reliably.
-if ! uv venv -q --clear --python 3.12 "$VENV_DIR" 2>/dev/null; then
-    uv venv -q --clear "$VENV_DIR"
+if command -v uv >/dev/null 2>&1; then
+    # Prefer Python 3.12 when available so prebuilt onnxruntime/tokenizers wheels install reliably.
+    if ! uv venv -q --clear --python 3.12 "$VENV_DIR" 2>/dev/null; then
+        uv venv -q --clear "$VENV_DIR"
+    fi
+    echo "[thinking-router] Installing onnxruntime, tokenizers, numpy via uv..."
+    uv pip install -q --python "$VENV_PY" onnxruntime tokenizers numpy
+else
+    PY_BIN=""
+    for cand in python3.12 python3.13 python3; do
+        if command -v "$cand" >/dev/null 2>&1; then
+            PY_BIN="$(command -v "$cand")"
+            break
+        fi
+    done
+    if [ -z "$PY_BIN" ]; then
+        echo "ERROR: Neither 'uv' nor 'python3' was found to create the Thinking Router venv." >&2
+        exit 1
+    fi
+    echo "[thinking-router] 'uv' not found; falling back to $PY_BIN -m venv..."
+    rm -rf "$VENV_DIR"
+    "$PY_BIN" -m venv "$VENV_DIR"
+    echo "[thinking-router] Installing onnxruntime, tokenizers, numpy via pip..."
+    "$VENV_DIR/bin/pip" install -q --upgrade pip
+    "$VENV_DIR/bin/pip" install -q onnxruntime tokenizers numpy
 fi
-
-echo "[thinking-router] Installing onnxruntime, tokenizers, numpy..."
-uv pip install -q --python "$VENV_PY" onnxruntime tokenizers numpy
 
 download_artifact() {
     local remote_path="$1"

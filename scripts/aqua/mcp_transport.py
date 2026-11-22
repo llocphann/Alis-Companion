@@ -115,6 +115,7 @@ class _StdioSession:
         self.stderr_tail: deque[str] = deque(maxlen=40)
         self._stderr_thread: threading.Thread | None = None
         self._req_id = 0
+        self._read_buf = bytearray()
         self.initialized = False
         self.last_used = time.monotonic()
 
@@ -123,8 +124,8 @@ class _StdioSession:
 
     def _drain_stderr(self, pipe) -> None:
         try:
-            for line in iter(pipe.readline, ""):
-                txt = line.strip()
+            for raw_line in iter(pipe.readline, b""):
+                txt = raw_line.decode("utf-8", errors="replace").strip()
                 if txt:
                     self.stderr_tail.append(txt[:240])
         except Exception:
@@ -139,6 +140,7 @@ class _StdioSession:
         if self.is_alive() and self.initialized:
             return
         self.close()
+        self._read_buf.clear()
         try:
             proc = subprocess.Popen(
                 self.cmd,
@@ -146,8 +148,8 @@ class _StdioSession:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=self.env,
-                text=True,
-                bufsize=1,
+                text=False,
+                bufsize=0,
                 start_new_session=True,
             )
         except OSError as exc:
@@ -181,33 +183,65 @@ class _StdioSession:
 
     def _write_msg(self, msg: dict) -> None:
         assert self.proc is not None and self.proc.stdin is not None
-        self.proc.stdin.write(json.dumps(msg, separators=(",", ":")) + "\n")
+        payload = (json.dumps(msg, separators=(",", ":")) + "\n").encode("utf-8")
+        self.proc.stdin.write(payload)
         self.proc.stdin.flush()
+
+    def _pop_buffered_line(self) -> str | None:
+        nl = self._read_buf.find(b"\n")
+        if nl == -1:
+            return None
+        raw = bytes(self._read_buf[:nl])
+        del self._read_buf[: nl + 1]
+        return raw.decode("utf-8", errors="replace").strip()
 
     def _read_reply(self, expected_id: int, method: str, deadline: float) -> dict:
         assert self.proc is not None and self.proc.stdout is not None
         fd = self.proc.stdout.fileno()
         while time.monotonic() < deadline:
-            remaining = max(0.05, deadline - time.monotonic())
+            # Always drain lines already buffered from a previous multi-line read()
+            # before waiting on select(), preventing stdio deadlock!
+            while True:
+                line = self._pop_buffered_line()
+                if line is None:
+                    break
+                if not line:
+                    continue
+                try:
+                    parsed = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(parsed, dict) and parsed.get("id") == expected_id:
+                    if "error" in parsed and isinstance(parsed["error"], dict):
+                        raise McpTransportError("mcp_rpc_error", str(parsed["error"].get("message") or "MCP RPC error"))
+                    return parsed.get("result") if isinstance(parsed.get("result"), dict) else {}
+
+            remaining = max(0.02, deadline - time.monotonic())
             ready, _, _ = select.select([fd], [], [], min(0.5, remaining))
             if not ready:
                 if self.proc.poll() is not None:
                     break
                 continue
-            line = self.proc.stdout.readline()
-            if not line:
-                break
-            line = line.strip()
-            if not line:
-                continue
             try:
-                parsed = json.loads(line)
-            except ValueError:
-                continue
-            if isinstance(parsed, dict) and parsed.get("id") == expected_id:
-                if "error" in parsed and isinstance(parsed["error"], dict):
-                    raise McpTransportError("mcp_rpc_error", str(parsed["error"].get("message") or "MCP RPC error"))
-                return parsed.get("result") if isinstance(parsed.get("result"), dict) else {}
+                chunk = os.read(fd, 65536)
+            except OSError:
+                break
+            if not chunk:
+                # EOF: process any trailing unterminated line in buffer
+                if self._read_buf:
+                    tail = bytes(self._read_buf).decode("utf-8", errors="replace").strip()
+                    self._read_buf.clear()
+                    if tail:
+                        try:
+                            parsed = json.loads(tail)
+                            if isinstance(parsed, dict) and parsed.get("id") == expected_id:
+                                if "error" in parsed and isinstance(parsed["error"], dict):
+                                    raise McpTransportError("mcp_rpc_error", str(parsed["error"].get("message") or "MCP RPC error"))
+                                return parsed.get("result") if isinstance(parsed.get("result"), dict) else {}
+                        except ValueError:
+                            pass
+                break
+            self._read_buf.extend(chunk)
         raise McpTransportError("mcp_timeout", f"MCP server '{self.server_name}' timed out or closed on '{method}'.")
 
     def exchange(self, method: str, params: dict | None = None, timeout_sec: float = 6.0) -> dict:

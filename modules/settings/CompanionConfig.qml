@@ -909,7 +909,7 @@ ContentPage {
                             objectName: "companionAmbientVisualPeek"
                             buttonIcon: "visibility"
                             text: "Visual mascot peek"
-                            tooltipText: "Optional (off by default): allow ephemeral downscaled visual peek when a window title has no detail; never saved to disk."
+                            tooltipText: "Optional (off by default): let a warm local vision model glance at a temporary downscaled screenshot (<=480px) when the screen changes, for richer varied remarks; deleted immediately and never saved."
                             checked: AquaMind.ambientVisualPeek
                             onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.ambientVisualPeek", checked)
                         }
@@ -2332,6 +2332,41 @@ ContentPage {
                         enabled: root.preferences.contextEnabled
                         checked: root.preferences.contextAiEnabled
                         onToggledByUser: checked => root.setPreference("contextAiEnabled", checked)
+                    }
+                }
+
+                // ROW 5A: Rich Interactive A2UI v1.0 Cards (Tier 1 default ON, Tier 2 Generative opt-in OFF)
+                GridLayout {
+                    id: aiA2uiGrid
+                    objectName: "aquaA2uiGrid"
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    Layout.minimumWidth: 0
+                    columns: root.availableRowWidth > 560 ? 2 : 1
+                    uniformCellWidths: columns > 1
+                    columnSpacing: root.embedded ? 10 : 14
+                    rowSpacing: root.embedded ? 4 : 6
+
+                    CompactToggle {
+                        objectName: "aquaA2uiEnabled"
+                        Layout.preferredWidth: 1
+                        Layout.minimumWidth: 0
+                        buttonIcon: "view_agenda"
+                        text: "Rich A2UI cards"
+                        tooltipText: "Render structured A2UI v1.0 cards (confirmations, live snapshots, citations, receipts, checklists) inside assistant bubbles."
+                        checked: AquaMind.a2uiEnabled
+                        onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.a2uiEnabled", checked)
+                    }
+                    CompactToggle {
+                        objectName: "aquaA2uiGenerativeEnabled"
+                        Layout.preferredWidth: 1
+                        Layout.minimumWidth: 0
+                        buttonIcon: "auto_awesome_mosaic"
+                        text: "Generative A2UI (beta)"
+                        tooltipText: "Optional (off by default): allow the AI model to emit custom validated A2UI v1.0 interactive cards during chat and ReAct turns."
+                        enabled: AquaMind.a2uiEnabled
+                        checked: AquaMind.a2uiGenerativeEnabled
+                        onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.a2uiGenerativeEnabled", checked)
                     }
                 }
 

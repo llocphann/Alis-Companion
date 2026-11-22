@@ -39,14 +39,42 @@ Item {
         session.companionTargetOutput,host.outputName,host.presented,field.ready)
         && !root.companionOccluded
         && liquid.records.length<=field.capacity
-    readonly property var companionScene: !root.companionPermission ? null
-        : AquaScene.fromParticipants({
-            width:host.width,height:host.height,
-            hostWidth:112*session.companionScale,hostHeight:98*session.companionScale,
-            scale:session.companionScale,insets:host.nativeInsets,rimRadius:AbyssStyle.neckRadius,
-            perimeterRadius:AbyssStyle.perimeterRadius,
-            connectionDepth:AbyssStyle.connectionDepth,
-            moduleSurfaces:bar.visible ? (bar.deformations ?? []).filter(d=>d && d.surface && d.surface.width>0 && d.surface.height>0).map(d=>({
+    readonly property var companionScene: root._companionSceneState
+    readonly property bool companionHostActive: root.companionPermission && companionPresence.qualified
+    property var _companionSceneState: null
+    property bool _sceneRebuildQueued: false
+    property bool _sceneDirty: false
+    property bool _barSurfacePending: false
+    property var _settledModuleSurfaces: []
+    property var _settledDetachedModules: []
+    property var _settledBarModules: []
+    readonly property bool _dockExcludedForScene: (host?.desktopHasApps ?? false)
+        && (Config.options?.dock?.enable ?? true)
+        && (Config.options?.enabledPanels ?? []).includes("abyssDock")
+        && (!Array.isArray(Config.options?.dock?.screenList)
+            || Config.options.dock.screenList.length === 0
+            || Config.options.dock.screenList.includes(host.outputName))
+    readonly property var _dockParticipant: liquid?.participants?.dock ?? null
+    readonly property var _dockRestingForScene: root._dockExcludedForScene
+        ? (root._dockParticipant?.restingRecord ?? null)
+        : null
+    onCompanionPermissionChanged: {
+        if (!root.companionPermission) {
+            barMotionSettleTimer.stop()
+            root._barSurfacePending = false
+            root._sceneRebuildQueued = false
+            root._sceneDirty = false
+            root._companionSceneState = null
+        } else {
+            root._scheduleCompanionSceneRebuild(true)
+        }
+    }
+    on_DockExcludedForSceneChanged: root._scheduleCompanionSceneRebuild(false)
+    on_DockRestingForSceneChanged: root._scheduleCompanionSceneRebuild(false)
+    function _snapshotBarGeometry(): void {
+        const barVisible = Boolean(bar && bar.visible)
+        root._settledModuleSurfaces = barVisible
+            ? (bar.deformations ?? []).filter(d=>d && d.surface && d.surface.width>0 && d.surface.height>0).map(d=>({
                 edge:d.edge,
                 surface:{x:d.surface.x,y:d.surface.y,width:d.surface.width,height:d.surface.height},
                 radius:Number.isFinite(Number(d.radius)) ? Number(d.radius) : AbyssStyle.neckRadius,
@@ -54,20 +82,131 @@ Item {
                 along:Number(d.along) || 0,
                 span:Number(d.span) || 0,
                 cornerWrapArm:d.cornerWrapArm===true,
-                kind:String(d.kind ?? "")})) : [],
-            detachedModules:bar.visible ? (bar.layoutRecords ?? []).filter(r=>r && r.detached===true && r.content && r.content.width>0 && r.content.height>0).map(r=>({
+                kind:String(d.kind ?? "")}))
+            : []
+        root._settledDetachedModules = barVisible
+            ? (bar.layoutRecords ?? []).filter(r=>r && r.detached===true && r.content && r.content.width>0 && r.content.height>0).map(r=>({
                 edge:r.edge,
                 rect:{x:r.content.x-6,y:r.content.y-6,width:r.content.width+12,height:r.content.height+12},
-                radius:AbyssStyle.neckRadius})) : [],
-            excludeKeys:(host?.desktopHasApps ?? false)
-                && (Config.options?.dock?.enable ?? true)
-                && (Config.options?.enabledPanels ?? []).includes("abyssDock")
-                && (!Array.isArray(Config.options?.dock?.screenList)
-                    || Config.options.dock.screenList.length===0
-                    || Config.options.dock.screenList.includes(host.outputName)) ? ["dock"] : []},
-            liquid.participants,bar.visible ? bar.layoutRecords.map(record=>({
-                edge:record.edge,along:record.along,span:record.span,detached:record.detached===true})) : [])
-    readonly property bool companionHostActive: root.companionPermission && companionPresence.qualified
+                radius:AbyssStyle.neckRadius}))
+            : []
+        root._settledBarModules = barVisible
+            ? (bar.layoutRecords ?? []).map(record=>({
+                edge:record.edge,along:record.along,span:record.span,detached:record.detached===true}))
+            : []
+    }
+    function _buildCompanionScene(): var {
+        if (!root.companionPermission)
+            return null
+        return AquaScene.fromParticipants({
+            width:host.width,height:host.height,
+            hostWidth:112*session.companionScale,hostHeight:98*session.companionScale,
+            scale:session.companionScale,insets:host.nativeInsets,rimRadius:AbyssStyle.neckRadius,
+            perimeterRadius:AbyssStyle.perimeterRadius,
+            connectionDepth:AbyssStyle.connectionDepth,
+            moduleSurfaces:root._settledModuleSurfaces,
+            detachedModules:root._settledDetachedModules,
+            excludeKeys:root._dockExcludedForScene ? ["dock"] : []},
+            liquid.participants,root._settledBarModules)
+    }
+    function _scheduleCompanionSceneRebuild(barGeometryChanged: bool): void {
+        if (!root.companionPermission) {
+            barMotionSettleTimer.stop()
+            root._barSurfacePending = false
+            root._sceneRebuildQueued = false
+            root._sceneDirty = false
+            root._companionSceneState = null
+            return
+        }
+        if (barGeometryChanged) {
+            root._barSurfacePending = true
+            if (bar?.motionActive && root._companionSceneState !== null) {
+                barMotionSettleTimer.restart()
+                return
+            }
+        } else {
+            root._sceneDirty = true
+        }
+        if (root._sceneRebuildQueued)
+            return
+        root._sceneRebuildQueued = true
+        Qt.callLater(root._flushCompanionSceneRebuild)
+    }
+    function _flushCompanionSceneRebuild(): void {
+        root._sceneRebuildQueued = false
+        if (!root.companionPermission) {
+            root._sceneDirty = false
+            root._companionSceneState = null
+            return
+        }
+        if (root._companionSceneState === null || (root._barSurfacePending && !bar?.motionActive)) {
+            root._snapshotBarGeometry()
+            root._barSurfacePending = false
+            root._sceneDirty = true
+        } else if (root._barSurfacePending && bar?.motionActive) {
+            barMotionSettleTimer.restart()
+        }
+        if (!root._sceneDirty)
+            return
+        root._sceneDirty = false
+        root._companionSceneState = root._buildCompanionScene()
+    }
+    Timer {
+        id: barMotionSettleTimer
+        interval: 80
+        repeat: false
+        onTriggered: {
+            if (!root.companionPermission)
+                return
+            if (bar?.motionActive) {
+                if (root._barSurfacePending)
+                    restart()
+                return
+            }
+            if (root._barSurfacePending || root._companionSceneState === null) {
+                root._sceneDirty = true
+                root._flushCompanionSceneRebuild()
+            }
+        }
+    }
+    Connections {
+        target: (host instanceof QtObject) ? host : null
+        ignoreUnknownSignals: true
+        function onWidthChanged(): void { root._scheduleCompanionSceneRebuild(false) }
+        function onHeightChanged(): void { root._scheduleCompanionSceneRebuild(false) }
+        function onNativeInsetsChanged(): void { root._scheduleCompanionSceneRebuild(false) }
+        function onOutputNameChanged(): void { root._scheduleCompanionSceneRebuild(false) }
+    }
+    Connections {
+        target: (session instanceof QtObject) ? session : null
+        ignoreUnknownSignals: true
+        function onCompanionScaleChanged(): void { root._scheduleCompanionSceneRebuild(false) }
+    }
+    Connections {
+        target: AbyssStyle
+        ignoreUnknownSignals: true
+        function onNeckRadiusChanged(): void { root._scheduleCompanionSceneRebuild(false) }
+        function onPerimeterRadiusChanged(): void { root._scheduleCompanionSceneRebuild(false) }
+        function onConnectionDepthChanged(): void { root._scheduleCompanionSceneRebuild(false) }
+    }
+    Connections {
+        target: (bar instanceof QtObject) ? bar : null
+        ignoreUnknownSignals: true
+        function onVisibleChanged(): void { root._scheduleCompanionSceneRebuild(true) }
+        function onDeformationsChanged(): void { root._scheduleCompanionSceneRebuild(true) }
+        function onLayoutRecordsChanged(): void { root._scheduleCompanionSceneRebuild(true) }
+        function onMotionActiveChanged(): void {
+            if (root._barSurfacePending && !bar?.motionActive)
+                barMotionSettleTimer.restart()
+        }
+    }
+    Connections {
+        target: (liquid instanceof QtObject) ? liquid : null
+        ignoreUnknownSignals: true
+        function onParticipantsChanged(): void { root._scheduleCompanionSceneRebuild(false) }
+        function onRecordsChanged(): void { root._scheduleCompanionSceneRebuild(false) }
+        function onSurfacesSettledChanged(): void { root._scheduleCompanionSceneRebuild(false) }
+    }
     readonly property bool ambientBlocked: !root.companionHostActive || root.companionOccluded
         || companionPresence.dragging || companionPresence.traveling || companionPresence.portalActive
         || companionCuriosity.busy || talkCloud.controlsVisible
@@ -902,7 +1041,10 @@ Item {
     }
     Region { id:aiRegion;item:emptyInput }
     function yieldToUser(): void {companionCuriosity.yieldToUser()}
-    Component.onCompleted: if (session && session.companionTargetOutput===host.outputName) Qt.callLater(session.evaluateContext)
+    Component.onCompleted: {
+        if (session && session.companionTargetOutput===host.outputName) Qt.callLater(session.evaluateContext)
+        root._scheduleCompanionSceneRebuild(true)
+    }
     Component.onDestruction: {
         companionCuriosity.interrupt()
         // Return QObject ownership before Loader destroys this output.

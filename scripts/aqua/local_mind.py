@@ -323,8 +323,9 @@ def _ensure_lmstudio_model_ready(model_name: str = '', v0_url: str = 'http://127
         all_ids: list[str] = []
         any_embed_loaded = False
         stopped_runaway_load = False
+        _local_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         while True:
-            with urllib.request.urlopen(v0_url, timeout=1.5) as r_v0:
+            with _local_opener.open(v0_url, timeout=1.5) as r_v0:
                 v0_data = json.loads(r_v0.read().decode('utf-8', errors='replace'))
             all_v0_items = [
                 it for it in (v0_data.get('data') if isinstance(v0_data, dict) else [])
@@ -550,6 +551,25 @@ def _encode_image_data_uri(img_path_str: str, max_raw_bytes: int = 48000) -> str
                         tmp_path.unlink(missing_ok=True)
                 except Exception:
                     pass
+        if not compressed:
+            try:
+                import native_host_bridge
+
+                for max_dim, qual in ((768, 75), (512, 65), (384, 55)):
+                    fd_n, tmp_n = tempfile.mkstemp(prefix='aqua_img_nat_', suffix='.jpg')
+                    os.close(fd_n)
+                    tmp_np = Path(tmp_n)
+                    try:
+                        ok_n, _ = native_host_bridge.image_resize(p, f'{max_dim}x{max_dim}', tmp_np, quality=qual, timeout=5.0)
+                        if ok_n and tmp_np.is_file() and 0 < tmp_np.stat().st_size <= max_raw_bytes:
+                            raw_bytes = tmp_np.read_bytes()
+                            mime = 'image/jpeg'
+                            compressed = True
+                            break
+                    finally:
+                        tmp_np.unlink(missing_ok=True)
+            except Exception:
+                pass
         if not compressed:
             try:
                 import io
@@ -1353,6 +1373,18 @@ def chat_history(options):
     except (ValueError,TypeError,history_store.HistoryError):
         raise MindError('history_unavailable','Companion chat history is unavailable')
 
+def delete_last_turn_history(options=None):
+    try:
+        opts = options or {}
+        tid = str(opts.get('threadId') or '').strip() or None
+        include_user = bool(opts.get('includeUser', True))
+        raw_mid = opts.get('messageId')
+        mid = int(raw_mid) if (raw_mid is not None and str(raw_mid).strip().isdigit()) else None
+        res = history_store.delete_last_turn(thread_id=tid, include_user=include_user, message_id=mid)
+    except history_store.HistoryError:
+        raise MindError('history_unavailable', 'Companion chat history is unavailable')
+    return res
+
 def clear_chat_history(options=None):
     try:
         tid=str((options or {}).get('threadId') or '').strip() or None
@@ -1388,11 +1420,35 @@ def append_chat_history(options):
     if notice:reply=notice['text']
     try:
         tid=str(options.get('threadId') or '').strip() or None
-        user_id,assistant_id=history_store.append_exchange(prompt,reply,str(options.get('model',''))[:240],thread_id=tid)
+        spoken_in=str(options.get('spokenText') or '').strip()
+        if not spoken_in and reply:
+            try:
+                import desktop_control
+                spoken_in=desktop_control._clean_text_for_tts(reply,context_prompt=prompt)
+            except Exception:
+                spoken_in=''
+        surf_in=options.get('uiSurface') if (not notice and isinstance(options.get('uiSurface'),dict)) else None
+        if surf_in is not None:
+            try:
+                import a2ui_validator
+                surf_in, _s_err = a2ui_validator.validate_and_sanitize_surface(
+                    surf_in,
+                    untrusted_generative=True,
+                )
+            except Exception:
+                surf_in = None
+        user_id,assistant_id=history_store.append_exchange(
+            prompt,
+            reply,
+            str(options.get('model',''))[:240],
+            thread_id=tid,
+            spoken_text=spoken_in,
+            ui_surface=surf_in,
+        )
         ws=history_store.load_with_workspace(limit=1,before_id=0,thread_id=tid)
     except history_store.HistoryError:
         raise MindError('history_unavailable','Aqua chat history could not be saved')
-    return {'userMessageId':user_id,'assistantMessageId':assistant_id,'activeThreadId':ws['activeThreadId'],'threads':ws['threads'],'projects':ws['projects']}
+    return {'userMessageId':user_id,'assistantMessageId':assistant_id,'spokenText':spoken_in[:2400],'activeThreadId':ws['activeThreadId'],'threads':ws['threads'],'projects':ws['projects']}
 
 
 def append_cancelled_chat_history(options):
@@ -1695,6 +1751,12 @@ def dispatch(payload):
         return context_inbox_action(action,payload)
     if action in ('agent_turn','agent_cancel','agent_permissions','agent_rules','agent_status','model_route','screenshot_retention'):
         return agent_action(action,payload)
+    if action=='a2ui_action':
+        import agent_runtime
+        companion_root=Path(__file__).resolve().parents[2]
+        raw_hr=str(payload.get('hostRoot') or payload.get('_hostRoot') or os.environ.get('ALIS_ROOT') or '').strip()
+        host_root=Path(raw_hr).resolve(strict=False) if raw_hr else HOST
+        return agent_runtime.handle_a2ui_action(payload,companion_root=companion_root,host_root=host_root)
     if action=='open_storage_path':return open_storage_path_action(payload)
     if action=='unload_llm':return unload_llm_action(payload)
     if action=='ambient_commentary':
@@ -1724,6 +1786,7 @@ def dispatch(payload):
     if action=='chat':return chat(payload)
     if action=='history':return chat_history(payload)
     if action=='history_clear':return clear_chat_history(payload)
+    if action=='history_delete_last_turn':return delete_last_turn_history(payload)
     if action=='history_append':return append_chat_history(payload)
     if action=='history_append_cancelled':return append_cancelled_chat_history(payload)
     if action=='check_in':return check_in(payload)
@@ -1888,7 +1951,9 @@ def agent_action(action, payload):
         if action=='agent_turn':
             if payload.get('screenshotRetentionDays') is not None:
                 screen_context.set_screenshot_retention_days(payload.get('screenshotRetentionDays'),now_ms=payload.get('nowMs'))
-            return agent_runtime.execute_agent_turn(payload,companion_root,HOST)
+            raw_hr=str(payload.get('hostRoot') or payload.get('_hostRoot') or '').strip()
+            eff_host=Path(raw_hr).resolve(strict=False) if raw_hr else HOST
+            return agent_runtime.execute_agent_turn(payload,companion_root,eff_host)
         if action=='agent_cancel':
             cancelled=run_store.cancel_active_runs(str(payload.get('reason') or 'cancelled_by_user'),payload.get('nowMs'))
             return {'cancelled':True,'cancelledRunIds':cancelled}
@@ -2116,6 +2181,14 @@ if __name__=='__main__':
         if isinstance(parsed_req,dict) and (('--use-daemon' in argv_list) or os.environ.get('ALIS_COMPANION_USE_DAEMON')=='1'):
             try:
                 import companion_daemon
+                if '--host-root' in argv_list:
+                    hr_idx=argv_list.index('--host-root')
+                    if hr_idx+1<len(argv_list) and argv_list[hr_idx+1]:
+                        parsed_req.setdefault('_hostRoot', argv_list[hr_idx+1])
+                if not os.environ.get('ALIS_PARENT_PID'):
+                    ppid=os.getppid()
+                    if ppid and ppid>1:
+                        os.environ['ALIS_PARENT_PID']=str(ppid)
                 daemon_resp=companion_daemon.call_via_daemon(parsed_req,auto_start=True)
                 if isinstance(daemon_resp,dict) and 'ok' in daemon_resp:
                     print(json.dumps(daemon_resp,ensure_ascii=False,separators=(',',':')))

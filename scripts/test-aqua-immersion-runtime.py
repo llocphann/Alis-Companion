@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Native field-contour mask on all edges and Dock; no rectangular water cut."""
-import json,tempfile
+import json,sys,tempfile
 from pathlib import Path
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from aqua_png_stdlib import Image
 from native_test_session import private_wayland,run_qs
 ROOT=Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='alis-aqua-immersion-') as name:

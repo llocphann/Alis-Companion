@@ -812,7 +812,7 @@ def storage_info() -> dict:
     }
 
 
-_LAST_INDEX_SIGNATURE: tuple | None = None
+_LAST_INDEX_SIGNATURE: tuple[str, str] | None = None
 
 
 def _fold_vi(text: str) -> str:
@@ -826,13 +826,14 @@ def sync_fts5_chunks(chunks: list[dict]) -> bool:
     import sqlite3
 
     sig = hashlib.sha256(
-        "\x00".join(
+        ("v2:" + "\x00".join(
             f"{c.get('source', '')}\x01{c.get('heading', '')}\x01{c.get('text', '')}"
             for c in chunks
-        ).encode("utf-8", errors="replace")
+        )).encode("utf-8", errors="replace")
     ).hexdigest()
     db_path = _rag_db_path()
-    if _LAST_INDEX_SIGNATURE == sig and db_path.is_file():
+    cache_key = (str(db_path), sig)
+    if _LAST_INDEX_SIGNATURE == cache_key and db_path.is_file():
         return True
 
     try:
@@ -847,8 +848,19 @@ def sync_fts5_chunks(chunks: list[dict]) -> bool:
             conn.execute("PRAGMA synchronous=NORMAL")
             conn.execute("PRAGMA busy_timeout=5000")
             conn.execute(
+                "CREATE TABLE IF NOT EXISTS rag_fts_meta(key TEXT PRIMARY KEY, val TEXT NOT NULL)"
+            )
+            conn.execute(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS rag_fts USING fts5(source, heading, body, tokenize='unicode61')"
             )
+            prev_row = conn.execute("SELECT val FROM rag_fts_meta WHERE key='chunks_sha256'").fetchone()
+            fts_cnt_row = conn.execute("SELECT COUNT(*) FROM rag_fts").fetchone()
+            fts_cnt = int(fts_cnt_row[0] or 0) if fts_cnt_row else 0
+            if prev_row and str(prev_row[0] or "") == sig and fts_cnt == len(chunks):
+                _LAST_INDEX_SIGNATURE = cache_key
+                return True
+            import knowledge_index
+
             conn.execute("DELETE FROM rag_fts")
             conn.executemany(
                 "INSERT INTO rag_fts(rowid, source, heading, body) VALUES (?, ?, ?, ?)",
@@ -856,14 +868,18 @@ def sync_fts5_chunks(chunks: list[dict]) -> bool:
                     (
                         idx + 1,
                         str(c.get("source") or ""),
-                        str(c.get("heading") or ""),
-                        _fold_vi(str(c.get("text") or "")),
+                        knowledge_index.fold_text(str(c.get("heading") or ""), include_cjk_bigrams=True),
+                        knowledge_index.fold_text(str(c.get("text") or ""), include_cjk_bigrams=True),
                     )
                     for idx, c in enumerate(chunks)
                 ],
             )
+            conn.execute(
+                "INSERT OR REPLACE INTO rag_fts_meta(key, val) VALUES ('chunks_sha256', ?)",
+                (sig,),
+            )
             conn.commit()
-            _LAST_INDEX_SIGNATURE = sig
+            _LAST_INDEX_SIGNATURE = cache_key
             return True
         finally:
             conn.close()
@@ -903,11 +919,15 @@ def query_hybrid_rag(
         "la", "co", "va", "cac", "nhung", "mot", "de", "voi", "cho", "tu",
         "nay", "do", "khi", "da", "dang", "se", "khong", "duoc", "ve", "gi",
     }
+    import knowledge_index
+
     sw = default_sw | set(stop_words or ())
-    q_words = [
-        w for w in re.findall(r"[a-zA-Z0-9_\u00C0-\u1EF9]{2,}", raw_prompt)
-        if w not in sw
-    ]
+    q_words = knowledge_index.fts5_query_terms(str(query or ""), stop_words=sw, limit=12)
+    if not q_words:
+        q_words = [
+            w for w in re.findall(r"[a-zA-Z0-9_\u00C0-\u1EF9]{2,}", raw_prompt)
+            if w not in sw
+        ]
     if not q_words:
         return []
 
@@ -919,10 +939,8 @@ def query_hybrid_rag(
             conn = sqlite3.connect(str(db_path), timeout=5.0)
             try:
                 conn.execute("PRAGMA busy_timeout=5000")
-                safe_terms = [re.sub(r"[^a-zA-Z0-9_\u00C0-\u1EF9]", "", w) for w in q_words[:10]]
-                safe_terms = [f'"{t}"*' for t in safe_terms if len(t) >= 2]
-                if safe_terms:
-                    fts_query = " OR ".join(safe_terms)
+                fts_query = knowledge_index.build_fts5_match(q_words[:10], operator="OR")
+                if fts_query:
                     rows = conn.execute(
                         "SELECT rowid, bm25(rag_fts, 1.8, 2.5, 1.0) AS rank "
                         "FROM rag_fts WHERE rag_fts MATCH ? ORDER BY rank LIMIT 60",
@@ -942,9 +960,9 @@ def query_hybrid_rag(
     n_chunks = max(1, len(chunks))
     folded_chunks = [
         (
-            _fold_vi(ch["heading"]),
-            _fold_vi(ch["text"]),
-            _fold_vi(ch["source"]),
+            knowledge_index.fold_text(str(ch.get("heading") or ""), include_cjk_bigrams=True),
+            knowledge_index.fold_text(str(ch.get("text") or ""), include_cjk_bigrams=True),
+            knowledge_index.fold_text(str(ch.get("source") or ""), include_cjk_bigrams=True),
         )
         for ch in chunks
     ]

@@ -126,7 +126,12 @@ assert module.rgba_difference(RawImage(bytes(a)), RawImage(bytes(a)))["changed_p
 
 # Read the filenames actually emitted by QML: label-index-repeat.png.
 # Keep the fixture independent of the consumer so a spelling drift fails.
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from aqua_png_stdlib import Image
 with tempfile.TemporaryDirectory() as temporary:
     output = Path(temporary)
     for index, sample in enumerate(module.cases()):

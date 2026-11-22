@@ -688,15 +688,14 @@ _SEARCH_STOPWORDS = frozenset({
 
 
 def _extract_query_terms(query: str) -> list[str]:
+    import knowledge_index
+
+    terms = knowledge_index.fts5_query_terms(query, stop_words=set(_SEARCH_STOPWORDS), limit=10)
+    if terms:
+        return terms
     folded = _fold_ascii(query)
-    raw_toks = re.findall(r"[a-z0-9_]{2,}", folded)
-    out: list[str] = []
-    for t in raw_toks:
-        if t not in _SEARCH_STOPWORDS and t not in out:
-            out.append(t)
-    if not out and raw_toks:
-        return raw_toks[:6]
-    return out[:10]
+    raw_toks = re.findall(r"[a-z0-9_+\-#.:]{2,}", folded)
+    return [t.strip(".,:") for t in raw_toks if len(t.strip(".,:")) >= 2][:6]
 
 
 def _search_collections_cache(cache: dict, terms: list[str], raw_query: str) -> list[dict]:
@@ -784,6 +783,41 @@ def search_nexus_knowledge(
         def _esc_like(s: str) -> str:
             return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
+        def _run_filter_only() -> None:
+            where_clauses: list[str] = []
+            params: list[object] = []
+            if folder:
+                where_clauses.append("(lower(folder) LIKE ? ESCAPE '\\' OR lower(rel_path) LIKE ? ESCAPE '\\')")
+                f_low = f"%{_esc_like(folder.strip().lower())}%"
+                params.extend([f_low, f_low])
+            if tag:
+                where_clauses.append("lower(tags) LIKE ? ESCAPE '\\'")
+                params.append(f"%{_esc_like(tag.strip().lstrip('#').lower())}%")
+            if not where_clauses:
+                return
+            sql = (
+                "SELECT rel_path, title, folder, tags, heading, body, 0.0 AS rank "
+                f"FROM nexus_fts WHERE {' AND '.join(where_clauses)} LIMIT 30"
+            )
+            for rp, ttl, fld, tgs, hd, bd, _rank in conn.execute(sql, params).fetchall():
+                key = (str(rp), str(hd))
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                scored_rows.append((
+                    2.0,
+                    {
+                        "source": f"Nexus: {rp}",
+                        "relPath": str(rp),
+                        "title": str(ttl),
+                        "folder": str(fld),
+                        "tags": [t.strip() for t in str(tgs).split(",") if t.strip()],
+                        "heading": str(hd),
+                        "snippet": str(bd).strip(),
+                        "score": 2.0,
+                    },
+                ))
+
         def _run_fts(expr: str, bonus: float) -> None:
             if not expr:
                 return
@@ -829,6 +863,8 @@ def search_nexus_knowledge(
             _run_fts(fts_expr_and, 10.0)
         if len(scored_rows) < top_k and fts_expr_or:
             _run_fts(fts_expr_or, 1.0)
+        if not terms and (folder or tag):
+            _run_filter_only()
     except sqlite3.Error:
         pass
     finally:

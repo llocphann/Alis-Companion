@@ -1,0 +1,5 @@
+module qs.optional.alis_companion.modules.abyss.companion.a2ui
+A2uiSurfaceView 1.0 A2uiSurfaceView.qml
+A2uiNode 1.0 A2uiNode.qml
+A2uiChildSlot 1.0 A2uiChildSlot.qml
+A2uiDataModel 1.0 A2uiDataModel.js

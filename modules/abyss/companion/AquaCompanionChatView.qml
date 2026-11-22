@@ -96,7 +96,7 @@ Item {
     }
 
     function handleInput(event): void {
-        if (embeddedCloud.hasSidebarInputFocus || embeddedCloud.editorMode)
+        if (embeddedCloud.hasSidebarInputFocus || embeddedCloud.hasA2uiInputFocus || embeddedCloud.editorMode)
             return
         if (event.modifiers === Qt.NoModifier && (event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown)) {
             if (root.scrollByPage(event.key === Qt.Key_PageDown ? 1 : -1)) {

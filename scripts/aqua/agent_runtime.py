@@ -16,6 +16,10 @@ Key guarantees:
 """
 from __future__ import annotations
 import concurrent.futures
+import contextvars
+from dataclasses import dataclass, field
+import types
+import hashlib
 import importlib
 import json
 import os
@@ -43,6 +47,8 @@ from code_tools import (
     run_project_tests,
     search_code,
 )
+import a2ui_builder
+import a2ui_validator
 import desktop_control
 from desktop_control import DesktopControlError
 import history_store
@@ -136,20 +142,40 @@ from nexus_rag import NexusRagError
 
 AGENT_CONTRACT_VERSION = 1
 
-_ACTIVE_RUN_STEPS: list[dict] = []
-_ACTIVE_RUN_START_MS: int = 0
-_ACTIVE_STEP_META: dict[str, tuple[str, str]] = {}
+@dataclass
+class _TurnState:
+    active_run_steps: list[dict] = field(default_factory=list)
+    active_run_start_ms: int = 0
+    active_step_meta: dict[str, tuple[str, str]] = field(default_factory=dict)
+    active_subagent_runs: list[dict] = field(default_factory=list)
+    last_cancelled_stream_prefix: dict | None = None
+    current_turn_live_snapshot: dict = field(default_factory=dict)
+    current_turn_nexus_vault: str = ""
+    current_turn_thread_id: str | None = None
+    last_lmstudio_error: str = ""
+    last_lmstudio_loaded_model: str = ""
+
+
+_TURN_STATE_VAR: contextvars.ContextVar[_TurnState | None] = contextvars.ContextVar(
+    "aqua_turn_state", default=None
+)
+
+
+def _tctx() -> _TurnState:
+    st = _TURN_STATE_VAR.get()
+    if st is None:
+        st = _TurnState()
+        _TURN_STATE_VAR.set(st)
+    return st
+
+
 _SUBAGENT_LOCK = threading.RLock()
-_ACTIVE_SUBAGENT_RUNS: list[dict] = []
 _SUBAGENT_MAX_SUMMARY_CHARS = 1200
-_LAST_CANCELLED_STREAM_PREFIX: dict | None = None
-_CURRENT_TURN_LIVE_SNAPSHOT: dict = {}
-_CURRENT_TURN_NEXUS_VAULT: str = ""
 
 
 def get_last_cancelled_stream_prefix() -> dict | None:
     """Return a copy of the most recently finalized cancelled stream prefix, if any."""
-    return dict(_LAST_CANCELLED_STREAM_PREFIX) if isinstance(_LAST_CANCELLED_STREAM_PREFIX, dict) else None
+    return dict(_tctx().last_cancelled_stream_prefix) if isinstance(_tctx().last_cancelled_stream_prefix, dict) else None
 
 SUBAGENT_ROLES: dict[str, dict] = {
     "researcher": {
@@ -341,11 +367,10 @@ def _sanitize_english_status_text(summary: str, default_english: str = "Processi
 
 
 def _reset_activity_steps(now_ms: int | None = None) -> None:
-    global _ACTIVE_RUN_STEPS, _ACTIVE_RUN_START_MS, _ACTIVE_SUBAGENT_RUNS
-    _ACTIVE_RUN_STEPS = []
-    _ACTIVE_SUBAGENT_RUNS = []
-    _ACTIVE_RUN_START_MS = int(now_ms or int(time.time() * 1000))
-    _ACTIVE_STEP_META.clear()
+    _tctx().active_run_steps = []
+    _tctx().active_subagent_runs = []
+    _tctx().active_run_start_ms = int(now_ms or int(time.time() * 1000))
+    _tctx().active_step_meta.clear()
 
 
 def _emit_subagent_progress(
@@ -374,7 +399,7 @@ def _emit_subagent_progress(
         "summary": clean_summary,
         "current": f"{step_label.rstrip(' ›')} ›",
         "status": status,
-        "steps": [s["label"] for s in _ACTIVE_RUN_STEPS[-10:]],
+        "steps": [s["label"] for s in _tctx().active_run_steps[-10:]],
     }
     if (
         os.environ.get("AQUA_TEST_AGENT_ENABLED") != "1"
@@ -396,19 +421,19 @@ def _emit_activity_step(label: str, kind: str = "step", status: str = "running")
     if not text.endswith("›"):
         text = text.rstrip(".") + " ›"
     now = int(time.time() * 1000)
-    elapsed_s = max(0.1, round((now - (_ACTIVE_RUN_START_MS or now)) / 1000.0, 1))
+    elapsed_s = max(0.1, round((now - (_tctx().active_run_start_ms or now)) / 1000.0, 1))
     is_thought = text.startswith("Thought for ") or kind == "llm_think"
     eff_kind = "llm_think" if is_thought else kind
     entry = {"label": text, "kind": eff_kind, "status": status, "elapsedSec": elapsed_s}
     updated = False
-    for idx in range(len(_ACTIVE_RUN_STEPS) - 1, -1, -1):
-        prev = _ACTIVE_RUN_STEPS[idx]
+    for idx in range(len(_tctx().active_run_steps) - 1, -1, -1):
+        prev = _tctx().active_run_steps[idx]
         if prev.get("kind") == eff_kind or (is_thought and str(prev.get("label") or "").startswith("Thought for ")):
-            _ACTIVE_RUN_STEPS[idx] = entry
+            _tctx().active_run_steps[idx] = entry
             updated = True
             break
-    if not updated and (not _ACTIVE_RUN_STEPS or _ACTIVE_RUN_STEPS[-1].get("label") != text):
-        _ACTIVE_RUN_STEPS.append(entry)
+    if not updated and (not _tctx().active_run_steps or _tctx().active_run_steps[-1].get("label") != text):
+        _tctx().active_run_steps.append(entry)
     if (
         os.environ.get("AQUA_TEST_AGENT_ENABLED") != "1"
         and not os.environ.get("AQUA_TEST_ENDPOINT")
@@ -422,7 +447,7 @@ def _emit_activity_step(label: str, kind: str = "step", status: str = "running")
                         "current": text,
                         "kind": kind,
                         "status": status,
-                        "steps": [s["label"] for s in _ACTIVE_RUN_STEPS[-10:]],
+                        "steps": [s["label"] for s in _tctx().active_run_steps[-10:]],
                     },
                     ensure_ascii=False,
                 )
@@ -439,7 +464,7 @@ def record_step_start(run_id, seq, tool_name, side_effect=False, target_path="",
     )
     t_name = str(tool_name or "tool")
     t_target = str(target_path or "").strip()
-    _ACTIVE_STEP_META[str(step_id)] = (t_name, t_target)
+    _tctx().active_step_meta[str(step_id)] = (t_name, t_target)
     if t_name in ("web_search", "github_search", "wikipedia_search"):
         lbl = f'Searching web: "{t_target[:44]}" ›' if t_target else "Searching web ›"
     elif t_name == "fetch_url":
@@ -473,7 +498,7 @@ def record_step_finish(step_id, status="completed", target_path="", receipt_id="
     res = _store_record_step_finish(
         step_id, status=status, target_path=target_path, receipt_id=receipt_id, detail=eff_detail or None
     )
-    t_name, t_target = _ACTIVE_STEP_META.get(str(step_id), ("tool", str(target_path or "")))
+    t_name, t_target = _tctx().active_step_meta.get(str(step_id), ("tool", str(target_path or "")))
     if not t_target and target_path:
         t_target = str(target_path)
     det = detail if isinstance(detail, dict) else {}
@@ -508,8 +533,6 @@ def record_step_finish(step_id, status="completed", target_path="", receipt_id="
     return res
 
 
-_LAST_LMSTUDIO_ERROR: str = ""
-_LAST_LMSTUDIO_LOADED_MODEL: str = ""
 
 
 def _get_system_and_gpu_memory_mb() -> tuple[int, int]:
@@ -648,9 +671,10 @@ def _start_lmstudio_gtt_watchdog():
     import threading
     stop_event = threading.Event()
     start_ts = time.time()
+    # Capture caller turn's ContextVar state so background OOM detection propagates to the active turn.
+    turn_state = _tctx()
 
     def _watch():
-        global _LAST_LMSTUDIO_ERROR
         while not stop_event.wait(0.15):
             _kill_runaway_lmstudio_workers(only_gdb=True)
             mem_avail_mb, gtt_free_mb = _get_system_and_gpu_memory_mb()
@@ -661,7 +685,7 @@ def _start_lmstudio_gtt_watchdog():
                 or log_err == "gpu_oom"
                 or (log_err == "gpu_fit_failed" and gtt_free_mb < 900)
             ):
-                _LAST_LMSTUDIO_ERROR = "gpu_oom"
+                turn_state.last_lmstudio_error = "gpu_oom"
                 _kill_runaway_lmstudio_workers(only_gdb=False)
                 break
 
@@ -690,7 +714,6 @@ def _auto_load_lmstudio_model_safe(
     force_cap_ratio: float | None = None,
 ) -> bool:
     """Safely load an unloaded LM Studio model via lms CLI with bounded context_length and automatic GPU offload capping if needed."""
-    global _LAST_LMSTUDIO_ERROR, _LAST_LMSTUDIO_LOADED_MODEL
     import shutil
     import subprocess
     if not clean_mdl:
@@ -744,10 +767,10 @@ def _auto_load_lmstudio_model_safe(
             )
         finally:
             wd_stop.set()
-        if _LAST_LMSTUDIO_ERROR:
+        if _tctx().last_lmstudio_error:
             return False
         if load_proc.returncode == 0:
-            _LAST_LMSTUDIO_LOADED_MODEL = clean_mdl
+            _tctx().last_lmstudio_loaded_model = clean_mdl
             _emit_activity_step(
                 f"Loaded model in LM Studio ({clean_mdl[:24]}) ›",
                 kind="lms_load",
@@ -755,7 +778,7 @@ def _auto_load_lmstudio_model_safe(
             )
             return True
     except Exception:
-        if _LAST_LMSTUDIO_ERROR:
+        if _tctx().last_lmstudio_error:
             return False
     return True
 
@@ -789,8 +812,7 @@ def _ensure_lmstudio_runtime_ready(
     model_name: str = "",
     v0_url: str = "http://127.0.0.1:1234/api/v0/models",
 ) -> bool:
-    global _LAST_LMSTUDIO_ERROR, _LAST_LMSTUDIO_LOADED_MODEL
-    _LAST_LMSTUDIO_LOADED_MODEL = ""
+    _tctx().last_lmstudio_loaded_model = ""
     try:
         lms_root = Path.home() / ".lmstudio"
         if lms_root.is_dir():
@@ -809,7 +831,7 @@ def _ensure_lmstudio_runtime_ready(
         and v0_url == "http://127.0.0.1:1234/api/v0/models"
     ):
         return True
-    if _LAST_LMSTUDIO_ERROR in ("gpu_oom", "gpu_fit_failed"):
+    if _tctx().last_lmstudio_error in ("gpu_oom", "gpu_fit_failed"):
         return False
     _kill_runaway_lmstudio_workers(only_gdb=True)
     clean_mdl = re.sub(r"^(?:lmstudio-|ollama-|gguf:)", "", str(model_name or "").strip())
@@ -820,8 +842,9 @@ def _ensure_lmstudio_runtime_ready(
         all_ids: list[str] = []
         any_embed_loaded = False
         stopped_runaway_load = False
+        _local_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         while True:
-            with urllib.request.urlopen(v0_url, timeout=1.5) as r_v0:
+            with _local_opener.open(v0_url, timeout=1.5) as r_v0:
                 v0_data = json.loads(r_v0.read().decode("utf-8", errors="replace"))
             all_v0_items = [
                 it for it in (v0_data.get("data") if isinstance(v0_data, dict) else [])
@@ -852,26 +875,26 @@ def _ensure_lmstudio_runtime_ready(
                     stopped_runaway_load = True
                     break
                 if time.time() - t_wait_start > 110.0:
-                    _LAST_LMSTUDIO_ERROR = "load_timeout"
+                    _tctx().last_lmstudio_error = "load_timeout"
                     return False
                 time.sleep(0.4)
                 continue
             # Never unload or override user settings when ANY LLM/VLM model is already loaded!
             if loaded_items:
                 if gtt_free_mb < 250:
-                    _LAST_LMSTUDIO_ERROR = "gpu_oom"
+                    _tctx().last_lmstudio_error = "gpu_oom"
                     return False
                 loaded_ids = [str(it.get("id") or "").strip() for it in loaded_items if str(it.get("id") or "").strip()]
                 if loaded_ids:
-                    _LAST_LMSTUDIO_LOADED_MODEL = clean_mdl if clean_mdl in loaded_ids else loaded_ids[0]
+                    _tctx().last_lmstudio_loaded_model = clean_mdl if clean_mdl in loaded_ids else loaded_ids[0]
                 return True
             break
 
         if all_ids and clean_mdl and clean_mdl not in all_ids:
-            _LAST_LMSTUDIO_LOADED_MODEL = all_ids[0]
+            _tctx().last_lmstudio_loaded_model = all_ids[0]
             clean_mdl = all_ids[0]
         elif all_ids and not clean_mdl:
-            _LAST_LMSTUDIO_LOADED_MODEL = all_ids[0]
+            _tctx().last_lmstudio_loaded_model = all_ids[0]
             clean_mdl = all_ids[0]
 
         # All LLM/VLM models are currently 'not-loaded'.
@@ -890,7 +913,7 @@ def _ensure_lmstudio_runtime_ready(
 
         mem_avail_mb, gtt_free_mb = _get_system_and_gpu_memory_mb()
         if gtt_free_mb < 1024 or mem_avail_mb < 1500:
-            _LAST_LMSTUDIO_ERROR = "gpu_oom"
+            _tctx().last_lmstudio_error = "gpu_oom"
             return False
 
         if v0_url == "http://127.0.0.1:1234/api/v0/models" and clean_mdl:
@@ -996,8 +1019,7 @@ def _call_chat_completion_text(
     persist_cancelled: bool = False,
 ) -> str:
     """Call an OpenAI-compatible chat completions endpoint using SSE streaming (with JSON fallback) so multi-paragraph responses never hit socket header timeouts."""
-    global _LAST_LMSTUDIO_ERROR, _LAST_CANCELLED_STREAM_PREFIX
-    _LAST_CANCELLED_STREAM_PREFIX = None
+    _tctx().last_cancelled_stream_prefix = None
     if not _ensure_lmstudio_runtime_ready(endpoint, str(payload.get("model") or "")):
         return ""
     should_stream_stdout = (
@@ -1012,8 +1034,8 @@ def _call_chat_completion_text(
         and not os.environ.get("AI_FIXTURE_URL")
     )
     req_body = dict(payload)
-    if _LAST_LMSTUDIO_LOADED_MODEL:
-        req_body["model"] = _LAST_LMSTUDIO_LOADED_MODEL
+    if _tctx().last_lmstudio_loaded_model:
+        req_body["model"] = _tctx().last_lmstudio_loaded_model
     if isinstance(req_body.get("messages"), list):
         req_body["messages"], _ = context_policy.compact_messages_for_route(
             req_body["messages"],
@@ -1183,10 +1205,10 @@ def _call_chat_completion_text(
         if _is_cancelled():
             was_cancelled = True
         else:
-            if is_live_lms and not _LAST_LMSTUDIO_ERROR:
+            if is_live_lms and not _tctx().last_lmstudio_error:
                 log_err = _check_lmstudio_log_recent_fit_or_oom_error(since_ts=t0 - 1.0)
                 if log_err == "gpu_oom":
-                    _LAST_LMSTUDIO_ERROR = log_err
+                    _tctx().last_lmstudio_error = log_err
             if not content_parts and not reasoning_parts:
                 return ""
     finally:
@@ -1212,7 +1234,7 @@ def _call_chat_completion_text(
         partial_reasoning = "".join(reasoning_parts).strip()
         if not partial_reasoning and inline_think_matches:
             partial_reasoning = "\n".join(m.strip() for m in inline_think_matches if m.strip()).strip()
-        _LAST_CANCELLED_STREAM_PREFIX = {
+        _tctx().last_cancelled_stream_prefix = {
             "interrupted": True,
             "stopReason": "cancelled",
             "content": cleaned_partial,
@@ -1243,7 +1265,7 @@ def _call_chat_completion_text(
                 pass
         if persist_cancelled and (cleaned_partial or partial_reasoning):
             try:
-                eff_sid = session_id or str(globals().get("_CURRENT_TURN_THREAD_ID") or "") or None
+                eff_sid = session_id or str(_tctx().current_turn_thread_id or "") or None
                 history_store.append_cancelled_prefix(
                     prompt_for_cancel,
                     cleaned_partial,
@@ -1863,6 +1885,30 @@ AGENT_TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "emit_ui_card",
+            "description": (
+                "Emit a single compact A2UI v1.0 interactive card (`<= 6 KB`) alongside your Markdown reply "
+                "(only available when Generative A2UI is enabled by the user). Allowed components: Column, Row, "
+                "Card, Divider, Text (body|caption), Icon (snake_case), Button, List, ChoicePicker, CheckBox, "
+                "TextField (never passwords), Slider, Tabs, Image (local path only)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "surface": {
+                        "type": "object",
+                        "description": "Complete A2UI v1.0 createSurface envelope (`{version:'1.0', createSurface:{...}}`).",
+                    },
+                    "title": {"type": "string", "description": "Optional short card title if passing simplified fields."},
+                    "components": {"type": "array", "description": "A2UI v1.0 component list containing an id='root' item."},
+                    "dataModel": {"type": "object", "description": "Optional JSON dataModel object."},
+                },
+            },
+        },
+    },
 ]
 
 CORE_AGENT_TOOL_NAMES: frozenset[str] = frozenset({
@@ -1881,15 +1927,25 @@ _TAINT_SOURCE_TOOLS: frozenset[str] = frozenset({
 })
 
 
-def search_agent_tool_schemas(query: str, limit: int = 6) -> list[dict]:
+def _issue_confirm_id(prefix: str = "conf") -> str:
+    seed = f"{prefix}:{time.time_ns()}:{os.getpid()}:{os.urandom(6).hex()}"
+    return f"{prefix}_{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:16]}"
+
+
+def search_agent_tool_schemas(query: str, limit: int = 6, *, include_generative_ui: bool = False) -> list[dict]:
     """Search `AGENT_TOOL_SCHEMAS` by name, description, and parameter keywords."""
     q = str(query or "").strip().lower()
     terms = [t for t in re.split(r"[\s,;|/_-]+", q) if t]
     max_items = max(1, min(16, int(limit or 6)))
+    pool = [
+        s
+        for s in AGENT_TOOL_SCHEMAS
+        if include_generative_ui or str((s.get("function") or {}).get("name") or "") != "emit_ui_card"
+    ]
     if not terms:
-        return [s for s in AGENT_TOOL_SCHEMAS if s.get("function", {}).get("name")][:max_items]
+        return [s for s in pool if s.get("function", {}).get("name")][:max_items]
     scored: list[tuple[int, dict]] = []
-    for schema in AGENT_TOOL_SCHEMAS:
+    for schema in pool:
         fn = schema.get("function") or {}
         t_name = str(fn.get("name") or "").strip().lower()
         t_desc = str(fn.get("description") or "").strip().lower()
@@ -3534,14 +3590,13 @@ def _call_local_model_tool_turn(
     Strictly parses structured `tool_calls` from the API response object; never
     executes JSON or commands found inside plain assistant prose.
     """
-    global _LAST_LMSTUDIO_ERROR
     if not endpoint_url or not model_name:
         return None
     if not (endpoint_url.startswith("http://127.0.0.1:") or endpoint_url.startswith("http://localhost:")):
         return None
     if not _ensure_lmstudio_runtime_ready(endpoint_url, model_name):
         return None
-    effective_model_name = _LAST_LMSTUDIO_LOADED_MODEL or model_name
+    effective_model_name = _tctx().last_lmstudio_loaded_model or model_name
     effective_user_prompt = user_prompt[:1800]
     if in_chat_directive and in_chat_directive not in effective_user_prompt:
         effective_user_prompt = f"{in_chat_directive}\n{effective_user_prompt}"
@@ -3653,10 +3708,10 @@ def _call_local_model_tool_turn(
                 },
             }
     except Exception:
-        if is_live_lms and not _LAST_LMSTUDIO_ERROR:
+        if is_live_lms and not _tctx().last_lmstudio_error:
             log_err = _check_lmstudio_log_recent_fit_or_oom_error(since_ts=t0 - 1.0)
             if log_err == "gpu_oom":
-                _LAST_LMSTUDIO_ERROR = log_err
+                _tctx().last_lmstudio_error = log_err
         return None
     finally:
         if watchdog_stop is not None:
@@ -3762,7 +3817,7 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
         return f"[{name} error: unsupported tool arguments type]"
     last_dir = str(session_ctx.get("lastDirectory") or Path.home())
     active_sid = str(
-        (globals().get("_CURRENT_TURN_THREAD_ID") or "")
+        (_tctx().current_turn_thread_id or "")
         or session_ctx.get("activeThreadId")
         or ((session_ctx.get("_activeTurnOptions") or {}).get("threadId") if isinstance(session_ctx.get("_activeTurnOptions"), dict) else "")
         or "chat_default"
@@ -4216,7 +4271,7 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
         return str(sub_res.get("summary") or "")[:_SUBAGENT_MAX_SUMMARY_CHARS]
 
     if name == "alis_live_state":
-        snap = _CURRENT_TURN_LIVE_SNAPSHOT or alis_local_bridge.load_live_snapshot()
+        snap = _tctx().current_turn_live_snapshot or alis_local_bridge.load_live_snapshot()
         topic = str(args.get("topic") or "all").strip().lower()
         q = str(args.get("query") or "")
         out = alis_local_bridge.format_live_state(snap, topic=topic, query=q, lang=detect_language(q or "vi"))
@@ -4224,7 +4279,7 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
 
     if name == "nexus_knowledge":
         act = str(args.get("action") or "search").strip().lower()
-        v_override = _CURRENT_TURN_NEXUS_VAULT
+        v_override = _tctx().current_turn_nexus_vault
         q = str(args.get("query") or "")
         if act == "read":
             target_n = str(args.get("path") or args.get("target") or q or "").strip()
@@ -4239,15 +4294,18 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
         if act == "save_rag_note":
             n_title = str(args.get("title") or "").strip() or "Companion RAG Note"
             n_body = str(args.get("content") or q or "").strip()
+            cid = _issue_confirm_id("conf")
             session_ctx["pendingClientAction"] = {
+                "confirmId": cid,
                 "action": "rag_note_save",
                 "target": n_title,
                 "value": n_body,
                 "folder": str(args.get("folder") or "Knowledge"),
                 "vaultPath": v_override,
             }
+            session_ctx["pendingConfirmId"] = cid
             save_session_context(session_ctx, now_ms=now_ms)
-            return f"[Confirmation required before saving RAG note `{n_title}` to Nexus `90_System/99_RAG/`. Ask the user to confirm.]"
+            return f"[Confirmation required (confirmId={cid}) before saving RAG note `{n_title}` to Nexus `90_System/99_RAG/`. Ask the user to confirm.]"
         nx_res = nexus_rag.search_nexus_knowledge(
             q,
             vault_path=v_override,
@@ -4265,20 +4323,54 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
             pending_ca.append({"action": act, "target": tgt, "value": val})
             return f"Queued instant Alis action `{act}` (target=`{tgt}`, value=`{val}`)."
         if act in alis_local_bridge.WRITE_CONFIRM_CLIENT_ACTIONS:
+            cid = _issue_confirm_id("conf")
             session_ctx["pendingClientAction"] = {
+                "confirmId": cid,
                 "action": act,
                 "target": tgt,
                 "value": val,
-                "vaultPath": _CURRENT_TURN_NEXUS_VAULT,
+                "vaultPath": _tctx().current_turn_nexus_vault,
             }
+            session_ctx["pendingConfirmId"] = cid
             save_session_context(session_ctx, now_ms=now_ms)
-            return f"[Confirmation required before executing `{act}` (`{tgt or val}`). Ask the user to confirm.]"
+            return f"[Confirmation required (confirmId={cid}) before executing `{act}` (`{tgt or val}`). Ask the user to confirm.]"
         return f"[alis_service_control error: unsupported action `{act}`]"
+
+    if name == "emit_ui_card":
+        if not session_ctx.get("_a2uiGenerativeAllowed"):
+            return "[emit_ui_card unavailable: Generative A2UI is disabled in Companion Settings. Reply with Markdown.]"
+        raw_surf = args.get("surface") if isinstance(args.get("surface"), dict) else None
+        if raw_surf is None and isinstance(args.get("components"), list):
+            raw_surf = {
+                "version": a2ui_validator.A2UI_VERSION,
+                "createSurface": {
+                    "surfaceId": _issue_confirm_id("surf_gen"),
+                    "catalogId": a2ui_validator.DEFAULT_CATALOG_ID,
+                    "sendDataModel": False,
+                    "surfaceMeta": {"kind": "generative", "interactive": True},
+                    "components": args.get("components"),
+                    "dataModel": args.get("dataModel") if isinstance(args.get("dataModel"), dict) else {},
+                },
+            }
+        is_tainted_turn = bool(session_ctx.get("_turnTaintSources") or session_ctx.get("taintSources"))
+        validated_surf, v_err = a2ui_validator.validate_and_sanitize_surface(
+            raw_surf,
+            untrusted_generative=True,
+            tainted=is_tainted_turn,
+        )
+        if v_err or not validated_surf:
+            return f"[emit_ui_card rejected ({v_err or 'invalid_surface'}): reply using plain Markdown instead.]"
+        session_ctx["_pendingTurnUiSurface"] = validated_surf
+        return f"Attached validated A2UI v1.0 card `{validated_surf['createSurface']['surfaceId']}`."
 
     if name == "tool_search":
         q_ts = str(args.get("query") or args.get("q") or "").strip()
         lim_ts = int(args.get("limit") or 6)
-        matched = search_agent_tool_schemas(q_ts, limit=lim_ts)
+        matched = search_agent_tool_schemas(
+            q_ts,
+            limit=lim_ts,
+            include_generative_ui=bool(session_ctx.get("_a2uiGenerativeAllowed")),
+        )
         if not matched:
             return f"No additional tools matched query `{q_ts}`."
         lines_ts: list[str] = []
@@ -4485,7 +4577,7 @@ def delegate_subagent(
     hint_str = str(context_hint or "").strip()
     comp_root = Path(companion_root).resolve(strict=False) if companion_root else Path(__file__).resolve().parents[2]
     ts_ms = int(now_ms or int(time.time() * 1000))
-    idx = max(1, int(subagent_index or (len(_ACTIVE_SUBAGENT_RUNS) + 1)))
+    idx = max(1, int(subagent_index or (len(_tctx().active_subagent_runs) + 1)))
     tot = max(idx, int(subagent_total or idx))
 
     allowed_set = set(role_spec["allowed_tools"])
@@ -4512,7 +4604,7 @@ def delegate_subagent(
     route_meta = opts.get("modelRoute") if isinstance(opts.get("modelRoute"), dict) else {}
     with _SUBAGENT_LOCK:
         pinned_model = (
-            _LAST_LMSTUDIO_LOADED_MODEL
+            _tctx().last_lmstudio_loaded_model
             or str(opts.get("model") or opts.get("selectedModel") or route_meta.get("selectedModel") or "").strip()
             or "qwen3.5-9b-uncensored-hauhaucs-aggressive"
         )
@@ -4794,7 +4886,7 @@ def delegate_subagent(
             "toolCount": len(sub_steps),
             "elapsedMs": elapsed_ms,
         }
-        _ACTIVE_SUBAGENT_RUNS.append(record)
+        _tctx().active_subagent_runs.append(record)
         return record
 
 
@@ -5191,7 +5283,10 @@ def run_swarm_mission(
             layer_hint = "\n".join(accumulated_hints[-3:])
         if not is_local_swarm and len(layer_workers) > 1:
             with concurrent.futures.ThreadPoolExecutor(max_workers=min(3, len(layer_workers))) as pool:
-                futs = [pool.submit(_run_layer_worker, idx_w, w_obj, layer_hint) for idx_w, w_obj in layer_workers]
+                futs = [
+                    pool.submit(contextvars.copy_context().run, _run_layer_worker, idx_w, w_obj, layer_hint)
+                    for idx_w, w_obj in layer_workers
+                ]
                 for fut in futs:
                     st_res, stopped_state = fut.result()
                     if st_res == "stopped" and isinstance(stopped_state, dict):
@@ -5579,6 +5674,11 @@ def run_react_tool_loop(
     opts["model"] = eff_model
     ctx = session_ctx if isinstance(session_ctx, dict) else load_session_context()
     ctx["_activeTurnOptions"] = dict(opts)
+    ctx["_a2uiGenerativeAllowed"] = bool(opts.get("a2uiGenerativeEnabled") is True)
+    ctx["_turnTaintSources"] = []
+    ctx.pop("_pendingTurnUiSurface", None)
+    prev_pca = ctx.get("pendingClientAction")
+    prev_pca_cid = str(prev_pca.get("confirmId") or "") if isinstance(prev_pca, dict) else ""
     comp_root = Path(companion_root).resolve(strict=False) if companion_root else Path(__file__).resolve().parents[2]
     ts_ms = int(now_ms or int(time.time() * 1000))
     lang = detect_language(eff_prompt)
@@ -5599,7 +5699,7 @@ def run_react_tool_loop(
 
     active_sid = str(
         opts.get("threadId")
-        or (globals().get("_CURRENT_TURN_THREAD_ID") or "")
+        or (_tctx().current_turn_thread_id or "")
         or ctx.get("activeThreadId")
         or "chat_default"
     ).strip() or "chat_default"
@@ -5696,6 +5796,9 @@ def run_react_tool_loop(
 
         if not turn_tcs:
             if turn_idx == 1 and not tool_outputs:
+                ctx.pop("_a2uiGenerativeAllowed", None)
+                ctx.pop("_turnTaintSources", None)
+                ctx.pop("_pendingTurnUiSurface", None)
                 if (
                     turn_text
                     and ":1234" in str(eff_endpoint or "")
@@ -5764,6 +5867,8 @@ def run_react_tool_loop(
                     now_ms=ts_ms,
                 )
                 conf_id = str(conf.get("confirmId") or "")
+                ctx["pendingConfirmId"] = conf_id
+                save_session_context(ctx, now_ms=ts_ms)
                 out_str = (
                     f"[CaMeL taint guard: Confirmation required before executing `{t_name}` "
                     f"after reading untrusted data from {', '.join(taint_sources[:3])} "
@@ -5794,7 +5899,11 @@ def run_react_tool_loop(
                         q_ts = str(t_args.get("query") or t_args.get("q") or "").strip()
                         lim_ts = int(t_args.get("limit") or 6)
                         seen_names = {str((s.get("function") or {}).get("name") or "") for s in active_tools}
-                        for ms in search_agent_tool_schemas(q_ts, limit=lim_ts):
+                        for ms in search_agent_tool_schemas(
+                            q_ts,
+                            limit=lim_ts,
+                            include_generative_ui=bool(ctx.get("_a2uiGenerativeAllowed")),
+                        ):
                             mname = str((ms.get("function") or {}).get("name") or "")
                             if mname and mname not in seen_names:
                                 active_tools.append(ms)
@@ -5802,6 +5911,7 @@ def run_react_tool_loop(
                     taint_label = _detect_untrusted_taint_label(t_name, t_args, ctx, comp_root)
                     if taint_label and taint_label not in taint_sources:
                         taint_sources.append(taint_label)
+                        ctx["_turnTaintSources"] = list(taint_sources)
                 except Exception as exc:
                     err_sig = f"{t_name}:{str(exc)[:100]}"
                     out_str = f"[{t_name} error: {exc}]"
@@ -5837,6 +5947,9 @@ def run_react_tool_loop(
             break
 
     if not tool_outputs or not run_id:
+        ctx.pop("_a2uiGenerativeAllowed", None)
+        ctx.pop("_turnTaintSources", None)
+        ctx.pop("_pendingTurnUiSurface", None)
         return None
 
     observations_joined = "\n\n".join(tool_outputs)
@@ -5868,6 +5981,29 @@ def run_react_tool_loop(
         final_reply=clean_final,
     )
     pending_ca = ctx.pop("_pendingTurnClientActions", [])
+    pending_surf = ctx.pop("_pendingTurnUiSurface", None)
+    ctx.pop("_a2uiGenerativeAllowed", None)
+    ctx.pop("_turnTaintSources", None)
+    pending_conf_id = ""
+    cur_pca = ctx.get("pendingClientAction")
+    cur_pca_cid = str(cur_pca.get("confirmId") or "") if isinstance(cur_pca, dict) else ""
+    new_pca_this_turn = bool(isinstance(cur_pca, dict) and cur_pca_cid and cur_pca_cid != prev_pca_cid)
+    if new_pca_this_turn:
+        pending_conf_id = cur_pca_cid
+    elif taint_blocked:
+        for st in reversed(tool_steps):
+            if st.get("confirmationId"):
+                pending_conf_id = str(st["confirmationId"])
+                break
+    # Confirmation gate always takes precedence; also re-validate generative surfaces against final turn taint state
+    if taint_blocked or new_pca_this_turn:
+        pending_surf = None
+    elif isinstance(pending_surf, dict):
+        pending_surf, _ = a2ui_validator.validate_and_sanitize_surface(
+            pending_surf,
+            untrusted_generative=True,
+            tainted=bool(taint_sources),
+        )
     return {
         "handled": True,
         "runId": run_id,
@@ -5883,6 +6019,9 @@ def run_react_tool_loop(
         "clientActions": pending_ca if isinstance(pending_ca, list) else [],
         "taintSources": list(taint_sources),
         "taintBlocked": taint_blocked,
+        "requiresConfirmation": bool(taint_blocked or new_pca_this_turn),
+        "confirmId": pending_conf_id,
+        **({"uiSurface": pending_surf} if isinstance(pending_surf, dict) else {}),
     }
 
 
@@ -6295,8 +6434,8 @@ def _format_reply(
         "receipts": list(receipts or [])[:16],
         "observations": list(observations or [])[:16],
         "sessionContext": session_ctx or load_session_context(),
-        "activitySteps": [s["label"] for s in _ACTIVE_RUN_STEPS[-12:]],
-        "workedSeconds": max(1, round((int(time.time() * 1000) - (_ACTIVE_RUN_START_MS or int(time.time() * 1000))) / 1000.0)),
+        "activitySteps": [s["label"] for s in _tctx().active_run_steps[-12:]],
+        "workedSeconds": max(1, round((int(time.time() * 1000) - (_tctx().active_run_start_ms or int(time.time() * 1000))) / 1000.0)),
     }
     if clean_spoken:
         out["spokenText"] = clean_spoken
@@ -6518,19 +6657,20 @@ def _run_screen_observe_core(
     if allow_vlm_call and ep_url and mdl_name and "/v1/" in ep_url and (ep_url.startswith("http://127.0.0.1:") or ep_url.startswith("http://localhost:")):
         try:
             if has_live_vlm and vlm_img_path and Path(vlm_img_path).is_file():
-                import base64
-                import io
-                from PIL import Image
+                import native_host_bridge
+
                 _emit_activity_step(
                     f"Analyzing screenshot with Vision ({mdl_name[:24]}) ›",
                     kind="vlm_vision",
                     status="running",
                 )
-                im_v = Image.open(vlm_img_path).convert("RGB")
-                im_v.thumbnail((1120, 1120))
-                buf = io.BytesIO()
-                im_v.save(buf, format="JPEG", quality=85)
-                b64_v = base64.b64encode(buf.getvalue()).decode("ascii")
+                b64_v, vlm_mime = native_host_bridge.prepare_vlm_image_b64(
+                    vlm_img_path,
+                    max_dim=1120,
+                    quality=85,
+                )
+                if not b64_v:
+                    raise RuntimeError("vlm_image_prepare_failed")
                 ground_truth_block = (
                     f"\nAT-SPI & OCR Ground-Truth UI Text (use as ground truth for small UI text; never guess unreadable text):\n{lines_preview}"
                     if lines_preview
@@ -6588,7 +6728,7 @@ def _run_screen_observe_core(
                             "role": "user",
                             "content": [
                                 {"type": "text", "text": usr_vlm_text},
-                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_v}"}},
+                                {"type": "image_url", "image_url": {"url": f"data:{vlm_mime or 'image/jpeg'};base64,{b64_v}"}},
                             ],
                         },
                     ],
@@ -6618,7 +6758,7 @@ def _run_screen_observe_core(
                         lines_preview = f"{lines_preview}\n" + "\n".join(som_lines)
                     source_badge = "niri+vision"
                     vlm_succeeded = True
-                elif _LAST_LMSTUDIO_ERROR in ("gpu_oom", "gpu_fit_failed", "low_memory"):
+                elif _tctx().last_lmstudio_error in ("gpu_oom", "gpu_fit_failed", "low_memory"):
                     lines_preview = f"{lines_preview}\n\n{_lmstudio_error_user_message(lang)}".strip()
         except Exception:
             pass
@@ -6674,7 +6814,6 @@ def _run_screen_observe_core(
     }
 
 
-_CURRENT_TURN_THREAD_ID: str | None = None
 
 
 def _persist_turn_to_history(
@@ -6684,7 +6823,7 @@ def _persist_turn_to_history(
     thread_id: str | None = None,
 ) -> tuple[int, int, bool]:
     try:
-        tid = str(thread_id or _CURRENT_TURN_THREAD_ID or "").strip() or None
+        tid = str(thread_id or _tctx().current_turn_thread_id or "").strip() or None
         u_id, a_id = history_store.append_exchange(
             prompt[:1200], reply_text[:5800], model, thread_id=tid
         )
@@ -6719,6 +6858,7 @@ def _prompt_for_system_sudo(
         now_ms=now_ms,
     )
     session_ctx["pendingSudoOp"] = conf
+    session_ctx["pendingConfirmId"] = str(conf.get("confirmId") or "")
     save_session_context(session_ctx, now_ms=now_ms)
     finish_run(run_id, status="awaiting_confirmation", now_ms=now_ms)
     if lang == "vi":
@@ -6757,7 +6897,6 @@ def _prompt_for_system_sudo(
 
 def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> dict:
     """Execute a natural-language desktop agent turn with full Home access, active Project binding, and sudo-gated System access."""
-    global _CURRENT_TURN_THREAD_ID
     now_ms = int(options.get("nowMs") or int(time.time() * 1000))
     req_tid = str(options.get("threadId") or "").strip()
     pending_ctx_updates = options.get("pendingContextUpdates")
@@ -6826,12 +6965,12 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
         inner_options["persistHistory"] = False
         _emit_activity_step("Stage 1/2 · Gathering UI & Desktop context ›", kind="step_hybrid_ui", status="running")
 
-    prev_tid = _CURRENT_TURN_THREAD_ID
-    _CURRENT_TURN_THREAD_ID = req_tid or None
+    prev_tid = _tctx().current_turn_thread_id
+    _tctx().current_turn_thread_id = req_tid or None
     try:
         result = _execute_agent_turn_inner(inner_options, companion_root, host_root)
     finally:
-        _CURRENT_TURN_THREAD_ID = prev_tid
+        _tctx().current_turn_thread_id = prev_tid
         if is_hybrid:
             for meta_key in ("_domainRag", "_taskScale"):
                 if meta_key in inner_options:
@@ -6902,10 +7041,10 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
         else assess_task_scale_for_subagents(str(options.get("prompt") or ""), effective_options)
     )
     result["taskScale"] = scale_info
-    result["subagentRuns"] = list(_ACTIVE_SUBAGENT_RUNS)
-    result["subagentCount"] = len(_ACTIVE_SUBAGENT_RUNS)
+    result["subagentRuns"] = list(_tctx().active_subagent_runs)
+    result["subagentCount"] = len(_tctx().active_subagent_runs)
     if (
-        _ACTIVE_SUBAGENT_RUNS
+        _tctx().active_subagent_runs
         and not result.get("handled")
         and (
             effective_options.get("autoSubagentDecompose") is True
@@ -6919,15 +7058,15 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
         )
     ):
         lang_turn = str(result.get("language") or detect_language(str(options.get("prompt") or "")))
-        sub_lines = [f"- {r['summary']}" for r in _ACTIVE_SUBAGENT_RUNS]
+        sub_lines = [f"- {r['summary']}" for r in _tctx().active_subagent_runs]
         if lang_turn == "vi":
             orchestrated_msg = (
-                f"### Điều phối Subagent hoàn tất ({len(_ACTIVE_SUBAGENT_RUNS)} Subagent tuần tự trên cùng 1 model)\n"
+                f"### Điều phối Subagent hoàn tất ({len(_tctx().active_subagent_runs)} Subagent tuần tự trên cùng 1 model)\n"
                 + "\n".join(sub_lines)
             )
         else:
             orchestrated_msg = (
-                f"### Subagent Orchestration Complete ({len(_ACTIVE_SUBAGENT_RUNS)} sequential subagents on single loaded model)\n"
+                f"### Subagent Orchestration Complete ({len(_tctx().active_subagent_runs)} sequential subagents on single loaded model)\n"
                 + "\n".join(sub_lines)
             )
         ctx_curr = load_session_context()
@@ -6970,6 +7109,7 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
                 options.get("attachedFiles") if isinstance(options.get("attachedFiles"), list) else []
             )
             result["attachedFiles"] = att_list
+        post_synth_updated = False
         if (
             effective_options.get("synthesizeWithLlm") is True
             and result.get("intent") in ("system_control", "git_task", "rag_query")
@@ -6987,6 +7127,44 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
             if synth_txt:
                 result["text"] = synth_txt
                 result["synthesized"] = True
+                post_synth_updated = True
+                result["spokenText"] = desktop_control._clean_text_for_tts(
+                    synth_txt,
+                    context_prompt=str(options.get("prompt") or ""),
+                )
+        if not str(result.get("spokenText") or "").strip() and str(result.get("text") or "").strip():
+            try:
+                result["spokenText"] = desktop_control._clean_text_for_tts(
+                    str(result["text"]),
+                    context_prompt=str(options.get("prompt") or ""),
+                )
+            except Exception:
+                pass
+        a2ui_allowed = effective_options.get("a2uiEnabled") is not False
+        if a2ui_allowed:
+            try:
+                built_surface = a2ui_builder.build_surface_for_turn(
+                    result,
+                    snapshot=_tctx().current_turn_live_snapshot,
+                    enabled=True,
+                )
+                if built_surface is not None:
+                    result["uiSurface"] = built_surface
+            except Exception:
+                pass
+        else:
+            result.pop("uiSurface", None)
+        a_msg_id = int(result.get("assistantMessageId") or 0)
+        if a_msg_id > 0:
+            try:
+                history_store.update_message_artifacts(
+                    a_msg_id,
+                    content=str(result.get("text") or "") if post_synth_updated else None,
+                    spoken_text=str(result.get("spokenText") or ""),
+                    ui_surface=result.get("uiSurface") if isinstance(result.get("uiSurface"), dict) else None,
+                )
+            except Exception:
+                pass
         if from_voice and str(result.get("text") or "").strip():
             try:
                 if (
@@ -7075,15 +7253,14 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
 
 def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Path) -> dict:
     """Core implementation of the natural-language desktop agent turn."""
-    global _LAST_LMSTUDIO_ERROR, _CURRENT_TURN_LIVE_SNAPSHOT, _CURRENT_TURN_NEXUS_VAULT
-    _LAST_LMSTUDIO_ERROR = ""
+    _tctx().last_lmstudio_error = ""
     snap_in = options.get("alisLocalSnapshot")
     if isinstance(snap_in, dict) and snap_in:
         alis_local_bridge.save_live_snapshot(snap_in)
-        _CURRENT_TURN_LIVE_SNAPSHOT = snap_in
+        _tctx().current_turn_live_snapshot = snap_in
     else:
-        _CURRENT_TURN_LIVE_SNAPSHOT = alis_local_bridge.load_live_snapshot()
-    _CURRENT_TURN_NEXUS_VAULT = str(options.get("nexusVaultPath") or "").strip()
+        _tctx().current_turn_live_snapshot = alis_local_bridge.load_live_snapshot()
+    _tctx().current_turn_nexus_vault = str(options.get("nexusVaultPath") or "").strip()
     now_ms = int(options.get("nowMs") or int(time.time() * 1000))
     _reset_activity_steps(now_ms)
     prompt = str(options.get("prompt") or "").strip()
@@ -7312,7 +7489,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     else "Cloud-AI BLUF Style: Lead immediately with a 1-2 sentence direct answer/takeaway, synthesize tool outputs instead of echoing raw logs or long lists, scale structure to prompt complexity (plain prose for simple answers; tight bullets only when multi-part), omit generic filler wrap-ups, and strictly match the user's language."
                 )
             )
-            active_turn_sid = str(options.get("threadId") or (globals().get("_CURRENT_TURN_THREAD_ID") or "") or session_ctx.get("activeThreadId") or "chat_default")
+            active_turn_sid = str(options.get("threadId") or (_tctx().current_turn_thread_id or "") or session_ctx.get("activeThreadId") or "chat_default")
             context_policy.enqueue_context_update(
                 active_turn_sid,
                 "active_directory",
@@ -7358,7 +7535,18 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                         advance_turn(run_id, now_ms=now_ms)
                     finish_run(run_id, status="completed", now_ms=now_ms)
                 combined_msg = str(react_res.get("finalText") or "").strip()
-                res = _format_reply(combined_msg, expression="working", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
+                react_req_conf = bool(react_res.get("requiresConfirmation"))
+                react_conf_id = str(react_res.get("confirmId") or "")
+                res = _format_reply(
+                    combined_msg,
+                    expression="thinking" if react_req_conf else "working",
+                    status="awaiting_confirmation" if react_req_conf else "completed",
+                    run_id=run_id,
+                    language=lang,
+                    requires_confirmation=react_req_conf,
+                    confirm_id=react_conf_id,
+                    session_ctx=session_ctx,
+                )
                 u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
                 return {
                     "handled": True,
@@ -7370,6 +7558,8 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     "attachedFiles": attached_info["files"],
                     "ponytailMode": ponytail_mode,
                     "clientActions": react_res.get("clientActions") or [],
+                    "taintSources": react_res.get("taintSources") or [],
+                    **({"uiSurface": react_res["uiSurface"]} if isinstance(react_res.get("uiSurface"), dict) else {}),
                     **res,
                     "userMessageId": u_id,
                     "assistantMessageId": a_id,
@@ -7390,7 +7580,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     "assistantMessageId": a_id,
                     "historySaved": saved,
                 }
-            if _LAST_LMSTUDIO_ERROR in ("gpu_oom", "gpu_fit_failed", "low_memory"):
+            if _tctx().last_lmstudio_error in ("gpu_oom", "gpu_fit_failed", "low_memory"):
                 msg = _lmstudio_error_user_message(lang)
                 res = _format_reply(msg, expression="alert", status="failed", language=lang, session_ctx=session_ctx)
                 u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
@@ -7424,13 +7614,17 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
     # 2. Stop / Cancel active run
     if kind == "stop":
         cancelled_ids = cancel_active_runs("cancelled_by_user", now_ms)
-        if session_ctx.get("pendingSudoOp"):
+        stopped_cid = str(session_ctx.get("pendingConfirmId") or (session_ctx.get("pendingSudoOp") or {}).get("confirmId") or "")
+        had_pending_stop = bool(session_ctx.get("pendingSudoOp") or session_ctx.get("pendingConfirmId"))
+        if had_pending_stop:
             resolve_pending_confirmation(decision="cancel", source="user_prompt", now_ms=now_ms)
         session_ctx["pendingClarification"] = None
         session_ctx["pendingDeletePath"] = ""
+        session_ctx["pendingDeleteConfirmId"] = ""
         session_ctx["pendingMemoryForget"] = None
         session_ctx["pendingClientAction"] = None
         session_ctx["pendingSudoOp"] = None
+        session_ctx["pendingConfirmId"] = ""
         save_session_context(session_ctx, now_ms=now_ms)
         if lang == "vi":
             msg = (
@@ -7442,9 +7636,20 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 f"Stopped the active task immediately ({', '.join(cancelled_ids) if cancelled_ids else 'cleared pending request'}). "
                 "Progress has been saved to a checkpoint so you can say 'continue' whenever you like."
             )
+        stop_summary = a2ui_validator._clean_str(msg, 280).strip()
+        if had_pending_stop:
+            history_store.lock_confirm_surfaces(stopped_cid, resolution="cancelled", outcome_summary=stop_summary)
         res = _format_reply(msg, expression="alert", status="cancelled", language=lang, session_ctx=session_ctx)
         u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
-        return {"handled": True, "intent": "stop", **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+        return {
+            "handled": True,
+            "intent": "stop",
+            **({"resolvedConfirmId": stopped_cid, "resolvedConfirmResolution": "cancelled", "resolvedConfirmSummary": stop_summary} if stopped_cid else {}),
+            **res,
+            "userMessageId": u_id,
+            "assistantMessageId": a_id,
+            "historySaved": saved,
+        }
 
     # 2b. Sudo password reply for pending System path operation
     if kind == "sudo_password_reply":
@@ -7454,10 +7659,12 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
             latest = perm_info.get("latestPending")
             if latest and latest.get("actionKind") == "system_sudo_op":
                 pending_sudo = latest
+        sudo_cid = str((pending_sudo or {}).get("confirmId") or session_ctx.get("pendingConfirmId") or "")
 
         decision = classify_confirmation_response(prompt)
         if decision == "deny" and not sudo_password_opt:
             session_ctx["pendingSudoOp"] = None
+            session_ctx["pendingConfirmId"] = ""
             save_session_context(session_ctx, now_ms=now_ms)
             resolve_pending_confirmation(decision="cancel", source="user_prompt", now_ms=now_ms)
             msg = (
@@ -7465,9 +7672,21 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 if lang == "vi"
                 else "Cancelled the system path operation. No changes were made."
             )
+            sudo_cancel_sum = a2ui_validator._clean_str(msg, 280).strip()
+            history_store.lock_confirm_surfaces(sudo_cid, resolution="cancelled", outcome_summary=sudo_cancel_sum)
             res = _format_reply(msg, expression="idle", status="cancelled", language=lang, session_ctx=session_ctx)
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
-            return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+            return {
+                "handled": True,
+                "intent": kind,
+                "resolvedConfirmId": sudo_cid,
+                "resolvedConfirmResolution": "cancelled",
+                "resolvedConfirmSummary": sudo_cancel_sum,
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
 
         pwd = sudo_password_opt if sudo_password_opt else prompt
         redacted_prompt = "•••••••• (sudo password)"
@@ -7488,6 +7707,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 sudo_password=pwd,
             )
             session_ctx["pendingSudoOp"] = None
+            session_ctx["pendingConfirmId"] = ""
             resolved_p = Path(sudo_res.get("targetPath") or target_path)
             if op_name in ("access", "list") and resolved_p.is_dir():
                 session_ctx["lastDirectory"] = str(resolved_p)
@@ -7499,9 +7719,12 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
 
             body_lines = "\n".join(f"- {ln}" for ln in sudo_res.get("lines", []))
             if lang == "vi":
+                sudo_ok_sum = a2ui_validator._clean_str(f"Đã xác thực `sudo` và thực hiện trên `{target_path}` ({sudo_res['summary']}).", 280).strip()
                 msg = f"Đã xác thực `sudo` và thực hiện trên `{target_path}` ({sudo_res['summary']}):\n{body_lines}"
             else:
+                sudo_ok_sum = a2ui_validator._clean_str(f"Verified `sudo` and completed action on `{target_path}` ({sudo_res['summary']}).", 280).strip()
                 msg = f"Verified `sudo` and completed action on `{target_path}` ({sudo_res['summary']}):\n{body_lines}"
+            history_store.lock_confirm_surfaces(sudo_cid, resolution="confirmed", outcome_summary=sudo_ok_sum)
             res = _format_reply(
                 msg,
                 expression="happy",
@@ -7512,7 +7735,17 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 session_ctx=session_ctx,
             )
             u_id, a_id, saved = _persist_turn_to_history(redacted_prompt, res["text"]) if persist_history else (0, 0, False)
-            out_payload = {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+            out_payload = {
+                "handled": True,
+                "intent": kind,
+                "resolvedConfirmId": sudo_cid,
+                "resolvedConfirmResolution": "confirmed",
+                "resolvedConfirmSummary": sudo_ok_sum,
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
             if sudo_res.get("editorMode"):
                 out_payload["editorMode"] = sudo_res.get("editorMode")
                 out_payload["isLargeFile"] = bool(sudo_res.get("isLargeFile"))
@@ -7521,6 +7754,8 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 out_payload["editorPopup"] = sudo_res.get("editorPopup") or {}
             return out_payload
         except ToolError as exc:
+            sudo_failed_resolved = False
+            sudo_err_sum = ""
             if exc.code == "sudo_auth_failed":
                 msg = (
                     f"Mật khẩu `sudo` không đúng khi truy cập `{target_path}`. Vui lòng nhập lại mật khẩu `sudo` hoặc gõ `huỷ` để từ chối."
@@ -7534,11 +7769,13 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     language=lang,
                     requires_confirmation=True,
                     requires_sudo_password=True,
-                    confirm_id=(pending_sudo or {}).get("confirmId", ""),
+                    confirm_id=sudo_cid,
                     session_ctx=session_ctx,
                 )
             else:
+                sudo_failed_resolved = True
                 session_ctx["pendingSudoOp"] = None
+                session_ctx["pendingConfirmId"] = ""
                 save_session_context(session_ctx, now_ms=now_ms)
                 resolve_pending_confirmation(decision="cancel", source="user_prompt", now_ms=now_ms)
                 msg = (
@@ -7546,12 +7783,15 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     if lang == "vi"
                     else f"System operation failed (`{exc.code}`): {exc}"
                 )
+                sudo_err_sum = a2ui_validator._clean_str(msg, 280).strip()
+                history_store.lock_confirm_surfaces(sudo_cid, resolution="failed", outcome_summary=sudo_err_sum)
                 res = _format_reply(msg, expression="sad", status="failed", language=lang, session_ctx=session_ctx)
             u_id, a_id, saved = _persist_turn_to_history(redacted_prompt, res["text"]) if persist_history else (0, 0, False)
             return {
                 "handled": True,
                 "intent": kind,
                 "errorCode": exc.code,
+                **({"resolvedConfirmId": sudo_cid, "resolvedConfirmResolution": "failed", "resolvedConfirmSummary": sudo_err_sum} if sudo_failed_resolved else {}),
                 **res,
                 "userMessageId": u_id,
                 "assistantMessageId": a_id,
@@ -7746,8 +7986,11 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
         decision = intent["decision"]
         if session_ctx.get("pendingClientAction"):
             pca = dict(session_ctx.get("pendingClientAction") or {})
+            pca_cid = str(pca.get("confirmId") or session_ctx.get("pendingConfirmId") or "")
             session_ctx["pendingClientAction"] = None
+            session_ctx["pendingConfirmId"] = ""
             save_session_context(session_ctx, now_ms=now_ms)
+            pca_res_state = "confirmed" if decision == "confirm" else "cancelled"
             emitted_actions: list[dict] = []
             if decision == "confirm":
                 p_act = str(pca.get("action") or "")
@@ -7758,7 +8001,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                         p_tgt or "Companion Note",
                         p_val or p_tgt,
                         folder=str(pca.get("folder") or "Knowledge"),
-                        vault_path=str(pca.get("vaultPath") or _CURRENT_TURN_NEXUS_VAULT),
+                        vault_path=str(pca.get("vaultPath") or _tctx().current_turn_nexus_vault),
                     )
                     msg = (
                         f"Đã lưu ghi chú tri thức RAG `{saved_note['title']}` vào Nexus (`{saved_note['relPath']}`) và lập chỉ mục FTS5."
@@ -7801,11 +8044,16 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     else "Cancelled pending write action; Todo, QuickNotes, and Nexus remain unchanged."
                 )
                 res = _format_reply(msg, expression="idle", status="cancelled", language=lang, session_ctx=session_ctx)
+            pca_summary = a2ui_validator._clean_str(msg, 280).strip()
+            history_store.lock_confirm_surfaces(pca_cid, resolution=pca_res_state, outcome_summary=pca_summary)
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
             return {
                 "handled": True,
                 "intent": kind,
                 "clientActions": emitted_actions,
+                "resolvedConfirmId": pca_cid,
+                "resolvedConfirmResolution": pca_res_state,
+                "resolvedConfirmSummary": pca_summary,
                 **res,
                 "userMessageId": u_id,
                 "assistantMessageId": a_id,
@@ -7814,8 +8062,11 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
 
         if session_ctx.get("pendingMemoryForget"):
             mem_target = session_ctx.get("pendingMemoryForget")
+            mem_cid = str((mem_target or {}).get("confirmId") or session_ctx.get("pendingConfirmId") or "")
             session_ctx["pendingMemoryForget"] = None
+            session_ctx["pendingConfirmId"] = ""
             save_session_context(session_ctx, now_ms=now_ms)
+            mem_res_state = "confirmed" if decision == "confirm" else "cancelled"
             if decision == "confirm":
                 if mem_target.get("all"):
                     cnt = memory_store.forget_all()
@@ -7835,13 +8086,29 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
             else:
                 msg = "Đã huỷ yêu cầu xoá ghi nhớ; dữ liệu được giữ nguyên." if lang == "vi" else "Cancelled memory deletion; your saved memories are unchanged."
                 res = _format_reply(msg, expression="idle", status="cancelled", language=lang, session_ctx=session_ctx)
+            mem_summary = a2ui_validator._clean_str(msg, 280).strip()
+            history_store.lock_confirm_surfaces(mem_cid, resolution=mem_res_state, outcome_summary=mem_summary)
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
-            return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+            return {
+                "handled": True,
+                "intent": kind,
+                "resolvedConfirmId": mem_cid,
+                "resolvedConfirmResolution": mem_res_state,
+                "resolvedConfirmSummary": mem_summary,
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
 
         if session_ctx.get("pendingDeletePath"):
             del_path = session_ctx.get("pendingDeletePath")
+            del_cid = str(session_ctx.get("pendingDeleteConfirmId") or session_ctx.get("pendingConfirmId") or "")
             session_ctx["pendingDeletePath"] = ""
+            session_ctx["pendingDeleteConfirmId"] = ""
+            session_ctx["pendingConfirmId"] = ""
             save_session_context(session_ctx, now_ms=now_ms)
+            del_res_state = "confirmed" if decision == "confirm" else "cancelled"
             if decision == "confirm":
                 agent_file_op({"op": "delete", "targetPath": del_path, "confirmStep": 0, "nowMs": now_ms})
                 agent_file_op({"op": "delete", "targetPath": del_path, "confirmStep": 1, "nowMs": now_ms + 1})
@@ -7856,13 +8123,31 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 agent_file_op({"op": "cancel_delete", "targetPath": del_path, "nowMs": now_ms})
                 msg = f"Đã huỷ xoá `{Path(del_path).name}`. Tệp vẫn an toàn." if lang == "vi" else f"Cancelled deleting `{Path(del_path).name}`. The file was not touched."
                 res = _format_reply(msg, expression="idle", status="cancelled", language=lang, session_ctx=session_ctx)
+            del_summary = a2ui_validator._clean_str(msg, 280).strip()
+            history_store.lock_confirm_surfaces(del_cid, resolution=del_res_state, outcome_summary=del_summary)
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
-            return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+            return {
+                "handled": True,
+                "intent": kind,
+                "resolvedConfirmId": del_cid,
+                "resolvedConfirmResolution": del_res_state,
+                "resolvedConfirmSummary": del_summary,
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
 
         resolved_conf = resolve_pending_confirmation(decision="confirm" if decision == "confirm" else "cancel", source="user_prompt", now_ms=now_ms)
         if resolved_conf:
+            res_cid = str(resolved_conf.get("confirmId") or "")
+            res_state = "confirmed" if decision == "confirm" else "cancelled"
+            session_ctx["pendingConfirmId"] = ""
+            save_session_context(session_ctx, now_ms=now_ms)
             if decision == "confirm":
                 payload = resolved_conf.get("payload") or {}
+                grant_msg = f"Đã xác nhận và cấp quyền cho `{resolved_conf['targetPath']}`." if lang == "vi" else f"Confirmed and granted permission for `{resolved_conf['targetPath']}`."
+                grant_summary = a2ui_validator._clean_str(grant_msg, 280).strip()
                 if resolved_conf["actionKind"] == "grant_directory":
                     grant_permission(
                         "directory",
@@ -7872,20 +8157,81 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                         source="user_prompt",
                         now_ms=now_ms,
                     )
+                    history_store.lock_confirm_surfaces(res_cid, resolution=res_state, outcome_summary=grant_summary)
                     resume_prompt = payload.get("originalPrompt")
                     if resume_prompt:
-                        return execute_agent_turn(
+                        resumed = execute_agent_turn(
                             {**options, "prompt": resume_prompt},
                             companion_root=companion_root,
                             host_root=host_root,
                         )
-                msg = f"Đã xác nhận và cấp quyền cho `{resolved_conf['targetPath']}`." if lang == "vi" else f"Confirmed and granted permission for `{resolved_conf['targetPath']}`."
+                        if isinstance(resumed, dict):
+                            resumed.setdefault("resolvedConfirmId", res_cid)
+                            resumed.setdefault("resolvedConfirmResolution", res_state)
+                            resumed.setdefault("resolvedConfirmSummary", grant_summary)
+                        return resumed
+                elif resolved_conf["actionKind"] == "tainted_tool_escalation":
+                    tool_name = str(payload.get("tool") or resolved_conf.get("targetPath") or "").strip()
+                    tool_args = payload.get("args") if isinstance(payload.get("args"), dict) else {}
+                    tool_out = ""
+                    if tool_name:
+                        try:
+                            tool_out = _execute_llm_tool_call(
+                                {"name": tool_name, "args": tool_args},
+                                session_ctx,
+                                companion_root or Path(__file__).resolve().parents[2],
+                                now_ms,
+                            )
+                        except Exception as exc:
+                            fail_msg = (
+                                f"Thực thi `{tool_name}` sau xác nhận gặp lỗi: {exc}"
+                                if lang == "vi"
+                                else f"Confirmed `{tool_name}` failed: {exc}"
+                            )
+                            fail_sum = a2ui_validator._clean_str(fail_msg, 280).strip()
+                            history_store.lock_confirm_surfaces(res_cid, resolution="failed", outcome_summary=fail_sum)
+                            res = _format_reply(fail_msg, expression="worried", status="failed", language=lang, session_ctx=session_ctx)
+                            u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+                            return {
+                                "handled": True,
+                                "intent": kind,
+                                "resolvedConfirmId": res_cid,
+                                "resolvedConfirmResolution": "failed",
+                                "resolvedConfirmSummary": fail_sum,
+                                **res,
+                                "userMessageId": u_id,
+                                "assistantMessageId": a_id,
+                                "historySaved": saved,
+                            }
+                    grant_msg = (
+                        f"Đã xác nhận và thực thi `{tool_name}`." + (f"\n\n{tool_out[:1200]}" if tool_out else "")
+                        if lang == "vi"
+                        else f"Confirmed and executed `{tool_name}`." + (f"\n\n{tool_out[:1200]}" if tool_out else "")
+                    )
+                    grant_summary = a2ui_validator._clean_str(grant_msg, 280).strip()
+                    history_store.lock_confirm_surfaces(res_cid, resolution=res_state, outcome_summary=grant_summary)
+                else:
+                    history_store.lock_confirm_surfaces(res_cid, resolution=res_state, outcome_summary=grant_summary)
+                msg = grant_msg
+                res_summary = grant_summary
                 res = _format_reply(msg, expression="happy", status="completed", language=lang, session_ctx=session_ctx)
             else:
                 msg = "Đã từ chối cấp quyền và huỷ thao tác đang chờ." if lang == "vi" else "Denied permission and cancelled the pending action."
+                res_summary = a2ui_validator._clean_str(msg, 280).strip()
+                history_store.lock_confirm_surfaces(res_cid, resolution=res_state, outcome_summary=res_summary)
                 res = _format_reply(msg, expression="idle", status="cancelled", language=lang, session_ctx=session_ctx)
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
-            return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+            return {
+                "handled": True,
+                "intent": kind,
+                "resolvedConfirmId": res_cid,
+                "resolvedConfirmResolution": res_state,
+                "resolvedConfirmSummary": res_summary,
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
 
     # 6. Resume from checkpoint / remaining steps
     if kind == "resume":
@@ -8140,7 +8486,9 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                             matched_mem = m
                             break
                 if matched_mem:
-                    session_ctx["pendingMemoryForget"] = {"id": matched_mem["id"], "text": matched_mem["text"], "all": False}
+                    mem_cid = _issue_confirm_id("conf")
+                    session_ctx["pendingMemoryForget"] = {"id": matched_mem["id"], "text": matched_mem["text"], "all": False, "confirmId": mem_cid}
+                    session_ctx["pendingConfirmId"] = mem_cid
                     save_session_context(session_ctx, now_ms=now_ms)
                     msg = (
                         f"Bạn có chắc muốn xoá ghi nhớ #{matched_mem['id']} (\"{matched_mem['text']}\") khỏi Companion không? "
@@ -8150,9 +8498,11 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                              "Reply 'yes' to confirm or 'cancel' to keep it (external copies or backups will not be erased)."
                     )
                     finish_run(run_id, status="awaiting_confirmation", now_ms=now_ms)
-                    res = _format_reply(msg, expression="alert", status="awaiting_confirmation", run_id=run_id, language=lang, requires_confirmation=True, session_ctx=session_ctx)
+                    res = _format_reply(msg, expression="alert", status="awaiting_confirmation", run_id=run_id, language=lang, requires_confirmation=True, confirm_id=mem_cid, session_ctx=session_ctx)
                 elif items:
-                    session_ctx["pendingMemoryForget"] = {"all": True}
+                    mem_cid = _issue_confirm_id("conf")
+                    session_ctx["pendingMemoryForget"] = {"all": True, "confirmId": mem_cid}
+                    session_ctx["pendingConfirmId"] = mem_cid
                     save_session_context(session_ctx, now_ms=now_ms)
                     msg = (
                         f"Bạn muốn xoá toàn bộ {len(items)} ghi nhớ đã lưu trong Companion phải không? Trả lời 'đồng ý' để xác nhận (bản sao/backup bên ngoài không bị ảnh hưởng)."
@@ -8160,7 +8510,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                         else f"Do you want to delete all {len(items)} saved memories in Companion? Reply 'yes' to confirm (external copies/backups are not affected)."
                     )
                     finish_run(run_id, status="awaiting_confirmation", now_ms=now_ms)
-                    res = _format_reply(msg, expression="alert", status="awaiting_confirmation", run_id=run_id, language=lang, requires_confirmation=True, session_ctx=session_ctx)
+                    res = _format_reply(msg, expression="alert", status="awaiting_confirmation", run_id=run_id, language=lang, requires_confirmation=True, confirm_id=mem_cid, session_ctx=session_ctx)
                 else:
                     msg = "Hiện không có ghi nhớ nào để xoá." if lang == "vi" else "There are no saved memories to delete."
                     finish_run(run_id, status="completed", now_ms=now_ms)
@@ -8413,7 +8763,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     topic = str(sub.get("topic") or "all")
                     subtask_labels.append(f"alis_local_info:{topic}")
                     st_id = record_step_start(run_id, s_idx, f"alis_{topic}", side_effect=False, now_ms=now_ms)
-                    live_res = alis_local_bridge.format_live_state(_CURRENT_TURN_LIVE_SNAPSHOT, topic=topic, query=prompt, lang=lang)
+                    live_res = alis_local_bridge.format_live_state(_tctx().current_turn_live_snapshot, topic=topic, query=prompt, lang=lang)
                     md_part = str(live_res.get("markdown") or "").strip()
                     if topic == "system":
                         try:
@@ -8452,7 +8802,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 elif skind == "nexus_knowledge":
                     sub_k = str(sub.get("subkind") or "search").strip().lower()
                     q_nx = str(sub.get("query") or prompt).strip()
-                    v_override = _CURRENT_TURN_NEXUS_VAULT
+                    v_override = _tctx().current_turn_nexus_vault
                     subtask_labels.append(f"nexus_knowledge:{sub_k}")
                     st_id = record_step_start(run_id, s_idx, f"nexus_{sub_k}", side_effect=False, now_ms=now_ms)
                     if sub_k in ("overview", "journal", "finance", "collections"):
@@ -8677,6 +9027,8 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     if perm.get("requiresSudo"):
                         return _prompt_for_system_sudo("run", workspace, prompt, lang, run_id, session_ctx, now_ms, persist_history=persist_history)
                     conf = create_pending_confirmation("grant_directory", workspace, f"Run tests in {workspace}", {"levels": ["read", "write", "execute"], "originalPrompt": prompt}, now_ms)
+                    session_ctx["pendingConfirmId"] = str(conf.get("confirmId") or "")
+                    save_session_context(session_ctx, now_ms=now_ms)
                     finish_run(run_id, status="awaiting_confirmation", now_ms=now_ms)
                     msg = (
                         f"Để chạy kiểm tra trong `{workspace}`, bạn có đồng ý cấp quyền thực thi cho thư mục này không? (Trả lời 'đồng ý' hoặc 'huỷ')"
@@ -9232,7 +9584,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 sources = rag_store.list_sources()
                 active_paths = rag_store.active_source_paths(include_pocket=True)
                 sinfo = rag_store.storage_info()
-                nx_ov = nexus_rag.get_nexus_overview(vault_path=_CURRENT_TURN_NEXUS_VAULT) if sinfo.get("storageMode") == "nexus" else {}
+                nx_ov = nexus_rag.get_nexus_overview(vault_path=_tctx().current_turn_nexus_vault) if sinfo.get("storageMode") == "nexus" else {}
                 nx_note_cnt = int((nx_ov.get("stats") or {}).get("noteCount") or nx_ov.get("indexedNotes") or 0)
                 rows = [f"- `{s['label']}` (`{s['path']}`)" for s in sources] or (["- (chưa có nguồn tuỳ chỉnh; đang dùng tài liệu tích hợp & AquaPocket)"] if lang == "vi" else ["- (no custom sources; using built-in docs & AquaPocket)"])
                 storage_note = (
@@ -9255,13 +9607,16 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     t_part, b_part = body_raw.split(":", 1)
                 else:
                     t_part, b_part = (body_raw[:48] or "Companion Note"), body_raw
+                rag_cid = _issue_confirm_id("conf")
                 session_ctx["pendingClientAction"] = {
+                    "confirmId": rag_cid,
                     "action": "rag_note_save",
                     "target": t_part.strip() or "Companion Note",
                     "value": b_part.strip() or t_part.strip(),
                     "folder": "Knowledge",
-                    "vaultPath": _CURRENT_TURN_NEXUS_VAULT,
+                    "vaultPath": _tctx().current_turn_nexus_vault,
                 }
+                session_ctx["pendingConfirmId"] = rag_cid
                 save_session_context(session_ctx, now_ms=now_ms)
                 finish_run(run_id, status="awaiting_confirmation", now_ms=now_ms)
                 confirm_msg = (
@@ -9276,6 +9631,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     run_id=run_id,
                     language=lang,
                     requires_confirmation=True,
+                    confirm_id=rag_cid,
                     session_ctx=session_ctx,
                 )
                 u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
@@ -9346,7 +9702,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
         if kind == "alis_local_info":
             topic = str(intent.get("topic") or "all")
             step_id = record_step_start(run_id, 1, f"alis_{topic}", side_effect=False, now_ms=now_ms)
-            live_res = alis_local_bridge.format_live_state(_CURRENT_TURN_LIVE_SNAPSHOT, topic=topic, query=prompt, lang=lang)
+            live_res = alis_local_bridge.format_live_state(_tctx().current_turn_live_snapshot, topic=topic, query=prompt, lang=lang)
             msg = str(live_res.get("markdown") or "")
             if topic == "system":
                 try:
@@ -9386,12 +9742,15 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
             val = str(intent.get("value") or "")
             req_conf = bool(intent.get("requiresConfirmation", False))
             if req_conf or act in alis_local_bridge.WRITE_CONFIRM_CLIENT_ACTIONS:
+                ctrl_cid = _issue_confirm_id("conf")
                 session_ctx["pendingClientAction"] = {
+                    "confirmId": ctrl_cid,
                     "action": act,
                     "target": tgt,
                     "value": val,
-                    "vaultPath": _CURRENT_TURN_NEXUS_VAULT,
+                    "vaultPath": _tctx().current_turn_nexus_vault,
                 }
+                session_ctx["pendingConfirmId"] = ctrl_cid
                 save_session_context(session_ctx, now_ms=now_ms)
                 finish_run(run_id, status="awaiting_confirmation", now_ms=now_ms)
                 desc_tgt = tgt or val
@@ -9420,6 +9779,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     run_id=run_id,
                     language=lang,
                     requires_confirmation=True,
+                    confirm_id=ctrl_cid,
                     session_ctx=session_ctx,
                 )
                 u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
@@ -9497,19 +9857,22 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
         if kind == "nexus_knowledge":
             sub_k = str(intent.get("subkind") or "search").strip().lower()
             q_nx = str(intent.get("query") or prompt).strip()
-            v_override = _CURRENT_TURN_NEXUS_VAULT
+            v_override = _tctx().current_turn_nexus_vault
             if sub_k == "save_rag_note":
                 if ":" in q_nx:
                     t_part, b_part = q_nx.split(":", 1)
                 else:
                     t_part, b_part = (q_nx[:48] or "Companion Note"), q_nx
+                nx_cid = _issue_confirm_id("conf")
                 session_ctx["pendingClientAction"] = {
+                    "confirmId": nx_cid,
                     "action": "rag_note_save",
                     "target": t_part.strip() or "Companion Note",
                     "value": b_part.strip() or t_part.strip(),
                     "folder": "Knowledge",
                     "vaultPath": v_override,
                 }
+                session_ctx["pendingConfirmId"] = nx_cid
                 save_session_context(session_ctx, now_ms=now_ms)
                 finish_run(run_id, status="awaiting_confirmation", now_ms=now_ms)
                 msg = (
@@ -9524,6 +9887,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     run_id=run_id,
                     language=lang,
                     requires_confirmation=True,
+                    confirm_id=nx_cid,
                     session_ctx=session_ctx,
                 )
                 u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
@@ -10286,8 +10650,8 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 record_step_finish(step_id, status="completed", detail=tel_res)
                 advance_turn(run_id, now_ms=now_ms)
                 body = "\n".join(tel_res.get("lines", []))
-                live_sys = alis_local_bridge.format_live_state(_CURRENT_TURN_LIVE_SNAPSHOT, topic="system", query=prompt, lang=lang)
-                extra_sys = str(live_sys.get("markdown") or "").strip() if _CURRENT_TURN_LIVE_SNAPSHOT else ""
+                live_sys = alis_local_bridge.format_live_state(_tctx().current_turn_live_snapshot, topic="system", query=prompt, lang=lang)
+                extra_sys = str(live_sys.get("markdown") or "").strip() if _tctx().current_turn_live_snapshot else ""
                 msg = (
                     f"Trạng thái hệ thống hiện tại ({tel_res['summary']}):\n{body}"
                     if lang == "vi"
@@ -10632,7 +10996,10 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 if is_system_path(resolved_del):
                     return _prompt_for_system_sudo("delete", resolved_del, prompt, lang, run_id, session_ctx, now_ms, persist_history=persist_history)
                 agent_file_op({"op": "delete", "targetPath": resolved_del, "confirmStep": 0, "lastDirectory": last_dir, "nowMs": now_ms})
+                del_cid = _issue_confirm_id("conf")
                 session_ctx["pendingDeletePath"] = resolved_del
+                session_ctx["pendingDeleteConfirmId"] = del_cid
+                session_ctx["pendingConfirmId"] = del_cid
                 save_session_context(session_ctx, now_ms=now_ms)
                 msg = (
                     f"Xác nhận xoá tệp `{Path(resolved_del).name}` (`{resolved_del}`)? "
@@ -10642,7 +11009,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                          "Reply 'yes' to confirm deletion or 'cancel' to keep the file."
                 )
                 finish_run(run_id, status="awaiting_confirmation", now_ms=now_ms)
-                res = _format_reply(msg, expression="alert", status="awaiting_confirmation", run_id=run_id, language=lang, requires_confirmation=True, session_ctx=session_ctx)
+                res = _format_reply(msg, expression="alert", status="awaiting_confirmation", run_id=run_id, language=lang, requires_confirmation=True, confirm_id=del_cid, session_ctx=session_ctx)
                 u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
                 return {"handled": True, "intent": kind, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
 
@@ -10673,6 +11040,8 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     if perm.get("requiresSudo"):
                         return _prompt_for_system_sudo("run", work_dir, prompt, lang, run_id, session_ctx, now_ms, extra_payload={"content": cmd_str}, persist_history=persist_history)
                     conf = create_pending_confirmation("grant_directory", work_dir, f"Run command in {work_dir}", {"levels": ["read", "write", "execute"], "originalPrompt": prompt}, now_ms)
+                    session_ctx["pendingConfirmId"] = str(conf.get("confirmId") or "")
+                    save_session_context(session_ctx, now_ms=now_ms)
                     finish_run(run_id, status="awaiting_confirmation", now_ms=now_ms)
                     msg = f"Cần cấp quyền thực thi trong `{work_dir}` để chạy lệnh. Trả lời 'đồng ý' hoặc 'huỷ'." if lang == "vi" else f"Execution permission in `{work_dir}` is required. Reply 'yes' or 'cancel'."
                     res = _format_reply(msg, expression="thinking", status="awaiting_confirmation", run_id=run_id, language=lang, requires_confirmation=True, confirm_id=conf["confirmId"], session_ctx=session_ctx)
@@ -10771,6 +11140,8 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                             {"levels": ["read", "write", "execute"], "originalPrompt": prompt},
                             now_ms=now_ms,
                         )
+                        session_ctx["pendingConfirmId"] = str(conf.get("confirmId") or "")
+                        save_session_context(session_ctx, now_ms=now_ms)
                         finish_run(run_id, status="awaiting_confirmation", now_ms=now_ms)
                         msg = (
                             f"Thư mục `{parent_dir}` đã bị thu hồi quyền ghi. Bạn có đồng ý cấp lại quyền cho `{parent_dir}` không? (Trả lời 'đồng ý' hoặc 'huỷ')"
@@ -11069,6 +11440,8 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                         {"levels": ["read", "write", "execute"], "originalPrompt": prompt},
                         now_ms=now_ms,
                     )
+                    session_ctx["pendingConfirmId"] = str(conf.get("confirmId") or "")
+                    save_session_context(session_ctx, now_ms=now_ms)
                     finish_run(run_id, status="awaiting_confirmation", now_ms=now_ms)
                     msg = (
                         f"Thư mục `{target_dir}` đã bị thu hồi quyền. Bạn có đồng ý cấp lại quyền cho `{target_dir}` không? (Trả lời 'đồng ý' hoặc 'huỷ')"
@@ -11166,3 +11539,720 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
         res = _format_reply(msg, expression="sad", status="failed", run_id=run_id, language=lang, session_ctx=session_ctx)
         u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
         return {"handled": True, "intent": kind, "errorCode": err_code, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+
+
+def handle_a2ui_action(
+    payload: dict,
+    companion_root: Path,
+    host_root: Path,
+) -> dict:
+    """Handle trusted UI events emitted by the Companion A2UI v1.0 QML renderer.
+
+    Never trusts raw `dataModel` snapshots (`sendDataModel: false`): only accepts
+    allowlisted event names and explicitly bound event `context` keys.
+    """
+    req = payload if isinstance(payload, dict) else {}
+    now_ms = int(req.get("nowMs") or int(time.time() * 1000))
+    surface_id = str(req.get("surfaceId") or "").strip()[:80]
+    event_name = str(req.get("eventName") or "").strip()
+    ctx_in = req.get("context") if isinstance(req.get("context"), dict) else {}
+    raw_lang = str(req.get("language") or "en").strip().lower()
+
+    if event_name not in a2ui_validator.ALLOWED_SERVER_EVENTS:
+        return {
+            "ok": False,
+            "op": "a2ui_action",
+            "eventName": event_name,
+            "surfaceId": surface_id,
+            "error": f"disallowed_event:{event_name}",
+        }
+
+    existing_surface_row = history_store.get_surface_by_id(surface_id) if surface_id else None
+    existing_cs = (
+        (existing_surface_row[1].get("createSurface") or {})
+        if existing_surface_row and isinstance(existing_surface_row[1], dict)
+        else {}
+    )
+    existing_meta = existing_cs.get("surfaceMeta") if isinstance(existing_cs.get("surfaceMeta"), dict) else {}
+    surf_is_tainted = bool(existing_meta.get("tainted") is True)
+    surf_is_generative = bool(
+        existing_meta.get("kind") == "generative"
+        or existing_meta.get("sourceKind") == "generative"
+        or surface_id.startswith("surf_gen")
+    )
+
+    if raw_lang.startswith("vi"):
+        lang = "vi"
+    elif raw_lang == "auto" and existing_cs:
+        sample_str = json.dumps(existing_cs.get("dataModel") or {}, ensure_ascii=False)
+        lang = "vi" if re.search(r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]", sample_str, re.I) else "en"
+    else:
+        lang = "en"
+
+    # Server-side security & CaMeL taint boundary enforcement (defense-in-depth)
+    if surf_is_generative and event_name in a2ui_validator.PRIVILEGED_SERVER_EVENTS:
+        return {
+            "ok": False,
+            "op": "a2ui_action",
+            "eventName": event_name,
+            "surfaceId": surface_id,
+            "error": f"privileged_event_forbidden:{event_name}",
+        }
+    if surf_is_tainted and event_name not in a2ui_validator.TAINTED_LOCAL_UI_EVENTS:
+        return {
+            "ok": False,
+            "op": "a2ui_action",
+            "eventName": event_name,
+            "surfaceId": surface_id,
+            "error": "tainted_surface_action_forbidden",
+        }
+
+    def _outcome_summary(raw_msg: str) -> str:
+        return a2ui_validator._clean_str(raw_msg, 280).strip()
+
+    # 1. Confirmation card actions (strictly matched against non-empty confirmId, trusted source="a2ui_confirm")
+    if event_name == "confirm_action":
+        confirm_id = str(ctx_in.get("confirmId") or req.get("confirmId") or "").strip()
+        decision = "confirm" if str(ctx_in.get("decision") or "").strip().lower() == "confirm" else "cancel"
+        session_ctx = load_session_context()
+
+        def _persist_confirm_outcome(res_state: str, cid_to_lock: str, summary: str) -> str:
+            clean_sum = _outcome_summary(summary)
+            if surface_id:
+                history_store.patch_surface_by_id(
+                    surface_id,
+                    lock_resolution=res_state,
+                    outcome_summary=clean_sum,
+                )
+            if cid_to_lock:
+                history_store.lock_confirm_surfaces(
+                    cid_to_lock,
+                    resolution=res_state,
+                    outcome_summary=clean_sum,
+                )
+            return clean_sum
+
+        def _failed_confirm_response(cid_to_lock: str, exc: Exception) -> dict:
+            err_txt = str(exc)[:160]
+            err_sum = _persist_confirm_outcome("failed", cid_to_lock, f"Error: {err_txt}")
+            return {
+                "ok": False,
+                "op": "a2ui_action",
+                "eventName": event_name,
+                "surfaceId": surface_id,
+                "resolved": True,
+                "resolution": "failed",
+                "requiresConfirmation": False,
+                "confirmId": "",
+                "error": err_txt,
+                "text": err_sum,
+                "expression": "sad",
+                "dataPatch": [
+                    {"path": "/resolved", "value": True},
+                    {"path": "/resolution", "value": "failed"},
+                    {"path": "/statusLabel", "value": "Failed"},
+                    {"path": "/outcomeSummary", "value": err_sum},
+                ],
+                "clientActions": [],
+            }
+
+        # Security: A2UI confirm_action MUST provide a non-empty confirmId matching the active pending request.
+        if not confirm_id:
+            missing_msg = _outcome_summary(
+                "Thiếu mã xác nhận hợp lệ; thao tác không được thực hiện."
+                if lang == "vi"
+                else "Missing valid confirmation ID; no action was executed."
+            )
+            return {
+                "ok": True,
+                "op": "a2ui_action",
+                "eventName": event_name,
+                "surfaceId": surface_id,
+                "stale": True,
+                "resolved": True,
+                "resolution": "expired",
+                "requiresConfirmation": False,
+                "confirmId": "",
+                "text": missing_msg,
+                "dataPatch": [
+                    {"path": "/resolved", "value": True},
+                    {"path": "/resolution", "value": "expired"},
+                    {"path": "/statusLabel", "value": "Expired"},
+                    {"path": "/outcomeSummary", "value": missing_msg},
+                ],
+                "clientActions": [],
+            }
+
+        # Sudo operations can NEVER be confirmed from A2UI (only cancelled)
+        if session_ctx.get("pendingSudoOp"):
+            sudo_obj = session_ctx.get("pendingSudoOp") or {}
+            sudo_cid = str(sudo_obj.get("confirmId") or session_ctx.get("pendingConfirmId") or "")
+            if sudo_cid and confirm_id == sudo_cid:
+                if decision == "confirm":
+                    return {
+                        "ok": True,
+                        "op": "a2ui_action",
+                        "eventName": event_name,
+                        "surfaceId": surface_id,
+                        "stale": False,
+                        "requiresConfirmation": True,
+                        "requiresSudoPassword": True,
+                        "confirmId": sudo_cid,
+                        "text": (
+                            "Vui lòng nhập mật khẩu `sudo` trực tiếp vào ô chat."
+                            if lang == "vi"
+                            else "Please enter your `sudo` password directly in the chat composer."
+                        ),
+                        "dataPatch": [],
+                        "clientActions": [],
+                    }
+                session_ctx["pendingSudoOp"] = None
+                session_ctx["pendingConfirmId"] = ""
+                save_session_context(session_ctx, now_ms=now_ms)
+                resolve_pending_confirmation(confirm_id=sudo_cid, decision="cancel", source="a2ui_confirm", now_ms=now_ms)
+                msg = "Đã huỷ thao tác hệ thống." if lang == "vi" else "Cancelled system path operation."
+                summary = _persist_confirm_outcome("cancelled", sudo_cid, msg)
+                return {
+                    "ok": True,
+                    "op": "a2ui_action",
+                    "eventName": event_name,
+                    "surfaceId": surface_id,
+                    "resolved": True,
+                    "resolution": "cancelled",
+                    "requiresConfirmation": False,
+                    "requiresSudoPassword": False,
+                    "confirmId": "",
+                    "text": msg,
+                    "spokenText": msg,
+                    "expression": "idle",
+                    "dataPatch": [
+                        {"path": "/resolved", "value": True},
+                        {"path": "/resolution", "value": "cancelled"},
+                        {"path": "/statusLabel", "value": "Cancelled"},
+                        {"path": "/outcomeSummary", "value": summary},
+                    ],
+                    "clientActions": [],
+                }
+
+        # Pending client action (todo_add, quicknote_add, rag_note_save)
+        if isinstance(session_ctx.get("pendingClientAction"), dict):
+            pca = dict(session_ctx.get("pendingClientAction") or {})
+            pca_cid = str(pca.get("confirmId") or session_ctx.get("pendingConfirmId") or "")
+            if pca_cid and confirm_id == pca_cid:
+                session_ctx["pendingClientAction"] = None
+                session_ctx["pendingConfirmId"] = ""
+                save_session_context(session_ctx, now_ms=now_ms)
+                res_state = "confirmed" if decision == "confirm" else "cancelled"
+                emitted_actions: list[dict] = []
+                if decision == "confirm":
+                    p_act = str(pca.get("action") or "")
+                    p_tgt = str(pca.get("target") or "")
+                    p_val = str(pca.get("value") or "")
+                    if p_act == "rag_note_save":
+                        try:
+                            saved_note = nexus_rag.save_rag_note(
+                                p_tgt or "Companion Note",
+                                p_val or p_tgt,
+                                folder=str(pca.get("folder") or "Knowledge"),
+                                vault_path=str(pca.get("vaultPath") or _tctx().current_turn_nexus_vault),
+                            )
+                        except Exception as exc:
+                            return _failed_confirm_response(pca_cid, exc)
+                        msg = (
+                            f"Đã lưu ghi chú RAG `{saved_note['title']}` vào Nexus (`{saved_note['relPath']}`)."
+                            if lang == "vi"
+                            else f"Saved RAG note `{saved_note['title']}` to Nexus (`{saved_note['relPath']}`)."
+                        )
+                    else:
+                        emitted_actions.append({"action": p_act, "target": p_tgt, "value": p_val})
+                        msg = (
+                            f"Đã xác nhận thực hiện `{p_act}` (`{p_tgt or p_val}`)."
+                            if lang == "vi"
+                            else f"Confirmed `{p_act}` (`{p_tgt or p_val}`)."
+                        )
+                else:
+                    msg = "Đã huỷ thao tác đang chờ." if lang == "vi" else "Cancelled pending action."
+                summary = _persist_confirm_outcome(res_state, pca_cid, msg)
+                return {
+                    "ok": True,
+                    "op": "a2ui_action",
+                    "eventName": event_name,
+                    "surfaceId": surface_id,
+                    "resolved": True,
+                    "resolution": res_state,
+                    "requiresConfirmation": False,
+                    "confirmId": "",
+                    "text": msg,
+                    "spokenText": msg,
+                    "expression": "happy" if decision == "confirm" else "idle",
+                    "dataPatch": [
+                        {"path": "/resolved", "value": True},
+                        {"path": "/resolution", "value": res_state},
+                        {"path": "/statusLabel", "value": "Confirmed" if decision == "confirm" else "Cancelled"},
+                        {"path": "/outcomeSummary", "value": summary},
+                    ],
+                    "clientActions": emitted_actions,
+                }
+
+        # Pending memory forget
+        if isinstance(session_ctx.get("pendingMemoryForget"), dict):
+            mem_target = dict(session_ctx.get("pendingMemoryForget") or {})
+            mem_cid = str(mem_target.get("confirmId") or session_ctx.get("pendingConfirmId") or "")
+            if mem_cid and confirm_id == mem_cid:
+                session_ctx["pendingMemoryForget"] = None
+                session_ctx["pendingConfirmId"] = ""
+                save_session_context(session_ctx, now_ms=now_ms)
+                res_state = "confirmed" if decision == "confirm" else "cancelled"
+                if decision == "confirm":
+                    try:
+                        if mem_target.get("all"):
+                            cnt = memory_store.forget_all()
+                            msg = f"Đã xoá {cnt} ghi nhớ." if lang == "vi" else f"Removed {cnt} memory item(s)."
+                        else:
+                            memory_store.forget_one(int(mem_target["id"]))
+                            msg = f"Đã xoá ghi nhớ #{mem_target['id']}." if lang == "vi" else f"Forgot memory #{mem_target['id']}."
+                    except Exception as exc:
+                        return _failed_confirm_response(mem_cid, exc)
+                else:
+                    msg = "Đã huỷ yêu cầu xoá ghi nhớ." if lang == "vi" else "Cancelled memory deletion."
+                summary = _persist_confirm_outcome(res_state, mem_cid, msg)
+                return {
+                    "ok": True,
+                    "op": "a2ui_action",
+                    "eventName": event_name,
+                    "surfaceId": surface_id,
+                    "resolved": True,
+                    "resolution": res_state,
+                    "requiresConfirmation": False,
+                    "confirmId": "",
+                    "text": msg,
+                    "spokenText": msg,
+                    "expression": "happy" if decision == "confirm" else "idle",
+                    "dataPatch": [
+                        {"path": "/resolved", "value": True},
+                        {"path": "/resolution", "value": res_state},
+                        {"path": "/statusLabel", "value": "Confirmed" if decision == "confirm" else "Cancelled"},
+                        {"path": "/outcomeSummary", "value": summary},
+                    ],
+                    "clientActions": [],
+                }
+
+        # Pending file delete
+        if session_ctx.get("pendingDeletePath"):
+            del_path = str(session_ctx.get("pendingDeletePath") or "")
+            del_cid = str(session_ctx.get("pendingDeleteConfirmId") or session_ctx.get("pendingConfirmId") or "")
+            if del_cid and confirm_id == del_cid:
+                session_ctx["pendingDeletePath"] = ""
+                session_ctx["pendingDeleteConfirmId"] = ""
+                session_ctx["pendingConfirmId"] = ""
+                save_session_context(session_ctx, now_ms=now_ms)
+                res_state = "confirmed" if decision == "confirm" else "cancelled"
+                try:
+                    if decision == "confirm":
+                        agent_file_op({"op": "delete", "targetPath": del_path, "confirmStep": 0, "nowMs": now_ms})
+                        agent_file_op({"op": "delete", "targetPath": del_path, "confirmStep": 1, "nowMs": now_ms + 1})
+                        deleted = agent_file_op({"op": "delete", "targetPath": del_path, "confirmStep": 2, "nowMs": now_ms + 2})
+                        msg = (
+                            f"Đã xoá `{Path(del_path).name}` ({deleted['summary']})."
+                            if lang == "vi"
+                            else f"Deleted `{Path(del_path).name}` ({deleted['summary']})."
+                        )
+                    else:
+                        agent_file_op({"op": "cancel_delete", "targetPath": del_path, "nowMs": now_ms})
+                        msg = f"Đã huỷ xoá `{Path(del_path).name}`." if lang == "vi" else f"Cancelled deleting `{Path(del_path).name}`."
+                except Exception as exc:
+                    return _failed_confirm_response(del_cid, exc)
+                summary = _persist_confirm_outcome(res_state, del_cid, msg)
+                return {
+                    "ok": True,
+                    "op": "a2ui_action",
+                    "eventName": event_name,
+                    "surfaceId": surface_id,
+                    "resolved": True,
+                    "resolution": res_state,
+                    "requiresConfirmation": False,
+                    "confirmId": "",
+                    "text": msg,
+                    "spokenText": msg,
+                    "expression": "happy" if decision == "confirm" else "idle",
+                    "dataPatch": [
+                        {"path": "/resolved", "value": True},
+                        {"path": "/resolution", "value": res_state},
+                        {"path": "/statusLabel", "value": "Confirmed" if decision == "confirm" else "Cancelled"},
+                        {"path": "/outcomeSummary", "value": summary},
+                    ],
+                    "clientActions": [],
+                }
+
+        # Pending permission_store confirmation (grant_directory, tainted_tool_escalation)
+        resolved_conf = resolve_pending_confirmation(
+            confirm_id=confirm_id,
+            decision="confirm" if decision == "confirm" else "cancel",
+            source="a2ui_confirm",
+            now_ms=now_ms,
+        )
+        if resolved_conf:
+            res_state = "confirmed" if decision == "confirm" else "cancelled"
+            resolved_cid = str(resolved_conf.get("confirmId") or confirm_id)
+            session_ctx["pendingConfirmId"] = ""
+            save_session_context(session_ctx, now_ms=now_ms)
+            follow_prompt = ""
+            if decision == "confirm":
+                p_data = resolved_conf.get("payload") or {}
+                if resolved_conf.get("actionKind") == "grant_directory":
+                    try:
+                        grant_permission(
+                            "directory",
+                            target=resolved_conf["targetPath"],
+                            levels=p_data.get("levels") or ["read", "write", "execute"],
+                            ttl_ms=int(p_data.get("ttlMs") or 3600_000),
+                            source="a2ui_confirm",
+                            now_ms=now_ms,
+                        )
+                    except Exception as exc:
+                        return _failed_confirm_response(resolved_cid, exc)
+                    follow_prompt = str(p_data.get("originalPrompt") or "")
+                    msg = (
+                        f"Đã xác nhận và cấp quyền cho `{resolved_conf['targetPath']}`."
+                        if lang == "vi"
+                        else f"Confirmed and granted permission for `{resolved_conf['targetPath']}`."
+                    )
+                elif resolved_conf.get("actionKind") == "tainted_tool_escalation":
+                    tool_lbl = str(p_data.get("tool") or resolved_conf.get("targetPath") or "").strip()
+                    tool_args = p_data.get("args") if isinstance(p_data.get("args"), dict) else {}
+                    tool_out = ""
+                    if tool_lbl:
+                        try:
+                            tool_out = _execute_llm_tool_call(
+                                {"name": tool_lbl, "args": tool_args},
+                                session_ctx,
+                                companion_root or Path(__file__).resolve().parents[2],
+                                now_ms,
+                            )
+                        except Exception as exc:
+                            return _failed_confirm_response(resolved_cid, exc)
+                    msg = (
+                        f"Đã xác nhận và thực thi công cụ `{tool_lbl or 'tool'}`."
+                        + (f"\n{tool_out[:800]}" if tool_out else "")
+                        if lang == "vi"
+                        else f"Confirmed and executed `{tool_lbl or 'tool'}`."
+                        + (f"\n{tool_out[:800]}" if tool_out else "")
+                    )
+                else:
+                    msg = (
+                        f"Đã xác nhận thao tác cho `{resolved_conf.get('targetPath', '')}`."
+                        if lang == "vi"
+                        else f"Confirmed action for `{resolved_conf.get('targetPath', '')}`."
+                    )
+            else:
+                msg = "Đã từ chối và huỷ thao tác đang chờ." if lang == "vi" else "Denied and cancelled pending action."
+            summary = _persist_confirm_outcome(res_state, resolved_cid, msg)
+            return {
+                "ok": True,
+                "op": "a2ui_action",
+                "eventName": event_name,
+                "surfaceId": surface_id,
+                "resolved": True,
+                "resolution": res_state,
+                "requiresConfirmation": False,
+                "confirmId": "",
+                "followUpPrompt": follow_prompt,
+                "text": msg,
+                "spokenText": msg,
+                "expression": "happy" if decision == "confirm" else "idle",
+                "dataPatch": [
+                    {"path": "/resolved", "value": True},
+                    {"path": "/resolution", "value": res_state},
+                    {"path": "/statusLabel", "value": "Confirmed" if decision == "confirm" else "Cancelled"},
+                    {"path": "/outcomeSummary", "value": summary},
+                ],
+                "clientActions": [],
+            }
+
+        # Stale or mismatched confirmation ID -> idempotently lock unresolved card without clobbering already-resolved outcome
+        stale_msg = _outcome_summary(
+            "Yêu cầu xác nhận này đã hết hạn hoặc đã xử lý trước đó."
+            if lang == "vi"
+            else "This confirmation request has already been resolved or expired."
+        )
+        existing_dm = existing_cs.get("dataModel") if isinstance(existing_cs.get("dataModel"), dict) else {}
+        if existing_dm.get("resolved") is True:
+            prev_res = str(existing_dm.get("resolution") or "expired")
+            prev_lbl = str(existing_dm.get("statusLabel") or "Resolved")
+            prev_out = str(existing_dm.get("outcomeSummary") or "")
+            stale_patches: list[dict[str, Any]] = [
+                {"path": "/resolved", "value": True},
+                {"path": "/resolution", "value": prev_res},
+                {"path": "/statusLabel", "value": prev_lbl},
+            ]
+            if prev_out:
+                stale_patches.append({"path": "/outcomeSummary", "value": prev_out})
+            stale_res_out = prev_res
+        else:
+            if surface_id:
+                history_store.patch_surface_by_id(surface_id, lock_resolution="expired", outcome_summary=stale_msg)
+            stale_patches = [
+                {"path": "/resolved", "value": True},
+                {"path": "/resolution", "value": "expired"},
+                {"path": "/statusLabel", "value": "Expired"},
+                {"path": "/outcomeSummary", "value": stale_msg},
+            ]
+            stale_res_out = "expired"
+        return {
+            "ok": True,
+            "op": "a2ui_action",
+            "eventName": event_name,
+            "surfaceId": surface_id,
+            "stale": True,
+            "resolved": True,
+            "resolution": stale_res_out,
+            "requiresConfirmation": False,
+            "confirmId": "",
+            "text": stale_msg,
+            "dataPatch": stale_patches,
+            "clientActions": [],
+        }
+
+    # 2. Plan checklist toggle / generic checkbox / choice / slider / form state persistence
+    if event_name in ("plan_toggle", "checklist_toggle", "choice_submit", "slider_change", "form_submit"):
+        patches: list[tuple[str, Any]] = []
+        if event_name == "plan_toggle" and "index" in ctx_in:
+            try:
+                idx = int(ctx_in["index"])
+                done_val = bool(ctx_in.get("done", False))
+                patches.append((f"/steps/{idx}/done", done_val))
+            except (TypeError, ValueError):
+                pass
+        else:
+            if "path" in ctx_in:
+                ptr = str(ctx_in.get("path") or "").strip()
+                if a2ui_validator._is_valid_pointer(ptr):
+                    # Supports A2UI v1.0 value=None key deletion!
+                    patches.append((ptr, ctx_in.get("value")))
+            if event_name == "form_submit":
+                # Preserve all submitted form fields, not just a single `path` key.
+                raw_fields = ctx_in.get("values") if isinstance(ctx_in.get("values"), dict) else (
+                    ctx_in.get("fields") if isinstance(ctx_in.get("fields"), dict) else None
+                )
+                if isinstance(raw_fields, dict):
+                    for fk, fv in list(raw_fields.items())[:24]:
+                        fk_s = str(fk or "").strip()
+                        if not fk_s:
+                            continue
+                        f_ptr = fk_s if fk_s.startswith("/") else f"/inputs/{fk_s}"
+                        if a2ui_validator._is_valid_pointer(f_ptr):
+                            patches.append((f_ptr, fv))
+                for ck, cv in list(ctx_in.items())[:24]:
+                    if ck in ("path", "value", "prompt", "values", "fields"):
+                        continue
+                    ck_s = str(ck or "").strip()
+                    if not ck_s:
+                        continue
+                    c_ptr = ck_s if ck_s.startswith("/") else f"/inputs/{ck_s}"
+                    if a2ui_validator._is_valid_pointer(c_ptr):
+                        patches.append((c_ptr, cv))
+        if surface_id and patches:
+            patched_surf = history_store.patch_surface_by_id(surface_id, patches)
+            if patched_surf is None:
+                return {
+                    "ok": False,
+                    "op": "a2ui_action",
+                    "eventName": event_name,
+                    "surfaceId": surface_id,
+                    "error": "surface_patch_failed",
+                    "text": (
+                        "Không thể lưu thay đổi thẻ (vượt giới hạn 6 KB hoặc thẻ không tồn tại)."
+                        if lang == "vi"
+                        else "Could not persist card update (exceeded 6 KB limit or surface not found)."
+                    ),
+                    "dataPatch": [],
+                    "clientActions": [],
+                }
+        follow_p = "" if surf_is_tainted else str(ctx_in.get("prompt") or "").strip()[:400]
+        return {
+            "ok": True,
+            "op": "a2ui_action",
+            "eventName": event_name,
+            "surfaceId": surface_id,
+            "followUpPrompt": follow_p,
+            "dataPatch": [{"path": p, "value": v} for p, v in patches],
+            "clientActions": [],
+        }
+
+    # 3. Rollback receipt button on Receipt Card
+    if event_name == "rollback_receipt":
+        rcpt_id = str(ctx_in.get("receiptId") or "").strip()
+        if not rcpt_id:
+            return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": "missing_receipt_id"}
+        try:
+            rb = agent_file_op({"op": "rollback", "receiptId": rcpt_id, "nowMs": now_ms})
+            if surface_id:
+                history_store.patch_surface_by_id(surface_id, [("/rolledBack", True)])
+            msg = str(rb.get("summary") or ("Đã hoàn tác thay đổi." if lang == "vi" else "Rolled back file edit."))
+            return {
+                "ok": True,
+                "op": "a2ui_action",
+                "eventName": event_name,
+                "surfaceId": surface_id,
+                "receiptId": rcpt_id,
+                "rolledBack": True,
+                "text": msg,
+                "spokenText": msg,
+                "expression": "happy",
+                "dataPatch": [{"path": "/rolledBack", "value": True}],
+                "clientActions": [],
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "op": "a2ui_action",
+                "eventName": event_name,
+                "surfaceId": surface_id,
+                "error": str(exc)[:160],
+            }
+
+    # 3b. Open file in user's preferred editor (non-generative trusted cards only; guarded above)
+    if event_name == "open_editor":
+        raw_fp = str(ctx_in.get("path") or ctx_in.get("file") or "").strip()
+        if not raw_fp or not a2ui_validator._is_safe_file_path(raw_fp):
+            return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": "invalid_file_path"}
+        if is_symlink_raw(raw_fp) or is_sensitive_path(raw_fp):
+            return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": "forbidden_file_path"}
+        target_p = Path(raw_fp).expanduser().resolve(strict=False)
+        if is_forbidden_path(target_p) or is_sensitive_path(target_p):
+            return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": "forbidden_file_path"}
+        try:
+            opened = agent_file_op({
+                "op": "open_editor",
+                "targetPath": str(target_p),
+                "nowMs": now_ms,
+                "forceExternal": bool(ctx_in.get("forceExternal", False)),
+            })
+            msg = str(opened.get("summary") or (f"Đã mở `{target_p.name}`." if lang == "vi" else f"Opened `{target_p.name}`."))
+            resp: dict[str, Any] = {
+                "ok": opened.get("status") != "failed",
+                "op": "a2ui_action",
+                "eventName": event_name,
+                "surfaceId": surface_id,
+                "targetPath": str(opened.get("targetPath") or target_p),
+                "text": msg,
+                "dataPatch": [],
+                "clientActions": [],
+            }
+            for k in ("editorMode", "editorPopup", "editorCommand"):
+                if k in opened:
+                    resp[k] = opened[k]
+            return resp
+        except Exception as exc:
+            return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": str(exc)[:160]}
+
+    # 3c. Save path or snippet to Companion Pocket
+    if event_name == "save_pocket":
+        import pocket as pocket_store
+
+        raw_path = str(ctx_in.get("path") or ctx_in.get("file") or "").strip()
+        raw_text = str(ctx_in.get("text") or ctx_in.get("content") or "").strip()
+        raw_label = str(ctx_in.get("label") or ctx_in.get("title") or "").strip()[:120]
+        try:
+            if raw_path:
+                if is_symlink_raw(raw_path) or is_sensitive_path(raw_path):
+                    return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": "invalid_pocket_path"}
+                target_p = Path(raw_path).expanduser().resolve(strict=False)
+                if is_forbidden_path(target_p) or is_sensitive_path(target_p) or not target_p.is_file():
+                    return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": "invalid_pocket_path"}
+                perm = check_permission("file_read", target_path=str(target_p), source="a2ui_save_pocket", now_ms=now_ms)
+                if not perm.get("allowed"):
+                    return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": "permission_denied"}
+                pk_res = pocket_store.dispatch({
+                    "version": 1,
+                    "consent": True,
+                    "action": "add",
+                    "urls": [target_p.as_uri()],
+                    "source": "drop",
+                })
+            elif raw_text:
+                notes_dir = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "alis-companion" / "pocket_clips"
+                notes_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+                slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", raw_label or "clip").strip("_")[:40] or "clip"
+                clip_file = (notes_dir / f"{slug}_{now_ms}.md").resolve(strict=False)
+                clip_file.write_text(raw_text[:8000], encoding="utf-8")
+                os.chmod(clip_file, 0o600)
+                pk_res = pocket_store.dispatch({
+                    "version": 1,
+                    "consent": True,
+                    "action": "add",
+                    "urls": [clip_file.as_uri()],
+                    "source": "drop",
+                })
+            else:
+                return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": "missing_pocket_payload"}
+            if surface_id:
+                history_store.patch_surface_by_id(surface_id, [("/savedToPocket", True)])
+            msg = "Đã lưu vào Pocket." if lang == "vi" else "Saved to Pocket."
+            return {
+                "ok": bool(pk_res.get("ok", True)),
+                "op": "a2ui_action",
+                "eventName": event_name,
+                "surfaceId": surface_id,
+                "text": msg,
+                "dataPatch": [{"path": "/savedToPocket", "value": True}],
+                "clientActions": [],
+            }
+        except Exception as exc:
+            return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": str(exc)[:160]}
+
+    # 4. Safe follow-up prompt dispatch (already enforced against generative run_tests & tainted surfaces above)
+    if event_name in ("send_prompt", "followup_prompt", "run_tests"):
+        follow_p = str(ctx_in.get("prompt") or ("/tests" if event_name == "run_tests" else "")).strip()[:500]
+        return {
+            "ok": True,
+            "op": "a2ui_action",
+            "eventName": event_name,
+            "surfaceId": surface_id,
+            "followUpPrompt": follow_p,
+            "dataPatch": [],
+            "clientActions": [],
+        }
+
+    return {
+        "ok": True,
+        "op": "a2ui_action",
+        "eventName": event_name,
+        "surfaceId": surface_id,
+        "dataPatch": [],
+        "clientActions": [],
+    }
+
+
+
+_TURN_ATTR_MAP = {
+    "_ACTIVE_RUN_STEPS": "active_run_steps",
+    "_ACTIVE_RUN_START_MS": "active_run_start_ms",
+    "_ACTIVE_STEP_META": "active_step_meta",
+    "_ACTIVE_SUBAGENT_RUNS": "active_subagent_runs",
+    "_LAST_CANCELLED_STREAM_PREFIX": "last_cancelled_stream_prefix",
+    "_CURRENT_TURN_LIVE_SNAPSHOT": "current_turn_live_snapshot",
+    "_CURRENT_TURN_NEXUS_VAULT": "current_turn_nexus_vault",
+    "_CURRENT_TURN_THREAD_ID": "current_turn_thread_id",
+    "_LAST_LMSTUDIO_ERROR": "last_lmstudio_error",
+    "_LAST_LMSTUDIO_LOADED_MODEL": "last_lmstudio_loaded_model",
+}
+
+
+class _TurnIsolatedModule(types.ModuleType):
+    def __getattr__(self, name: str):
+        fld = _TURN_ATTR_MAP.get(name)
+        if fld is not None:
+            return getattr(_tctx(), fld)
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    def __setattr__(self, name: str, value) -> None:
+        fld = _TURN_ATTR_MAP.get(name)
+        if fld is not None:
+            setattr(_tctx(), fld, value)
+            return
+        super().__setattr__(name, value)
+
+
+if __name__ in sys.modules:
+    sys.modules[__name__].__class__ = _TurnIsolatedModule

@@ -14,6 +14,7 @@ from __future__ import annotations
 from html.parser import HTMLParser
 from pathlib import Path
 import html
+import http.client
 import ipaddress
 import json
 import os
@@ -367,43 +368,65 @@ def _format_dom_snapshot_lines(elements: list[dict], base_url: str = "") -> list
     return lines
 
 
+_NAT64_WELL_KNOWN = ipaddress.ip_network("64:ff9b::/96")
+_NAT64_LOCAL_USE = ipaddress.ip_network("64:ff9b:1::/48")
+
+
 def _is_public_ip(ip_obj) -> bool:
     mapped = getattr(ip_obj, "ipv4_mapped", None)
     if mapped is not None:
-        return bool(mapped.is_global)
+        return _is_public_ip(mapped)
+    if isinstance(ip_obj, ipaddress.IPv6Address):
+        # Guard NAT64 well-known (64:ff9b::/96) and local-use (64:ff9b:1::/48) prefixes;
+        # on Python 3.14 ip_address("64:ff9b::127.0.0.1").is_global is True!
+        if ip_obj in _NAT64_LOCAL_USE:
+            return False
+        if ip_obj in _NAT64_WELL_KNOWN:
+            embedded_v4 = ipaddress.IPv4Address(int(ip_obj) & 0xFFFFFFFF)
+            return _is_public_ip(embedded_v4)
+        sixtofour = getattr(ip_obj, "sixtofour", None)
+        if sixtofour is not None and not _is_public_ip(sixtofour):
+            return False
+        teredo = getattr(ip_obj, "teredo", None)
+        if teredo is not None:
+            for t_ip in teredo:
+                if not _is_public_ip(t_ip):
+                    return False
+    if (
+        ip_obj.is_private
+        or ip_obj.is_loopback
+        or ip_obj.is_link_local
+        or ip_obj.is_multicast
+        or ip_obj.is_reserved
+        or ip_obj.is_unspecified
+    ):
+        return False
     return bool(ip_obj.is_global)
 
 
-def validate_external_url(url: str, allow_local: bool = False) -> tuple[bool, str]:
-    raw = str(url or "").strip()
-    try:
-        parts = urllib.parse.urlsplit(raw)
-    except ValueError:
-        return False, "invalid_url"
-    if parts.scheme.lower() not in ("http", "https"):
-        return False, "unsupported_scheme"
-    host = (parts.hostname or "").strip()
-    if not host:
-        return False, "missing_host"
+def _resolve_and_validate_host(bare_host: str, port: int, allow_local: bool = False) -> tuple[bool, str, list[str]]:
+    if not bare_host:
+        return False, "missing_host", []
     if allow_local:
-        return True, ""
-    low_host = host.lower()
+        return True, "", []
+    low_host = bare_host.lower()
     if low_host in ("localhost", "localhost.localdomain") or low_host.endswith((".local", ".internal")):
-        return False, "loopback_or_local_blocked"
-    bare_host = host.strip("[]")
+        return False, "loopback_or_local_blocked", []
     try:
         direct_ip = ipaddress.ip_address(bare_host)
     except ValueError:
         direct_ip = None
     if direct_ip is not None:
         if not _is_public_ip(direct_ip):
-            return False, "private_or_loopback_ip_blocked"
-        return True, ""
-    port = parts.port or (443 if parts.scheme.lower() == "https" else 80)
+            return False, "private_or_loopback_ip_blocked", []
+        return True, "", [str(direct_ip)]
     try:
         infos = socket.getaddrinfo(bare_host, port, type=socket.SOCK_STREAM)
     except OSError:
-        return True, ""
+        return False, "dns_resolution_failed", []
+    if not infos:
+        return False, "dns_resolution_empty", []
+    resolved_ips: list[str] = []
     for info in infos:
         sockaddr = info[4] if len(info) > 4 else ()
         ip_str = str(sockaddr[0]).split("%")[0] if sockaddr else ""
@@ -412,10 +435,113 @@ def validate_external_url(url: str, allow_local: bool = False) -> tuple[bool, st
         try:
             resolved_ip = ipaddress.ip_address(ip_str)
         except ValueError:
-            return False, "invalid_resolved_ip"
+            return False, "invalid_resolved_ip", []
         if not _is_public_ip(resolved_ip):
-            return False, "private_or_loopback_ip_blocked"
-    return True, ""
+            return False, "private_or_loopback_ip_blocked", []
+        if ip_str not in resolved_ips:
+            resolved_ips.append(ip_str)
+    if not resolved_ips:
+        return False, "dns_resolution_empty", []
+    return True, "", resolved_ips
+
+
+def _is_loopback_host(host: str) -> bool:
+    low = str(host or "").strip().strip("[]").lower()
+    if low in ("localhost", "localhost.localdomain"):
+        return True
+    try:
+        ip_obj = ipaddress.ip_address(low)
+        mapped = getattr(ip_obj, "ipv4_mapped", None)
+        if mapped is not None:
+            return bool(mapped.is_loopback)
+        return bool(ip_obj.is_loopback)
+    except ValueError:
+        return False
+
+
+def validate_external_url(url: str, allow_local: bool = False, *, allow_loopback_only: bool = False) -> tuple[bool, str]:
+    raw = str(url or "").strip()
+    try:
+        parts = urllib.parse.urlsplit(raw)
+        port = parts.port or (443 if parts.scheme.lower() == "https" else 80)
+    except ValueError:
+        return False, "invalid_url"
+    if parts.scheme.lower() not in ("http", "https"):
+        return False, "unsupported_scheme"
+    host = (parts.hostname or "").strip()
+    if not host:
+        return False, "missing_host"
+    bare_host = host.strip("[]")
+    if allow_local:
+        if allow_loopback_only and not _is_loopback_host(bare_host):
+            # When scoped to loopback-only (e.g. local SearXNG/MCP redirect target),
+            # never allow jumping to link-local/metadata/RFC1918 private IPs.
+            ok, reason, _ips = _resolve_and_validate_host(bare_host, port, allow_local=False)
+            return ok, reason
+        return True, ""
+    ok, reason, _ips = _resolve_and_validate_host(bare_host, port, allow_local=False)
+    return ok, reason
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    def connect(self):
+        bare_host = str(self.host or "").strip("[]")
+        ok, reason, ips = _resolve_and_validate_host(bare_host, int(self.port or 80), allow_local=False)
+        if not ok or not ips:
+            raise WebToolError("ssrf_blocked", f"Blocked connection to unsafe target ({reason}): {self.host}")
+        last_exc: Exception | None = None
+        for ip_str in ips:
+            try:
+                self.sock = socket.create_connection((ip_str, int(self.port or 80)), self.timeout, self.source_address)
+                if getattr(self, "_tunnel_host", None):
+                    self._tunnel()
+                return
+            except OSError as exc:
+                last_exc = exc
+        if last_exc is not None:
+            raise last_exc
+        raise WebToolError("ssrf_blocked", f"Failed to connect to validated IPs for {self.host}")
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def connect(self):
+        bare_host = str(self.host or "").strip("[]")
+        ok, reason, ips = _resolve_and_validate_host(bare_host, int(self.port or 443), allow_local=False)
+        if not ok or not ips:
+            raise WebToolError("ssrf_blocked", f"Blocked TLS connection to unsafe target ({reason}): {self.host}")
+        last_exc: Exception | None = None
+        for ip_str in ips:
+            raw_sock = None
+            try:
+                raw_sock = socket.create_connection((ip_str, int(self.port or 443)), self.timeout, self.source_address)
+                if getattr(self, "_tunnel_host", None):
+                    self.sock = raw_sock
+                    self._tunnel()
+                    server_hostname = self._tunnel_host
+                else:
+                    server_hostname = bare_host
+                self.sock = self._context.wrap_socket(raw_sock, server_hostname=server_hostname)
+                return
+            except OSError as exc:
+                if raw_sock is not None:
+                    try:
+                        raw_sock.close()
+                    except OSError:
+                        pass
+                last_exc = exc
+        if last_exc is not None:
+            raise last_exc
+        raise WebToolError("ssrf_blocked", f"Failed to connect to validated TLS IPs for {self.host}")
+
+
+class _PinnedSafeHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_PinnedHTTPConnection, req)
+
+
+class _PinnedSafeHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_PinnedHTTPSConnection, req, context=self._context)
 
 
 class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -428,14 +554,27 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
         self._hops += 1
         if self._hops > self.max_hops:
             raise urllib.error.HTTPError(newurl, code, "Too many HTTP redirects", headers, fp)
-        ok, reason = validate_external_url(newurl, allow_local=self.allow_local)
+        ok, reason = validate_external_url(
+            newurl,
+            allow_local=self.allow_local,
+            allow_loopback_only=self.allow_local,
+        )
         if not ok:
             raise WebToolError("ssrf_blocked", f"Blocked redirect to unsafe target ({reason}): {newurl}")
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def build_safe_opener(allow_local: bool = False) -> urllib.request.OpenerDirector:
-    return urllib.request.build_opener(_SafeRedirectHandler(allow_local=allow_local, max_hops=3))
+    redirect_handler = _SafeRedirectHandler(allow_local=allow_local, max_hops=3)
+    if allow_local:
+        # Bypass system/VPN HTTP_PROXY for explicit localhost / loopback probes
+        return urllib.request.build_opener(urllib.request.ProxyHandler({}), redirect_handler)
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        _PinnedSafeHTTPHandler(),
+        _PinnedSafeHTTPSHandler(),
+        redirect_handler,
+    )
 
 
 def fetch_url_excerpt(url: str, max_chars: int = 3600, timeout_sec: float = 8.0) -> dict:
@@ -710,8 +849,14 @@ def _search_github_repos(query: str, max_results: int = 5, timeout_sec: float = 
 def _search_searxng(base_url: str, query: str, max_results: int = 6, timeout_sec: float = 5.0) -> list[dict]:
     params = urllib.parse.urlencode({"q": query, "format": "json"})
     url = f"{base_url.rstrip('/')}/search?{params}"
+    parsed_host = (urllib.parse.urlsplit(url).hostname or "").strip().lower()
+    explicit_loopback = parsed_host in ("127.0.0.1", "localhost", "::1")
+    ok_url, reason = validate_external_url(url, allow_local=explicit_loopback)
+    if not ok_url:
+        raise WebToolError("ssrf_blocked", f"Blocked SearXNG request ({reason}): {url}")
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+    opener = build_safe_opener(allow_local=explicit_loopback)
+    with opener.open(req, timeout=timeout_sec) as resp:
         data = json.loads(resp.read(256 * 1024).decode("utf-8", errors="replace"))
     results: list[dict] = []
     for item in (data.get("results") or [])[:max_results]:

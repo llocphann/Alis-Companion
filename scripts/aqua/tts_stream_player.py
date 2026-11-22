@@ -86,12 +86,16 @@ def _prepare_chunk(
     edge_cli: str,
     play_bin: str,
     ffmpeg_bin: str,
+    direct_mp3_player: bool = False,
 ) -> tuple[Path | None, list[Path]]:
     out_mp3 = chunk_dir / f"tts_chunk_{idx:03d}.mp3"
     out_wav = chunk_dir / f"tts_chunk_{idx:03d}.wav"
     temps = [out_mp3, out_wav]
     if not _synth_edge_mp3(chunk_text, out_mp3, voice, rate, edge_cli):
         return None, temps
+    # Skip unnecessary ffmpeg MP3->WAV transcoding when mpv/ffplay can play MP3 directly.
+    if direct_mp3_player:
+        return out_mp3, temps
     if play_bin and ffmpeg_bin:
         try:
             subprocess.run(
@@ -108,14 +112,18 @@ def _prepare_chunk(
     return out_mp3, temps
 
 
-def _play_file(path: Path, play_bin: str, ffplay_bin: str) -> None:
+def _play_file(path: Path, play_bin: str, ffplay_bin: str, mpv_bin: str = "") -> None:
     global _ACTIVE_CHILD
     if _STOPPING or not path or not path.is_file():
         return
     if path.suffix.lower() == ".wav" and play_bin:
         cmd = [play_bin, str(path)]
+    elif path.suffix.lower() == ".mp3" and mpv_bin:
+        cmd = [mpv_bin, "--no-video", "--really-quiet", "--audio-display=no", str(path)]
     elif ffplay_bin:
         cmd = [ffplay_bin, "-nodisp", "-autoexit", "-loglevel", "quiet", str(path)]
+    elif mpv_bin:
+        cmd = [mpv_bin, "--no-video", "--really-quiet", "--audio-display=no", str(path)]
     elif play_bin:
         cmd = [play_bin, str(path)]
     else:
@@ -162,7 +170,9 @@ def main() -> int:
         play_bin = str(data.get("playBin") or "")
         ffmpeg_bin = str(data.get("ffmpegBin") or "")
         ffplay_bin = str(data.get("ffplayBin") or "")
+        mpv_bin = str(data.get("mpvBin") or shutil.which("mpv") or "")
         edge_cli = str(data.get("edgeCli") or "")
+        direct_mp3_player = bool(mpv_bin or ffplay_bin)
 
         if first_audio.is_file():
             to_unlink.append(first_audio)
@@ -183,11 +193,12 @@ def main() -> int:
                     edge_cli,
                     play_bin,
                     ffmpeg_bin,
+                    direct_mp3_player,
                 )
             )
 
         if first_audio.is_file() and not _STOPPING:
-            _play_file(first_audio, play_bin, ffplay_bin)
+            _play_file(first_audio, play_bin, ffplay_bin, mpv_bin)
 
         for fut in futures:
             if _STOPPING:
@@ -195,7 +206,7 @@ def main() -> int:
             audio_file, temps = fut.result()
             to_unlink.extend(temps)
             if audio_file and audio_file.is_file() and not _STOPPING:
-                _play_file(audio_file, play_bin, ffplay_bin)
+                _play_file(audio_file, play_bin, ffplay_bin, mpv_bin)
         return 0
     finally:
         if pool is not None:
