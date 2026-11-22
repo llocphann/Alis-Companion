@@ -210,6 +210,78 @@ for (const scale of [.65,1,1.25,1.5]) {
     const onSettingsHome=api.homePoint(settingsWithTopDockResting,'bottom',.5);
     assert.equal(onSettingsHome.qualified,true);assert.equal(onSettingsHome.key,'settings');assert.equal(onSettingsHome.grounded,true);
 }
+// Contour terrain: Companion stands ON TOP of corner-wrap Cava & Bar modules, never overlaps inside them,
+// and walks smoothly along diagonal concave module<->edge fillet ramps and corner-wrap curves.
+{
+    const contourScene=api.fromParticipants({
+        width:1920,height:1080,scale:1,hostWidth:112,hostHeight:98,
+        insets:{top:10,right:10,bottom:10,left:10},rimRadius:14,perimeterRadius:28,connectionDepth:18,
+        moduleSurfaces:[
+            {edge:'bottom',cornerWrapArm:true,kind:'cava',surface:{x:-50,y:1032,width:220,height:98},radius:18,depth:48,along:0,span:170},
+            {edge:'left',cornerWrapArm:true,kind:'cava',surface:{x:-50,y:910,width:98,height:220},radius:18,depth:48,along:910,span:170},
+            {edge:'bottom',cornerWrapArm:false,kind:'clock',surface:{x:820,y:1034,width:180,height:96},radius:14,depth:46,along:820,span:180}
+        ],
+        detachedModules:[]
+    },{},[]);
+    assert.equal(api.valid(contourScene),true,'contour scene valid');
+    assert.equal(contourScene.hasContour,true,'contour mode active');
+    // Inside corner-wrap bottom Cava arm (standing on bare 10px edge instead of 48px Cava top) MUST be blocked!
+    const insideCava={x:24,y:1080-10-contourScene.hostHeight};
+    assert.equal(api.clearAt(contourScene,insideCava),false,'Companion must never overlap inside Cava module');
+    // edgePoint at the bottom-left Cava arm places Companion ON TOP of Cava (y <= 1032 - hostHeight + 2)
+    const onCavaTop=api.edgePoint(contourScene,'bottom',0.06);
+    assert.equal(onCavaTop.qualified,true);assert.equal(onCavaTop.grounded,true);
+    assert.equal(api.clearAt(contourScene,onCavaTop),true);
+    assert.ok(onCavaTop.support.contourY<=1036,'edgePoint places Companion on top of corner-wrap Cava arm, not inside it');
+    // landingBelow and drop above Cava land ON TOP of Cava, not inside it
+    const airAboveCava={x:onCavaTop.x,y:760};
+    const landedCava=api.landingBelow(contourScene,airAboveCava);
+    assert.equal(landedCava.qualified,true);assert.equal(landedCava.grounded,true);
+    assert.ok(landedCava.support.contourY<=1036,'landingBelow lands on Cava top');
+    const droppedCava=api.drop(contourScene,onCavaTop.x,onCavaTop.y-6,onCavaTop);
+    assert.equal(droppedCava.qualified,true);assert.equal(droppedCava.grounded,true);
+    assert.ok(droppedCava.y<=onCavaTop.y+4,'drop snaps onto Cava top');
+    // Diagonal fillet ramps between raised bottom clock module (x: 820..1000, top y=1034) and 10px bottom edge (y=1070)
+    const slopedPts=contourScene.contour.filter(cp=>Math.abs(cp.angle)>8 && Math.abs(cp.angle)<78 && cp.by>900 && cp.bx>600 && cp.bx<1200);
+    assert.ok(slopedPts.length>=2,`module<->edge concave fillet has diagonal ramp samples, got ${slopedPts.length}`);
+    const onBareEdge=api.edgePoint(contourScene,'bottom',0.36);
+    const onModuleTop=api.edgePoint(contourScene,'bottom',0.474);
+    assert.equal(onBareEdge.qualified,true);assert.equal(onModuleTop.qualified,true);
+    assert.ok(onBareEdge.support.contourY>1060,'bare bottom edge at ~1070px');
+    assert.ok(onModuleTop.support.contourY<1042,'clock module top raised at ~1034px');
+    const rampRoute=api.path(contourScene,onBareEdge,onModuleTop);
+    assert.equal(rampRoute.qualified,true);assert.equal(rampRoute.mode,'walk','edge<->module climb uses continuous walk mode');
+    assert.ok(rampRoute.points.some(pt=>Math.abs(pt.angle)>6),'walk waypoints include tilted diagonal ramp angles');
+    checkPath(contourScene,onBareEdge,onModuleTop,rampRoute);
+    // Contour exploration step climbs across diagonal ramps and around corner-wrap Cava bend onto left edge
+    const stepped=api.contourStep(contourScene,onBareEdge.support.contourIndex,-180);
+    assert.equal(stepped.qualified,true);assert.equal(stepped.grounded,true);
+    assert.ok(stepped.support.contourY<1052,'contourStep walks up onto the raised module surface');
+    const aroundCorner=api.contourStep(contourScene,onCavaTop.support.contourIndex,180);
+    assert.equal(aroundCorner.qualified,true);assert.equal(aroundCorner.grounded,true);
+    assert.equal(aroundCorner.edge,'left','contourStep walks smoothly around corner-wrap Cava onto left edge');
+    for (let i=0;i<contourScene.contour.length;i++) {
+        const a=contourScene.contour[i], b=contourScene.contour[(i+1)%contourScene.contour.length];
+        const seg=Math.hypot(b.bx-a.bx,b.by-a.by);
+        assert.ok(seg<=36,`contour segment ${i} stays continuous without corner jumps, got ${seg.toFixed(1)}`);
+    }
+    const zeroInsetScene=api.fromParticipants({
+        width:1920,height:1080,scale:1,hostWidth:112,hostHeight:98,
+        insets:{top:0,right:0,bottom:0,left:0},rimRadius:14,perimeterRadius:28,connectionDepth:18,
+        moduleSurfaces:[
+            {edge:'bottom',cornerWrapArm:true,kind:'cava',surface:{x:-50,y:1032,width:220,height:98},radius:18,depth:48,along:0,span:170},
+            {edge:'left',cornerWrapArm:true,kind:'cava',surface:{x:-50,y:910,width:98,height:220},radius:18,depth:48,along:910,span:170}
+        ],
+        detachedModules:[]
+    },{},[]);
+    assert.equal(api.valid(zeroInsetScene),true,'zero-inset contour scene valid');
+    const onZeroCava=api.edgePoint(zeroInsetScene,'bottom',0.06);
+    assert.equal(onZeroCava.qualified,true);assert.equal(onZeroCava.grounded,true);
+    assert.ok(onZeroCava.support.contourY<=1036,'zero-inset edgePoint stands on top of corner-wrap Cava arm');
+    const zeroAround=api.contourStep(zeroInsetScene,onZeroCava.support.contourIndex,180);
+    assert.equal(zeroAround.qualified,true);assert.equal(zeroAround.grounded,true);
+    assert.equal(zeroAround.edge,'left','zero-inset corner-wrap contourStep reaches left arm cleanly');
+}
 const plain=v=>JSON.parse(JSON.stringify(v));
 assert.deepEqual(plain(attention.resolve(true,1,0,true,-1,0,0,0,'idle')),{x:.82,y:0,source:'travel'});
 assert.equal(attention.resolve(true,0,-1,true,1,1,0,0,'idle').y,-.62);

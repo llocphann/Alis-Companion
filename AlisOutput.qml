@@ -44,6 +44,21 @@ Item {
             width:host.width,height:host.height,
             hostWidth:112*session.companionScale,hostHeight:98*session.companionScale,
             scale:session.companionScale,insets:host.nativeInsets,rimRadius:AbyssStyle.neckRadius,
+            perimeterRadius:AbyssStyle.perimeterRadius,
+            connectionDepth:AbyssStyle.connectionDepth,
+            moduleSurfaces:bar.visible ? (bar.deformations ?? []).filter(d=>d && d.surface && d.surface.width>0 && d.surface.height>0).map(d=>({
+                edge:d.edge,
+                surface:{x:d.surface.x,y:d.surface.y,width:d.surface.width,height:d.surface.height},
+                radius:Number.isFinite(Number(d.radius)) ? Number(d.radius) : AbyssStyle.neckRadius,
+                depth:Number(d.depth) || 0,
+                along:Number(d.along) || 0,
+                span:Number(d.span) || 0,
+                cornerWrapArm:d.cornerWrapArm===true,
+                kind:String(d.kind ?? "")})) : [],
+            detachedModules:bar.visible ? (bar.layoutRecords ?? []).filter(r=>r && r.detached===true && r.content && r.content.width>0 && r.content.height>0).map(r=>({
+                edge:r.edge,
+                rect:{x:r.content.x-6,y:r.content.y-6,width:r.content.width+12,height:r.content.height+12},
+                radius:AbyssStyle.neckRadius})) : [],
             excludeKeys:(host?.desktopHasApps ?? false)
                 && (Config.options?.dock?.enable ?? true)
                 && (Config.options?.enabledPanels ?? []).includes("abyssDock")
@@ -51,7 +66,7 @@ Item {
                     || Config.options.dock.screenList.length===0
                     || Config.options.dock.screenList.includes(host.outputName)) ? ["dock"] : []},
             liquid.participants,bar.visible ? bar.layoutRecords.map(record=>({
-                edge:record.edge,along:record.along,span:record.span})) : [])
+                edge:record.edge,along:record.along,span:record.span,detached:record.detached===true})) : [])
     readonly property bool companionHostActive: root.companionPermission && companionPresence.qualified
     readonly property bool ambientBlocked: !root.companionHostActive || root.companionOccluded
         || companionPresence.dragging || companionPresence.traveling || companionPresence.portalActive

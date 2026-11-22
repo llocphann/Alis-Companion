@@ -102,7 +102,24 @@ Item {
     // Airborne motion retains the takeoff support frame. `grounded` describes
     // current contact and becomes false during Jump/Fly; it must not rotate
     // the actor back to the bottom Edge before the destination is adopted.
-    readonly property real standingAngle: placement.grounded ? emergenceEdge==="top" ? 180 : emergenceEdge==="left" ? 90 : emergenceEdge==="right" ? -90 : 0 : 0
+    property real activeSlopeAngle: NaN
+    readonly property bool _slopeAngleValid: Number.isFinite(activeSlopeAngle) || Number.isFinite(placement.support?.angle)
+    property real _smoothedSlopeAngle: Number.isFinite(activeSlopeAngle)
+        ? activeSlopeAngle
+        : (Number.isFinite(placement.support?.angle) ? placement.support.angle : 0)
+    Behavior on _smoothedSlopeAngle {
+        enabled: root.motionEnabled && root.traveling && ["walk","run"].includes(root.mode) && root._slopeAngleValid
+        RotationAnimation {
+            direction: RotationAnimation.Shortest
+            duration: 120
+            easing.type: Easing.OutCubic
+        }
+    }
+    readonly property real standingAngle: placement.grounded
+        ? (root._slopeAngleValid
+            ? root._smoothedSlopeAngle
+            : (emergenceEdge==="top" ? 180 : emergenceEdge==="left" ? 90 : emergenceEdge==="right" ? -90 : 0))
+        : 0
     property real directionX: 1
     property real directionY: 0
     property bool surfaceDue: false
@@ -341,6 +358,7 @@ Item {
             }
         }
         stopRequested()
+        activeSlopeAngle=NaN
         traveling=false; releasedFlight=false; supportRecovery=false; returningForChat=false; throwSpeed=0; throwArc=0; waypoints=[]; waypoint=0
     }
     function clearOcclusionState(): void {
@@ -684,6 +702,7 @@ Item {
         if (!traveling || !permitted || !Scene.valid(scene)) return
         if (waypoint>=waypoints.length) {
             const exiting=retreating
+            activeSlopeAngle=NaN
             placement=destination; targetX=placement.x; targetY=placement.y
             traveling=false; releasedFlight=false; supportRecovery=false; returningForChat=false; waypoints=[]
             if (exiting) {
@@ -706,7 +725,9 @@ Item {
             return
         }
         const here=position(), next=waypoints[waypoint++]
-        if (!Scene.clearSegment(scene,here,next)) {hideImmediately();return}
+        const contourWaypoint = (mode==="walk" || mode==="run") && Number.isFinite(next.angle)
+        if (!Scene.clearSegment(scene,here,next) && !(contourWaypoint && Scene.clearAt(scene,next))) {hideImmediately();return}
+        activeSlopeAngle = contourWaypoint ? next.angle : NaN
         directionX=next.x-here.x; directionY=next.y-here.y
         const speed=releasedFlight
             ? Math.max(260*scene.scale,Math.min(1450*scene.scale,throwSpeed*780))
@@ -719,7 +740,7 @@ Item {
         duration=releasedFlight ? Math.max(200,Math.min(900,Math.round(Scene.distance(here,next)/speed*1000)))
             : returningForChat ? Math.max(240,Math.min(680,Math.round(Scene.distance(here,next)/speed*1000)))
             : mode==="jump" ? 950
-            : Math.max(180,Math.round(Scene.distance(here,next)/speed*1000))
+            : Math.max((contourWaypoint && waypoints.length>1) ? 45 : 180,Math.round(Scene.distance(here,next)/speed*1000))
         targetX=next.x; targetY=next.y
         if (Math.abs(here.x-next.x)<.1 && Math.abs(here.y-next.y)<.1) Qt.callLater(root.arrived)
     }
@@ -752,20 +773,27 @@ Item {
             }
             return
         }
-        const horizontal=support.axis==="x",span=horizontal ? scene.hostWidth : scene.hostHeight
         const delta=(travelFraction-.5)*240*scene.scale
-        const along=Scene.clamp((horizontal ? here.x : here.y)+delta,
-            support.from,support.to-span)
-        const isEdge=Scene.edges.includes(support.key)
-        let selected=Scene.annotate(scene,horizontal ? {x:along,y:here.y} : {x:here.x,y:along},
-            support.edge,isEdge ? "edge" : "surface",support.key)
-        if (isEdge && (!selected.grounded || !Scene.clearAt(scene,selected) || !Scene.clearSegment(scene,here,selected) || Scene.distance(here,selected)<=10*scene.scale)) {
-            const revAlong=Scene.clamp((horizontal ? here.x : here.y)-delta,support.from,support.to-span)
-            const rev=Scene.annotate(scene,horizontal ? {x:revAlong,y:here.y} : {x:here.x,y:revAlong},support.edge,"edge",support.key)
-            if (rev.qualified && rev.grounded && Scene.clearAt(scene,rev) && Scene.clearSegment(scene,here,rev) && Scene.distance(here,rev)>10*scene.scale)
-                selected=rev
-            else if (!selected.grounded || !Scene.clearAt(scene,selected))
-                selected=Scene.edgePoint(scene,support.edge,(along+span/2)/(horizontal ? scene.width : scene.height))
+        let selected={qualified:false}
+        if (scene.hasContour && Number.isFinite(support.contourIndex) && support.contourIndex>=0) {
+            selected=Scene.contourStep(scene,support.contourIndex,delta)
+            if (!selected.qualified || !selected.grounded || !Scene.clearAt(scene,selected) || Scene.distance(here,selected)<=10*scene.scale)
+                selected=Scene.contourStep(scene,support.contourIndex,-delta)
+        } else {
+            const horizontal=support.axis==="x",span=horizontal ? scene.hostWidth : scene.hostHeight
+            const along=Scene.clamp((horizontal ? here.x : here.y)+delta,
+                support.from,support.to-span)
+            const isEdge=Scene.edges.includes(support.key)
+            selected=Scene.annotate(scene,horizontal ? {x:along,y:here.y} : {x:here.x,y:along},
+                support.edge,isEdge ? "edge" : "surface",support.key)
+            if (isEdge && (!selected.grounded || !Scene.clearAt(scene,selected) || !Scene.clearSegment(scene,here,selected) || Scene.distance(here,selected)<=10*scene.scale)) {
+                const revAlong=Scene.clamp((horizontal ? here.x : here.y)-delta,support.from,support.to-span)
+                const rev=Scene.annotate(scene,horizontal ? {x:revAlong,y:here.y} : {x:here.x,y:revAlong},support.edge,"edge",support.key)
+                if (rev.qualified && rev.grounded && Scene.clearAt(scene,rev) && Scene.clearSegment(scene,here,rev) && Scene.distance(here,rev)>10*scene.scale)
+                    selected=rev
+                else if (!selected.grounded || !Scene.clearAt(scene,selected))
+                    selected=Scene.edgePoint(scene,support.edge,(along+span/2)/(horizontal ? scene.width : scene.height))
+            }
         }
         if (selected.qualified && selected.grounded && Scene.clearAt(scene,selected) && Scene.distance(here,selected)>10*scene.scale) {
             const gait=random(), length=Scene.distance(here,selected)
@@ -859,7 +887,8 @@ Item {
             const edgeHorizontal=emergenceEdge==="top" || emergenceEdge==="bottom"
             const edgeFraction=(edgeHorizontal ? from.x+scene.hostWidth/2 : from.y+scene.hostHeight/2)
                 / (edgeHorizontal ? scene.width : scene.height)
-            const edgeSafe=Scene.edgePoint(scene,emergenceEdge,edgeFraction)
+            let edgeSafe=scene.hasContour ? Scene.nearestClearContourPoint(scene,from,emergenceEdge) : ({qualified:false})
+            if (!edgeSafe.qualified) edgeSafe=Scene.edgePoint(scene,emergenceEdge,edgeFraction)
             if (edgeSafe.qualified && Scene.clearAt(scene,edgeSafe)) {
                 if (Scene.distance(from,edgeSafe)>.25) {directionX=edgeSafe.x-from.x;directionY=edgeSafe.y-from.y}
                 clearMotion();placement=edgeSafe;destination=edgeSafe;targetX=edgeSafe.x;targetY=edgeSafe.y
@@ -1060,18 +1089,29 @@ Item {
         const length=Math.hypot(dx,dy),support=Scene.supportAt(scene,here,emergenceEdge)
         let next
         if (support) {
-            const horizontal=support.axis==="x",axis=horizontal ? dx : dy,extent=horizontal ? scene.hostWidth : scene.hostHeight
-            const step=(axis>=0 ? 1 : -1)*100*scene.scale
-            const along=Scene.clamp((horizontal ? here.x : here.y)+step,support.from,support.to-extent)
-            const isEdge=Scene.edges.includes(support.key)
-            next=Scene.annotate(scene,horizontal ? {x:along,y:here.y} : {x:here.x,y:along},support.edge,isEdge ? "edge" : "surface",support.key)
-            if (isEdge && (!next.grounded || !Scene.clearAt(scene,next) || !Scene.clearSegment(scene,here,next) || Scene.distance(here,next)<=10*scene.scale)) {
-                const revAlong=Scene.clamp((horizontal ? here.x : here.y)-step,support.from,support.to-extent)
-                const rev=Scene.annotate(scene,horizontal ? {x:revAlong,y:here.y} : {x:here.x,y:revAlong},support.edge,"edge",support.key)
-                if (rev.qualified && rev.grounded && Scene.clearAt(scene,rev) && Scene.clearSegment(scene,here,rev) && Scene.distance(here,rev)>10*scene.scale)
-                    next=rev
-                else if (!next.grounded || !Scene.clearAt(scene,next))
-                    next=Scene.edgePoint(scene,support.edge,(along+extent/2)/(horizontal ? scene.width : scene.height))
+            if (scene.hasContour && Number.isFinite(support.contourIndex) && support.contourIndex>=0 && scene.contour?.length>=2) {
+                const cLen=scene.contour.length, cIdx=support.contourIndex, nextIdx=(cIdx+1)%cLen
+                const tx=scene.contour[nextIdx].bx-scene.contour[cIdx].bx
+                const ty=scene.contour[nextIdx].by-scene.contour[cIdx].by
+                const dirSign=(tx*dx+ty*dy)>=0 ? 1 : -1
+                const stepLen=dirSign*100*scene.scale
+                next=Scene.contourStep(scene,cIdx,stepLen)
+                if (!next.qualified || !next.grounded || !Scene.clearAt(scene,next) || Scene.distance(here,next)<=10*scene.scale)
+                    next=Scene.contourStep(scene,cIdx,-stepLen)
+            } else {
+                const horizontal=support.axis==="x",axis=horizontal ? dx : dy,extent=horizontal ? scene.hostWidth : scene.hostHeight
+                const step=(axis>=0 ? 1 : -1)*100*scene.scale
+                const along=Scene.clamp((horizontal ? here.x : here.y)+step,support.from,support.to-extent)
+                const isEdge=Scene.edges.includes(support.key)
+                next=Scene.annotate(scene,horizontal ? {x:along,y:here.y} : {x:here.x,y:along},support.edge,isEdge ? "edge" : "surface",support.key)
+                if (isEdge && (!next.grounded || !Scene.clearAt(scene,next) || !Scene.clearSegment(scene,here,next) || Scene.distance(here,next)<=10*scene.scale)) {
+                    const revAlong=Scene.clamp((horizontal ? here.x : here.y)-step,support.from,support.to-extent)
+                    const rev=Scene.annotate(scene,horizontal ? {x:revAlong,y:here.y} : {x:here.x,y:revAlong},support.edge,"edge",support.key)
+                    if (rev.qualified && rev.grounded && Scene.clearAt(scene,rev) && Scene.clearSegment(scene,here,rev) && Scene.distance(here,rev)>10*scene.scale)
+                        next=rev
+                    else if (!next.grounded || !Scene.clearAt(scene,next))
+                        next=Scene.edgePoint(scene,support.edge,(along+extent/2)/(horizontal ? scene.width : scene.height))
+                }
             }
         } else {
             const floor=Scene.landingBelow(scene,here)
