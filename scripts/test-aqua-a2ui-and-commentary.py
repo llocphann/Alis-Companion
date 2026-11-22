@@ -1404,6 +1404,63 @@ def _test_upgraded_commentary_engine(tmp_dir: Path) -> None:
         assert isinstance(_MockCommentaryServer.chat_calls[0]["messages"][1]["content"], list)
         assert isinstance(_MockCommentaryServer.chat_calls[1]["messages"][1]["content"], str)
         assert "warm canvas graphic" in _MockCommentaryServer.chat_calls[1]["messages"][1]["content"]
+
+        # 9. English-only ambient commentary: default/"auto" ignores Vietnamese window titles/recent poison & retries/falls back if LLM drifts into Vietnamese
+        vi_ctx = {
+            "focusedApp": "code",
+            "focusedTitle": "Alis - Dự án mới hôm nay",
+            "weather": "Light rain 28°C",
+        }
+        for fb_lang in ("auto", "en", ""):
+            rem_fb, _ = ambient_commentary._build_contextual_fallback_remark(
+                {"focusedApp": "kitty", "focusedTitle": "Dự án", "dwellMinutes": 5},
+                recent=["Đang tập trung viết code hôm nay nhé!"],
+                language=fb_lang,
+            )
+            assert rem_fb, (fb_lang, rem_fb)
+            # Even with Vietnamese in title + recent comments, prose outside the quoted title stays strictly English
+            rem_without_title = rem_fb.replace("Dự án", "")
+            assert not ambient_commentary._contains_vietnamese_text(rem_without_title), (fb_lang, rem_fb)
+
+        _MockCommentaryServer.chat_calls = []
+        _MockCommentaryServer.reply_queue = [
+            json.dumps({"remark": "Đang tập trung viết code hăng say quá nè!", "expression": "working"}),
+            json.dumps({"remark": "Clean rhythm in the editor right now!", "expression": "happy"}),
+        ]
+        r_en_retry = ambient_commentary.generate_mascot_commentary(
+            {
+                "endpoint": ep,
+                "model": "qwen3.5-0.8b-vl",
+                "providerHint": "lmstudio",
+                "language": "auto",
+                "allowContextualFallback": True,
+                "desktopContext": vi_ctx,
+            }
+        )
+        assert r_en_retry["skipped"] is False and "Clean rhythm" in r_en_retry["remark"], r_en_retry
+        assert not ambient_commentary._contains_vietnamese_text(r_en_retry["remark"]), r_en_retry
+        assert len(_MockCommentaryServer.chat_calls) == 2
+        sys_prompt_sent = _MockCommentaryServer.chat_calls[0]["messages"][0]["content"]
+        assert "English ONLY" in sys_prompt_sent and "never Vietnamese" in sys_prompt_sent, sys_prompt_sent
+
+        # If BOTH initial attempt and retry drift into Vietnamese, falls back strictly to English contextual remark
+        _MockCommentaryServer.chat_calls = []
+        _MockCommentaryServer.reply_queue = [
+            json.dumps({"remark": "Đang tập trung viết code hăng say quá nè!", "expression": "working"}),
+            json.dumps({"remark": "Cố lên nha bạn ơi, sắp xong rồi!", "expression": "happy"}),
+        ]
+        r_en_fb = ambient_commentary.generate_mascot_commentary(
+            {
+                "endpoint": ep,
+                "model": "qwen3.5-0.8b-vl",
+                "providerHint": "lmstudio",
+                "language": "en",
+                "allowContextualFallback": True,
+                "desktopContext": {"focusedApp": "code", "focusedTitle": "main.py - Alis"},
+            }
+        )
+        assert r_en_fb["skipped"] is False and r_en_fb["tier"] == "contextual", r_en_fb
+        assert not ambient_commentary._contains_vietnamese_text(r_en_fb["remark"]), r_en_fb
     finally:
         os.environ.pop("ALIS_AQUA_SCREEN_FIXTURE", None)
         srv.shutdown()

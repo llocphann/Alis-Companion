@@ -4350,7 +4350,7 @@ Singleton {
             localOnly: root.localOnly,
             character: root.character === "octo" ? "octo" : "aqua",
             personality: String(Config.options?.abyss?.companion?.personality ?? "balanced"),
-            language: "auto",
+            language: "en",
             visualPeekEnabled: root.ambientVisualPeek,
             powerProfile: (Boolean(Config.options?.performance?.lowPower ?? false) || (typeof PowerProfiles !== "undefined" && PowerProfiles.profile === PowerProfile.PowerSaver))
                 ? "power-saver"

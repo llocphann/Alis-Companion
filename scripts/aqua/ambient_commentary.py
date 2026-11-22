@@ -149,6 +149,18 @@ _OPAQUE_GENERIC_TITLES = frozenset({
 _MODEL_SIZE_RE = re.compile(r"(?:^|[^0-9a-z])(\d+(?:\.\d+)?)\s*b(?:[^a-z0-9]|$)", re.IGNORECASE)
 
 
+_VIETNAMESE_TEXT_RE = re.compile(
+    r"[ăâđêôơưằắẳẵặầấẩẫậềếểễệờớởỡợừứửữựảãạẻẽẹỉĩịỏõọủũụỳỷỹỵ]",
+    re.IGNORECASE,
+)
+
+
+def _contains_vietnamese_text(text: str) -> bool:
+    """Detect Vietnamese-specific diacritic letters while tolerating English loanwords like café/naïve."""
+    s = unicodedata.normalize("NFC", str(text or ""))
+    return bool(_VIETNAMESE_TEXT_RE.search(s))
+
+
 def _fold_ascii(text: str) -> str:
     norm = unicodedata.normalize("NFD", str(text or ""))
     stripped = "".join(ch for ch in norm if unicodedata.category(ch) != "Mn")
@@ -779,9 +791,9 @@ def _build_contextual_fallback_remark(
     *,
     personality: str = "balanced",
     recent: list[str] | None = None,
-    language: str = "auto",
+    language: str = "en",
 ) -> tuple[str, str]:
-    """Zero-model-load, anti-repetitive, randomized bilingual contextual remark."""
+    """Zero-model-load, anti-repetitive, randomized contextual remark (English by default)."""
     app_raw = str(clean_ctx.get("focusedApp") or "").strip()
     title_raw = str(clean_ctx.get("focusedTitle") or "").strip()
     dwell = int(clean_ctx.get("dwellMinutes") or 0)
@@ -790,11 +802,7 @@ def _build_contextual_fallback_remark(
     weather = str(clean_ctx.get("weather") or "").strip()
     time_of_day = str(clean_ctx.get("timeOfDay") or "").strip()
 
-    use_vi = str(language or "auto").lower().startswith("vi")
-    if str(language or "auto").lower() == "auto":
-        # Infer Vietnamese if title/weather/recent comments contain Vietnamese diacritics
-        sample = f"{title_raw} {weather} {' '.join((recent or [])[-3:])}"
-        use_vi = bool(re.search(r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]", sample, re.I))
+    use_vi = str(language or "en").strip().lower().startswith("vi")
 
     app_l = app_raw.lower()
     if app_l in ("org.quickshell", "quickshell", "qs") and re.search(r"\balis\s+nexus\b", title_raw, re.I):
@@ -1034,8 +1042,8 @@ def generate_mascot_commentary(payload: dict) -> dict:
     api_key = str(req.get("apiKey") or "").strip()
     allow_fallback = bool(req.get("allowContextualFallback"))
     personality = str(req.get("personality") or "balanced").lower()
-    lang_raw = str(req.get("language") or "auto").lower()
-    lang = "vi" if lang_raw.startswith("vi") else ("en" if lang_raw.startswith("en") else "auto")
+    lang_raw = str(req.get("language") or "en").strip().lower()
+    lang = "vi" if lang_raw.startswith("vi") else "en"
     recent = [
         " ".join(str(r).split())[:120]
         for r in (req.get("recentComments") or [])
@@ -1106,7 +1114,7 @@ def generate_mascot_commentary(payload: dict) -> dict:
     lang_rule = (
         "Write in natural, warm Vietnamese."
         if lang == "vi"
-        else ("Write in natural, concise English matching user context." if lang == "en" else "Match the user's primary language (English or Vietnamese).")
+        else "Write strictly in natural, concise English ONLY (never Vietnamese or any other language, even if window titles, music, or screen text are non-English)."
     )
     tone_hint = (
         "soft and unhurried"
@@ -1148,9 +1156,12 @@ def generate_mascot_commentary(payload: dict) -> dict:
             extra_novelty: bool = False,
             force_text_only: bool = False,
             scene_override: str = "",
+            force_english: bool = False,
         ) -> tuple[str, str, str]:
             angle_name, _angle_expr, angle_instruction = angle_tuple
-            novelty_nudge = " Invent a completely fresh phrasing and topic hook." if extra_novelty else ""
+            novelty_nudge = (" Invent a completely fresh phrasing and topic hook." if extra_novelty else "") + (
+                " Output English ONLY (no Vietnamese words)." if force_english else ""
+            )
             attach_img = bool(use_visual and b64_img and not force_text_only)
             eff_ctx = dict(prompt_ctx)
             if not attach_img and scene_override and not eff_ctx.get("visualScene"):
@@ -1239,9 +1250,12 @@ def generate_mascot_commentary(payload: dict) -> dict:
             else:
                 raise
 
-        # Anti-repetition guard: if a tiny model echoes a recent remark, run at most 1 fast novelty retry with a different angle.
-        # Reuse the already-extracted scene_cue in text-only mode to avoid spending a second VLM vision encoding pass.
-        if remark and is_too_similar(remark, recent):
+        # Anti-repetition & language guard: if a tiny model echoes a recent remark OR drifts into
+        # Vietnamese under English commentary mode, run at most 1 fast retry with a different angle.
+        # Reuse the already-extracted scene_cue in text-only mode to avoid spending a second VLM vision pass.
+        lang_violation = bool(remark and lang == "en" and _contains_vietnamese_text(remark))
+        dup_violation = bool(remark and is_too_similar(remark, recent))
+        if dup_violation or lang_violation:
             alt_angle = _choose_creative_angle(
                 clean_ctx,
                 personality=personality,
@@ -1255,15 +1269,16 @@ def generate_mascot_commentary(payload: dict) -> dict:
                 extra_novelty=True,
                 force_text_only=reuse_text_retry,
                 scene_override=scene_cue or last_scene_cue,
+                force_english=lang_violation,
             )
-            if retry_remark and not is_too_similar(retry_remark, recent):
+            retry_lang_ok = bool(retry_remark) and not (lang == "en" and _contains_vietnamese_text(retry_remark))
+            if retry_lang_ok and not is_too_similar(retry_remark, recent):
                 chosen_angle = alt_angle
                 remark, expr = retry_remark, retry_expr
                 scene_cue = retry_scene or scene_cue
-            elif allow_fallback:
-                return _fallback_or_skip("duplicate_llm_output")
             else:
-                return _skipped("duplicate_llm_output")
+                reason = "non_english_llm_output" if lang_violation else "duplicate_llm_output"
+                return _fallback_or_skip(reason) if allow_fallback else _skipped(reason)
 
         if not remark:
             return _fallback_or_skip("empty_llm_output")
