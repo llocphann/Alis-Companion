@@ -256,7 +256,13 @@ def _handle_daemon_op(op: str, payload: dict, sock_path: Path, prewarmed: list[s
         cancelled_runs: list[str] = []
         try:
             import run_store
-            cancelled_runs = list(run_store.cancel_active_runs(reason=reason) or [])
+            if not target_id:
+                cancelled_runs = list(run_store.cancel_active_runs(reason=reason) or [])
+            else:
+                run_row = run_store.get_run(target_id)
+                if isinstance(run_row, dict) and run_row.get("status") in ("running", "awaiting_confirmation"):
+                    run_store.finish_run(target_id, status="cancelled", stop_reason=reason, interrupted=True)
+                    cancelled_runs.append(target_id)
         except Exception:
             pass
         return {
@@ -332,10 +338,16 @@ def _serve_client(conn: socket.socket, sock_path: Path, prewarmed: list[str], to
         stream_stdout = bool(parsed.get("streamStdout"))
 
         def _stderr_cb(line: str) -> None:
-            _send_obj({"type": "stderr", "line": line})
+            try:
+                _send_obj({"type": "stderr", "line": line})
+            except OSError:
+                cancel_ev.set()
 
         def _stdout_cb(line: str) -> None:
-            _send_obj({"type": "stdout", "line": line})
+            try:
+                _send_obj({"type": "stdout", "line": line})
+            except OSError:
+                cancel_ev.set()
 
         with _bind_request_stream_sinks(req_id, _stderr_cb, _stdout_cb, cancel_ev, stream_stdout):
             try:
@@ -605,7 +617,12 @@ def call_via_daemon(
 
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
         s.settimeout(timeout)
-        s.connect(str(target))
+        try:
+            s.connect(str(target))
+        except (ConnectionRefusedError, FileNotFoundError):
+            raise
+        except OSError as exc:
+            raise RuntimeError("daemon_unavailable") from exc
         s.sendall(raw)
         reader = s.makefile("r", encoding="utf-8", errors="replace")
         for line in reader:

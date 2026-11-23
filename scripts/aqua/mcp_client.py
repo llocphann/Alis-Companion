@@ -1919,7 +1919,10 @@ def _execute_curated_tool(
                     "structured": {"status": status_txt},
                 }
             media_val = "next" if act == "next" else ("previous" if act == "previous" else ("pause" if act == "pause" else ("play" if act == "play" else "play-pause")))
-            res = desktop_control.manage_desktop(action="media", value=media_val)
+            try:
+                res = desktop_control.manage_desktop(action="media", value=media_val)
+            except desktop_control.DesktopControlError as exc:
+                raise McpError(exc.code, exc.message) from exc
             return {
                 "server": server_name,
                 "tool": tool_name,
@@ -1944,7 +1947,10 @@ def _execute_curated_tool(
                     "structured": {"volume": vol_txt},
                 }
             vol_val = val if act == "set" and val else ("mute" if act == "mute" else ("down" if act == "down" else "up"))
-            res = desktop_control.manage_desktop(action="volume", value=vol_val)
+            try:
+                res = desktop_control.manage_desktop(action="volume", value=vol_val)
+            except desktop_control.DesktopControlError as exc:
+                raise McpError(exc.code, exc.message) from exc
             return {
                 "server": server_name,
                 "tool": tool_name,
@@ -1956,7 +1962,10 @@ def _execute_curated_tool(
             act = str(arguments.get("action") or "read").strip().lower()
             if act == "write":
                 txt = str(arguments.get("text") or "")
-                res = desktop_control.manage_desktop(action="clipboard_set", value=txt)
+                try:
+                    res = desktop_control.manage_desktop(action="clipboard_set", value=txt)
+                except desktop_control.DesktopControlError as exc:
+                    raise McpError(exc.code, exc.message) from exc
                 return {
                     "server": server_name,
                     "tool": tool_name,
@@ -2608,7 +2617,10 @@ def load_mcp_registry() -> dict:
                 existing_ver = str((servers.get(sname) or {}).get("version") or "")
                 if sname in CURATED_SERVER_MAP:
                     c_default = CURATED_SERVER_MAP[sname]
-                    merged = dict(c_default)
+                    existing_srv = servers.get(sname)
+                    merged = dict(existing_srv) if isinstance(existing_srv, dict) else dict(c_default)
+                    for k_def, v_def in c_default.items():
+                        merged.setdefault(k_def, v_def)
                     merged["enabled"] = entry.get("enabled") is not False
                     best_ver = _newer_version(
                         inst_ver,
@@ -3169,6 +3181,10 @@ def _run_stdio_server() -> None:
             resp = {"jsonrpc": "2.0", "id": req_id, "result": result}
         except McpError as exc:
             resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32000, "message": exc.message}}
+        except (ValueError, TypeError) as exc:
+            resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32602, "message": str(exc)[:240] or "Invalid params"}}
+        except Exception as exc:
+            resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32000, "message": str(exc)[:240] or "Internal MCP error"}}
         sys.stdout.write(json.dumps(resp, separators=(",", ":")) + "\n")
         sys.stdout.flush()
 

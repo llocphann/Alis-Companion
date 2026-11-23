@@ -2204,24 +2204,60 @@ if __name__=='__main__':
         if len(raw)>98304:raise MindError('request_too_large','Companion request exceeded the limit')
         parsed_req=json.loads(raw)
         if isinstance(parsed_req,dict) and (('--use-daemon' in argv_list) or os.environ.get('ALIS_COMPANION_USE_DAEMON')=='1'):
+            import signal as _sig
+            import time as _time
+            req_id=str(parsed_req.get('requestId') or parsed_req.get('_aqua_request_id') or '').strip()
+            if not req_id:
+                req_id=f"cli_{int(_time.time()*1000)}_{os.getpid()}"
+            parsed_req.setdefault('requestId',req_id)
+            parsed_req.setdefault('_aqua_request_id',req_id)
+            if '--host-root' in argv_list:
+                hr_idx=argv_list.index('--host-root')
+                if hr_idx+1<len(argv_list) and argv_list[hr_idx+1]:
+                    parsed_req.setdefault('_hostRoot', argv_list[hr_idx+1])
+            if not os.environ.get('ALIS_PARENT_PID'):
+                ppid=os.getppid()
+                if ppid and ppid>1:
+                    os.environ['ALIS_PARENT_PID']=str(ppid)
+            import companion_daemon
+            _prev_sigterm=_sig.getsignal(_sig.SIGTERM)
+            _prev_sigint=_sig.getsignal(_sig.SIGINT)
+            def _cancel_on_signal(_signum,_frame):
+                try:
+                    companion_daemon.cancel_daemon_request(req_id,reason='cancelled_by_signal')
+                except Exception:
+                    pass
+                raise SystemExit(128+int(_signum))
             try:
-                import companion_daemon
-                if '--host-root' in argv_list:
-                    hr_idx=argv_list.index('--host-root')
-                    if hr_idx+1<len(argv_list) and argv_list[hr_idx+1]:
-                        parsed_req.setdefault('_hostRoot', argv_list[hr_idx+1])
-                if not os.environ.get('ALIS_PARENT_PID'):
-                    ppid=os.getppid()
-                    if ppid and ppid>1:
-                        os.environ['ALIS_PARENT_PID']=str(ppid)
+                _sig.signal(_sig.SIGTERM,_cancel_on_signal)
+                _sig.signal(_sig.SIGINT,_cancel_on_signal)
+            except Exception:
+                _prev_sigterm=None
+                _prev_sigint=None
+            try:
                 daemon_resp=companion_daemon.call_via_daemon(parsed_req,auto_start=True)
                 if isinstance(daemon_resp,dict) and 'ok' in daemon_resp:
                     print(json.dumps(daemon_resp,ensure_ascii=False,separators=(',',':')))
                     raise SystemExit(0)
             except SystemExit:
                 raise
-            except Exception:
+            except (ConnectionRefusedError,FileNotFoundError):
                 pass
+            except RuntimeError as exc:
+                if str(exc)!='daemon_unavailable':
+                    raise MindError('daemon_failed',str(exc)[:140]) from exc
+            except TimeoutError as exc:
+                raise MindError('daemon_timeout','Daemon request timed out') from exc
+            except OSError as exc:
+                raise MindError('daemon_failed',str(exc)[:140]) from exc
+            finally:
+                try:
+                    if _prev_sigterm is not None:
+                        _sig.signal(_sig.SIGTERM,_prev_sigterm)
+                    if _prev_sigint is not None:
+                        _sig.signal(_sig.SIGINT,_prev_sigint)
+                except Exception:
+                    pass
         sys._aqua_json_rpc_stdout=not bool(isinstance(parsed_req,dict) and parsed_req.get('streamStdout'))
         result={'ok':True,'result':dispatch(parsed_req)}
     except journal_errors() as exc:result={'ok':False,'error':{'code':exc.code,'message':str(exc)[:160]}}

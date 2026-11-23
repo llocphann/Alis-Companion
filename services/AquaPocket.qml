@@ -80,21 +80,64 @@ Singleton {
             if (worker.running) {root.draining=true;worker.running=false}
         }
     }
-    Process {
-        id:worker;running:false;stdinEnabled:true
-        property bool startObserved:false
-        property int serial:0
-        command:[AlisCompanion.packageRoot+"/scripts/native-dispatch","companion","--pocket"]
-        stdout:StdioCollector {id:reply}
-        onStarted: {
-            startObserved=true;serial=root.pending?.epoch ?? -1
-            if (!root.permitted || !root.pending) {running=false;return}
-            write(JSON.stringify(root.pending.request)+"\n");deadline.restart()
+    Timer {
+        id: workerFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (worker._exited && !worker._finalized) {
+                worker._stdoutDone = true
+                worker._maybeFinalize()
+            }
         }
-        onRunningChanged: if (!running && !startObserved && root.pending) root.completed("",-1,root.pending.epoch)
-        onExited:(code,status)=> {
-            if (root.draining) {root.draining=false;return}
-            root.completed(String(reply.text ?? ""),code,serial)
+    }
+    Process {
+        id: worker; running: false; stdinEnabled: true
+        property bool startObserved: false
+        property int serial: 0
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
+        command: [AlisCompanion.packageRoot + "/scripts/native-dispatch", "companion", "--pocket"]
+        stdout: StdioCollector {
+            id: reply
+            onStreamFinished: {
+                worker._stdoutDone = true
+                worker._maybeFinalize()
+            }
+        }
+        onStarted: {
+            startObserved = true; serial = root.pending?.epoch ?? -1
+            worker._exited = false
+            worker._exitCode = 0
+            worker._stdoutDone = false
+            worker._finalized = false
+            workerFlushTimer.stop()
+            if (!root.permitted || !root.pending) { running = false; return }
+            write(JSON.stringify(root.pending.request) + "\n"); deadline.restart()
+        }
+        onRunningChanged: if (!running && !startObserved && root.pending) root.completed("", -1, root.pending.epoch)
+        onExited: (code, status) => {
+            if (root.draining) {
+                root.draining = false
+                worker._finalized = true
+                workerFlushTimer.stop()
+                return
+            }
+            worker._exited = true
+            worker._exitCode = code
+            if (worker._stdoutDone)
+                worker._maybeFinalize()
+            else
+                workerFlushTimer.restart()
+        }
+        function _maybeFinalize(): void {
+            if (!worker._exited || worker._finalized || !worker._stdoutDone)
+                return
+            worker._finalized = true
+            workerFlushTimer.stop()
+            root.completed(String(reply.text ?? ""), worker._exitCode, worker.serial)
         }
     }
 }

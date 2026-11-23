@@ -1987,14 +1987,47 @@ def _is_privileged_taint_sink(tool_name: str, args: dict | None = None) -> bool:
     """Return True if executing `tool_name` with `args` is a privileged side-effect sink."""
     t_name = str(tool_name or "").strip()
     t_args = args if isinstance(args, dict) else {}
-    if t_name in ("shell_run", "run_command", "file_mutate", "edit_file", "write_file"):
+    if t_name in (
+        "shell_run",
+        "run_command",
+        "file_mutate",
+        "edit_file",
+        "write_file",
+        "create_document",
+        "convert_document",
+        "gui_action",
+        "file_receipt_rollback",
+        "skill_run",
+    ):
         return True
+    act = str(t_args.get("action") or t_args.get("op") or "").strip().lower()
     if t_name == "process_manage":
-        return str(t_args.get("action") or "").strip().lower() == "kill"
+        return act == "kill"
     if t_name == "desktop_control":
-        return str(t_args.get("action") or "").strip().lower() == "launch_app"
+        return act in ("launch_app", "gui_click", "gui_fill", "key_press", "clipboard_set", "close_window")
+    if t_name == "code_inspect":
+        return act == "run_tests"
+    if t_name == "skill_manage":
+        return act not in ("", "list", "inspect", "reflections", "get", "read", "status", "search")
     if t_name == "mcp_call":
-        return str(t_args.get("tool") or "").strip().lower() in ("shell_exec", "execute_command")
+        mcp_tool = str(t_args.get("tool") or "").strip().lower()
+        if mcp_tool in (
+            "shell_exec",
+            "execute_command",
+            "desktop_action",
+            "window_action",
+            "mouse_click",
+            "type_text",
+            "key_press",
+        ):
+            return True
+        if mcp_tool in ("process_list", "list_processes"):
+            nested_args = t_args.get("arguments") if isinstance(t_args.get("arguments"), dict) else t_args
+            return str(nested_args.get("action") or "").strip().lower() == "kill"
+        return False
+    if t_name == "delegate_subagent":
+        role = str(t_args.get("role") or "").strip().lower()
+        return role in ("executor", "coder")
     return False
 
 
@@ -5282,9 +5315,26 @@ def run_swarm_mission(
         with state_lock:
             layer_hint = "\n".join(accumulated_hints[-3:])
         if not is_local_swarm and len(layer_workers) > 1:
+            parent_req_id = getattr(threading.current_thread(), "_aqua_request_id", None)
+            parent_cancel_ev = getattr(threading.current_thread(), "_aqua_cancel_event", None)
+
+            def _run_with_req_ctx(idx_inner: int, w_inner: dict, hint_inner: str):
+                cur_t = threading.current_thread()
+                old_rid = getattr(cur_t, "_aqua_request_id", None)
+                old_cev = getattr(cur_t, "_aqua_cancel_event", None)
+                if parent_req_id:
+                    cur_t._aqua_request_id = parent_req_id
+                if parent_cancel_ev is not None:
+                    cur_t._aqua_cancel_event = parent_cancel_ev
+                try:
+                    return _run_layer_worker(idx_inner, w_inner, hint_inner)
+                finally:
+                    cur_t._aqua_request_id = old_rid
+                    cur_t._aqua_cancel_event = old_cev
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=min(3, len(layer_workers))) as pool:
                 futs = [
-                    pool.submit(contextvars.copy_context().run, _run_layer_worker, idx_w, w_obj, layer_hint)
+                    pool.submit(contextvars.copy_context().run, _run_with_req_ctx, idx_w, w_obj, layer_hint)
                     for idx_w, w_obj in layer_workers
                 ]
                 for fut in futs:
@@ -5317,6 +5367,11 @@ def run_swarm_mission(
             if lang != "vi"
             else f"Đã hoàn tất {len(workers)} nhánh chuyên trách cho **{clean_goal}**.\n{joined_findings}"
         )
+
+    fresh_before_finish = swarm_store.load_state(int(time.time() * 1000))
+    cancel_ev_now = getattr(threading.current_thread(), "_aqua_cancel_event", None)
+    if fresh_before_finish.get("status") == "stopped" or (cancel_ev_now is not None and cancel_ev_now.is_set()):
+        return fresh_before_finish, swarm_store.format_swarm_markdown(fresh_before_finish, lang=lang)
 
     state = swarm_store.finish_swarm_mission(
         state,

@@ -163,11 +163,35 @@ def manage_processes(
     sig_num = getattr(signal, f"SIG{sig_clean}", signal.SIGTERM)
     sig_label = f"SIG{sig_clean}" if hasattr(signal, f"SIG{sig_clean}") else "SIGTERM"
     if act == "kill":
+        from permission_store import check_permission
+        perm = check_permission("shell_run", target_path="", source="agent_step")
+        if not perm.get("allowed"):
+            raise DesktopControlError(
+                "permission_denied",
+                f"Terminating processes is blocked by permission store: {perm.get('reason')}",
+            )
+        protected_names = {"systemd", "init", "niri", "quickshell", "qs", "wayland", "xwayland", "dbus-daemon", "pipewire"}
+
+        def _is_protected_pid(pid_val: int) -> bool:
+            if pid_val in (1, os.getpid(), os.getppid()):
+                return True
+            try:
+                comm = Path(f"/proc/{pid_val}/comm").read_text(encoding="utf-8", errors="ignore").strip().lower()
+            except OSError:
+                comm = ""
+            try:
+                raw_cmd = Path(f"/proc/{pid_val}/cmdline").read_bytes()
+                arg0 = raw_cmd.split(b"\x00", 1)[0].decode("utf-8", errors="ignore").strip()
+                cmd_base = Path(arg0).name.lower() if arg0 else ""
+            except OSError:
+                cmd_base = ""
+            return (comm in protected_names) or (cmd_base in protected_names)
+
         target_pid = int(pid or 0)
         if target_pid <= 0 and q.isdigit():
             target_pid = int(q)
         if target_pid > 0:
-            if target_pid in (1, os.getpid(), os.getppid()):
+            if _is_protected_pid(target_pid):
                 raise DesktopControlError("protected_process", f"Refusing to terminate protected PID {target_pid}.")
             try:
                 os.kill(target_pid, sig_num)
@@ -184,12 +208,14 @@ def manage_processes(
 
         if not q:
             raise DesktopControlError("invalid_process", "Specify a process name or PID to stop.")
-        protected_names = {"systemd", "init", "niri", "quickshell", "qs", "wayland", "xwayland", "dbus-daemon", "pipewire"}
         if q in protected_names:
             raise DesktopControlError("protected_process", f"Refusing to terminate core session process '{q}'.")
 
-        ran = run_user_command(["/usr/bin/pgrep", "-u", str(os.getuid()), "-f", "--", q], shell=False)
-        pids = [int(x.strip()) for x in ran["lines"] if x.strip().isdigit() and int(x.strip()) not in (os.getpid(), os.getppid())]
+        ran = run_user_command(["/usr/bin/pgrep", "-u", str(os.getuid()), "-f", "--", re.escape(q)], shell=False)
+        raw_pids = [int(x.strip()) for x in ran["lines"] if x.strip().isdigit()]
+        pids = [p for p in raw_pids if not _is_protected_pid(p)]
+        if raw_pids and not pids:
+            raise DesktopControlError("protected_process", f"Refusing to terminate protected session process matching '{query}'.")
         if not pids:
             raise DesktopControlError("process_not_found", f"No user process matching '{query}' was found.")
         killed = []
@@ -769,11 +795,13 @@ def inspect_network_or_service(action: str = "network", target: str = "", user_s
     if act in ("service_status", "service_restart"):
         if not tgt:
             raise DesktopControlError("missing_service", "Specify a systemd service name.")
+        if tgt.startswith("-"):
+            raise DesktopControlError("invalid_service", f"Invalid service name '{tgt}'.")
         sctl = shutil.which("systemctl") or "/usr/bin/systemctl"
         if act == "service_restart":
             scope_args = ["--user"] if user_scope else []
-            ran = run_user_command([sctl, *scope_args, "restart", tgt], shell=False, timeout_sec=8.0)
-            st = run_user_command([sctl, *scope_args, "is-active", tgt], shell=False, timeout_sec=4.0)
+            ran = run_user_command([sctl, *scope_args, "restart", "--", tgt], shell=False, timeout_sec=8.0)
+            st = run_user_command([sctl, *scope_args, "is-active", "--", tgt], shell=False, timeout_sec=4.0)
             state_str = st["lines"][0] if st["lines"] else ("active" if ran["exitCode"] == 0 else "failed")
             return {
                 "action": "service_restart",
@@ -782,7 +810,7 @@ def inspect_network_or_service(action: str = "network", target: str = "", user_s
                 "lines": ran["lines"] or [f"{tgt}: {state_str}"],
             }
         if user_scope:
-            u_ran = run_user_command([sctl, "--user", "status", "--no-pager", "-n", "8", tgt], shell=False, timeout_sec=5.0)
+            u_ran = run_user_command([sctl, "--user", "status", "--no-pager", "-n", "8", "--", tgt], shell=False, timeout_sec=5.0)
             if u_ran["exitCode"] == 0 or "Loaded: loaded" in u_ran.get("stdout", ""):
                 return {
                     "action": "service_status",
@@ -790,7 +818,7 @@ def inspect_network_or_service(action: str = "network", target: str = "", user_s
                     "summary": f"User service '{tgt}' status:",
                     "lines": u_ran["lines"][:16],
                 }
-        s_ran = run_user_command([sctl, "status", "--no-pager", "-n", "8", tgt], shell=False, timeout_sec=5.0)
+        s_ran = run_user_command([sctl, "status", "--no-pager", "-n", "8", "--", tgt], shell=False, timeout_sec=5.0)
         return {
             "action": "service_status",
             "status": "completed",
@@ -1882,6 +1910,12 @@ def voice_tts_stop() -> dict:
                     stale.unlink(missing_ok=True)
                 except OSError:
                     pass
+        for stale_dir in vdir.glob("tts_run_*"):
+            if stale_dir.is_dir():
+                try:
+                    shutil.rmtree(stale_dir, ignore_errors=True)
+                except OSError:
+                    pass
     except OSError:
         pass
     if stopped_pid > 0:
@@ -2161,6 +2195,17 @@ def voice_tts(
     raw_rate = str(rate or "").strip()
     edge_rate = raw_rate if (raw_rate.startswith(("+", "-")) and raw_rate.endswith("%")) else "+4%"
     vdir = _voice_state_dir()
+    try:
+        cutoff = time.time() - 300.0
+        for stale_dir in vdir.glob("tts_run_*"):
+            if stale_dir.is_dir():
+                try:
+                    if stale_dir.stat().st_mtime <= cutoff:
+                        shutil.rmtree(stale_dir, ignore_errors=True)
+                except OSError:
+                    pass
+    except OSError:
+        pass
     raw_out_path = str(out_path or "").strip()
     run_dir: Path | None = None
     if raw_out_path:

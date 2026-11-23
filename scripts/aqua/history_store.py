@@ -907,6 +907,7 @@ def update_message_artifacts(
         with db:
             if clean_content:
                 db.execute("UPDATE messages SET content=? WHERE id=?", (clean_content, mid))
+                db.execute("DELETE FROM state_kv WHERE key='fts_sync_sig'")
             if clean_spoken is not None:
                 row = db.execute(
                     "SELECT interrupted, stop_reason, reasoning FROM message_meta WHERE message_id=?",

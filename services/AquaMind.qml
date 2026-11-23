@@ -6274,19 +6274,43 @@ Singleton {
             }
         }
     }
+    Timer {
+        id: workerFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (worker._exited && !worker._finalized) {
+                worker._stdoutDone = true;
+                worker._maybeFinalize();
+            }
+        }
+    }
     Process {
         id: worker
         running: false
         stdinEnabled: true
         property bool startObserved: false
         property double serial: 0
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
         command: root._localMindHotCmd
         stdout: StdioCollector {
             id: reply
+            onStreamFinished: {
+                worker._stdoutDone = true;
+                worker._maybeFinalize();
+            }
         }
         onStarted: {
             worker.startObserved = true;
             worker.serial = root.pending?.serial ?? -1;
+            worker._exited = false;
+            worker._exitCode = 0;
+            worker._stdoutDone = false;
+            worker._finalized = false;
+            workerFlushTimer.stop();
             if (root.pending)
                 worker.write(JSON.stringify(root.pending.request) + "\n");
             deadline.interval = root.pending?.request?.modelPath ? 80000 : 35000;
@@ -6297,9 +6321,34 @@ Singleton {
         onExited: (code, status) => {
             if (root.draining) {
                 root.draining = false;
+                worker._finalized = true;
+                workerFlushTimer.stop();
                 return;
             }
-            root.completed(String(reply.text ?? ""), code, worker.serial);
+            worker._exited = true;
+            worker._exitCode = code;
+            if (worker._stdoutDone)
+                worker._maybeFinalize();
+            else
+                workerFlushTimer.restart();
+        }
+        function _maybeFinalize(): void {
+            if (!worker._exited || worker._finalized || !worker._stdoutDone)
+                return;
+            worker._finalized = true;
+            workerFlushTimer.stop();
+            root.completed(String(reply.text ?? ""), worker._exitCode, worker.serial);
+        }
+    }
+    Timer {
+        id: agentFileFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (agentFileWorker._exited && !agentFileWorker._finalized) {
+                agentFileWorker._stdoutDone = true;
+                agentFileWorker._maybeFinalize();
+            }
         }
     }
     Process {
@@ -6310,22 +6359,49 @@ Singleton {
         property string userPrompt: ""
         property string originThreadId: ""
         property bool cancelled: false
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
         command: root._localMindHotCmd
         stdout: StdioCollector {
             id: agentFileReply
+            onStreamFinished: {
+                agentFileWorker._stdoutDone = true;
+                agentFileWorker._maybeFinalize();
+            }
         }
         onStarted: {
+            agentFileWorker._exited = false;
+            agentFileWorker._exitCode = 0;
+            agentFileWorker._stdoutDone = false;
+            agentFileWorker._finalized = false;
+            agentFileFlushTimer.stop();
             write(JSON.stringify(agentFileWorker.requestPayload) + "\n");
         }
         onExited: (code, status) => {
             if (agentFileWorker.cancelled) {
                 agentFileWorker.cancelled = false;
+                agentFileWorker._finalized = true;
+                agentFileFlushTimer.stop();
                 return;
             }
+            agentFileWorker._exited = true;
+            agentFileWorker._exitCode = code;
+            if (agentFileWorker._stdoutDone)
+                agentFileWorker._maybeFinalize();
+            else
+                agentFileFlushTimer.restart();
+        }
+        function _maybeFinalize(): void {
+            if (!agentFileWorker._exited || agentFileWorker._finalized || !agentFileWorker._stdoutDone)
+                return;
+            agentFileWorker._finalized = true;
+            agentFileFlushTimer.stop();
             const sameThread = !agentFileWorker.originThreadId || agentFileWorker.originThreadId === root.activeThreadId;
             const wasSaving = root.editorSaving;
             root.editorSaving = false;
-            const parsed = AquaHelperReplyGuard.parse("agent_file_op", String(agentFileReply.text ?? ""), code);
+            const parsed = AquaHelperReplyGuard.parse("agent_file_op", String(agentFileReply.text ?? ""), agentFileWorker._exitCode);
             if (!parsed.ok) {
                 if (!sameThread)
                     return;
@@ -6803,22 +6879,58 @@ Singleton {
             }
         }
     }
+    Timer {
+        id: agentRuleFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (agentRuleWorker._exited && !agentRuleWorker._finalized) {
+                agentRuleWorker._stdoutDone = true;
+                agentRuleWorker._maybeFinalize();
+            }
+        }
+    }
     Process {
         id: agentRuleWorker
         running: false
         stdinEnabled: true
         property var requestPayload: ({})
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
         command: root._localMindHotCmd
         stdout: StdioCollector {
             id: agentRuleReply
+            onStreamFinished: {
+                agentRuleWorker._stdoutDone = true;
+                agentRuleWorker._maybeFinalize();
+            }
         }
         onStarted: {
+            agentRuleWorker._exited = false;
+            agentRuleWorker._exitCode = 0;
+            agentRuleWorker._stdoutDone = false;
+            agentRuleWorker._finalized = false;
+            agentRuleFlushTimer.stop();
             write(JSON.stringify(agentRuleWorker.requestPayload) + "\n");
         }
         onExited: (code, status) => {
+            agentRuleWorker._exited = true;
+            agentRuleWorker._exitCode = code;
+            if (agentRuleWorker._stdoutDone)
+                agentRuleWorker._maybeFinalize();
+            else
+                agentRuleFlushTimer.restart();
+        }
+        function _maybeFinalize(): void {
+            if (!agentRuleWorker._exited || agentRuleWorker._finalized || !agentRuleWorker._stdoutDone)
+                return;
+            agentRuleWorker._finalized = true;
+            agentRuleFlushTimer.stop();
             const finishedOp = String(agentRuleWorker.requestPayload?.op ?? "");
             const hasQueuedRulesWrite = Boolean(root._pendingRulesWorkerPayload);
-            const parsed = AquaHelperReplyGuard.parse("agent_rules", String(agentRuleReply.text ?? ""), code);
+            const parsed = AquaHelperReplyGuard.parse("agent_rules", String(agentRuleReply.text ?? ""), agentRuleWorker._exitCode);
             if (parsed.ok && parsed.result) {
                 if (Array.isArray(parsed.result.rules))
                     root.agentRules = parsed.result.rules;
@@ -6981,20 +7093,56 @@ Singleton {
                 Qt.callLater(root._dispatchNextSwarmAction);
         }
     }
+    Timer {
+        id: skillActionFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (skillActionWorker._exited && !skillActionWorker._finalized) {
+                skillActionWorker._stdoutDone = true;
+                skillActionWorker._maybeFinalize();
+            }
+        }
+    }
     Process {
         id: skillActionWorker
         running: false
         stdinEnabled: true
         property var requestPayload: ({})
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
         command: root._localMindHotCmd
         stdout: StdioCollector {
             id: skillActionReply
+            onStreamFinished: {
+                skillActionWorker._stdoutDone = true;
+                skillActionWorker._maybeFinalize();
+            }
         }
         onStarted: {
+            skillActionWorker._exited = false;
+            skillActionWorker._exitCode = 0;
+            skillActionWorker._stdoutDone = false;
+            skillActionWorker._finalized = false;
+            skillActionFlushTimer.stop();
             write(JSON.stringify(skillActionWorker.requestPayload) + "\n");
         }
         onExited: (code, status) => {
-            const parsed = AquaHelperReplyGuard.parse("skill_action", String(skillActionReply.text ?? ""), code);
+            skillActionWorker._exited = true;
+            skillActionWorker._exitCode = code;
+            if (skillActionWorker._stdoutDone)
+                skillActionWorker._maybeFinalize();
+            else
+                skillActionFlushTimer.restart();
+        }
+        function _maybeFinalize(): void {
+            if (!skillActionWorker._exited || skillActionWorker._finalized || !skillActionWorker._stdoutDone)
+                return;
+            skillActionWorker._finalized = true;
+            skillActionFlushTimer.stop();
+            const parsed = AquaHelperReplyGuard.parse("skill_action", String(skillActionReply.text ?? ""), skillActionWorker._exitCode);
             if (root.skillActionQueue.length === 0 && parsed.ok && parsed.result && Array.isArray(parsed.result.skills)) {
                 root.availableSkills = parsed.result.skills;
             }
@@ -7002,20 +7150,56 @@ Singleton {
                 Qt.callLater(root._dispatchNextSkillAction);
         }
     }
+    Timer {
+        id: mcpActionFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (mcpActionWorker._exited && !mcpActionWorker._finalized) {
+                mcpActionWorker._stdoutDone = true;
+                mcpActionWorker._maybeFinalize();
+            }
+        }
+    }
     Process {
         id: mcpActionWorker
         running: false
         stdinEnabled: true
         property var requestPayload: ({})
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
         command: root._localMindHotCmd
         stdout: StdioCollector {
             id: mcpActionReply
+            onStreamFinished: {
+                mcpActionWorker._stdoutDone = true;
+                mcpActionWorker._maybeFinalize();
+            }
         }
         onStarted: {
+            mcpActionWorker._exited = false;
+            mcpActionWorker._exitCode = 0;
+            mcpActionWorker._stdoutDone = false;
+            mcpActionWorker._finalized = false;
+            mcpActionFlushTimer.stop();
             write(JSON.stringify(mcpActionWorker.requestPayload) + "\n");
         }
         onExited: (code, status) => {
-            const parsed = AquaHelperReplyGuard.parse("mcp_action", String(mcpActionReply.text ?? ""), code);
+            mcpActionWorker._exited = true;
+            mcpActionWorker._exitCode = code;
+            if (mcpActionWorker._stdoutDone)
+                mcpActionWorker._maybeFinalize();
+            else
+                mcpActionFlushTimer.restart();
+        }
+        function _maybeFinalize(): void {
+            if (!mcpActionWorker._exited || mcpActionWorker._finalized || !mcpActionWorker._stdoutDone)
+                return;
+            mcpActionWorker._finalized = true;
+            mcpActionFlushTimer.stop();
+            const parsed = AquaHelperReplyGuard.parse("mcp_action", String(mcpActionReply.text ?? ""), mcpActionWorker._exitCode);
             if (parsed.ok && parsed.result) {
                 if (parsed.result.op === "update_server" && parsed.result.server && parsed.result.server.name) {
                     const nextMap = {};
@@ -7040,33 +7224,107 @@ Singleton {
                 Qt.callLater(root._dispatchNextMcpAction);
         }
     }
+    Timer {
+        id: storagePathFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (storagePathWorker._exited && !storagePathWorker._finalized) {
+                storagePathWorker._stdoutDone = true;
+                storagePathWorker._maybeFinalize();
+            }
+        }
+    }
     Process {
         id: storagePathWorker
         running: false
         stdinEnabled: true
         property var requestPayload: ({})
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
         command: root._localMindHotCmd
         stdout: StdioCollector {
             id: storagePathReply
+            onStreamFinished: {
+                storagePathWorker._stdoutDone = true;
+                storagePathWorker._maybeFinalize();
+            }
         }
         onStarted: {
+            storagePathWorker._exited = false;
+            storagePathWorker._exitCode = 0;
+            storagePathWorker._stdoutDone = false;
+            storagePathWorker._finalized = false;
+            storagePathFlushTimer.stop();
             write(JSON.stringify(storagePathWorker.requestPayload) + "\n");
         }
         onExited: (code, status) => {
-            const parsed = AquaHelperReplyGuard.parse("open_storage_path", String(storagePathReply.text ?? ""), code);
+            storagePathWorker._exited = true;
+            storagePathWorker._exitCode = code;
+            if (storagePathWorker._stdoutDone)
+                storagePathWorker._maybeFinalize();
+            else
+                storagePathFlushTimer.restart();
+        }
+        function _maybeFinalize(): void {
+            if (!storagePathWorker._exited || storagePathWorker._finalized || !storagePathWorker._stdoutDone)
+                return;
+            storagePathWorker._finalized = true;
+            storagePathFlushTimer.stop();
+            const parsed = AquaHelperReplyGuard.parse("open_storage_path", String(storagePathReply.text ?? ""), storagePathWorker._exitCode);
             if (parsed.ok && parsed.result) {
                 root.toolNotice = String(parsed.result.summary ?? "");
+            }
+        }
+    }
+    Timer {
+        id: filePickerFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (filePickerWorker._exited && !filePickerWorker._finalized) {
+                filePickerWorker._stdoutDone = true;
+                filePickerWorker._maybeFinalize();
             }
         }
     }
     Process {
         id: filePickerWorker
         running: false
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
         command: ["/usr/bin/python3", AlisCompanion.packageRoot + "/scripts/aqua/local_mind.py", "--pick-file"]
         stdout: StdioCollector {
             id: filePickerReply
+            onStreamFinished: {
+                filePickerWorker._stdoutDone = true;
+                filePickerWorker._maybeFinalize();
+            }
+        }
+        onStarted: {
+            filePickerWorker._exited = false;
+            filePickerWorker._exitCode = 0;
+            filePickerWorker._stdoutDone = false;
+            filePickerWorker._finalized = false;
+            filePickerFlushTimer.stop();
         }
         onExited: (code, status) => {
+            filePickerWorker._exited = true;
+            filePickerWorker._exitCode = code;
+            if (filePickerWorker._stdoutDone)
+                filePickerWorker._maybeFinalize();
+            else
+                filePickerFlushTimer.restart();
+        }
+        function _maybeFinalize(): void {
+            if (!filePickerWorker._exited || filePickerWorker._finalized || !filePickerWorker._stdoutDone)
+                return;
+            filePickerWorker._finalized = true;
+            filePickerFlushTimer.stop();
             const raw = String(filePickerReply.text ?? "").trim();
             if (!raw)
                 return;
@@ -7285,23 +7543,70 @@ Singleton {
             }
         }
     }
+    Timer {
+        id: ttsStopFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (ttsStopWorker._exited && !ttsStopWorker._finalized) {
+                ttsStopWorker._stdoutDone = true;
+                ttsStopWorker._maybeFinalize();
+            }
+        }
+    }
     Process {
         id: ttsStopWorker
         running: false
         stdinEnabled: true
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
         command: root._localMindHotCmd
         stdout: StdioCollector {
             id: ttsStopReply
+            onStreamFinished: {
+                ttsStopWorker._stdoutDone = true;
+                ttsStopWorker._maybeFinalize();
+            }
         }
         onStarted: {
+            ttsStopWorker._exited = false;
+            ttsStopWorker._exitCode = 0;
+            ttsStopWorker._stdoutDone = false;
+            ttsStopWorker._finalized = false;
+            ttsStopFlushTimer.stop();
             write(JSON.stringify({
                 action: "voice_tts_stop"
             }) + "\n");
         }
         onExited: (code, status) => {
-            const parsed = AquaHelperReplyGuard.parse("voice_tts_stop", String(ttsStopReply.text ?? ""), code);
+            ttsStopWorker._exited = true;
+            ttsStopWorker._exitCode = code;
+            if (ttsStopWorker._stdoutDone)
+                ttsStopWorker._maybeFinalize();
+            else
+                ttsStopFlushTimer.restart();
+        }
+        function _maybeFinalize(): void {
+            if (!ttsStopWorker._exited || ttsStopWorker._finalized || !ttsStopWorker._stdoutDone)
+                return;
+            ttsStopWorker._finalized = true;
+            ttsStopFlushTimer.stop();
+            const parsed = AquaHelperReplyGuard.parse("voice_tts_stop", String(ttsStopReply.text ?? ""), ttsStopWorker._exitCode);
             if (parsed.ok && parsed.result?.summary) {
                 root.toolNotice = String(parsed.result.summary);
+            }
+        }
+    }
+    Timer {
+        id: fileRollbackFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (fileRollbackWorker._exited && !fileRollbackWorker._finalized) {
+                fileRollbackWorker._stdoutDone = true;
+                fileRollbackWorker._maybeFinalize();
             }
         }
     }
@@ -7310,18 +7615,43 @@ Singleton {
         running: false
         stdinEnabled: true
         property string receiptId: ""
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
         command: root._localMindHotCmd
         stdout: StdioCollector {
             id: fileRollbackReply
+            onStreamFinished: {
+                fileRollbackWorker._stdoutDone = true;
+                fileRollbackWorker._maybeFinalize();
+            }
         }
         onStarted: {
+            fileRollbackWorker._exited = false;
+            fileRollbackWorker._exitCode = 0;
+            fileRollbackWorker._stdoutDone = false;
+            fileRollbackWorker._finalized = false;
+            fileRollbackFlushTimer.stop();
             write(JSON.stringify({
                 action: "file_receipt_rollback",
                 receiptId: fileRollbackWorker.receiptId
             }) + "\n");
         }
         onExited: (code, status) => {
-            const parsed = AquaHelperReplyGuard.parse("file_receipt_rollback", String(fileRollbackReply.text ?? ""), code);
+            fileRollbackWorker._exited = true;
+            fileRollbackWorker._exitCode = code;
+            if (fileRollbackWorker._stdoutDone)
+                fileRollbackWorker._maybeFinalize();
+            else
+                fileRollbackFlushTimer.restart();
+        }
+        function _maybeFinalize(): void {
+            if (!fileRollbackWorker._exited || fileRollbackWorker._finalized || !fileRollbackWorker._stdoutDone)
+                return;
+            fileRollbackWorker._finalized = true;
+            fileRollbackFlushTimer.stop();
+            const parsed = AquaHelperReplyGuard.parse("file_receipt_rollback", String(fileRollbackReply.text ?? ""), fileRollbackWorker._exitCode);
             if (parsed.ok && parsed.result) {
                 const res = parsed.result;
                 const rid = String(res.receiptId || fileRollbackWorker.receiptId || "");
@@ -7337,21 +7667,57 @@ Singleton {
             }
         }
     }
+    Timer {
+        id: primarySelectionFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (primarySelectionWorker._exited && !primarySelectionWorker._finalized) {
+                primarySelectionWorker._stdoutDone = true;
+                primarySelectionWorker._maybeFinalize();
+            }
+        }
+    }
     Process {
         id: primarySelectionWorker
         running: false
         stdinEnabled: true
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
         command: root._localMindHotCmd
         stdout: StdioCollector {
             id: primarySelectionReply
+            onStreamFinished: {
+                primarySelectionWorker._stdoutDone = true;
+                primarySelectionWorker._maybeFinalize();
+            }
         }
         onStarted: {
+            primarySelectionWorker._exited = false;
+            primarySelectionWorker._exitCode = 0;
+            primarySelectionWorker._stdoutDone = false;
+            primarySelectionWorker._finalized = false;
+            primarySelectionFlushTimer.stop();
             write(JSON.stringify({
                 action: "primary_selection_get"
             }) + "\n");
         }
         onExited: (code, status) => {
-            const parsed = AquaHelperReplyGuard.parse("primary_selection_get", String(primarySelectionReply.text ?? ""), code);
+            primarySelectionWorker._exited = true;
+            primarySelectionWorker._exitCode = code;
+            if (primarySelectionWorker._stdoutDone)
+                primarySelectionWorker._maybeFinalize();
+            else
+                primarySelectionFlushTimer.restart();
+        }
+        function _maybeFinalize(): void {
+            if (!primarySelectionWorker._exited || primarySelectionWorker._finalized || !primarySelectionWorker._stdoutDone)
+                return;
+            primarySelectionWorker._finalized = true;
+            primarySelectionFlushTimer.stop();
+            const parsed = AquaHelperReplyGuard.parse("primary_selection_get", String(primarySelectionReply.text ?? ""), primarySelectionWorker._exitCode);
             if (parsed.ok && parsed.result) {
                 const res = parsed.result;
                 const selText = String(res.text ?? "");
@@ -7366,20 +7732,56 @@ Singleton {
             }
         }
     }
+    Timer {
+        id: pocketSaveFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (pocketSaveWorker._exited && !pocketSaveWorker._finalized) {
+                pocketSaveWorker._stdoutDone = true;
+                pocketSaveWorker._maybeFinalize();
+            }
+        }
+    }
     Process {
         id: pocketSaveWorker
         running: false
         stdinEnabled: true
         property var requestPayload: ({})
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
         command: root._localMindHotCmd
         stdout: StdioCollector {
             id: pocketSaveReply
+            onStreamFinished: {
+                pocketSaveWorker._stdoutDone = true;
+                pocketSaveWorker._maybeFinalize();
+            }
         }
         onStarted: {
+            pocketSaveWorker._exited = false;
+            pocketSaveWorker._exitCode = 0;
+            pocketSaveWorker._stdoutDone = false;
+            pocketSaveWorker._finalized = false;
+            pocketSaveFlushTimer.stop();
             write(JSON.stringify(pocketSaveWorker.requestPayload) + "\n");
         }
         onExited: (code, status) => {
-            const parsed = AquaHelperReplyGuard.parse("pocket_save_item", String(pocketSaveReply.text ?? ""), code);
+            pocketSaveWorker._exited = true;
+            pocketSaveWorker._exitCode = code;
+            if (pocketSaveWorker._stdoutDone)
+                pocketSaveWorker._maybeFinalize();
+            else
+                pocketSaveFlushTimer.restart();
+        }
+        function _maybeFinalize(): void {
+            if (!pocketSaveWorker._exited || pocketSaveWorker._finalized || !pocketSaveWorker._stdoutDone)
+                return;
+            pocketSaveWorker._finalized = true;
+            pocketSaveFlushTimer.stop();
+            const parsed = AquaHelperReplyGuard.parse("pocket_save_item", String(pocketSaveReply.text ?? ""), pocketSaveWorker._exitCode);
             if (parsed.ok && parsed.result) {
                 const res = parsed.result;
                 root.toolNotice = "Saved to Pocket: " + String(res.name || "snippet");
@@ -7392,23 +7794,59 @@ Singleton {
             }
         }
     }
+    Timer {
+        id: finetuneExportFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (finetuneExportWorker._exited && !finetuneExportWorker._finalized) {
+                finetuneExportWorker._stdoutDone = true;
+                finetuneExportWorker._maybeFinalize();
+            }
+        }
+    }
     Process {
         id: finetuneExportWorker
         running: false
         stdinEnabled: true
         property string exportFormat: "sharegpt"
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
         command: root._localMindHotCmd
         stdout: StdioCollector {
             id: finetuneExportReply
+            onStreamFinished: {
+                finetuneExportWorker._stdoutDone = true;
+                finetuneExportWorker._maybeFinalize();
+            }
         }
         onStarted: {
+            finetuneExportWorker._exited = false;
+            finetuneExportWorker._exitCode = 0;
+            finetuneExportWorker._stdoutDone = false;
+            finetuneExportWorker._finalized = false;
+            finetuneExportFlushTimer.stop();
             write(JSON.stringify({
                 action: "export_finetune",
                 format: finetuneExportWorker.exportFormat
             }) + "\n");
         }
         onExited: (code, status) => {
-            const parsed = AquaHelperReplyGuard.parse("export_finetune", String(finetuneExportReply.text ?? ""), code);
+            finetuneExportWorker._exited = true;
+            finetuneExportWorker._exitCode = code;
+            if (finetuneExportWorker._stdoutDone)
+                finetuneExportWorker._maybeFinalize();
+            else
+                finetuneExportFlushTimer.restart();
+        }
+        function _maybeFinalize(): void {
+            if (!finetuneExportWorker._exited || finetuneExportWorker._finalized || !finetuneExportWorker._stdoutDone)
+                return;
+            finetuneExportWorker._finalized = true;
+            finetuneExportFlushTimer.stop();
+            const parsed = AquaHelperReplyGuard.parse("export_finetune", String(finetuneExportReply.text ?? ""), finetuneExportWorker._exitCode);
             if (parsed.ok && parsed.result) {
                 const res = parsed.result;
                 const outPath = String(res.outputPath || res.path || "");
@@ -7492,7 +7930,7 @@ Singleton {
             const txt = String(a.text ?? "").slice(0, 4000);
             if (!txt.trim())
                 return false;
-            Quickshell.clipboardText = txt;
+            copyToClipboard(txt);
             toolNotice = "Copied text from card";
             return true;
         }
@@ -7750,6 +8188,13 @@ Singleton {
                 root.pendingSudoPassword = false;
             if (Array.isArray(res.clientActions) && res.clientActions.length > 0 && !Quickshell.env("AQUA_TEST_ENDPOINT") && !Quickshell.env("AI_FIXTURE_URL"))
                 root.executeClientActions(res.clientActions);
+            if (res.editorMode === "popup" && res.editorPopup && res.editorPopup.open) {
+                root.openEditorPopup(res.editorPopup);
+            } else if (res.editorMode === "external") {
+                root.lastOpenedExternalEditorFile = String(res.targetPath ?? "");
+                root.lastOpenedExternalEditorCommand = String(res.editorCommand ?? "");
+                root.editorPopupOpen = false;
+            }
             const noticeTxt = String(res.text || res.error || "").trim();
             if (noticeTxt.length > 0) {
                 root.toolNotice = noticeTxt.slice(0, 140);
@@ -7771,21 +8216,57 @@ Singleton {
         property string targetUrl: ""
         command: ["/usr/bin/python3", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import web_tools; web_tools.open_in_browser(sys.argv[2])", AlisCompanion.packageRoot + "/scripts/aqua", targetUrl]
     }
+    Timer {
+        id: cancelledPrefixFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (cancelledPrefixWorker._exited && !cancelledPrefixWorker._finalized) {
+                cancelledPrefixWorker._stdoutDone = true;
+                cancelledPrefixWorker._maybeFinalize();
+            }
+        }
+    }
     Process {
         id: cancelledPrefixWorker
         running: false
         stdinEnabled: true
         property var requestPayload: ({})
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
         command: root._localMindHotCmd
         stdout: StdioCollector {
             id: cancelledPrefixReply
+            onStreamFinished: {
+                cancelledPrefixWorker._stdoutDone = true;
+                cancelledPrefixWorker._maybeFinalize();
+            }
         }
         onStarted: {
+            cancelledPrefixWorker._exited = false;
+            cancelledPrefixWorker._exitCode = 0;
+            cancelledPrefixWorker._stdoutDone = false;
+            cancelledPrefixWorker._finalized = false;
+            cancelledPrefixFlushTimer.stop();
             write(JSON.stringify(cancelledPrefixWorker.requestPayload) + "\n");
         }
         onExited: (code, status) => {
+            cancelledPrefixWorker._exited = true;
+            cancelledPrefixWorker._exitCode = code;
+            if (cancelledPrefixWorker._stdoutDone)
+                cancelledPrefixWorker._maybeFinalize();
+            else
+                cancelledPrefixFlushTimer.restart();
+        }
+        function _maybeFinalize(): void {
+            if (!cancelledPrefixWorker._exited || cancelledPrefixWorker._finalized || !cancelledPrefixWorker._stdoutDone)
+                return;
+            cancelledPrefixWorker._finalized = true;
+            cancelledPrefixFlushTimer.stop();
             const reqObj = cancelledPrefixWorker.requestPayload ?? {};
-            const parsed = AquaHelperReplyGuard.parse("history_append_cancelled", String(cancelledPrefixReply.text ?? ""), code);
+            const parsed = AquaHelperReplyGuard.parse("history_append_cancelled", String(cancelledPrefixReply.text ?? ""), cancelledPrefixWorker._exitCode);
             if (parsed.ok && parsed.result && parsed.result.saved) {
                 const key = String(reqObj.clientKey ?? "");
                 if (key.length > 0) {

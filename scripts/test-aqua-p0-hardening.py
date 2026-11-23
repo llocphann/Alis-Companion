@@ -498,6 +498,150 @@ class P0HardeningTestCase(unittest.TestCase):
                         self.assertEqual(len(picked2), 1)
                         self.assertEqual(m_run.call_count, 2)
 
+    def test_wave2_daemon_desktop_taint_mcp_tts_and_history_hardening(self):
+        import io
+        import sqlite3
+        import threading
+        import companion_daemon
+        import desktop_control
+        import permission_store
+        import agent_runtime
+        import history_store
+        import mcp_client
+        import run_store
+
+        # 1. Targeted cancel_request in daemon cancels only target_id and does not nuke global runs
+        ev_target = threading.Event()
+        ev_other = threading.Event()
+        with companion_daemon._ACTIVE_REQUESTS_LOCK:
+            companion_daemon._ACTIVE_REQUESTS["req_target_1"] = ev_target
+            companion_daemon._ACTIVE_REQUESTS["req_other_1"] = ev_other
+        try:
+            with mock.patch.object(run_store, "cancel_active_runs") as m_cancel_all, \
+                 mock.patch.object(run_store, "get_run", return_value=None):
+                res = companion_daemon._handle_daemon_op(
+                    "cancel_request",
+                    {"requestId": "req_target_1", "reason": "test_target"},
+                    self.root / "daemon.sock",
+                    [],
+                )
+            self.assertTrue(res["ok"])
+            self.assertTrue(ev_target.is_set())
+            self.assertFalse(ev_other.is_set())
+            m_cancel_all.assert_not_called()
+        finally:
+            with companion_daemon._ACTIVE_REQUESTS_LOCK:
+                companion_daemon._ACTIVE_REQUESTS.pop("req_target_1", None)
+                companion_daemon._ACTIVE_REQUESTS.pop("req_other_1", None)
+
+        # 2. manage_processes(kill) permission store + regex escaping + protected process + systemctl -- + tts_run_* prune
+        with mock.patch.object(permission_store, "check_permission", return_value={"allowed": False, "reason": "denied"}):
+            with self.assertRaises(desktop_control.DesktopControlError) as ctx_perm:
+                desktop_control.manage_processes(action="kill", pid=999999)
+            self.assertEqual(ctx_perm.exception.code, "permission_denied")
+
+        with mock.patch.object(permission_store, "check_permission", return_value={"allowed": True, "reason": "ok"}):
+            with mock.patch.object(desktop_control, "run_user_command", return_value={"lines": [], "exitCode": 1}) as m_pgrep:
+                with self.assertRaises(desktop_control.DesktopControlError):
+                    desktop_control.manage_processes(action="kill", query="foo.*bar")
+                self.assertIn(r"foo\.\*bar", m_pgrep.call_args[0][0])
+
+        with self.assertRaises(desktop_control.DesktopControlError) as ctx_svc:
+            desktop_control.inspect_network_or_service(action="service_restart", target="-evil")
+        self.assertEqual(ctx_svc.exception.code, "invalid_service")
+
+        with mock.patch.object(desktop_control, "run_user_command", return_value={"lines": ["active"], "exitCode": 0}) as m_sctl:
+            desktop_control.inspect_network_or_service(action="service_restart", target="alis.service", user_scope=True)
+            self.assertIn("--", m_sctl.call_args_list[0][0][0])
+            self.assertIn("--", m_sctl.call_args_list[1][0][0])
+
+        vdir = desktop_control._voice_state_dir()
+        stale_dir = vdir / "tts_run_stale_wave2"
+        stale_dir.mkdir(parents=True, exist_ok=True)
+        (stale_dir / "chunk.wav").write_bytes(b"0")
+        desktop_control.voice_tts_stop()
+        self.assertFalse(stale_dir.exists())
+
+        # 3. Expanded _is_privileged_taint_sink
+        for tool, args in (
+            ("create_document", {}),
+            ("convert_document", {}),
+            ("gui_action", {}),
+            ("file_receipt_rollback", {}),
+            ("skill_run", {}),
+            ("desktop_control", {"action": "gui_click"}),
+            ("desktop_control", {"action": "clipboard_set"}),
+            ("code_inspect", {"action": "run_tests"}),
+            ("skill_manage", {"action": "create"}),
+            ("mcp_call", {"tool": "process_list", "arguments": {"action": "kill"}}),
+            ("mcp_call", {"tool": "mouse_click"}),
+            ("delegate_subagent", {"role": "coder"}),
+        ):
+            self.assertTrue(agent_runtime._is_privileged_taint_sink(tool, args), f"Expected True for {tool} {args}")
+        for tool, args in (
+            ("skill_manage", {"action": "list"}),
+            ("code_inspect", {"action": "status"}),
+            ("desktop_control", {"action": "status"}),
+            ("mcp_call", {"tool": "process_list", "arguments": {"action": "list"}}),
+            ("delegate_subagent", {"role": "researcher"}),
+        ):
+            self.assertFalse(agent_runtime._is_privileged_taint_sink(tool, args), f"Expected False for {tool} {args}")
+
+        # 4. mcp_client.load_mcp_registry preserves user command/env overrides and _run_stdio_server handles ValueError/Exception
+        mcp_client.save_mcp_registry([{"name": "fetch-mcp", "enabled": False, "version": "1.0.0"}])
+        cfg_file = Path(os.environ["XDG_CONFIG_HOME"]) / "alis-companion" / "mcp.json"
+        cfg_file.parent.mkdir(parents=True, exist_ok=True)
+        cfg_file.write_text(json.dumps({"mcpServers": {"fetch-mcp": {"command": "/custom/fetch", "args": ["--custom"], "env": {"FOO": "BAR"}}}}), encoding="utf-8")
+        reg = mcp_client.load_mcp_registry()
+        fetch_srv = next(s for s in reg["servers"] if s["name"] == "fetch-mcp")
+        self.assertEqual(fetch_srv["command"], "/custom/fetch")
+        self.assertEqual(fetch_srv["args"], ["--custom"])
+        self.assertEqual(fetch_srv["env"], {"FOO": "BAR"})
+        self.assertIs(fetch_srv["enabled"], False)
+        mcp_client.save_mcp_registry(reg["servers"])
+        reg2 = mcp_client.load_mcp_registry()
+        fetch_srv2 = next(s for s in reg2["servers"] if s["name"] == "fetch-mcp")
+        self.assertEqual(fetch_srv2["command"], "/custom/fetch")
+        self.assertEqual(fetch_srv2["args"], ["--custom"])
+        self.assertEqual(fetch_srv2["env"], {"FOO": "BAR"})
+
+        fake_in = io.StringIO(
+            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "v_err"}}) + "\n"
+            + json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "r_err"}}) + "\n"
+        )
+        fake_out = io.StringIO()
+        def _boom_exec(tname, _args, companion_root=None):
+            if tname == "v_err":
+                raise ValueError("bad param")
+            raise RuntimeError("boom")
+        with mock.patch.object(mcp_client, "_execute_builtin_tool", side_effect=_boom_exec), \
+             mock.patch.object(sys, "stdin", fake_in), \
+             mock.patch.object(sys, "stdout", fake_out):
+            mcp_client._run_stdio_server()
+        lines = [json.loads(ln) for ln in fake_out.getvalue().splitlines() if ln.strip()]
+        self.assertEqual([ln["error"]["code"] for ln in lines], [-32602, -32000])
+
+        # 5. history_store.update_message_artifacts invalidates state_kv fts_sync_sig
+        created = history_store.execute_thread_action({"op": "create_thread", "title": "Wave2 FTS"})
+        tid = created["threadId"]
+        _u_id, a_id = history_store.append_exchange("hi", "initial reply", thread_id=tid)
+        self.assertGreater(a_id, 0)
+        db = history_store._connect()
+        try:
+            with db:
+                db.execute("INSERT OR REPLACE INTO state_kv(key, value) VALUES ('fts_sync_sig', 'stale_sig')")
+        finally:
+            db.close()
+        self.assertTrue(history_store.update_message_artifacts(a_id, content="updated reply"))
+        db2 = history_store._connect()
+        try:
+            row = db2.execute("SELECT value FROM state_kv WHERE key='fts_sync_sig'").fetchone()
+            self.assertIsNone(row)
+        finally:
+            db2.close()
+        hits = history_store.search_threads("updated reply")
+        self.assertTrue(any(h.get("id") == tid for h in hits))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

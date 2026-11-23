@@ -9,7 +9,6 @@ playback and instant SIGTERM process-group teardown.
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -17,6 +16,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 
 _ACTIVE_CHILD: subprocess.Popen | None = None
 _STOPPING = False
@@ -48,6 +48,8 @@ def _synth_edge_mp3(text: str, out_mp3: Path, voice: str, rate: str, edge_cli: s
     if _STOPPING or not text.strip():
         return False
     for attempt_rate in (rate, "+0%"):
+        if _STOPPING:
+            return False
         try:
             import edge_tts
 
@@ -62,6 +64,8 @@ def _synth_edge_mp3(text: str, out_mp3: Path, voice: str, rate: str, edge_cli: s
             pass
     if edge_cli and not _STOPPING:
         for attempt_rate in (rate, "+0%"):
+            if _STOPPING:
+                return False
             try:
                 subprocess.run(
                     [edge_cli, "--voice", voice, "--rate", attempt_rate, "--text", text, "--write-media", str(out_mp3)],
@@ -153,7 +157,6 @@ def main() -> int:
     to_unlink: list[Path] = [manifest_path]
     run_dir_to_clean: Path | None = None
     pid_file_path: Path | None = None
-    pool: ThreadPoolExecutor | None = None
     try:
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
         first_audio = Path(str(data.get("firstAudioPath") or ""))
@@ -179,38 +182,50 @@ def main() -> int:
         if first_mp3 and first_mp3.is_file():
             to_unlink.append(first_mp3)
 
-        futures = []
-        pool = ThreadPoolExecutor(max_workers=1)
-        for i, chunk_txt in enumerate(remaining, start=1):
-            futures.append(
-                pool.submit(
-                    _prepare_chunk,
-                    i,
-                    chunk_txt,
-                    chunk_dir,
-                    voice,
-                    rate,
-                    edge_cli,
-                    play_bin,
-                    ffmpeg_bin,
-                    direct_mp3_player,
-                )
-            )
+        slot_events = [threading.Event() for _ in remaining]
+        slot_results: list[tuple[Path | None, list[Path]]] = [(None, []) for _ in remaining]
+
+        def _prefetch_worker() -> None:
+            for idx_zero, chunk_txt in enumerate(remaining):
+                if _STOPPING:
+                    slot_events[idx_zero].set()
+                    continue
+                try:
+                    slot_results[idx_zero] = _prepare_chunk(
+                        idx_zero + 1,
+                        chunk_txt,
+                        chunk_dir,
+                        voice,
+                        rate,
+                        edge_cli,
+                        play_bin,
+                        ffmpeg_bin,
+                        direct_mp3_player,
+                    )
+                except Exception:
+                    slot_results[idx_zero] = (None, [])
+                finally:
+                    slot_events[idx_zero].set()
+
+        if remaining:
+            prefetch_thread = threading.Thread(target=_prefetch_worker, daemon=True, name="tts-prefetch")
+            prefetch_thread.start()
 
         if first_audio.is_file() and not _STOPPING:
             _play_file(first_audio, play_bin, ffplay_bin, mpv_bin)
 
-        for fut in futures:
+        for idx_zero, ev in enumerate(slot_events):
+            while not ev.wait(timeout=0.1):
+                if _STOPPING:
+                    break
             if _STOPPING:
                 break
-            audio_file, temps = fut.result()
+            audio_file, temps = slot_results[idx_zero]
             to_unlink.extend(temps)
             if audio_file and audio_file.is_file() and not _STOPPING:
                 _play_file(audio_file, play_bin, ffplay_bin, mpv_bin)
         return 0
     finally:
-        if pool is not None:
-            pool.shutdown(wait=False, cancel_futures=True)
         _cleanup_child()
         for p in to_unlink:
             try:
