@@ -526,6 +526,8 @@ def _index_single_file(
     full_path: Path,
     st_mtime_ns: int,
     st_size: int,
+    *,
+    is_existing: bool = True,
 ) -> bool:
     try:
         raw = full_path.read_text(encoding="utf-8", errors="replace")
@@ -538,7 +540,8 @@ def _index_single_file(
     if not chunks:
         chunks = [(title, title)]
 
-    conn.execute("DELETE FROM nexus_fts WHERE rel_path = ?", (rel_str,))
+    if is_existing:
+        conn.execute("DELETE FROM nexus_fts WHERE rel_path = ?", (rel_str,))
     conn.execute(
         "INSERT OR REPLACE INTO nexus_files(rel_path, mtime_ns, size_bytes, title, folder, tags) "
         "VALUES (?, ?, ?, ?, ?, ?)",
@@ -647,7 +650,14 @@ def sync_nexus_vault_index(
                 file_count += 1
                 prev_stat = existing.get(rel_str)
                 if force or prev_stat != (int(st.st_mtime_ns), int(st.st_size)):
-                    if _index_single_file(conn, rel_str, full, int(st.st_mtime_ns), int(st.st_size)):
+                    if _index_single_file(
+                        conn,
+                        rel_str,
+                        full,
+                        int(st.st_mtime_ns),
+                        int(st.st_size),
+                        is_existing=(prev_stat is not None),
+                    ):
                         updated += 1
                 if file_count >= max_files:
                     break

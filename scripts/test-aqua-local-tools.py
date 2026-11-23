@@ -49,6 +49,8 @@ with tempfile.TemporaryDirectory(prefix="companion-tools-") as tmp:
     private = Path(tmp)
     env = os.environ.copy()
     env["XDG_STATE_HOME"] = str(private / "state")
+    env["XDG_CONFIG_HOME"] = str(private / "config")
+    env["ALIS_NEXUS_VAULT"] = "__DISABLED__"
 
     # 1. Read-only typed metadata tools
     raw, host_meta = call_mind(env, {"action": "tool_inspect", "kind": "host_metadata"})

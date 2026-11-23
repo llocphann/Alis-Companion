@@ -56,7 +56,10 @@ def expand_cjk_bigrams(text: str) -> str:
 
 def fold_text(text: str, *, include_cjk_bigrams: bool = False) -> str:
     """Normalize text: NFD diacritics stripped, `đ`/`Đ` -> `d`, lowercase."""
-    norm = unicodedata.normalize("NFD", str(text or ""))
+    raw = str(text or "")
+    if raw.isascii():
+        return raw.lower()
+    norm = unicodedata.normalize("NFD", raw)
     stripped = "".join(ch for ch in norm if unicodedata.category(ch) != "Mn")
     folded = stripped.replace("đ", "d").replace("Đ", "d").lower()
     if include_cjk_bigrams:
