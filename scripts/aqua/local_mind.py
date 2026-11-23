@@ -613,6 +613,31 @@ def _pick_attachments_dialog(mode: str = 'all', max_items: int = 6) -> list[str]
         if mode == 'images'
         else 'Attach image(s) or file(s) for Companion'
     )
+    img_glob_filter = '*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg'
+    try:
+        aqua_dir = str(Path(__file__).resolve().parent)
+        if aqua_dir not in sys.path:
+            sys.path.insert(0, aqua_dir)
+        import native_host_bridge
+
+        dispatch = native_host_bridge.find_native_dispatch()
+    except Exception:
+        dispatch = None
+    if dispatch and (os.environ.get('WAYLAND_DISPLAY') or os.environ.get('DISPLAY')):
+        fd_cmd = [dispatch, 'file-dialog', '--mode', 'open', '--multiple', '--title', title]
+        if mode == 'images':
+            fd_cmd.extend(['--filter', img_glob_filter])
+        try:
+            proc = subprocess.run(fd_cmd, capture_output=True, text=True, timeout=120, check=False)
+            if proc.returncode == 0:
+                lines = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
+                if lines:
+                    return [str(Path(x).expanduser().resolve(strict=False)) for x in lines][:max_items]
+            elif proc.returncode == 1:
+                return []
+        except Exception:
+            pass
+
     img_filter = 'Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg) | *.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg *.PNG *.JPG *.JPEG *.WEBP'
     all_filter = 'Supported Files & Images | *.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg *.pdf *.docx *.xlsx *.csv *.tsv *.txt *.md *.json *.yaml *.yml *.toml *.py *.qml *.js *.ts *.rs *.sh *.html *.css *'
     cmds = []
@@ -652,7 +677,7 @@ def _pick_attachments_dialog(mode: str = 'all', max_items: int = 6) -> list[str]
                 raw_out = proc.stdout.strip()
                 parts = raw_out.split('|') if '|' in raw_out else raw_out.splitlines()
                 return [str(Path(x.strip()).expanduser().resolve(strict=False)) for x in parts if x.strip()][:max_items]
-            if proc.returncode != 0:
+            if proc.returncode == 1:
                 return []
         except Exception:
             continue

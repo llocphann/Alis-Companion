@@ -1155,7 +1155,7 @@ Singleton {
         } catch (e) {}
         if (!Quickshell.env("AQUA_TEST_STATE_DIR") && !Quickshell.env("AQUA_TEST_ENDPOINT")) {
             try {
-                Quickshell.execDetached(["wl-copy", "--", val]);
+                Quickshell.execDetached([Quickshell.shellPath("scripts/native-dispatch"), "clipboard", "copy", "--", val]);
             } catch (e) {}
         }
         return true;

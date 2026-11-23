@@ -1194,7 +1194,17 @@ def _execute_builtin_tool(tool_name: str, arguments: dict, companion_root: Path 
         }
     if tool_name == "clipboard_read":
         clip_text = ""
-        if shutil.which("wl-paste"):
+        clip_ready = False
+        try:
+            import native_host_bridge
+
+            ok, pasted = native_host_bridge.clipboard_paste()
+            if ok:
+                clip_text = pasted[:2000]
+                clip_ready = True
+        except Exception:
+            pass
+        if not clip_ready and shutil.which("wl-paste"):
             try:
                 proc = subprocess.run(
                     ["wl-paste", "--no-newline"],
@@ -1207,7 +1217,7 @@ def _execute_builtin_tool(tool_name: str, arguments: dict, companion_root: Path 
                     clip_text = proc.stdout.decode("utf-8", errors="replace")[:2000]
             except Exception:
                 pass
-        elif shutil.which("xclip"):
+        elif not clip_ready and shutil.which("xclip"):
             try:
                 proc = subprocess.run(
                     ["xclip", "-o", "-selection", "clipboard"],

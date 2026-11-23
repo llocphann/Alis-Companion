@@ -8,10 +8,12 @@ import json
 import os
 from pathlib import Path
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import time
+import zlib
 
 
 class ScreenContextError(Exception):
@@ -588,6 +590,232 @@ def _prune_screenshots(out_dir=None, keep=200, retention_days=None, now_ms=None)
     }
 
 
+_SOM_PALETTE = [
+    (255, 46, 99),
+    (8, 217, 214),
+    (255, 180, 0),
+    (126, 217, 87),
+    (199, 125, 255),
+]
+
+_SOM_FONT_5X7 = {
+    "[": ("11100", "10000", "10000", "10000", "10000", "10000", "11100"),
+    "]": ("00111", "00001", "00001", "00001", "00001", "00001", "00111"),
+    "0": ("01110", "10001", "10011", "10101", "11001", "10001", "01110"),
+    "1": ("00100", "01100", "00100", "00100", "00100", "00100", "01110"),
+    "2": ("01110", "10001", "00001", "00110", "01000", "10000", "11111"),
+    "3": ("11110", "00001", "00001", "01110", "00001", "00001", "11110"),
+    "4": ("00010", "00110", "01010", "10010", "11111", "00010", "00010"),
+    "5": ("11111", "10000", "11110", "00001", "00001", "10001", "01110"),
+    "6": ("01110", "10000", "10000", "11110", "10001", "10001", "01110"),
+    "7": ("11111", "00001", "00010", "00100", "01000", "01000", "01000"),
+    "8": ("01110", "10001", "10001", "01110", "10001", "10001", "01110"),
+    "9": ("01110", "10001", "10001", "01111", "00001", "00001", "01110"),
+}
+
+
+def _som_paeth(a: int, b: int, c: int) -> int:
+    p = a + b - c
+    pa = abs(p - a)
+    pb = abs(p - b)
+    pc = abs(p - c)
+    if pa <= pb and pa <= pc:
+        return a
+    return b if pb <= pc else c
+
+
+def _som_decode_png_rgb(data: bytes) -> tuple[int, int, bytearray] | None:
+    if not data or not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return None
+    pos = 8
+    width = height = bit_depth = color_type = interlace = 0
+    idat_parts: list[bytes] = []
+    palette = b""
+    while pos + 8 <= len(data):
+        length, ctype = struct.unpack(">I4s", data[pos : pos + 8])
+        pos += 8
+        chunk = data[pos : pos + length]
+        pos += length + 4
+        if len(chunk) != length:
+            return None
+        if ctype == b"IHDR" and len(chunk) >= 13:
+            width, height, bit_depth, color_type, _c, _f, interlace = struct.unpack(">IIBBBBB", chunk[:13])
+        elif ctype == b"PLTE":
+            palette = chunk
+        elif ctype == b"IDAT":
+            idat_parts.append(chunk)
+        elif ctype == b"IEND":
+            break
+    if width <= 0 or height <= 0 or bit_depth != 8 or interlace != 0 or width * height > 12_000_000:
+        return None
+    channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}.get(color_type)
+    if not channels:
+        return None
+    try:
+        raw = zlib.decompress(b"".join(idat_parts))
+    except zlib.error:
+        return None
+    stride = width * channels
+    if len(raw) < height * (stride + 1):
+        return None
+
+    rgb = bytearray(width * height * 3)
+    prev = bytearray(stride)
+    offset = 0
+    out_idx = 0
+    for _y in range(height):
+        flt = raw[offset]
+        offset += 1
+        scan = bytearray(raw[offset : offset + stride])
+        offset += stride
+        if flt == 1:
+            for i in range(channels, stride):
+                scan[i] = (scan[i] + scan[i - channels]) & 0xFF
+        elif flt == 2:
+            for i in range(stride):
+                scan[i] = (scan[i] + prev[i]) & 0xFF
+        elif flt == 3:
+            for i in range(stride):
+                left = scan[i - channels] if i >= channels else 0
+                scan[i] = (scan[i] + ((left + prev[i]) >> 1)) & 0xFF
+        elif flt == 4:
+            for i in range(stride):
+                left = scan[i - channels] if i >= channels else 0
+                up = prev[i]
+                up_left = prev[i - channels] if i >= channels else 0
+                scan[i] = (scan[i] + _som_paeth(left, up, up_left)) & 0xFF
+        elif flt != 0:
+            return None
+        prev = scan
+
+        if color_type == 2:
+            rgb[out_idx : out_idx + width * 3] = scan[: width * 3]
+            out_idx += width * 3
+        elif color_type == 6:
+            for x in range(width):
+                s = x * 4
+                r, g, b, a = scan[s], scan[s + 1], scan[s + 2], scan[s + 3]
+                if a < 255:
+                    inv = 255 - a
+                    r = (r * a + 18 * inv) // 255
+                    g = (g * a + 24 * inv) // 255
+                    b = (b * a + 36 * inv) // 255
+                rgb[out_idx] = r
+                rgb[out_idx + 1] = g
+                rgb[out_idx + 2] = b
+                out_idx += 3
+        elif color_type in (0, 4):
+            for x in range(width):
+                v = scan[x * channels]
+                rgb[out_idx] = v
+                rgb[out_idx + 1] = v
+                rgb[out_idx + 2] = v
+                out_idx += 3
+        elif color_type == 3 and palette:
+            for x in range(width):
+                pidx = scan[x] * 3
+                if pidx + 2 < len(palette):
+                    rgb[out_idx : out_idx + 3] = palette[pidx : pidx + 3]
+                out_idx += 3
+    return width, height, rgb
+
+
+def _som_fill_rect(buf: bytearray, w: int, h: int, x0: int, y0: int, x1: int, y1: int, color: tuple[int, int, int]) -> None:
+    cx0 = max(0, min(w - 1, x0))
+    cy0 = max(0, min(h - 1, y0))
+    cx1 = max(0, min(w - 1, x1))
+    cy1 = max(0, min(h - 1, y1))
+    if cx1 < cx0 or cy1 < cy0:
+        return
+    px = bytes(color) * (cx1 - cx0 + 1)
+    row_bytes = (cx1 - cx0 + 1) * 3
+    for y in range(cy0, cy1 + 1):
+        start = (y * w + cx0) * 3
+        buf[start : start + row_bytes] = px
+
+
+def _som_draw_outline(buf: bytearray, w: int, h: int, x0: int, y0: int, x1: int, y1: int, color: tuple[int, int, int], thickness: int = 2) -> None:
+    t = max(1, thickness)
+    _som_fill_rect(buf, w, h, x0, y0, x1, y0 + t - 1, color)
+    _som_fill_rect(buf, w, h, x0, y1 - t + 1, x1, y1, color)
+    _som_fill_rect(buf, w, h, x0, y0, x0 + t - 1, y1, color)
+    _som_fill_rect(buf, w, h, x1 - t + 1, y0, x1, y1, color)
+
+
+def _som_draw_text(buf: bytearray, w: int, h: int, x: int, y: int, text: str, color: tuple[int, int, int]) -> None:
+    r, g, b = color
+    cx = x
+    for ch in text:
+        glyph = _SOM_FONT_5X7.get(ch)
+        if glyph:
+            for row_i, row_bits in enumerate(glyph):
+                py = y + row_i
+                if not (0 <= py < h):
+                    continue
+                for col_i, bit in enumerate(row_bits):
+                    if bit == "1":
+                        px = cx + col_i
+                        if 0 <= px < w:
+                            off = (py * w + px) * 3
+                            buf[off] = r
+                            buf[off + 1] = g
+                            buf[off + 2] = b
+        cx += 6
+
+
+def _som_encode_png_rgb(buf: bytearray, w: int, h: int) -> bytes:
+    def _chunk(ctype: bytes, payload: bytes) -> bytes:
+        crc = zlib.crc32(ctype + payload) & 0xFFFFFFFF
+        return struct.pack(">I", len(payload)) + ctype + payload + struct.pack(">I", crc)
+
+    stride = w * 3
+    raw = bytearray((stride + 1) * h)
+    src_off = 0
+    dst_off = 0
+    for _y in range(h):
+        raw[dst_off] = 0
+        raw[dst_off + 1 : dst_off + 1 + stride] = buf[src_off : src_off + stride]
+        src_off += stride
+        dst_off += stride + 1
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+    idat = zlib.compress(bytes(raw), 6)
+    return b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b"")
+
+
+def _annotate_som_png_stdlib(src: Path | None, dest: Path, marks: list[dict]) -> None:
+    decoded = None
+    if src and src.is_file():
+        try:
+            decoded = _som_decode_png_rgb(src.read_bytes())
+        except OSError:
+            decoded = None
+    if decoded and decoded[0] >= 64 and decoded[1] >= 64:
+        w, h, buf = decoded
+    else:
+        w = max([640] + [int(m["x"] + m["width"] + 24) for m in marks])
+        h = max([400] + [int(m["y"] + m["height"] + 24) for m in marks])
+        buf = bytearray(bytes((18, 24, 36)) * (w * h))
+
+    for m in marks:
+        mid = int(m["markId"])
+        color = _SOM_PALETTE[(mid - 1) % len(_SOM_PALETTE)]
+        x0 = max(0, min(w - 4, int(m["x"])))
+        y0 = max(0, min(h - 4, int(m["y"])))
+        x1 = max(x0 + 6, min(w - 1, int(m["x"] + m["width"])))
+        y1 = max(y0 + 6, min(h - 1, int(m["y"] + m["height"])))
+        _som_draw_outline(buf, w, h, x0, y0, x1, y1, color, thickness=2)
+        badge_txt = f"[{mid}]"
+        bw = max(20, len(badge_txt) * 6 + 6)
+        bh = 13
+        bx0 = x0
+        by0 = max(0, y0 - bh if y0 >= bh else y0)
+        _som_fill_rect(buf, w, h, bx0, by0, min(w - 1, bx0 + bw), min(h - 1, by0 + bh), color)
+        _som_draw_text(buf, w, h, bx0 + 3, by0 + 3, badge_txt, (10, 14, 20))
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(_som_encode_png_rgb(buf, w, h))
+
+
 def annotate_screenshot_som(image_path: str, elements: list[dict] | None = None, out_path: str = "") -> dict:
     """Draw numbered Set-of-Mark ([1], [2], ...) bounding boxes and labels onto a screenshot for Vision LLMs."""
     elems = list(elements or [])
@@ -652,11 +880,14 @@ def annotate_screenshot_som(image_path: str, elements: list[dict] | None = None,
         dest.parent.mkdir(parents=True, exist_ok=True)
         im.convert("RGB").save(str(dest), format="PNG")
     except Exception:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        if src and src.is_file():
-            shutil.copy2(str(src), str(dest))
-        else:
-            dest.write_bytes(_FALLBACK_1X1_PNG)
+        try:
+            _annotate_som_png_stdlib(src if (src and src.is_file()) else None, dest, marks)
+        except Exception:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if src and src.is_file():
+                shutil.copy2(str(src), str(dest))
+            else:
+                dest.write_bytes(_FALLBACK_1X1_PNG)
 
     _prune_screenshots(out_dir)
     return {

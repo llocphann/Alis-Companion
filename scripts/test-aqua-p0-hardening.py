@@ -358,6 +358,146 @@ class P0HardeningTestCase(unittest.TestCase):
         recent = run_store.list_recent_runs(limit=5)
         self.assertTrue(len(recent) >= 1 and recent[0]["goal"] == "Sample task")
 
+    def test_wave1_companion_security_a2ui_and_native_fallbacks(self) -> None:
+        import a2ui_validator
+        import local_mind
+        import mcp_client
+        import native_host_bridge
+        import permission_store
+        import screen_context
+
+        # 1. a2ui_save_pocket allowed for check_permission but forbidden for grant_permission
+        chk = permission_store.check_permission("pocket_write", source="a2ui_save_pocket", now_ms=1000)
+        self.assertNotEqual(chk.get("reason"), "untrusted_source_blocked")
+        with self.assertRaises(permission_store.AgentPermissionError):
+            permission_store.grant_permission("tool", "pocket_write", source="a2ui_save_pocket", now_ms=1000)
+
+        # 2. A2UI control-char bypasses, malformed empty-segment pointers, and non-finite numeric fields
+        tainted_ev = {
+            "version": "1.0",
+            "createSurface": {
+                "surfaceId": "s_tainted_ctrl",
+                "components": [
+                    {
+                        "id": "root",
+                        "component": "Button",
+                        "label": "Go",
+                        "action": {"event": {"name": "choice_submit", "context": {"pro\x07mpt": "pwn"}}},
+                    }
+                ],
+                "dataModel": {},
+            },
+        }
+        v_surf, err = a2ui_validator.validate_and_sanitize_surface(tainted_ev, tainted=True)
+        self.assertIsNone(v_surf)
+        self.assertEqual(err, "button_action:tainted_prompt_context_forbidden")
+
+        secret_tf = {
+            "version": "1.0",
+            "createSurface": {
+                "surfaceId": "s_secret_ctrl",
+                "components": [
+                    {"id": "root", "component": "TextField", "label": "pas\x07sword", "value": {"path": "/safe"}}
+                ],
+                "dataModel": {},
+            },
+        }
+        v_tf, err_tf = a2ui_validator.validate_and_sanitize_surface(secret_tf)
+        self.assertIsNone(v_tf)
+        self.assertEqual(err_tf, "password_field_forbidden_in_a2ui")
+
+        for bad_ptr in ("///", "/a//b", "/a/", "/"):
+            bad_surf = {
+                "version": "1.0",
+                "createSurface": {
+                    "surfaceId": "s_bad_ptr",
+                    "components": [{"id": "root", "component": "Text", "text": {"path": bad_ptr}}],
+                    "dataModel": {"secret_note": "keep"},
+                },
+            }
+            v_bad, _ = a2ui_validator.validate_and_sanitize_surface(bad_surf)
+            self.assertIsNone(v_bad, f"Expected malformed pointer rejection for {bad_ptr!r}")
+            self.assertIsNone(a2ui_validator.get_pointer_value({"a": {"b": 1}}, bad_ptr) if bad_ptr != "/" else None)
+
+        base_dm = {"version": "1.0", "createSurface": {"surfaceId": "s_dm", "components": [{"id": "root", "component": "Text", "text": "ok"}], "dataModel": {"a": 1}}}
+        patched_bad = a2ui_validator.apply_update_data_model(base_dm, "/a//b", "x")
+        self.assertEqual(patched_bad["createSurface"]["dataModel"], {"a": 1})
+        patched_secret = a2ui_validator.apply_update_data_model(base_dm, "/password", "1234")
+        self.assertEqual(patched_secret["createSurface"]["dataModel"], {"a": 1})
+
+        nan_surf = {
+            "version": "1.0",
+            "createSurface": {
+                "surfaceId": "s_nan",
+                "components": [
+                    {"id": "root", "component": "Column", "gap": float("nan"), "children": ["t1"]},
+                    {"id": "t1", "component": "Text", "text": "Hi", "maxLines": True},
+                ],
+                "dataModel": {},
+            },
+        }
+        v_nan, err_nan = a2ui_validator.validate_and_sanitize_surface(nan_surf)
+        self.assertIsNotNone(v_nan, err_nan)
+        self.assertNotIn("gap", v_nan["createSurface"]["components"][0])
+        self.assertNotIn("maxLines", v_nan["createSurface"]["components"][1])
+
+        # 3. Pure-stdlib PNG Set-of-Mark fallback when PIL is absent
+        som_out = self.root / "som_out.png"
+        with mock.patch.dict(sys.modules, {"PIL": None}):
+            res_som = screen_context.annotate_screenshot_som(
+                "",
+                [{"markId": 1, "name": "Ok", "role": "button", "x": 40, "y": 40, "width": 120, "height": 40}],
+                out_path=str(som_out),
+            )
+            self.assertEqual(res_som["markCount"], 1)
+            raw_png = som_out.read_bytes()
+            self.assertTrue(raw_png.startswith(b"\x89PNG\r\n\x1a\n"))
+            self.assertGreater(len(raw_png), len(screen_context._FALLBACK_1X1_PNG))
+            # Annotate an existing 8-bit PNG via stdlib decoder
+            som_out2 = self.root / "som_out2.png"
+            res_som2 = screen_context.annotate_screenshot_som(
+                str(som_out),
+                [{"markId": 2, "name": "Next", "role": "button", "x": 100, "y": 100, "width": 80, "height": 30}],
+                out_path=str(som_out2),
+            )
+            self.assertEqual(res_som2["markCount"], 1)
+            self.assertTrue(som_out2.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"))
+
+        # 4. mcp_client clipboard_read routes through native_host_bridge
+        with mock.patch.object(native_host_bridge, "clipboard_paste", return_value=(True, "native-clip-ok")):
+            clip_res = mcp_client.call_tool(
+                "companion-system",
+                "clipboard_read",
+                {},
+                companion_root=COMPANION_ROOT,
+                enabled_overrides={"companion-system": True},
+            )
+            self.assertEqual(clip_res["content"][0]["text"], "native-clip-ok")
+
+        # 5. _pick_attachments_dialog handles exit 0 (select), exit 1 (cancel), exit 2 (fallback)
+        with mock.patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-1"}, clear=False):
+            os.environ.pop("AQUA_TEST_PICK_FILE", None)
+            os.environ.pop("AQUA_TEST_PICK_IMAGE", None)
+            with mock.patch.object(native_host_bridge, "find_native_dispatch", return_value="/mock/native-dispatch"):
+                with mock.patch("shutil.which", side_effect=lambda name: "/mock/zenity" if name == "zenity" else None):
+                    p_ok = mock.Mock(returncode=0, stdout=f"{self.home / 'Documents' / 'a.png'}\n", stderr="")
+                    with mock.patch("subprocess.run", return_value=p_ok) as m_run:
+                        picked = local_mind._pick_attachments_dialog("images")
+                        self.assertEqual(len(picked), 1)
+                        self.assertIn("file-dialog", m_run.call_args[0][0])
+
+                    p_cancel = mock.Mock(returncode=1, stdout="", stderr="")
+                    with mock.patch("subprocess.run", return_value=p_cancel) as m_run:
+                        self.assertEqual(local_mind._pick_attachments_dialog("all"), [])
+                        self.assertEqual(m_run.call_count, 1)
+
+                    p_err = mock.Mock(returncode=2, stdout="", stderr="portal failed")
+                    p_zen = mock.Mock(returncode=0, stdout=f"{self.home / 'Documents' / 'b.txt'}", stderr="")
+                    with mock.patch("subprocess.run", side_effect=[p_err, p_zen]) as m_run:
+                        picked2 = local_mind._pick_attachments_dialog("all")
+                        self.assertEqual(len(picked2), 1)
+                        self.assertEqual(m_run.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

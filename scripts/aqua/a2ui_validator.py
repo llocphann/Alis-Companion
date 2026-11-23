@@ -25,6 +25,7 @@ DEFAULT_CATALOG_ID = "alis.companion.basic.v1"
 MAX_SURFACE_BYTES = 6144
 MAX_COMPONENTS = 40
 MAX_TREE_DEPTH = 6
+MAX_POINTER_DEPTH = 12
 MAX_STRING_LEN = 2000
 
 BASIC_CATALOG_COMPONENTS = frozenset({
@@ -145,12 +146,29 @@ def _parse_finite_float(val: Any, default: float) -> tuple[float, bool]:
     return num, True
 
 
+def _parse_finite_int(val: Any, lo: int, hi: int) -> int | None:
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        return None
+    num = float(val)
+    if not math.isfinite(num):
+        return None
+    return max(lo, min(hi, int(num)))
+
+
 def _is_valid_pointer(ptr: Any) -> bool:
     if not isinstance(ptr, str):
         return False
-    if not ptr.startswith("/") or len(ptr) > 160 or "\x00" in ptr:
+    if not ptr.startswith("/") or ptr == "/" or len(ptr) > 160:
         return False
-    for tok in _decode_pointer_tokens(ptr):
+    if "\r" in ptr or "\n" in ptr or _CTRL_CHARS_RE.search(ptr):
+        return False
+    parts = ptr[1:].split("/")
+    if not parts or len(parts) > MAX_POINTER_DEPTH:
+        return False
+    for part in parts:
+        if not part:
+            return False
+        tok = part.replace("~1", "/").replace("~0", "~")
         if tok in _FORBIDDEN_POINTER_SEGMENTS:
             return False
     return True
@@ -363,16 +381,15 @@ def _validate_action(
         if untrusted_generative and ev_name in PRIVILEGED_SERVER_EVENTS:
             return None, f"privileged_event_forbidden:{ev_name}"
         raw_ctx = ev.get("context") if isinstance(ev.get("context"), dict) else {}
-        if tainted:
-            if ev_name not in TAINTED_LOCAL_UI_EVENTS:
-                return None, f"tainted_event_forbidden:{ev_name}"
-            if any(str(k).strip().lower() == "prompt" for k in raw_ctx.keys()):
-                return None, "tainted_prompt_context_forbidden"
+        if tainted and ev_name not in TAINTED_LOCAL_UI_EVENTS:
+            return None, f"tainted_event_forbidden:{ev_name}"
         clean_ctx: dict[str, Any] = {}
         for k, v in list(raw_ctx.items())[:16]:
             if _has_malformed_pointer(v):
                 return None, "malformed_event_pointer"
             ks = _clean_str(k, 48).strip()
+            if tainted and ks.lower() == "prompt":
+                return None, "tainted_prompt_context_forbidden"
             if not ks or ks in _FORBIDDEN_POINTER_SEGMENTS or _SECRET_FIELD_RE.search(ks):
                 continue
             v_ptr = _extract_pointer(v)
@@ -475,8 +492,9 @@ def validate_and_sanitize_surface(
                 node["align"] = item["align"]
             if item.get("justify") in ("start", "center", "end", "spaceBetween"):
                 node["justify"] = item["justify"]
-            if isinstance(item.get("gap"), (int, float)):
-                node["gap"] = max(0, min(24, int(item["gap"])))
+            gap_val = _parse_finite_int(item.get("gap"), 0, 24)
+            if gap_val is not None:
+                node["gap"] = gap_val
             if isinstance(item.get("wrap"), bool):
                 node["wrap"] = item["wrap"]
 
@@ -512,7 +530,7 @@ def validate_and_sanitize_surface(
                 node["tone"] = item["tone"]
             if item.get("align") in ("left", "center", "right"):
                 node["align"] = item["align"]
-            if isinstance(item.get("maxLines"), int) and 1 <= item["maxLines"] <= 20:
+            if isinstance(item.get("maxLines"), int) and not isinstance(item.get("maxLines"), bool) and 1 <= item["maxLines"] <= 20:
                 node["maxLines"] = item["maxLines"]
 
         elif ctype == "Icon":
@@ -524,8 +542,9 @@ def validate_and_sanitize_surface(
                 node["name"] = {"path": icon_ptr}
             else:
                 node["name"] = _to_snake_icon(raw_icon)
-            if isinstance(item.get("size"), (int, float)):
-                node["size"] = max(10, min(32, int(item["size"])))
+            size_val = _parse_finite_int(item.get("size"), 10, 32)
+            if size_val is not None:
+                node["size"] = size_val
             if item.get("tone") in ("default", "muted", "accent", "success", "warning", "error"):
                 node["tone"] = item["tone"]
 
@@ -586,8 +605,9 @@ def validate_and_sanitize_surface(
                 return None, f"invalid_list_children:{cid}"
             if item.get("direction") in ("vertical", "horizontal"):
                 node["direction"] = item["direction"]
-            if isinstance(item.get("gap"), (int, float)):
-                node["gap"] = max(0, min(20, int(item["gap"])))
+            list_gap = _parse_finite_int(item.get("gap"), 0, 20)
+            if list_gap is not None:
+                node["gap"] = list_gap
 
         elif ctype == "ChoicePicker":
             raw_opts = item.get("options")
@@ -668,13 +688,16 @@ def validate_and_sanitize_surface(
             ph_val: Any = {"path": ph_ptr} if ph_ptr else _clean_str(item.get("placeholder") or "", 120).strip()
             input_type = str(item.get("inputType") or item.get("variant") or "text").strip().lower()
             val_path = _extract_pointer(item.get("value"))
-            raw_sig = f"{cid} {lbl_ptr or lbl_val} {ph_ptr or ph_val} {val_path} {item.get('value') if isinstance(item.get('value'), str) else ''}"
+            raw_sig = _CTRL_CHARS_RE.sub(
+                "",
+                f"{cid} {lbl_ptr or lbl_val} {ph_ptr or ph_val} {val_path} {item.get('value') if isinstance(item.get('value'), str) else ''}",
+            )
             if input_type in ("password", "obscured", "secret") or _SECRET_FIELD_RE.search(raw_sig):
                 return None, "password_field_forbidden_in_a2ui"
             node["label"] = lbl_val
             node["placeholder"] = ph_val
             node["value"] = {"path": val_path} if val_path else {"path": f"/inputs/{cid}"}
-            if isinstance(item.get("maxLength"), int):
+            if isinstance(item.get("maxLength"), int) and not isinstance(item.get("maxLength"), bool):
                 node["maxLength"] = max(1, min(400, item["maxLength"]))
 
         elif ctype == "Slider":
@@ -743,8 +766,9 @@ def validate_and_sanitize_surface(
                 node["url"] = url_str
             if item.get("alt"):
                 node["alt"] = _clean_str(item.get("alt"), 120).strip()
-            if isinstance(item.get("maxHeight"), (int, float)):
-                node["maxHeight"] = max(48, min(220, int(item["maxHeight"])))
+            mh_val = _parse_finite_int(item.get("maxHeight"), 48, 220)
+            if mh_val is not None:
+                node["maxHeight"] = mh_val
 
         sanitized_comps.append(node)
         comp_map[cid] = node
@@ -780,7 +804,7 @@ def validate_and_sanitize_surface(
                 if isinstance(fval, dict) and isinstance(fval.get("path"), str):
                     for sc in eff_scopes:
                         rv = _lookup_in_scope(fval["path"], sc)
-                        if rv is not None and _SECRET_FIELD_RE.search(str(rv)):
+                        if rv is not None and _SECRET_FIELD_RE.search(_CTRL_CHARS_RE.sub("", str(rv))):
                             return "password_field_forbidden_in_a2ui"
         act = comp.get("action")
         if isinstance(act, dict) and isinstance(act.get("functionCall"), dict):
@@ -906,9 +930,32 @@ def _decode_pointer_tokens(path: str) -> list[str]:
     return [tok.replace("~1", "/").replace("~0", "~") for tok in raw.split("/") if tok != ""]
 
 
+def _decode_pointer_tokens_strict(path: str) -> tuple[list[str], bool]:
+    if not isinstance(path, str) or not path:
+        return [], False
+    if path == "/":
+        return [], True
+    if not path.startswith("/") or len(path) > 160 or "\r" in path or "\n" in path or _CTRL_CHARS_RE.search(path):
+        return [], False
+    parts = path[1:].split("/")
+    if not parts or len(parts) > MAX_POINTER_DEPTH:
+        return [], False
+    tokens: list[str] = []
+    for part in parts:
+        if not part:
+            return [], False
+        tok = part.replace("~1", "/").replace("~0", "~")
+        if tok in _FORBIDDEN_POINTER_SEGMENTS or _SECRET_FIELD_RE.search(_CTRL_CHARS_RE.sub("", tok)):
+            return [], False
+        tokens.append(tok)
+    return tokens, True
+
+
 def get_pointer_value(data_model: Any, path: str) -> Any:
     if not path or path == "/":
         return data_model
+    if not _is_valid_pointer(path):
+        return None
     cur = data_model
     for tok in _decode_pointer_tokens(path):
         if isinstance(cur, dict) and tok in cur:
@@ -935,8 +982,8 @@ def apply_update_data_model(surface: dict[str, Any], path: str, value: Any) -> d
         dm = {}
         cs["dataModel"] = dm
 
-    tokens = _decode_pointer_tokens(path)
-    if any(tok in _FORBIDDEN_POINTER_SEGMENTS for tok in tokens):
+    tokens, valid = _decode_pointer_tokens_strict(path)
+    if not valid:
         return out
     if not tokens:
         if value is None:
@@ -1088,9 +1135,12 @@ def extract_a2ui_from_text(
         parsed = json.loads(block)
     except Exception:
         return clean_text, None
-    validated, _err = validate_and_sanitize_surface(
-        parsed,
-        untrusted_generative=untrusted_generative,
-        tainted=tainted,
-    )
+    try:
+        validated, _err = validate_and_sanitize_surface(
+            parsed,
+            untrusted_generative=untrusted_generative,
+            tainted=tainted,
+        )
+    except Exception:
+        return clean_text, None
     return clean_text, validated

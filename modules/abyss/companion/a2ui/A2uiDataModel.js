@@ -6,6 +6,11 @@ var A2UI_VERSION = "1.0"
 var MAX_SURFACE_BYTES = 6144
 var MAX_COMPONENTS = 40
 var MAX_DEPTH = 6
+var MAX_POINTER_DEPTH = 12
+
+function _stripCtrl(s) {
+    return String(s ?? "").replace(/[\x00-\x1f\x7f]+/g, "")
+}
 
 function _makeAllowMap(keys) {
     const m = Object.create(null)
@@ -103,11 +108,16 @@ function isSafeFilePath(rawPath) {
 }
 
 function _isValidPointerStr(p) {
-    if (typeof p !== "string" || !p.startsWith("/") || p.length > 160 || p.indexOf("\x00") !== -1)
+    if (typeof p !== "string" || !p.startsWith("/") || p === "/" || p.length > 160 || /[\x00-\x1f\x7f]/.test(p))
         return false
-    const tokens = decodePointer(p)
-    for (let i = 0; i < tokens.length; ++i) {
-        if (!_isSafeObjectKey(tokens[i]))
+    const rawParts = p.slice(1).split("/")
+    if (rawParts.length === 0 || rawParts.length > MAX_POINTER_DEPTH)
+        return false
+    for (let i = 0; i < rawParts.length; ++i) {
+        if (rawParts[i].length === 0)
+            return false
+        const tok = rawParts[i].replace(/~1/g, "/").replace(/~0/g, "~")
+        if (!_isSafeObjectKey(tok))
             return false
     }
     return true
@@ -281,7 +291,7 @@ function validateActionSpec(action, opts, dataModel, scopeList) {
                     return false
                 if (hasMalformedPointer(action.event.context[ck]))
                     return false
-                if (tainted && ck.trim().toLowerCase() === "prompt")
+                if (tainted && _stripCtrl(ck).trim().toLowerCase() === "prompt")
                     return false
             }
         }
@@ -345,12 +355,14 @@ function decodePointer(path) {
     if (!p || p === "/")
         return []
     const stripped = p.startsWith("/") ? p.slice(1) : p
-    return stripped.split("/").filter(t => t.length > 0).map(t => t.replace(/~1/g, "/").replace(/~0/g, "~"))
+    return stripped.split("/").map(t => t.replace(/~1/g, "/").replace(/~0/g, "~"))
 }
 
 function getByPath(dataModel, path, scopeData) {
     const p = String(path ?? "")
     if (!p)
+        return undefined
+    if (p !== "/" && !_isValidPointerStr(p))
         return undefined
     const tokens = decodePointer(p)
     for (let i = 0; i < tokens.length; ++i) {
@@ -390,16 +402,21 @@ function _lookupTokens(rootObj, tokens) {
 // A2UI v1.0 `updateDataModel`: setting value === null DELETES the target key!
 function setByPath(dataModel, path, value) {
     const out = isPlainObject(dataModel) ? deepClone(dataModel) : {}
-    const tokens = decodePointer(path)
-    for (let i = 0; i < tokens.length; ++i) {
-        if (!_isSafeObjectKey(tokens[i]))
-            return out
-    }
-    if (tokens.length === 0) {
+    const p = String(path ?? "")
+    if (p === "/") {
         if (value === null)
             return {}
         return isPlainObject(value) ? _sanitizeDataModelValue(value, 0) : out
     }
+    if (!_isValidPointerStr(p))
+        return out
+    const tokens = decodePointer(p)
+    for (let i = 0; i < tokens.length; ++i) {
+        if (!_isSafeObjectKey(tokens[i]) || _SECRET_FIELD_RE.test(_stripCtrl(tokens[i])))
+            return out
+    }
+    if (tokens.length === 0)
+        return out
     let parent = out
     for (let i = 0; i < tokens.length - 1; ++i) {
         const tok = tokens[i]
@@ -654,6 +671,11 @@ function validateSurface(raw, opts) {
         if (type === "ChoicePicker") {
             if (!Array.isArray(c.options) || c.options.length === 0)
                 return null
+            for (let oi = 0; oi < c.options.length; ++oi) {
+                const o = c.options[oi]
+                if (isPlainObject(o) && (hasMalformedPointer(o.label) || hasMalformedPointer(o.value)))
+                    return null
+            }
             if (hasMalformedPointer(c.value) || hasMalformedPointer(c.label))
                 return null
         }
@@ -676,8 +698,15 @@ function validateSurface(raw, opts) {
             if (!Number.isFinite(lo) || !Number.isFinite(hi) || !Number.isFinite(step) || hi <= lo || step <= 0)
                 return null
         }
-        if (type === "Tabs" && (!Array.isArray(c.tabs) || c.tabs.length === 0))
-            return null
+        if (type === "Tabs") {
+            if (!Array.isArray(c.tabs) || c.tabs.length === 0)
+                return null
+            for (let ti = 0; ti < c.tabs.length; ++ti) {
+                const tab = c.tabs[ti]
+                if (isPlainObject(tab) && hasMalformedPointer(tab.label))
+                    return null
+            }
+        }
         if (type === "Text" && hasMalformedPointer(c.text))
             return null
         if (type === "Icon" && hasMalformedPointer(c.name))
@@ -701,7 +730,7 @@ function validateSurface(raw, opts) {
             const phSig = phPtr || (typeof c.placeholder === "string" ? c.placeholder : (isPlainObject(c.placeholder) ? JSON.stringify(c.placeholder) : ""))
             const sig = [c.id, lblSig, phSig, c.inputType, c.variant, valPtr, typeof c.value === "string" ? c.value : ""].join(" ")
             const inType = String(c.inputType ?? c.variant ?? "").trim().toLowerCase()
-            if (_SECRET_FIELD_RE.test(sig) || inType === "password" || inType === "obscured" || inType === "secret")
+            if (_SECRET_FIELD_RE.test(_stripCtrl(sig)) || inType === "password" || inType === "obscured" || inType === "secret")
                 return null
         }
         if (type === "Image") {

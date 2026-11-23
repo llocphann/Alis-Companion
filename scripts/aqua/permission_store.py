@@ -34,6 +34,7 @@ TOOL_CATEGORIES = frozenset((
 ))
 TRUSTED_GRANT_SOURCES = frozenset(("user_prompt", "settings_ui", "legacy_migration"))
 TRUSTED_CONFIRM_SOURCES = TRUSTED_GRANT_SOURCES | frozenset(("a2ui_confirm",))
+TRUSTED_CHECK_SOURCES = TRUSTED_GRANT_SOURCES | frozenset(("agent_step", "a2ui_save_pocket"))
 TRUSTED_CANCEL_ONLY_SOURCES = frozenset(("thread_switch",))
 
 
@@ -408,7 +409,7 @@ def check_permission(
     now_ms=None,
 ):
     ts = _now_ms(now_ms)
-    if source not in TRUSTED_GRANT_SOURCES and source != "agent_step":
+    if source not in TRUSTED_CHECK_SOURCES:
         return {
             "allowed": False,
             "requiresConfirmation": False,
