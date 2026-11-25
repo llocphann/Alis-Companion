@@ -27,6 +27,43 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+
+def _resolve_host_root(explicit: str = "") -> Path | None:
+    """Locate the Alis host directory that provides `scripts/ai`."""
+    candidates: list[Path] = []
+    if explicit:
+        candidates.append(Path(explicit))
+    env_root = str(os.environ.get("ALIS_ROOT") or "").strip()
+    if env_root:
+        candidates.append(Path(env_root))
+    cand = SCRIPT_DIR.parents[1]
+    xdg_cfg = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
+    candidates.extend([
+        cand,
+        cand.parent / "Alis",
+        xdg_cfg / "quickshell" / "alis",
+        Path("/usr/local/share/quickshell/alis"),
+        Path("/usr/share/quickshell/alis"),
+    ])
+    for probe in candidates:
+        try:
+            if (probe / "scripts/ai").is_dir():
+                return probe
+        except OSError:
+            continue
+    return None
+
+
+def _ensure_host_ai_on_syspath(explicit: str = "") -> Path | None:
+    """Ensure `<alis-host>/scripts/ai` is on `sys.path` and `ALIS_ROOT` is set."""
+    host = _resolve_host_root(explicit)
+    if host is not None:
+        os.environ.setdefault("ALIS_ROOT", str(host))
+        ai_dir = str(host / "scripts/ai")
+        if ai_dir not in sys.path:
+            sys.path.insert(0, ai_dir)
+    return host
+
 DEFAULT_IDLE_SEC = 300
 MAX_REQUEST_BYTES = 98304
 
@@ -381,7 +418,21 @@ def _serve_client(conn: socket.socket, sock_path: Path, prewarmed: list[str], to
             except (TypeError, ValueError):
                 pass
 
-        import local_mind
+        _ensure_host_ai_on_syspath(str(parsed.get("_hostRoot") or ""))
+        try:
+            import local_mind
+        except Exception as exc:
+            _send_obj({
+                "type": "result",
+                "payload": {
+                    "ok": False,
+                    "error": {
+                        "code": "daemon_import_error",
+                        "message": f"{type(exc).__name__}: {str(exc)[:140]}",
+                    },
+                },
+            })
+            return
 
         with _ACTIVE_REQUESTS_LOCK:
             _TOTAL_REQUESTS += 1
@@ -465,11 +516,13 @@ def run_daemon(
     sock_path: Path | None = None,
     idle_sec: int | None = None,
     parent_pid: int | None = None,
+    host_root: str | None = None,
 ) -> int:
     """Start the Unix-domain companion daemon and block until idle or shutdown."""
     global _DAEMON_START_TIME
     _SHUTDOWN_EVENT.clear()
     _install_signal_handlers()
+    _ensure_host_ai_on_syspath(str(host_root or ""))
     _DAEMON_START_TIME = time.monotonic()
     eff_parent_pid = parent_pid
     if eff_parent_pid is None:
@@ -625,7 +678,11 @@ def cancel_daemon_request(request_id: str = "", reason: str = "cancelled_by_user
         return None
 
 
-def ensure_daemon_running(sock_path: Path | None = None, timeout: float = 5.0) -> bool:
+def ensure_daemon_running(
+    sock_path: Path | None = None,
+    timeout: float = 5.0,
+    host_root: str | None = None,
+) -> bool:
     target = Path(sock_path) if sock_path else resolve_socket_path()
     if is_daemon_running(target):
         return True
@@ -641,6 +698,10 @@ def ensure_daemon_running(sock_path: Path | None = None, timeout: float = 5.0) -
             env = dict(os.environ)
             env["ALIS_COMPANION_DAEMON_SOCK"] = str(target)
             spawn_cmd = [sys.executable, str(Path(__file__).resolve()), "--daemon"]
+            resolved_host = _resolve_host_root(str(host_root or ""))
+            if resolved_host is not None:
+                env["ALIS_ROOT"] = str(resolved_host)
+                spawn_cmd.extend(["--host-root", str(resolved_host)])
             parent_pid_env = str(env.get("ALIS_PARENT_PID") or "").strip()
             if parent_pid_env.isdigit() and int(parent_pid_env) > 1:
                 spawn_cmd.extend(["--parent-pid", parent_pid_env])
@@ -722,23 +783,32 @@ def call_via_daemon(
     if len(raw) > MAX_REQUEST_BYTES:
         return {"ok": False, "error": {"code": "request_too_large", "message": "Companion request exceeded the limit"}}
 
+    host_arg = str(req_payload.get("_hostRoot") or "").strip() or None
     for attempt in range(2):
         try:
             resp = _exchange_daemon_request(raw, target, timeout, on_stderr, on_stdout)
             err_code = str(((resp.get("error") or {}).get("code") or "")) if isinstance(resp, dict) else ""
-            if err_code == "daemon_version_mismatch" and auto_start and attempt == 0:
+            if err_code in ("daemon_version_mismatch", "daemon_import_error") and auto_start and attempt == 0:
                 shutdown_daemon(target, timeout=1.0)
-                if ensure_daemon_running(target):
+                if ensure_daemon_running(target, host_root=host_arg):
                     continue
             return resp
+        except RuntimeError as exc:
+            if str(exc) == "daemon_eof":
+                if auto_start and attempt == 0:
+                    shutdown_daemon(target, timeout=1.0)
+                    if ensure_daemon_running(target, host_root=host_arg):
+                        continue
+                raise RuntimeError("daemon_unavailable") from exc
+            raise
         except (ConnectionRefusedError, FileNotFoundError):
             if auto_start and attempt == 0:
-                if ensure_daemon_running(target):
+                if ensure_daemon_running(target, host_root=host_arg):
                     continue
             raise
         except OSError as exc:
             if auto_start and attempt == 0:
-                if ensure_daemon_running(target):
+                if ensure_daemon_running(target, host_root=host_arg):
                     continue
             raise RuntimeError("daemon_unavailable") from exc
     raise RuntimeError("daemon_unavailable")
@@ -749,6 +819,7 @@ def run_daemon_cli(argv: list[str] | None = None) -> int:
     idle_sec: int | None = None
     sock_path: Path | None = None
     parent_pid: int | None = None
+    host_root: str | None = None
     if "--idle-sec" in args:
         idx = args.index("--idle-sec")
         if idx + 1 < len(args):
@@ -767,7 +838,12 @@ def run_daemon_cli(argv: list[str] | None = None) -> int:
                 parent_pid = int(args[idx + 1])
             except ValueError:
                 pass
-    return run_daemon(sock_path=sock_path, idle_sec=idle_sec, parent_pid=parent_pid)
+    if "--host-root" in args:
+        idx = args.index("--host-root")
+        if idx + 1 < len(args) and args[idx + 1]:
+            host_root = str(args[idx + 1])
+    _ensure_host_ai_on_syspath(str(host_root or ""))
+    return run_daemon(sock_path=sock_path, idle_sec=idle_sec, parent_pid=parent_pid, host_root=host_root)
 
 
 if __name__ == "__main__":

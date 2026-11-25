@@ -1073,14 +1073,21 @@ elif sys.argv[1:2] == ['--ensure-provider']:
 
 def _default_host_root():
     cand = Path(__file__).resolve().parents[2]
-    if (cand / 'scripts/ai').is_dir():
-        return cand
-    sibling = cand.parent / 'Alis'
-    if (sibling / 'scripts/ai').is_dir():
-        return sibling
+    xdg_cfg = Path(os.environ.get('XDG_CONFIG_HOME') or (Path.home() / '.config'))
+    for probe in (
+        cand,
+        cand.parent / 'Alis',
+        xdg_cfg / 'quickshell' / 'alis',
+        Path('/usr/local/share/quickshell/alis'),
+        Path('/usr/share/quickshell/alis'),
+    ):
+        if (probe / 'scripts/ai').is_dir():
+            return probe
     return cand
 
 HOST=Path(sys.argv[sys.argv.index('--host-root')+1]) if '--host-root' in sys.argv else Path(os.environ.get('ALIS_ROOT', _default_host_root()))
+if (HOST / 'scripts/ai').is_dir():
+    os.environ.setdefault('ALIS_ROOT', str(HOST))
 sys.path.insert(0,str(HOST/'scripts/ai'))
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 daily=core=None
@@ -2384,6 +2391,7 @@ if __name__=='__main__':
                 hr_idx=argv_list.index('--host-root')
                 if hr_idx+1<len(argv_list) and argv_list[hr_idx+1]:
                     parsed_req.setdefault('_hostRoot', argv_list[hr_idx+1])
+            parsed_req.setdefault('_hostRoot', str(HOST))
             if not os.environ.get('ALIS_PARENT_PID'):
                 ppid=os.getppid()
                 if ppid and ppid>1:

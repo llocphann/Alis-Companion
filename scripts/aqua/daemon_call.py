@@ -95,6 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     if "--host-root" in args:
         hr_idx = args.index("--host-root")
         if hr_idx + 1 < len(args) and args[hr_idx + 1]:
+            os.environ.setdefault("ALIS_ROOT", args[hr_idx + 1])
             parsed.setdefault("_hostRoot", args[hr_idx + 1])
     parsed.setdefault("_expectedSourceMtime", _compute_core_source_mtime())
 

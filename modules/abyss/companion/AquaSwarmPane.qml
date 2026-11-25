@@ -427,34 +427,42 @@ Item {
                         font.pixelSize: Appearance.font.pixelSize.smallest
                         color: Appearance.colors.colSubtext
                     }
-                    Row {
+                    GridLayout {
                         Layout.alignment: Qt.AlignHCenter
-                        spacing: 6
+                        Layout.maximumWidth: Math.min(parent.width, 320)
+                        columns: parent.width >= 268 ? 2 : 1
+                        columnSpacing: 6
+                        rowSpacing: 6
                         Repeater {
                             model: [
                                 "Audit shell health",
                                 "Inspect git diff & tests"
                             ]
                             RippleButton {
+                                id: swarmPresetBtn
                                 required property string modelData
-                                implicitHeight: 24
-                                implicitWidth: starterText.implicitWidth + 24
-                                width: implicitWidth
-                                height: 24
+                                Layout.preferredHeight: 26
+                                Layout.preferredWidth: Math.min(280, starterText.implicitWidth + 24)
+                                Layout.alignment: Qt.AlignHCenter
+                                implicitHeight: 26
+                                implicitWidth: Math.min(280, starterText.implicitWidth + 24)
                                 leftPadding: 0
                                 rightPadding: 0
                                 topPadding: 0
                                 bottomPadding: 0
-                                buttonRadius: 12
+                                buttonRadius: 13
                                 colBackground: Qt.alpha(AbyssStyle.accent, 0.12)
                                 colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.22)
                                 onClicked: AquaMind.startSwarm(modelData)
                                 contentItem: Item {
+                                    clip: true
                                     StyledText {
                                         id: starterText
                                         anchors.centerIn: parent
                                         horizontalAlignment: Text.AlignHCenter
                                         verticalAlignment: Text.AlignVCenter
+                                        width: Math.min(implicitWidth, Math.max(40, swarmPresetBtn.width - 16))
+                                        elide: Text.ElideRight
                                         text: modelData
                                         font.pixelSize: Appearance.font.pixelSize.smallest - 1
                                         color: AbyssStyle.accent

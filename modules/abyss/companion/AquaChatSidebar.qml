@@ -159,15 +159,17 @@ Rectangle {
                 border.width: 1
                 border.color: Qt.rgba(Appearance.colors.colPrimary.r, Appearance.colors.colPrimary.g, Appearance.colors.colPrimary.b, 0.45)
 
-                RowLayout {
+                Row {
                     anchors.centerIn: parent
                     spacing: 4
                     MaterialSymbol {
+                        anchors.verticalCenter: parent.verticalCenter
                         text: "add_comment"
                         iconSize: 14
                         color: Appearance.colors.colPrimary
                     }
                     Text {
+                        anchors.verticalCenter: parent.verticalCenter
                         text: sidebar.isVeryNarrow ? "New" : "New Chat"
                         color: Appearance.colors.colPrimary
                         font.family: Appearance.font.family.main
@@ -200,15 +202,17 @@ Rectangle {
                 border.width: 1
                 border.color: Qt.rgba(Appearance.colors.colOutlineVariant.r, Appearance.colors.colOutlineVariant.g, Appearance.colors.colOutlineVariant.b, 0.42)
 
-                RowLayout {
+                Row {
                     anchors.centerIn: parent
                     spacing: 4
                     MaterialSymbol {
+                        anchors.verticalCenter: parent.verticalCenter
                         text: "create_new_folder"
                         iconSize: 14
                         color: Appearance.colors.colOnLayer1
                     }
                     Text {
+                        anchors.verticalCenter: parent.verticalCenter
                         visible: !sidebar.isVeryNarrow
                         text: "Project"
                         color: Appearance.colors.colOnLayer1
@@ -245,6 +249,7 @@ Rectangle {
                 spacing: 4
 
                 MaterialSymbol {
+                    Layout.alignment: Qt.AlignVCenter
                     text: "search"
                     iconSize: 13
                     color: Appearance.colors.colSubtext
@@ -655,6 +660,7 @@ Rectangle {
                         Layout.fillWidth: true
                         spacing: 4
                         MaterialSymbol {
+                            Layout.alignment: Qt.AlignVCenter
                             text: "keep"
                             iconSize: 12
                             color: Appearance.colors.colPrimary
@@ -690,6 +696,7 @@ Rectangle {
                         Layout.fillWidth: true
                         spacing: 4
                         MaterialSymbol {
+                            Layout.alignment: Qt.AlignVCenter
                             text: "folder_special"
                             iconSize: 12
                             color: Appearance.colors.colPrimary
@@ -991,6 +998,7 @@ Rectangle {
                             anchors.fill: parent
                             spacing: 4
                             MaterialSymbol {
+                                Layout.alignment: Qt.AlignVCenter
                                 text: "chat_bubble"
                                 iconSize: 12
                                 color: Appearance.colors.colSubtext

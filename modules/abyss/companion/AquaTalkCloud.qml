@@ -297,15 +297,38 @@ Item {
     property real customSidebarWidth: AquaMind.customSidebarWidth > 0 ? AquaMind.customSidebarWidth : 144
     onCustomSidebarWidthChanged: if (AquaMind.customSidebarWidth !== customSidebarWidth)
         AquaMind.customSidebarWidth = customSidebarWidth
+    readonly property real effectiveViewportWidth: root.embeddedMode ? (root.width > 0 ? root.width : root.outputWidth) : root.outputWidth
+    readonly property real minChatColumnWidth: 210
+    readonly property bool canShowBothSidebarsSideBySide: (root.effectiveViewportWidth - 24) >= 680
+    onCanShowBothSidebarsSideBySideChanged: {
+        if (!canShowBothSidebarsSideBySide && root.sidebarOpen && root.swarmOpen)
+            root.sidebarOpen = false;
+    }
     onSidebarOpenChanged: {
         if (sidebarOpen) {
+            if (!root.canShowBothSidebarsSideBySide && root.swarmOpen)
+                root.swarmOpen = false;
             customSidebarWidth = minSidebarWidth;
             AquaMind.customSidebarWidth = minSidebarWidth;
         }
     }
+    onSwarmOpenChanged: {
+        if (swarmOpen && !root.canShowBothSidebarsSideBySide && root.sidebarOpen)
+            root.sidebarOpen = false;
+    }
     readonly property real minSidebarWidth: 144
-    readonly property real maxSidebarWidth: embeddedMode ? Math.max(180, Math.min(360, Math.round((width > 0 ? width : outputWidth) * 0.56))) : Math.max(196, Math.min(340, Math.round((outputWidth - 32) * 0.54)))
-    readonly property real sidebarWidth: (sidebarOpen && editing) ? Math.max(minSidebarWidth, Math.min(maxSidebarWidth, customSidebarWidth)) : 0
+    readonly property real maxSidebarWidth: {
+        const baseMax = embeddedMode
+            ? Math.max(180, Math.min(360, Math.round(root.effectiveViewportWidth * 0.56)))
+            : Math.max(196, Math.min(340, Math.round((outputWidth - 32) * 0.54)));
+        if (root.canShowBothSidebarsSideBySide && (root.swarmOpen || root.swarmExpandProgress > 0.001)) {
+            const swarmReserved = Math.round(root.swarmSidebarTargetWidth * root.swarmExpandProgress) + 10;
+            const avail = Math.max(minSidebarWidth, Math.floor(root.effectiveViewportWidth - 24 - root.minChatColumnWidth - 10 - swarmReserved));
+            return Math.min(baseMax, avail);
+        }
+        return baseMax;
+    }
+    readonly property real sidebarWidth: (sidebarOpen && editing && !root.swarmCoversChatBody) ? Math.max(minSidebarWidth, Math.min(maxSidebarWidth, customSidebarWidth)) : 0
     readonly property real sidebarOffset: sidebarWidth > 0 ? (sidebarWidth + 10) : 0
     function resizeSidebarTo(targetWidth): real {
         const clamped = Math.max(minSidebarWidth, Math.min(maxSidebarWidth, Math.round(Number(targetWidth) || minSidebarWidth)));
@@ -315,15 +338,24 @@ Item {
     }
     property real customSwarmSidebarWidth: 320
     readonly property real minSwarmSidebarWidth: 264
-    readonly property real maxSwarmSidebarWidth: embeddedMode
-        ? Math.max(280, Math.min(440, Math.round((width > 0 ? width : outputWidth) * 0.52)))
-        : Math.max(300, Math.min(460, Math.round((outputWidth - 32) * 0.52)))
-    readonly property bool swarmOverlayInNarrowEmbedded: root.embeddedMode && root.width < 540
+    readonly property real maxSwarmSidebarWidth: {
+        const baseMax = embeddedMode
+            ? Math.max(280, Math.min(440, Math.round(root.effectiveViewportWidth * 0.52)))
+            : Math.max(300, Math.min(460, Math.round((outputWidth - 32) * 0.52)));
+        if (root.canShowBothSidebarsSideBySide && root.sidebarOpen && editing) {
+            const leftReserved = Math.max(minSidebarWidth, Math.min(340, customSidebarWidth)) + 10;
+            const avail = Math.max(minSwarmSidebarWidth, Math.floor(root.effectiveViewportWidth - 24 - root.minChatColumnWidth - 10 - leftReserved));
+            return Math.min(baseMax, avail);
+        }
+        return baseMax;
+    }
+    readonly property bool swarmOverlayInNarrowEmbedded: root.embeddedMode && root.effectiveViewportWidth < 540
+    readonly property bool swarmCoversChatBody: root.swarmOverlayInNarrowEmbedded && (root.swarmOpen || (root.swarmExpandProgress > 0.001 && !root.sidebarOpen))
     readonly property real swarmSidebarTargetWidth: Math.max(minSwarmSidebarWidth, Math.min(maxSwarmSidebarWidth, customSwarmSidebarWidth))
     readonly property real swarmSidebarWidth: (root.swarmOpen || root.swarmExpandProgress > 0.001) && root.editing
         ? (swarmOverlayInNarrowEmbedded ? Math.max(220, root.width - 24) : Math.round(swarmSidebarTargetWidth * Math.max(0.01, root.swarmExpandProgress)))
         : 0
-    readonly property real swarmRightOffset: (!swarmOverlayInNarrowEmbedded && root.editing && (root.swarmOpen || root.swarmExpandProgress > 0.001))
+    readonly property real swarmRightOffset: (!swarmOverlayInNarrowEmbedded && root.editing && (root.swarmOpen || (root.swarmExpandProgress > 0.001 && !root.sidebarOpen)))
         ? (Math.round(swarmSidebarTargetWidth * root.swarmExpandProgress) + 10)
         : 0
     function resizeSwarmSidebarTo(targetWidth): real {
@@ -1520,7 +1552,10 @@ Item {
                     else
                         AquaMind.openChat();
                 }
-                root.sidebarOpen = !root.sidebarOpen;
+                const nextOpen = !root.sidebarOpen;
+                if (nextOpen && !root.canShowBothSidebarsSideBySide && root.swarmOpen)
+                    root.swarmOpen = false;
+                root.sidebarOpen = nextOpen;
                 if (root.sidebarOpen && AquaMind.threads.length === 0)
                     AquaMind.refreshThreads();
             }
@@ -1528,11 +1563,13 @@ Item {
                 extraVisibleCondition: sidebarToggleBtn.buttonHovered
                 text: Translation.tr("Chats & Projects Sidebar")
             }
-            contentItem: MaterialSymbol {
-                anchors.centerIn: parent
-                text: root.sidebarOpen ? "left_panel_close" : "left_panel_open"
-                iconSize: 16
-                color: sidebarToggleBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColor
+            contentItem: Item {
+                MaterialSymbol {
+                    anchors.centerIn: parent
+                    text: root.sidebarOpen ? "left_panel_close" : "left_panel_open"
+                    iconSize: 16
+                    color: sidebarToggleBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColor
+                }
             }
         }
 
@@ -1650,11 +1687,13 @@ Item {
                 extraVisibleCondition: stopTtsQuickBtn.buttonHovered
                 text: Translation.tr("Stop TTS")
             }
-            contentItem: MaterialSymbol {
-                anchors.centerIn: parent
-                text: "stop_circle"
-                iconSize: 15
-                color: Appearance.colors.colError
+            contentItem: Item {
+                MaterialSymbol {
+                    anchors.centerIn: parent
+                    text: "stop_circle"
+                    iconSize: 15
+                    color: Appearance.colors.colError
+                }
             }
         }
 
@@ -1677,11 +1716,13 @@ Item {
                 extraVisibleCondition: pinChatQuickBtn.buttonHovered
                 text: AquaMind.conversationPinned ? Translation.tr("Unpin chat window") : Translation.tr("Pin chat window")
             }
-            contentItem: MaterialSymbol {
-                anchors.centerIn: parent
-                text: "keep"
-                iconSize: 14
-                color: pinChatQuickBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
+            contentItem: Item {
+                MaterialSymbol {
+                    anchors.centerIn: parent
+                    text: "keep"
+                    iconSize: 14
+                    color: pinChatQuickBtn.toggled ? AbyssStyle.accent : AbyssStyle.textColorMuted
+                }
             }
         }
 
@@ -1765,8 +1806,9 @@ Item {
     Loader {
         id: chatSidebarLoader
         objectName: "aquaChatSidebar"
-        active: root.sidebarOpen && root.editing && !root.pocketOpen
+        active: root.sidebarOpen && root.editing && !root.pocketOpen && !root.swarmCoversChatBody
         visible: active
+        z: 4
         x: 12
         y: root.bodyTop
         width: root.sidebarWidth
@@ -1851,10 +1893,11 @@ Item {
 
     Item {
         id: content
-        visible: !root.pocketOpen && !(root.swarmOverlayInNarrowEmbedded && root.swarmOpen)
+        visible: !root.pocketOpen
+        z: 6
         x: 12 + root.sidebarOffset
         y: root.bodyTop
-        width: Math.max(180, parent.width - 24 - root.sidebarOffset - root.swarmRightOffset)
+        width: Math.max(120, parent.width - 24 - root.sidebarOffset - root.swarmRightOffset)
         height: root.editing ? root.height - root.bodyTop - 12 : root.nonEditingContentHeight
         property real spacing: 7
         readonly property real contextRowsImplicitHeight: (todayContextHeader.visible ? todayContextHeader.height + spacing : 0) + (speechText.visible ? speechText.implicitHeight : 0) + (todayContextRows.visible ? spacing + todayContextRows.implicitHeight : 0) + (controlsColumn.visible ? spacing + controlsColumn.targetHeight : 0)
@@ -1925,7 +1968,7 @@ Item {
         Rectangle {
             id: chatCheckInCard
             objectName: "aquaChatCheckInCard"
-            visible: root.editing && !root.editorMode && !root.voiceStageActive
+            visible: root.editing && !root.editorMode && !root.voiceStageActive && !root.swarmCoversChatBody
             x: 0
             y: 0
             width: content.width
@@ -2218,7 +2261,7 @@ Item {
         // Keep empty-state flex spacer active across all profileStage values so controlsColumn stays bottom-aligned
         Item {
             id: emptyStateSpacer
-            visible: root.editing && !root.editorMode && AquaMind.history.length === 0
+            visible: root.editing && !root.editorMode && AquaMind.history.length === 0 && !root.swarmCoversChatBody
             x: 0
             y: chatCheckInCard.visible ? (chatCheckInCard.height + content.spacing) : 0
             width: content.width
@@ -2239,10 +2282,13 @@ Item {
                     color: Appearance.colors.colSubtext
                     font.pixelSize: Appearance.font.pixelSize.small
                 }
-                Flow {
+                GridLayout {
                     objectName: "aquaStarterChipsRow"
+                    anchors.horizontalCenter: parent.horizontalCenter
                     width: parent.width
-                    spacing: 6
+                    columns: width >= 244 ? 2 : 1
+                    columnSpacing: 6
+                    rowSpacing: 6
                     Repeater {
                         model: [
                             { id: "summarize-screen", label: "Summarize screen", icon: "screenshot_monitor", prompt: "Summarize what's on my screen right now", sendNow: true },
@@ -2254,9 +2300,15 @@ Item {
                             id: starterChipBtn
                             required property var modelData
                             objectName: "aquaStarterChip-" + modelData.id
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredHeight: 28
+                            implicitHeight: 28
+                            leftPadding: 0
+                            rightPadding: 0
+                            topPadding: 0
+                            bottomPadding: 0
                             buttonRadius: 10
-                            implicitHeight: 26
-                            implicitWidth: Math.min(parent ? parent.width : 280, starterChipRow.implicitWidth + 16)
                             colBackground: root.colBoxElevated
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.22)
                             onClicked: {
@@ -2269,12 +2321,11 @@ Item {
                                 }
                             }
                             contentItem: Item {
-                                implicitWidth: starterChipRow.implicitWidth
-                                implicitHeight: starterChipRow.implicitHeight
+                                clip: true
                                 Row {
                                     id: starterChipRow
                                     anchors.centerIn: parent
-                                    spacing: 4
+                                    spacing: 5
                                     MaterialSymbol {
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: starterChipBtn.modelData.icon
@@ -2284,6 +2335,9 @@ Item {
                                     StyledText {
                                         anchors.verticalCenter: parent.verticalCenter
                                         verticalAlignment: Text.AlignVCenter
+                                        horizontalAlignment: Text.AlignHCenter
+                                        width: Math.min(implicitWidth, Math.max(24, starterChipBtn.width - 32))
+                                        elide: Text.ElideRight
                                         text: starterChipBtn.modelData.label
                                         font.pixelSize: Appearance.font.pixelSize.smallest
                                         color: Appearance.colors.colOnLayer1
@@ -2297,7 +2351,7 @@ Item {
         }
         Item {
             id: transcriptArea
-            visible: root.editing && !root.editorMode && AquaMind.history.length > 0
+            visible: root.editing && !root.editorMode && AquaMind.history.length > 0 && !root.swarmCoversChatBody
             onVisibleChanged: {
                 if (visible)
                     root.scrollToLatestMessage();
@@ -3294,7 +3348,7 @@ Item {
         Rectangle {
             id: thinkingCard
             objectName: "aquaThinkingCard"
-            visible: root.editing && !root.editorMode && AquaMind.isWorking
+            visible: root.editing && !root.editorMode && AquaMind.isWorking && !root.swarmCoversChatBody
             x: 0
             y: Math.max(0, content.height - (controlsColumn.visible ? controlsColumn.height + content.spacing : 0) - height)
             width: content.width
@@ -5629,15 +5683,15 @@ Item {
                         RippleButton {
                             id: voiceBtn
                             objectName: "aquaChatVoiceButton"
-                            x: Math.max(0, sendBtn.x - width - 4)
+                            x: Math.max(0, sendBtn.x - width - 6)
                             y: Math.round((composerRow.height - height) / 2)
-                            width: 28
+                            width: 30
                             height: 30
-                            implicitWidth: 28
+                            implicitWidth: 30
                             implicitHeight: 30
                             enabled: !AquaMind.busy
                             toggled: root.voiceStageActive
-                            buttonRadius: 14
+                            buttonRadius: 15
                             colBackground: root.voiceStageActive ? ColorUtils.transparentize(root.voiceContainerColor, 0.15) : root.colBoxElevated
                             colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.24)
                             colBackgroundToggled: ColorUtils.transparentize(root.voiceContainerColor, 0.15)
@@ -6205,10 +6259,11 @@ Item {
         objectName: "aquaSwarmRightSidebar"
         x: root.swarmOverlayInNarrowEmbedded ? 12 : (parent.width - 12 - root.swarmSidebarTargetWidth)
         y: root.bodyTop
+        z: 3
         width: root.swarmOverlayInNarrowEmbedded ? (parent.width - 24) : root.swarmSidebarTargetWidth
-        height: Math.max(0, parent.height - root.bodyTop - 12)
+        height: Math.max(0, parent.height - root.bodyTop - 12 - (root.swarmOverlayInNarrowEmbedded && controlsColumn.visible ? (composer.implicitHeight + content.spacing) : 0))
         clip: true
-        active: root.editing && (root.swarmOpen || root.swarmExpandProgress > 0.001)
+        active: root.editing && (root.swarmOpen || (root.swarmExpandProgress > 0.001 && !(root.swarmOverlayInNarrowEmbedded && root.sidebarOpen)))
         asynchronous: status !== Loader.Ready && (typeof Quickshell === "undefined" || Quickshell.env("QT_QUICK_BACKEND") !== "software")
         visible: active
         sourceComponent: Component {
@@ -6253,6 +6308,8 @@ Item {
             AquaMind.openChat();
         if (AquaMind.editorPopupOpen)
             AquaMind.closeEditorPopup();
+        if (!root.canShowBothSidebarsSideBySide && root.sidebarOpen)
+            root.sidebarOpen = false;
         root.swarmOpen = true;
         root.wantsKeyboardFocus = true;
         Qt.callLater(() => {
