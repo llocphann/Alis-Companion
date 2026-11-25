@@ -314,27 +314,47 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
+def cosine_similarity(a: list[float], b: list[float]) -> float:
+    return _cosine_similarity(a, b)
+
+
+_WARM_EMBED_CACHE: dict[tuple[str, str, str], tuple[float, tuple[str, str]]] = {}
+_WARM_EMBED_CACHE_TTL_SEC = 30.0
+
+
 def probe_warm_embedding_model(endpoint: str = "", timeout: float = 0.6) -> tuple[str, str]:
     """Return `(embed_endpoint, model_id)` ONLY if a local embedding model is already warm."""
     test_ep = os.environ.get("ALIS_TEST_EMBED_ENDPOINT", "").strip()
     if os.environ.get("ALIS_TEST_ISOLATED") == "1" and not test_ep and not endpoint:
         return "", ""
 
-    cand_ep = (test_ep or endpoint or os.environ.get("ALIS_AQUA_LOCAL_ENDPOINT") or "http://127.0.0.1:1234/v1/chat/completions").strip()
+    env_local_ep = os.environ.get("ALIS_AQUA_LOCAL_ENDPOINT", "").strip()
+    cache_key = (str(endpoint or "").strip(), test_ep, env_local_ep)
+    if test_ep:
+        res_test = (test_ep, os.environ.get("ALIS_TEST_EMBED_MODEL", "text-embedding-test"))
+        _WARM_EMBED_CACHE[cache_key] = (time.monotonic(), res_test)
+        return res_test
+
+    now_m = time.monotonic()
+    cached = _WARM_EMBED_CACHE.get(cache_key)
+    if cached is not None and (now_m - cached[0]) < _WARM_EMBED_CACHE_TTL_SEC:
+        return cached[1]
+
+    cand_ep = (endpoint or env_local_ep or "http://127.0.0.1:1234/v1/chat/completions").strip()
     parsed = urllib.parse.urlparse(cand_ep)
     host = (parsed.hostname or "").strip().lower()
     if host not in ("127.0.0.1", "localhost", "::1"):
+        _WARM_EMBED_CACHE[cache_key] = (now_m, ("", ""))
         return "", ""
     base = f"{parsed.scheme or 'http'}://{parsed.netloc}"
-
-    if test_ep:
-        return test_ep, os.environ.get("ALIS_TEST_EMBED_MODEL", "text-embedding-test")
 
     def _looks_embed(mid: str, mtype: str = "") -> bool:
         low = mid.lower()
         return "embed" in mtype.lower() or any(k in low for k in ("embed", "bge-", "nomic", "e5-", "minilm", "gte-"))
 
-    if parsed.port == 1234 or "lmstudio" in cand_ep.lower():
+    result: tuple[str, str] = ("", "")
+    probe_default_both = not bool(endpoint.strip() or env_local_ep)
+    if probe_default_both or parsed.port == 1234 or "lmstudio" in cand_ep.lower():
         try:
             with _urlopen_local(f"{base}/api/v0/models", timeout=timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8", errors="replace"))
@@ -342,22 +362,27 @@ def probe_warm_embedding_model(endpoint: str = "", timeout: float = 0.6) -> tupl
                 if isinstance(item, dict) and str(item.get("state") or "").lower() == "loaded":
                     mid = str(item.get("id") or "").strip()
                     if mid and _looks_embed(mid, str(item.get("type") or "")):
-                        return f"{base}/v1/embeddings", mid
+                        result = (f"{base}/v1/embeddings", mid)
+                        break
         except Exception:
             pass
 
-    if parsed.port == 11434 or "ollama" in cand_ep.lower():
+    if not result[0] and (probe_default_both or parsed.port == 11434 or "ollama" in cand_ep.lower()):
+        ollama_base = "http://127.0.0.1:11434" if probe_default_both else base
         try:
-            with _urlopen_local(f"{base}/api/ps", timeout=timeout) as resp:
+            with _urlopen_local(f"{ollama_base}/api/ps", timeout=timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8", errors="replace"))
             for m in (data.get("models") or []):
                 if isinstance(m, dict):
                     mid = str(m.get("name") or "").strip()
                     if mid and _looks_embed(mid):
-                        return f"{base}/v1/embeddings", mid
+                        result = (f"{ollama_base}/v1/embeddings", mid)
+                        break
         except Exception:
             pass
-    return "", ""
+
+    _WARM_EMBED_CACHE[cache_key] = (now_m, result)
+    return result
 
 
 def embed_texts(texts: list[str], endpoint: str, model: str, timeout: float = 4.0) -> list[list[float]]:

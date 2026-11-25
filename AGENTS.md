@@ -32,6 +32,7 @@ Before implementing:
 - If multiple interpretations exist, present them - don't pick silently.
 - If a simpler approach exists, say so. Push back when warranted.
 - If something is unclear, stop. Name what's confusing. Ask.
+- When asking clarifying questions, avoid heavy technical jargon, internal flags, or code identifiers; use plain everyday language with concrete visual or behavioral examples so the owner can easily picture each option.
 
 ### 2. Simplicity First
 

@@ -2113,6 +2113,21 @@ def interact_dom_element(action: str, target: str = "", value: str = "", url: st
                     break
 
     if not matched:
+        import native_host_bridge
+
+        if not native_host_bridge.is_test_or_isolated_env() or os.environ.get("ALIS_TEST_CDP_PORT"):
+            try:
+                import cdp_client
+
+                if cdp_client.probe_cdp_targets():
+                    return cdp_client.cdp_interact(act, tgt, val)
+            except Exception as exc:
+                raise WebToolError("cdp_interact_failed", str(exc)) from exc
+            if not native_host_bridge.is_test_or_isolated_env():
+                raise WebToolError(
+                    "element_not_found",
+                    f"DOM element '{tgt or '(empty)'}' not found in current snapshot and no live CDP browser target responded.",
+                )
         matched = {
             "ref": norm_ref if norm_ref.startswith("e") else "e1",
             "tagRef": f"[{norm_ref if norm_ref.startswith('e') else 'e1'}]",

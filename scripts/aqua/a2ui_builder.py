@@ -693,6 +693,106 @@ def build_hybrid_surface(result: dict[str, Any], *, lang: str = "en") -> dict[st
     return valid
 
 
+def build_schedule_surface(
+    jobs: list[dict[str, Any]],
+    *,
+    title: str = "",
+    language: str = "en",
+    turn_id: str = "",
+    total_active_count: int | None = None,
+) -> dict[str, Any] | None:
+    """Deterministic A2UI v1.0 Schedule / Reminder Card with 1-click cancel_schedule actions."""
+    from datetime import datetime
+
+    if not isinstance(jobs, list):
+        return None
+    vi = str(language or "en").lower().startswith("vi")
+    shown = [j for j in jobs if isinstance(j, dict)][:4]
+    total_cnt = max(len(shown), int(total_active_count)) if total_active_count is not None else len(shown)
+    hdr_title = _short(title or ("Lịch hẹn & Theo dõi" if vi else "Scheduled Jobs & Watches"), 72)
+    sid_seed = turn_id or "|".join(str(j.get("id") or "") for j in shown) or hdr_title
+    sid = _make_surface_id("schedule", sid_seed)
+
+    comps: list[dict[str, Any]] = [
+        {"id": "hdr_icon", "component": "Icon", "name": "alarm", "size": 16, "tone": "accent"},
+        {"id": "hdr_title", "component": "Text", "variant": "body", "text": f"### {hdr_title}"},
+        {"id": "hdr_row", "component": "Row", "gap": 6, "align": "center", "children": ["hdr_icon", "hdr_title"]},
+        {"id": "status_txt", "component": "Text", "variant": "caption", "tone": "accent", "text": {"path": "/statusLabel"}},
+    ]
+    col_children = ["hdr_row", "status_txt"]
+    if shown:
+        if total_cnt > len(shown):
+            status_lbl = (
+                f"Hiển thị {len(shown)} / {total_cnt} tác vụ đang hoạt động"
+                if vi
+                else f"Showing {len(shown)} of {total_cnt} active jobs"
+            )
+        else:
+            status_lbl = f"{total_cnt} " + ("tác vụ đang hoạt động" if vi else "active job(s)")
+    else:
+        status_lbl = "Không có lịch hẹn nào đang chạy" if vi else "No active scheduled jobs"
+    data_model: dict[str, Any] = {
+        "statusLabel": status_lbl,
+    }
+
+    for idx, job in enumerate(shown):
+        jid = str(job.get("id") or f"job_{idx}").strip()[:64]
+        safe_key = re.sub(r"[^A-Za-z0-9_]", "_", jid)
+        jkind = str(job.get("kind") or "reminder")
+        jtitle = _short(job.get("title") or jid, 72)
+        sub_bits: list[str] = [jkind]
+        if job.get("recurrence"):
+            sub_bits.append(str(job["recurrence"]))
+        elif job.get("watchPid") is not None:
+            sub_bits.append(f"PID {job['watchPid']}")
+        elif job.get("dueMs"):
+            try:
+                dt = datetime.fromtimestamp(int(job["dueMs"]) / 1000.0).astimezone()
+                sub_bits.append(dt.strftime("%H:%M %d/%m"))
+            except Exception:
+                pass
+        line_txt = f"**{jtitle}** (`{jid}` — {' · '.join(sub_bits)})"
+        txt_id = f"job_txt_{idx}"
+        btn_id = f"btn_cancel_{idx}"
+        comps.append({"id": txt_id, "component": "Text", "variant": "caption", "text": line_txt, "maxLines": 2})
+        if jid and str(job.get("status") or "active") == "active":
+            comps.extend(
+                _btn_with_label(
+                    btn_id,
+                    f"btn_cancel_lbl_{idx}",
+                    "Huỷ" if vi else "Cancel",
+                    {"event": {"name": "cancel_schedule", "context": {"jobId": jid}}},
+                    variant="secondary",
+                    icon_id=f"btn_cancel_ico_{idx}",
+                    icon_name="close",
+                    disabled={"path": f"/cancelled_{safe_key}"},
+                )
+            )
+            data_model[f"cancelled_{safe_key}"] = False
+            row_id = f"job_row_{idx}"
+            comps.append({"id": row_id, "component": "Row", "gap": 6, "align": "center", "wrap": True, "children": [txt_id, btn_id]})
+            col_children.append(row_id)
+        else:
+            col_children.append(txt_id)
+
+    comps.append({"id": "body_col", "component": "Column", "gap": 6, "children": col_children})
+    comps.append({"id": "root", "component": "Card", "tone": "accent", "child": "body_col"})
+
+    raw_surface = {
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": sid,
+            "catalogId": a2ui_validator.DEFAULT_CATALOG_ID,
+            "sendDataModel": False,
+            "surfaceMeta": {"kind": "schedule", "interactive": any(str(j.get("status") or "active") == "active" for j in shown)},
+            "components": comps,
+            "dataModel": data_model,
+        },
+    }
+    valid, _err = a2ui_validator.validate_and_sanitize_surface(raw_surface)
+    return valid
+
+
 def build_surface_for_turn(
     result: dict[str, Any],
     *,
@@ -707,6 +807,17 @@ def build_surface_for_turn(
     # Priority 1: Confirmation Card (interactive gate) always takes precedence over generative cards
     if result.get("requiresConfirmation") is True or result.get("requiresSudoPassword") is True:
         return build_confirmation_surface(result, lang=lang)
+
+    # Priority 1b: Persistent Scheduler / Process Watch Card
+    if isinstance(result.get("scheduleJobs"), list) and result.get("scheduleJobs"):
+        sched_surf = build_schedule_surface(
+            result["scheduleJobs"],
+            language=lang,
+            turn_id=str(result.get("runId") or ""),
+            total_active_count=result.get("scheduleTotalCount"),
+        )
+        if sched_surf is not None:
+            return sched_surf
 
     # Preserve Tier 2 generative surface if the LLM already emitted a valid one on this turn
     if isinstance(result.get("uiSurface"), dict):

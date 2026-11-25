@@ -30,6 +30,37 @@ if str(SCRIPT_DIR) not in sys.path:
 DEFAULT_IDLE_SEC = 300
 MAX_REQUEST_BYTES = 98304
 
+_CORE_MTIME_FILES = (
+    "companion_daemon.py",
+    "local_mind.py",
+    "agent_runtime.py",
+    "a2ui_actions.py",
+    "a2ui_builder.py",
+    "a2ui_validator.py",
+    "desktop_control.py",
+    "screen_context.py",
+    "scheduler_store.py",
+    "cdp_client.py",
+    "mcp_client.py",
+    "native_host_bridge.py",
+)
+_DAEMON_SCRIPT_PATH = str(Path(__file__).resolve())
+
+
+def _compute_core_source_mtime() -> int:
+    newest = 0
+    for fname in _CORE_MTIME_FILES:
+        try:
+            st = (SCRIPT_DIR / fname).stat()
+            if st.st_mtime_ns > newest:
+                newest = st.st_mtime_ns
+        except OSError:
+            continue
+    return newest
+
+
+_DAEMON_SOURCE_MTIME = _compute_core_source_mtime()
+
 
 def resolve_socket_path() -> Path:
     explicit = str(os.environ.get("ALIS_COMPANION_DAEMON_SOCK") or "").strip()
@@ -189,6 +220,10 @@ def _prewarm_modules() -> list[str]:
         "mcp_client",
         "a2ui_validator",
         "a2ui_builder",
+        "a2ui_actions",
+        "agent_tool_schemas",
+        "scheduler_store",
+        "cdp_client",
         "agent_runtime",
     ):
         try:
@@ -221,6 +256,8 @@ def _handle_daemon_op(op: str, payload: dict, sock_path: Path, prewarmed: list[s
                 "pid": os.getpid(),
                 "socket": str(sock_path),
                 "activeRequests": active_cnt,
+                "scriptPath": _DAEMON_SCRIPT_PATH,
+                "sourceMtime": _DAEMON_SOURCE_MTIME,
             },
         }
     if op == "status":
@@ -237,6 +274,8 @@ def _handle_daemon_op(op: str, payload: dict, sock_path: Path, prewarmed: list[s
                 "activeRequests": len(active_ids),
                 "activeRequestIds": active_ids,
                 "loadedModules": list(prewarmed),
+                "scriptPath": _DAEMON_SCRIPT_PATH,
+                "sourceMtime": _DAEMON_SOURCE_MTIME,
             },
         }
     if op == "cancel_request":
@@ -323,6 +362,24 @@ def _serve_client(conn: socket.socket, sock_path: Path, prewarmed: list[str], to
         if daemon_op:
             _send_obj(_handle_daemon_op(daemon_op, parsed, sock_path, prewarmed))
             return
+
+        exp_mtime = parsed.get("_expectedSourceMtime")
+        if exp_mtime is not None:
+            try:
+                if int(exp_mtime) != _DAEMON_SOURCE_MTIME:
+                    _send_obj({
+                        "type": "result",
+                        "payload": {
+                            "ok": False,
+                            "error": {
+                                "code": "daemon_version_mismatch",
+                                "message": "Daemon source version is stale and must restart.",
+                            },
+                        },
+                    })
+                    return
+            except (TypeError, ValueError):
+                pass
 
         import local_mind
 
@@ -520,7 +577,16 @@ def is_daemon_running(sock_path: Path | None = None, timeout: float = 0.4) -> bo
         return False
     try:
         resp = _raw_socket_call({"daemonOp": "ping"}, target, timeout=timeout)
-        return bool(isinstance(resp, dict) and resp.get("ok") and (resp.get("result") or {}).get("alive"))
+        if not (isinstance(resp, dict) and resp.get("ok") and isinstance(resp.get("result"), dict)):
+            return False
+        res = resp["result"]
+        if not res.get("alive"):
+            return False
+        if res.get("scriptPath") and str(res.get("scriptPath")) != _DAEMON_SCRIPT_PATH:
+            return False
+        if res.get("sourceMtime") is not None and int(res.get("sourceMtime")) != _compute_core_source_mtime():
+            return False
+        return True
     except Exception:
         return False
 
@@ -570,6 +636,8 @@ def ensure_daemon_running(sock_path: Path | None = None, timeout: float = 5.0) -
         try:
             if is_daemon_running(target):
                 return True
+            if target.exists():
+                shutdown_daemon(target, timeout=1.0)
             env = dict(os.environ)
             env["ALIS_COMPANION_DAEMON_SOCK"] = str(target)
             spawn_cmd = [sys.executable, str(Path(__file__).resolve()), "--daemon"]
@@ -595,34 +663,16 @@ def ensure_daemon_running(sock_path: Path | None = None, timeout: float = 5.0) -
     return False
 
 
-def call_via_daemon(
-    payload: dict,
-    sock_path: Path | None = None,
-    *,
-    auto_start: bool = True,
-    timeout: float = 240.0,
-    on_stderr: Callable[[str], None] | None = None,
-    on_stdout: Callable[[str], None] | None = None,
+def _exchange_daemon_request(
+    raw: bytes,
+    target: Path,
+    timeout: float,
+    on_stderr: Callable[[str], None] | None,
+    on_stdout: Callable[[str], None] | None,
 ) -> dict:
-    """Send a companion dispatch payload through the Unix-socket daemon and stream events."""
-    target = Path(sock_path) if sock_path else resolve_socket_path()
-    if auto_start and not is_daemon_running(target):
-        if not ensure_daemon_running(target):
-            raise RuntimeError("daemon_unavailable")
-
-    wire = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
-    raw = wire.encode("utf-8")
-    if len(raw) > MAX_REQUEST_BYTES:
-        return {"ok": False, "error": {"code": "request_too_large", "message": "Companion request exceeded the limit"}}
-
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
         s.settimeout(timeout)
-        try:
-            s.connect(str(target))
-        except (ConnectionRefusedError, FileNotFoundError):
-            raise
-        except OSError as exc:
-            raise RuntimeError("daemon_unavailable") from exc
+        s.connect(str(target))
         s.sendall(raw)
         reader = s.makefile("r", encoding="utf-8", errors="replace")
         for line in reader:
@@ -652,6 +702,46 @@ def call_via_daemon(
             elif "ok" in msg:
                 return msg
     raise RuntimeError("daemon_eof")
+
+
+def call_via_daemon(
+    payload: dict,
+    sock_path: Path | None = None,
+    *,
+    auto_start: bool = True,
+    timeout: float = 240.0,
+    on_stderr: Callable[[str], None] | None = None,
+    on_stdout: Callable[[str], None] | None = None,
+) -> dict:
+    """Send a companion dispatch payload through the Unix-socket daemon and stream events."""
+    target = Path(sock_path) if sock_path else resolve_socket_path()
+    req_payload = dict(payload) if isinstance(payload, dict) else {}
+    req_payload.setdefault("_expectedSourceMtime", _compute_core_source_mtime())
+    wire = json.dumps(req_payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+    raw = wire.encode("utf-8")
+    if len(raw) > MAX_REQUEST_BYTES:
+        return {"ok": False, "error": {"code": "request_too_large", "message": "Companion request exceeded the limit"}}
+
+    for attempt in range(2):
+        try:
+            resp = _exchange_daemon_request(raw, target, timeout, on_stderr, on_stdout)
+            err_code = str(((resp.get("error") or {}).get("code") or "")) if isinstance(resp, dict) else ""
+            if err_code == "daemon_version_mismatch" and auto_start and attempt == 0:
+                shutdown_daemon(target, timeout=1.0)
+                if ensure_daemon_running(target):
+                    continue
+            return resp
+        except (ConnectionRefusedError, FileNotFoundError):
+            if auto_start and attempt == 0:
+                if ensure_daemon_running(target):
+                    continue
+            raise
+        except OSError as exc:
+            if auto_start and attempt == 0:
+                if ensure_daemon_running(target):
+                    continue
+            raise RuntimeError("daemon_unavailable") from exc
+    raise RuntimeError("daemon_unavailable")
 
 
 def run_daemon_cli(argv: list[str] | None = None) -> int:

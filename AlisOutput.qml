@@ -847,7 +847,12 @@ Item {
                     const act = String(AquaMind.agentCursorAction || "click").trim();
                     const verb = (act === "fill" || act === "set_text" || act === "type")
                         ? "Typing"
-                        : (act === "focus_element" ? "Focusing" : (act === "move" ? "Moving" : "Clicking"));
+                        : (act === "focus_element" ? "Focusing"
+                            : (act === "move" ? "Moving"
+                                : (act === "scroll" ? "Scrolling"
+                                    : (act === "drag" ? "Dragging"
+                                        : (act === "double_click" ? "Double-clicking"
+                                            : (act === "right_click" ? "Right-clicking" : "Clicking"))))));
                     if (refTag && lbl)
                         return "✦ " + refTag + " · " + lbl;
                     if (refTag)

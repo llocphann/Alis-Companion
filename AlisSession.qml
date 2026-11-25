@@ -177,6 +177,7 @@ Item {
             quietIdleSettle.stop()
             root.companionMotionSettled=false
             root.quietIdle=false
+            coworkController.markActivity()
         }
     }
     Connections {
@@ -414,6 +415,31 @@ function pocket(): void {
     for (const window of root.outputHosts)
         if(window.outputName===root.companionTargetOutput && window.extension?.requestCompanionPocket)
             window.extension.requestCompanionPocket()
+}
+function sendFiles(pathsJson): void {
+    const raw = String(pathsJson ?? "").trim()
+    if (!raw) return
+    let list = []
+    try {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) list = parsed
+        else if (typeof parsed === "string" && parsed.trim().length > 0) list = [parsed]
+    } catch (_e) {
+        list = [raw]
+    }
+    const urls = list
+        .map(p => String(p ?? "").trim())
+        .filter(p => p.length > 0)
+        .map(p => p.startsWith("file://") ? p : ("file://" + p.split("/").map(seg => encodeURIComponent(seg)).join("/")))
+    if (urls.length === 0) return
+    companionBridge.show()
+    companionBridge.sendEvent("hover", true)
+    if (AquaPocket.permitted) {
+        AquaPocket.addFilesBatched(urls, "picker", true)
+        for (const window of root.outputHosts)
+            if (window.outputName === root.companionTargetOutput && window.extension?.requestCompanionPocket)
+                window.extension.requestCompanionPocket()
+    }
 }
 function previewProp(kind): void {
     if (!root.companionSessionVisible) return

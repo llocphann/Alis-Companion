@@ -59,13 +59,13 @@ var PRIVILEGED_FUNCTION_CALLS = _makeAllowMap([
 ])
 
 var ALLOWED_SERVER_EVENTS = _makeAllowMap([
-    "confirm_action", "send_prompt", "followup_prompt", "choice_submit",
+    "confirm_action", "cancel_schedule", "send_prompt", "followup_prompt", "choice_submit",
     "checklist_toggle", "plan_toggle", "rollback_receipt", "run_tests",
     "open_editor", "save_pocket", "form_submit", "slider_change"
 ])
 
 var PRIVILEGED_SERVER_EVENTS = _makeAllowMap([
-    "confirm_action", "rollback_receipt", "run_tests", "open_editor"
+    "confirm_action", "cancel_schedule", "rollback_receipt", "run_tests", "open_editor"
 ])
 
 var TAINTED_ALLOWED_SERVER_EVENTS = _makeAllowMap([

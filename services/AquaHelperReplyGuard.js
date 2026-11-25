@@ -148,6 +148,9 @@ function validResult(action, result) {
         && result.ephemeral === true
     if (action === "voice_action") return (typeof result.ok === "boolean" || ["completed", "failed"].includes(result.status))
         && (result.summary === undefined || string(result.summary, 400, false))
+    if (action === "scheduler_action") return typeof result.ok === "boolean"
+        && (result.jobs === undefined || Array.isArray(result.jobs))
+        && (result.fired === undefined || Array.isArray(result.fired))
     if (action === "model_route") return ["action", "thinking"].includes(result.role)
         && string(result.roleLabel, 64, false)
         && string(result.category, 64, false)
@@ -174,8 +177,10 @@ function validResult(action, result) {
     if (action === "screenshot_retention") return [7, 14, 30, 90].includes(result.retentionDays)
         && Array.isArray(result.allowedDays) && integer(result.prunedCount, 0, Number.MAX_SAFE_INTEGER)
         && integer(result.remainingCount, 0, Number.MAX_SAFE_INTEGER)
-    if (action === "rag_action") return ["list", "add", "remove", "query"].includes(result.op)
-        && (Array.isArray(result.sources) || Array.isArray(result.snippets))
+    if (action === "rag_action") return ["list", "add", "remove", "query", "nexus_status", "reindex_nexus", "backfill_embeddings"].includes(result.op)
+        && (Array.isArray(result.sources) || Array.isArray(result.snippets) || integer(result.embedded, 0, Number.MAX_SAFE_INTEGER) || object(result.stats))
+    if (action === "desktop_action") return result.op === "clipboard_paste_image"
+        && typeof result.ok === "boolean" && path(result.path, true)
     if (action === "mcp_action") return ["list_servers", "add_server", "remove_server", "enable_server", "disable_server", "check_updates", "update_server", "list_tools", "call_tool", "list_resources", "read_resource", "list_prompts"].includes(result.op)
     if (action === "skill_action") return ["list", "inspect", "view", "reference", "match", "run", "create", "patch", "learn", "write_reference", "feedback", "reflections", "enable", "disable", "delete"].includes(result.op)
     if (action === "swarm_action") return ["get", "run", "post", "add_member", "remove_member", "stop", "clear"].includes(result.op)
@@ -239,7 +244,7 @@ function validResult(action, result) {
 function invalid() { return {ok:false, malformed:true, error:{message:invalidMessage}} }
 
 function parse(action, raw, exitCode) {
-    if (typeof raw !== "string" || raw.length > (["memory_list", "agent_file_op", "file_receipt_rollback", "read_spill", "context_enqueue", "context_drain", "primary_selection_get", "export_finetune", "pocket_save_item", "agent_turn", "a2ui_action", "rag_action", "mcp_action", "skill_action", "swarm_action", "agent_status", "chat_threads", "history", "history_append", "history_append_cancelled", "history_clear"].includes(action) ? 786432 : 32768) || exitCode !== 0) return invalid()
+    if (typeof raw !== "string" || raw.length > (["memory_list", "agent_file_op", "file_receipt_rollback", "read_spill", "context_enqueue", "context_drain", "primary_selection_get", "export_finetune", "pocket_save_item", "agent_turn", "a2ui_action", "scheduler_action", "rag_action", "mcp_action", "skill_action", "swarm_action", "agent_status", "chat_threads", "history", "history_append", "history_append_cancelled", "history_clear"].includes(action) ? 786432 : 32768) || exitCode !== 0) return invalid()
     const cleaned = raw.indexOf("__AQUA_") !== -1
         ? raw.split("\n").filter(ln => !ln.startsWith("__AQUA_CURSOR__:") && !ln.startsWith("__AQUA_STEP__:") && !ln.startsWith("__AQUA_SWARM__:") && !ln.startsWith("__AQUA_PROGRESS__:")).join("\n")
         : raw

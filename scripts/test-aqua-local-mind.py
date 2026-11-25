@@ -264,7 +264,11 @@ class Tests(unittest.TestCase):
             package=mind.HOST/'optional/alis-intergration'
             if package.is_dir():
                 copied=host/'optional/alis-intergration';shutil.copytree(package,copied)
-                (copied/'scripts/todo/obsidian_todo.py').write_text("raise RuntimeError('modified helper executed')\n")
+                for rel in ('plugins/nexus/scripts/todo/nexus_todo.py','scripts/todo/nexus_todo.py','scripts/todo/obsidian_todo.py'):
+                    target=copied/rel
+                    if target.is_file():
+                        target.write_text("raise RuntimeError('modified helper executed')\n")
+                        break
                 tampered=call(request)
                 self.assertFalse(tampered['ok']);self.assertEqual(tampered['error']['code'],'integration_unavailable')
                 self.assertTrue(call({'action':'history'})['ok'])

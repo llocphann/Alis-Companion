@@ -18,17 +18,25 @@ Item {
     property int epoch: -1
     property string reason: "initial"
     property var pose: null
+    property real lastActivityMs: 0
 
+    function markActivity(): void {
+        lastActivityMs = clock()
+        if (active)
+            step()
+    }
     function resetCharacter(): void {
         if (performanceState && directorState && performanceState.phase !== "none")
             Performance.yieldNow(performanceState, directorState, "character_changed")
         performanceState = Performance.newState(character === "octo" ? "octo" : "aqua")
+        lastActivityMs = clock()
         step()
     }
     function revoke(): void {
         tick.stop()
         if (performanceState && directorState)
             Performance.yieldNow(performanceState, directorState, "revoked")
+        lastActivityMs = 0
         active = false
         renderProp = false
         phase = "none"
@@ -82,6 +90,8 @@ Item {
         }
         const now = clock()
         const v = Performance.update(performanceState, directorState, hostContext, now)
+        if (phase !== v.phase || clip !== v.clip || epoch !== v.epoch)
+            lastActivityMs = now
         if (active !== v.active) active = v.active
         if (renderProp !== v.renderProp) renderProp = v.renderProp
         if (phase !== v.phase) phase = v.phase
@@ -104,7 +114,10 @@ Item {
                     tick.stop()
                 }
             } else {
-                const targetInterval = (v.phase === "loop" ? 50 : 33)
+                const idleSteadyLoop = v.phase === "loop" && !blending && !settling
+                    && root.powerProfile !== "performance"
+                    && ((root.lastActivityMs > 0 && (now - root.lastActivityMs) >= 15000) || root.quietSettled)
+                const targetInterval = idleSteadyLoop ? 250 : (v.phase === "loop" ? 50 : 33)
                 if (tick.interval !== targetInterval) tick.interval = targetInterval
                 if (!tick.running) tick.start()
             }
@@ -116,6 +129,7 @@ Item {
         if (!performanceState || !directorState) return false
         const res = Performance.cue(performanceState, directorState, kind, clock())
         if (!res.accepted) return false
+        lastActivityMs = clock()
         step()
         return true
     }

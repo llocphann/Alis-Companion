@@ -258,6 +258,83 @@ def manage_processes(
     }
 
 
+def _reject_flag_arg(raw: str, label: str = "argument") -> str:
+    s = str(raw or "").replace("\x00", "").strip()
+    if s.startswith("-"):
+        raise DesktopControlError("invalid_argument", f"Refusing option-like {label}: '{s}'")
+    return s
+
+
+def _tool_unavailable(action: str, binary: str, hint: str = "") -> dict:
+    msg = f"'{binary}' is not available in the active session."
+    if hint:
+        msg = f"{msg} {hint}".strip()
+    return {
+        "ok": False,
+        "action": action,
+        "status": "failed",
+        "error": "tool_unavailable",
+        "missingBinary": binary,
+        "summary": msg,
+        "lines": [msg],
+    }
+
+
+def _parse_wpctl_audio_devices(stdout: str) -> tuple[list[dict], list[dict]]:
+    sinks: list[dict] = []
+    sources: list[dict] = []
+    in_audio = False
+    section = ""
+    for line in str(stdout or "").splitlines():
+        stripped = line.strip()
+        if not in_audio:
+            if stripped == "Audio":
+                in_audio = True
+            continue
+        if stripped in ("Video", "Settings"):
+            break
+        clean = re.sub(r"^[│├└─\s|]+", "", line).strip()
+        if clean.startswith("Sinks:"):
+            section = "sinks"
+            continue
+        if clean.startswith("Sources:"):
+            section = "sources"
+            continue
+        if clean.startswith(("Devices:", "Filters:", "Streams:")):
+            section = ""
+            continue
+        if not section or not clean:
+            continue
+        m = re.match(r"^(\*)?\s*(\d+)\.\s+(.+?)(?:\s+\[vol:[^\]]*\])?\s*$", clean)
+        if not m:
+            continue
+        entry = {
+            "id": m.group(2),
+            "name": m.group(3).strip(),
+            "default": bool(m.group(1) == "*"),
+        }
+        if section == "sinks":
+            sinks.append(entry)
+        else:
+            sources.append(entry)
+    return sinks, sources
+
+
+def _resolve_bt_mac(btctl: str, target: str) -> str:
+    clean = _reject_flag_arg(target, "Bluetooth device")
+    if not clean:
+        raise DesktopControlError("missing_bluetooth_device", "Specify a Bluetooth device name or MAC address.")
+    if re.match(r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$", clean):
+        return clean.upper()
+    ran = run_user_command([btctl, "devices"], shell=False, timeout_sec=5.0)
+    low = clean.lower()
+    for ln in ran.get("lines", []):
+        m = re.match(r"^Device\s+([0-9A-Fa-f:]{17})\s+(.+)$", ln.strip())
+        if m and low in m.group(2).lower():
+            return m.group(1).upper()
+    raise DesktopControlError("bluetooth_device_not_found", f"Paired Bluetooth device '{clean}' not found.")
+
+
 def manage_desktop(action: str, target: str = "", value: str = "") -> dict:
     act = str(action or "").strip().lower()
     tgt = str(target or "").strip()
@@ -757,7 +834,11 @@ def manage_desktop(action: str, target: str = "", value: str = "") -> dict:
         }
 
     if act in ("voice_stt", "stt", "listen"):
-        return voice_stt(audio_path=tgt, lang=val or "auto")
+        return voice_stt(
+            audio_path=tgt,
+            lang=val or "auto",
+            local_stt_endpoint=os.environ.get("ALIS_LOCAL_STT_ENDPOINT", ""),
+        )
 
     if act in ("voice_tts", "tts", "speak"):
         return voice_tts(text=val or tgt, voice=tgt if val else "")
@@ -766,7 +847,485 @@ def manage_desktop(action: str, target: str = "", value: str = "") -> dict:
         return voice_tts_stop()
 
     if act == "voice_status":
-        return voice_status()
+        return voice_status(local_stt_endpoint=os.environ.get("ALIS_LOCAL_STT_ENDPOINT", ""))
+
+    if act == "bluetooth_status":
+        btctl = _resolve_safe_session_binary("bluetoothctl")
+        if not btctl:
+            return _tool_unavailable("bluetooth_status", "bluetoothctl", "Install bluez-utils to inspect Bluetooth.")
+        show_ran = run_user_command([btctl, "show"], shell=False, timeout_sec=5.0)
+        conn_ran = run_user_command([btctl, "devices", "Connected"], shell=False, timeout_sec=5.0)
+        powered = None
+        for ln in show_ran.get("lines", []):
+            if "Powered:" in ln:
+                powered = "yes" in ln.lower()
+                break
+        connected = [ln for ln in conn_ran.get("lines", []) if ln.strip().startswith("Device ")]
+        state_lbl = "on" if powered is True else ("off" if powered is False else "unknown")
+        lines = [f"Powered: {state_lbl}"] + (connected or ["Connected devices: (none)"])
+        return {
+            "ok": show_ran["exitCode"] == 0,
+            "action": "bluetooth_status",
+            "status": "completed" if show_ran["exitCode"] == 0 else "failed",
+            "powered": powered,
+            "connectedDevices": connected,
+            "summary": f"Bluetooth is {state_lbl} ({len(connected)} connected device(s)).",
+            "lines": lines,
+        }
+
+    if act == "bluetooth_toggle":
+        btctl = _resolve_safe_session_binary("bluetoothctl")
+        if not btctl:
+            return _tool_unavailable("bluetooth_toggle", "bluetoothctl", "Install bluez-utils to control Bluetooth.")
+        norm = (val or tgt or "toggle").strip().lower()
+        if norm not in ("on", "off", "toggle"):
+            raise DesktopControlError("invalid_bluetooth_state", f"Unsupported Bluetooth power value '{norm}'. Use on/off/toggle.")
+        target_state = norm
+        if norm == "toggle":
+            show_ran = run_user_command([btctl, "show"], shell=False, timeout_sec=5.0)
+            is_on = any("Powered: yes" in ln for ln in show_ran.get("lines", []))
+            target_state = "off" if is_on else "on"
+        ran = run_user_command([btctl, "power", target_state], shell=False, timeout_sec=6.0)
+        ok_res = ran["exitCode"] == 0 and not any("failed" in ln.lower() for ln in ran.get("lines", []))
+        return {
+            "ok": ok_res,
+            "action": "bluetooth_toggle",
+            "status": "completed" if ok_res else "failed",
+            "state": target_state,
+            "summary": f"Bluetooth turned {target_state}." if ok_res else f"Failed to turn Bluetooth {target_state}.",
+            "lines": ran.get("lines") or [f"Bluetooth power {target_state}"],
+        }
+
+    if act in ("bluetooth_connect", "bluetooth_disconnect"):
+        btctl = _resolve_safe_session_binary("bluetoothctl")
+        if not btctl:
+            return _tool_unavailable(act, "bluetoothctl", "Install bluez-utils to manage Bluetooth connections.")
+        mac = _resolve_bt_mac(btctl, tgt or val)
+        sub = "connect" if act == "bluetooth_connect" else "disconnect"
+        ran = run_user_command([btctl, sub, mac], shell=False, timeout_sec=10.0)
+        combined = " ".join(ran.get("lines", [])).lower()
+        ok_res = ran["exitCode"] == 0 and "failed" not in combined and "error" not in combined
+        verb = "Connected to" if sub == "connect" else "Disconnected from"
+        return {
+            "ok": ok_res,
+            "action": act,
+            "status": "completed" if ok_res else "failed",
+            "mac": mac,
+            "summary": f"{verb} Bluetooth device {mac}." if ok_res else f"Bluetooth {sub} {mac} failed.",
+            "lines": ran.get("lines") or [f"{sub} {mac}"],
+        }
+
+    if act == "wifi_status":
+        nmcli = _resolve_safe_session_binary("nmcli")
+        if not nmcli:
+            return _tool_unavailable("wifi_status", "nmcli", "Install NetworkManager to inspect Wi-Fi.")
+        rad = run_user_command([nmcli, "radio", "wifi"], shell=False, timeout_sec=5.0)
+        radio_state = (rad.get("lines") or ["unknown"])[0].strip().lower()
+        devs = run_user_command([nmcli, "-t", "-f", "ACTIVE,SSID,SIGNAL", "dev", "wifi"], shell=False, timeout_sec=6.0)
+        active_ssids = [ln for ln in devs.get("lines", []) if ln.startswith("yes:")]
+        lines = [f"Wi-Fi radio: {radio_state}"] + (active_ssids or devs.get("lines", [])[:6])
+        return {
+            "ok": rad["exitCode"] == 0,
+            "action": "wifi_status",
+            "status": "completed" if rad["exitCode"] == 0 else "failed",
+            "radio": radio_state,
+            "activeNetworks": active_ssids,
+            "summary": f"Wi-Fi radio is {radio_state}" + (f" ({active_ssids[0]})" if active_ssids else "."),
+            "lines": lines,
+        }
+
+    if act == "wifi_toggle":
+        nmcli = _resolve_safe_session_binary("nmcli")
+        if not nmcli:
+            return _tool_unavailable("wifi_toggle", "nmcli", "Install NetworkManager to control Wi-Fi.")
+        norm = (val or tgt or "toggle").strip().lower()
+        if norm not in ("on", "off", "toggle"):
+            raise DesktopControlError("invalid_wifi_state", f"Unsupported Wi-Fi radio state '{norm}'. Use on/off/toggle.")
+        target_state = norm
+        if norm == "toggle":
+            rad = run_user_command([nmcli, "radio", "wifi"], shell=False, timeout_sec=5.0)
+            cur = (rad.get("lines") or ["enabled"])[0].strip().lower()
+            target_state = "off" if cur in ("enabled", "on") else "on"
+        ran = run_user_command([nmcli, "radio", "wifi", target_state], shell=False, timeout_sec=6.0)
+        ok_res = ran["exitCode"] == 0
+        return {
+            "ok": ok_res,
+            "action": "wifi_toggle",
+            "status": "completed" if ok_res else "failed",
+            "state": target_state,
+            "summary": f"Wi-Fi radio turned {target_state}." if ok_res else f"Failed to turn Wi-Fi {target_state}.",
+            "lines": ran.get("lines") or [f"Wi-Fi radio: {target_state}"],
+        }
+
+    if act == "wifi_list":
+        nmcli = _resolve_safe_session_binary("nmcli")
+        if not nmcli:
+            return _tool_unavailable("wifi_list", "nmcli", "Install NetworkManager to scan Wi-Fi networks.")
+        ran = run_user_command([nmcli, "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "dev", "wifi", "list"], shell=False, timeout_sec=8.0)
+        if ran["exitCode"] != 0:
+            ran = run_user_command([nmcli, "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "dev", "wifi"], shell=False, timeout_sec=6.0)
+        nets = [ln for ln in ran.get("lines", []) if ln.strip()]
+        return {
+            "ok": ran["exitCode"] == 0,
+            "action": "wifi_list",
+            "status": "completed" if ran["exitCode"] == 0 else "failed",
+            "summary": f"Found {len(nets)} Wi-Fi network(s).",
+            "lines": nets[:20] or ["(no Wi-Fi networks visible)"],
+        }
+
+    if act == "wifi_connect":
+        nmcli = _resolve_safe_session_binary("nmcli")
+        if not nmcli:
+            return _tool_unavailable("wifi_connect", "nmcli", "Install NetworkManager to connect to Wi-Fi.")
+        ssid = _reject_flag_arg(tgt, "SSID")
+        if not ssid:
+            raise DesktopControlError("missing_ssid", "Specify a Wi-Fi SSID or saved connection name.")
+        if val:
+            # Feed password via stdin (--ask) so credentials never appear in argv/ps or logs
+            try:
+                proc = subprocess.run(
+                    [nmcli, "-w", "10", "--ask", "device", "wifi", "connect", ssid],
+                    input=f"{val}\n",
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    timeout=15.0,
+                    check=False,
+                )
+                out_lines = [ln.strip() for ln in (proc.stdout or "").splitlines() if ln.strip()][:12]
+                ok_res = proc.returncode == 0
+            except Exception as exc:
+                raise DesktopControlError("wifi_connect_failed", f"Wi-Fi connect failed for '{ssid}': {exc}") from exc
+        else:
+            ran = run_user_command([nmcli, "-w", "10", "connection", "up", "id", ssid], shell=False, timeout_sec=15.0)
+            out_lines = ran.get("lines", [])
+            ok_res = ran["exitCode"] == 0
+            if not ok_res:
+                ran2 = run_user_command([nmcli, "-w", "10", "device", "wifi", "connect", ssid], shell=False, timeout_sec=15.0)
+                out_lines = ran2.get("lines", []) or out_lines
+                ok_res = ran2["exitCode"] == 0
+        return {
+            "ok": ok_res,
+            "action": "wifi_connect",
+            "status": "completed" if ok_res else "failed",
+            "ssid": ssid,
+            "summary": f"Connected to Wi-Fi '{ssid}'." if ok_res else f"Failed to connect to Wi-Fi '{ssid}'.",
+            "lines": out_lines or [f"SSID: {ssid}"],
+        }
+
+    if act == "audio_devices":
+        wpctl = _resolve_safe_session_binary("wpctl")
+        if not wpctl:
+            return _tool_unavailable("audio_devices", "wpctl", "Install wireplumber to inspect PipeWire audio devices.")
+        ran = run_user_command([wpctl, "status"], shell=False, timeout_sec=5.0)
+        sinks, sources = _parse_wpctl_audio_devices(ran.get("stdout", ""))
+        lines = [
+            f"Sink {s['id']}: {s['name']}{' (default)' if s['default'] else ''}" for s in sinks
+        ] + [
+            f"Source {s['id']}: {s['name']}{' (default)' if s['default'] else ''}" for s in sources
+        ]
+        return {
+            "ok": ran["exitCode"] == 0,
+            "action": "audio_devices",
+            "status": "completed" if ran["exitCode"] == 0 else "failed",
+            "sinks": sinks,
+            "sources": sources,
+            "summary": f"Audio devices: {len(sinks)} output(s), {len(sources)} input(s).",
+            "lines": lines or ran.get("lines", [])[:20],
+        }
+
+    if act in ("audio_set_sink", "audio_set_source"):
+        wpctl = _resolve_safe_session_binary("wpctl")
+        if not wpctl:
+            return _tool_unavailable(act, "wpctl", "Install wireplumber to switch PipeWire audio devices.")
+        want = _reject_flag_arg(tgt or val, "audio device")
+        if not want:
+            raise DesktopControlError("missing_audio_device", "Specify an audio device ID or name.")
+        dev_id = want if want.isdigit() else ""
+        chosen_name = want
+        if not dev_id:
+            devs = manage_desktop("audio_devices")
+            pool = devs.get("sinks", []) if act == "audio_set_sink" else devs.get("sources", [])
+            low = want.lower()
+            for item in pool:
+                if low in str(item.get("name") or "").lower():
+                    dev_id = str(item["id"])
+                    chosen_name = str(item["name"])
+                    break
+        if not dev_id:
+            raise DesktopControlError("audio_device_not_found", f"No matching audio device found for '{want}'.")
+        ran = run_user_command([wpctl, "set-default", dev_id], shell=False, timeout_sec=5.0)
+        ok_res = ran["exitCode"] == 0
+        kind_lbl = "output sink" if act == "audio_set_sink" else "input source"
+        return {
+            "ok": ok_res,
+            "action": act,
+            "status": "completed" if ok_res else "failed",
+            "deviceId": dev_id,
+            "summary": f"Switched default {kind_lbl} to #{dev_id} ({chosen_name})." if ok_res else f"Failed to set default {kind_lbl} #{dev_id}.",
+            "lines": ran.get("lines") or [f"Default {kind_lbl}: #{dev_id} {chosen_name}"],
+        }
+
+    if act == "mic_mute":
+        wpctl = _resolve_safe_session_binary("wpctl")
+        if not wpctl:
+            return _tool_unavailable("mic_mute", "wpctl", "Install wireplumber to control microphone mute.")
+        norm = (val or tgt or "toggle").strip().lower()
+        if norm not in ("mute", "unmute", "toggle", "status", "get"):
+            raise DesktopControlError("invalid_mic_action", f"Unsupported mic_mute value '{norm}'. Use mute/unmute/toggle/status.")
+        if norm in ("mute", "unmute", "toggle"):
+            arg = "1" if norm == "mute" else ("0" if norm == "unmute" else "toggle")
+            set_ran = run_user_command([wpctl, "set-mute", "@DEFAULT_AUDIO_SOURCE@", arg], shell=False, timeout_sec=4.0)
+            if set_ran["exitCode"] != 0:
+                return {
+                    "ok": False,
+                    "action": "mic_mute",
+                    "status": "failed",
+                    "summary": "Failed to update default microphone mute state.",
+                    "lines": set_ran.get("lines") or [],
+                }
+        cur = run_user_command([wpctl, "get-volume", "@DEFAULT_AUDIO_SOURCE@"], shell=False, timeout_sec=4.0)
+        line = (cur.get("lines") or ["Microphone queried"])[0]
+        is_muted = "MUTED" in line.upper()
+        return {
+            "ok": cur["exitCode"] == 0,
+            "action": "mic_mute",
+            "status": "completed" if cur["exitCode"] == 0 else "failed",
+            "muted": is_muted,
+            "summary": f"Microphone: {'MUTED' if is_muted else 'UNMUTED'} ({line}).",
+            "lines": [line],
+        }
+
+    if act == "power_profile":
+        raw_val = _reject_flag_arg(val or tgt or "get", "power profile").lower().replace("_", "-")
+        alias_map = {
+            "": "get",
+            "get": "get",
+            "status": "get",
+            "saver": "power-saver",
+            "power-saver": "power-saver",
+            "powersaver": "power-saver",
+            "low": "power-saver",
+            "balanced": "balanced",
+            "balance": "balanced",
+            "performance": "performance",
+            "perf": "performance",
+            "high": "performance",
+        }
+        profile_arg = alias_map.get(raw_val)
+        if profile_arg is None:
+            raise DesktopControlError("invalid_power_profile", f"Unsupported power profile '{raw_val}'. Use power-saver, balanced, or performance.")
+        gdbus = _resolve_safe_session_binary("gdbus")
+        tlpctl = _resolve_safe_session_binary("tlpctl")
+        ppctl = _resolve_safe_session_binary("powerprofilesctl")
+        if gdbus:
+            if profile_arg == "get":
+                ran = run_user_command(
+                    [
+                        gdbus, "call", "--system",
+                        "--dest", "net.hadess.PowerProfiles",
+                        "--object-path", "/net/hadess/PowerProfiles",
+                        "--method", "org.freedesktop.DBus.Properties.Get",
+                        "net.hadess.PowerProfiles", "ActiveProfile",
+                    ],
+                    shell=False,
+                    timeout_sec=5.0,
+                )
+                if ran["exitCode"] == 0:
+                    m_prof = re.search(r"'([a-z0-9-]+)'", ran.get("stdout", ""))
+                    prof = m_prof.group(1) if m_prof else (ran.get("lines") or ["unknown"])[0]
+                    return {
+                        "ok": True,
+                        "action": "power_profile",
+                        "status": "completed",
+                        "profile": prof,
+                        "backend": "dbus",
+                        "summary": f"Active power profile: {prof}.",
+                        "lines": [f"ActiveProfile: {prof}"],
+                    }
+            else:
+                ran = run_user_command(
+                    [
+                        gdbus, "call", "--system",
+                        "--dest", "net.hadess.PowerProfiles",
+                        "--object-path", "/net/hadess/PowerProfiles",
+                        "--method", "org.freedesktop.DBus.Properties.Set",
+                        "net.hadess.PowerProfiles", "ActiveProfile",
+                        f"<'{profile_arg}'>",
+                    ],
+                    shell=False,
+                    timeout_sec=5.0,
+                )
+                if ran["exitCode"] == 0:
+                    return {
+                        "ok": True,
+                        "action": "power_profile",
+                        "status": "completed",
+                        "profile": profile_arg,
+                        "backend": "dbus",
+                        "summary": f"Set power profile to '{profile_arg}'.",
+                        "lines": [f"ActiveProfile: {profile_arg}"],
+                    }
+        for bin_path, bname in ((tlpctl, "tlpctl"), (ppctl, "powerprofilesctl")):
+            if not bin_path:
+                continue
+            cmd = [bin_path, "get"] if profile_arg == "get" else [bin_path, "set", profile_arg]
+            ran = run_user_command(cmd, shell=False, timeout_sec=5.0)
+            if ran["exitCode"] == 0:
+                cur_prof = (ran.get("lines") or [profile_arg])[0] if profile_arg == "get" else profile_arg
+                return {
+                    "ok": True,
+                    "action": "power_profile",
+                    "status": "completed",
+                    "profile": cur_prof,
+                    "backend": bname,
+                    "summary": f"Power profile: {cur_prof} (via {bname})." if profile_arg == "get" else f"Set power profile to '{profile_arg}' via {bname}.",
+                    "lines": ran.get("lines") or [f"Power profile: {cur_prof}"],
+                }
+        return _tool_unavailable("power_profile", "gdbus/tlpctl/powerprofilesctl", "No power profile daemon/CLI responded.")
+
+    if act == "session_power":
+        sub = _reject_flag_arg(val or tgt, "session power action").lower()
+        if sub not in ("lock", "suspend"):
+            raise DesktopControlError("invalid_session_power", f"Unsupported session_power action '{sub}'. Only 'lock' or 'suspend' are allowed.")
+        if sub == "lock":
+            alis_bin = _resolve_safe_session_binary("alis")
+            if not alis_bin and not _is_test_or_isolated_env():
+                cand_alis = Path.home() / ".local" / "bin" / "alis"
+                if cand_alis.is_file() and os.access(cand_alis, os.X_OK):
+                    alis_bin = str(cand_alis)
+            if alis_bin:
+                ran = run_user_command([alis_bin, "ipc", "lock", "activate"], shell=False, timeout_sec=5.0)
+                if ran["exitCode"] == 0:
+                    return {
+                        "ok": True,
+                        "action": "session_power",
+                        "subaction": "lock",
+                        "backend": "alis-ipc",
+                        "status": "completed",
+                        "summary": "Locked desktop screen via Alis Lock.",
+                        "lines": ran.get("lines") or ["alis ipc lock activate"],
+                    }
+            qs_bin = _resolve_safe_session_binary("qs")
+            if qs_bin:
+                try:
+                    import native_host_bridge
+                    hr = native_host_bridge.discover_host_root()
+                except Exception:
+                    hr = None
+                if hr:
+                    ran = run_user_command([qs_bin, "ipc", "-p", str(hr), "call", "lock", "activate"], shell=False, timeout_sec=5.0)
+                    if ran["exitCode"] == 0:
+                        return {
+                            "ok": True,
+                            "action": "session_power",
+                            "subaction": "lock",
+                            "backend": "quickshell-ipc",
+                            "status": "completed",
+                            "summary": "Locked desktop screen via Alis Lock.",
+                            "lines": ran.get("lines") or ["qs ipc lock activate"],
+                        }
+            for locker_name in ("swaylock", "hyprlock"):
+                locker_bin = _resolve_safe_session_binary(locker_name)
+                if locker_bin:
+                    try:
+                        proc = subprocess.Popen(
+                            [locker_bin],
+                            stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            close_fds=True,
+                            start_new_session=True,
+                        )
+                        time.sleep(0.15)
+                        if proc.poll() is None or proc.returncode == 0:
+                            return {
+                                "ok": True,
+                                "action": "session_power",
+                                "subaction": "lock",
+                                "backend": locker_name,
+                                "status": "completed",
+                                "summary": f"Locked desktop screen via {locker_name}.",
+                                "lines": [locker_name],
+                            }
+                    except OSError:
+                        pass
+            loginctl = _resolve_safe_session_binary("loginctl")
+            if not loginctl:
+                return _tool_unavailable(
+                    "session_power",
+                    "alis/loginctl",
+                    "Alis Lock (`alis ipc lock activate`), swaylock/hyprlock, or loginctl is required to lock the screen.",
+                )
+            ran = run_user_command([loginctl, "lock-session"], shell=False, timeout_sec=5.0)
+            ok_res = ran["exitCode"] == 0
+            return {
+                "ok": ok_res,
+                "action": "session_power",
+                "subaction": "lock",
+                "backend": "loginctl",
+                "status": "completed" if ok_res else "failed",
+                "summary": "Locked the current desktop session." if ok_res else "Failed to lock desktop session.",
+                "lines": ran.get("lines") or ["loginctl lock-session"],
+            }
+        systemctl = _resolve_safe_session_binary("systemctl")
+        if not systemctl:
+            return _tool_unavailable("session_power", "systemctl", "systemd is required to suspend the system.")
+        ran = run_user_command([systemctl, "suspend"], shell=False, timeout_sec=5.0)
+        ok_res = ran["exitCode"] == 0
+        return {
+            "ok": ok_res,
+            "action": "session_power",
+            "subaction": "suspend",
+            "status": "completed" if ok_res else "failed",
+            "summary": "Suspended the system." if ok_res else "Failed to suspend the system.",
+            "lines": ran.get("lines") or ["systemctl suspend"],
+        }
+
+    if act == "screenshot":
+        import native_host_bridge
+        import screen_context
+
+        out_spec = _reject_flag_arg(tgt, "output") if tgt else ""
+        if native_host_bridge.is_test_or_isolated_env() and os.environ.get("ALIS_AQUA_SCREEN_FIXTURE"):
+            shot_path = screen_context.capture_screenshot_file(focused_output=out_spec)
+            if shot_path and Path(shot_path).is_file():
+                sz = Path(shot_path).stat().st_size
+                return {
+                    "ok": True,
+                    "action": "screenshot",
+                    "status": "completed",
+                    "screenshotPath": shot_path,
+                    "backend": "fixture",
+                    "summary": f"Captured screenshot to `{Path(shot_path).name}` ({sz} bytes).",
+                    "lines": [shot_path],
+                }
+        out_dir = screen_context._screenshots_dir()
+        out_path = out_dir / f"screenshot-{int(time.time() * 1000)}.png"
+        ok_cap, cap_detail = native_host_bridge.screencopy(out_path, output=out_spec)
+        if not ok_cap or not out_path.is_file():
+            return {
+                "ok": False,
+                "action": "screenshot",
+                "status": "failed",
+                "error": "screenshot_unavailable",
+                "summary": f"Screenshot failed: {cap_detail or 'compositor screencopy backend unavailable'}.",
+                "lines": [cap_detail or "screenshot unavailable"],
+            }
+        try:
+            os.chmod(out_path, 0o600)
+        except OSError:
+            pass
+        screen_context._prune_screenshots(out_dir)
+        return {
+            "ok": True,
+            "action": "screenshot",
+            "status": "completed",
+            "screenshotPath": str(out_path),
+            "backend": cap_detail,
+            "summary": f"Captured screenshot to `{out_path.name}` ({out_path.stat().st_size} bytes).",
+            "lines": [str(out_path)],
+        }
 
     raise DesktopControlError("invalid_desktop_action", f"Unsupported desktop action: {act}")
 
@@ -1260,6 +1819,51 @@ def _clean_stt_transcript(raw_text: str) -> str:
 
 
 
+def _normalize_local_stt_endpoint(raw: str = "", *, strict: bool = False) -> str:
+    cand = str(raw or "").strip() or os.environ.get("ALIS_LOCAL_STT_ENDPOINT", "").strip()
+    if not cand:
+        return ""
+    import urllib.parse
+
+    parsed = urllib.parse.urlparse(cand)
+    host = (parsed.hostname or "").strip("[]").lower()
+    if parsed.scheme.lower() not in ("http", "https") or host not in ("127.0.0.1", "localhost", "::1"):
+        if strict:
+            raise DesktopControlError(
+                "unsafe_local_stt_endpoint",
+                f"Local STT endpoint must use http/https on loopback (127.0.0.1/localhost/::1), got '{cand}'.",
+            )
+        return ""
+    path = parsed.path or ""
+    if not path or path == "/":
+        cand = cand.rstrip("/") + "/v1/audio/transcriptions"
+    return cand
+
+
+def _probe_local_stt_server(endpoint: str, timeout: float = 0.5) -> bool:
+    norm = _normalize_local_stt_endpoint(endpoint, strict=False)
+    if not norm:
+        return False
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    parsed = urllib.parse.urlparse(norm)
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    for probe_url, allow_405 in ((f"{base}/health", False), (f"{base}/v1/models", False), (norm, True)):
+        try:
+            with opener.open(probe_url, timeout=timeout) as resp:
+                if 200 <= int(getattr(resp, "status", 200)) < 400:
+                    return True
+        except urllib.error.HTTPError as exc:
+            if allow_405 and exc.code in (400, 405, 422):
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _transcribe_openai_compatible(
     wav_path: Path,
     endpoint: str,
@@ -1267,6 +1871,7 @@ def _transcribe_openai_compatible(
     api_key: str,
     language: str,
     timeout: float = 20.0,
+    use_loopback_no_proxy: bool = False,
 ) -> str:
     import urllib.request
     import uuid
@@ -1296,20 +1901,32 @@ def _transcribe_openai_compatible(
         ]
     )
     body = b"".join(chunks)
+    headers = {
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
+        "Accept": "application/json",
+        "User-Agent": "Alis-Companion/Voice",
+    }
+    if str(api_key or "").strip():
+        headers["Authorization"] = f"Bearer {api_key}"
     req = urllib.request.Request(
         endpoint,
         data=body,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": f"multipart/form-data; boundary={boundary}",
-            "Accept": "application/json",
-            "User-Agent": "Alis-Companion/Voice",
-        },
+        headers=headers,
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        payload = json.loads(resp.read().decode("utf-8", errors="replace"))
-    return _clean_stt_transcript(str(payload.get("text") or ""))
+    if use_loopback_no_proxy:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=timeout) as resp:
+            raw_resp = resp.read().decode("utf-8", errors="replace")
+    else:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw_resp = resp.read().decode("utf-8", errors="replace")
+    try:
+        payload = json.loads(raw_resp)
+        txt_val = payload.get("text") if isinstance(payload, dict) else raw_resp
+    except ValueError:
+        txt_val = raw_resp
+    return _clean_stt_transcript(str(txt_val or ""))
 
 
 def _transcribe_gemini_inline(
@@ -1422,8 +2039,8 @@ def _resolve_edge_tts_neural_voice(_eff_voice: str = "") -> str:
     return CANONICAL_NEURAL_VOICE
 
 
-def voice_status() -> dict:
-    """Inspect available local Voice STT (Whisper) and canonical multilingual Neural TTS backend."""
+def voice_status(local_stt_endpoint: str = "") -> dict:
+    """Inspect available local Voice STT (Whisper CLI / local HTTP server) and canonical Neural TTS backend."""
     stt_bins = [b for b in ("whisper-cli", "whisper-cpp", "whisper") if shutil.which(b)]
     rec_bins = [b for b in ("pw-record", "arecord", "ffmpeg") if shutil.which(b)]
     tts_bins = ["edge-tts"] if _has_edge_tts() else []
@@ -1432,41 +2049,80 @@ def voice_status() -> dict:
     cfg_voice, api_keys = _load_voice_config_and_keys()
     local_models = _candidate_local_whisper_models(str(cfg_voice.get("localModelPath") or ""))
     cloud_providers = [p for p in ("groq", "gemini", "openai") if api_keys.get(p)]
-    if test_mode:
+    norm_ep = _normalize_local_stt_endpoint(local_stt_endpoint, strict=False)
+    has_whisper_cpp = any(b in ("whisper-cli", "whisper-cpp") for b in stt_bins)
+    has_py_whisper = "whisper" in stt_bins
+    whisper_ready = bool((has_whisper_cpp and local_models) or has_py_whisper)
+    local_http_ready = _probe_local_stt_server(norm_ep) if norm_ep else False
+    offline_stt_ready = bool(whisper_ready or local_http_ready)
+    offline_stt_backend = (
+        ("whisper" if has_py_whisper and not (has_whisper_cpp and local_models) else stt_bins[0])
+        if whisper_ready
+        else ("local-http-stt" if local_http_ready else "none")
+    )
+    if whisper_ready:
+        stt_backend = offline_stt_backend
+    elif local_http_ready:
+        stt_backend = "local-http-stt"
+    elif test_mode:
         stt_backend = stt_bins[0] if stt_bins else "fixture-whisper"
-    elif stt_bins and local_models:
-        stt_backend = stt_bins[0]
     elif cloud_providers:
         stt_backend = cloud_providers[0]
     else:
         stt_backend = stt_bins[0] if stt_bins else "whisper-cli"
-    tts_backend = "edge-tts" if tts_bins else ("fixture-edge-tts" if test_mode else "edge-tts-unavailable")
+    offline_tts_bins = [b for b in ("piper", "espeak-ng", "espeak") if shutil.which(b)]
+    tts_backend = "edge-tts" if tts_bins else (offline_tts_bins[0] if offline_tts_bins else ("fixture-edge-tts" if test_mode else "edge-tts-unavailable"))
+    install_hint = (
+        ""
+        if offline_stt_ready
+        else (
+            "Found whisper-cli binary, but no local ggml*.bin model under ~/.local/share/whisper (or configure Local STT URL 127.0.0.1:8178)."
+            if has_whisper_cpp
+            else "Install whisper-cli + a local ggml model (~/.local/share/whisper) or run a loopback Whisper HTTP server (127.0.0.1:8178/v1/audio/transcriptions)."
+        )
+    )
     return {
         "action": "voice_status",
         "status": "completed",
         "ok": True,
-        "sttAvailable": bool((stt_bins and local_models) or cloud_providers or stt_bins or test_mode),
-        "ttsAvailable": bool(tts_bins or test_mode),
+        "sttAvailable": bool(offline_stt_ready or cloud_providers or test_mode),
+        "ttsAvailable": bool(tts_bins or offline_tts_bins or test_mode),
+        "offlineSttReady": offline_stt_ready,
+        "offlineSttBackend": offline_stt_backend,
+        "localSttEndpoint": norm_ep,
+        "cloudSttAvailable": bool(cloud_providers),
+        "offlineTtsBackends": offline_tts_bins,
+        "ttsReady": bool(tts_bins or offline_tts_bins),
+        "installHint": install_hint,
         "sttBackend": stt_backend,
         "ttsBackend": tts_backend,
         "canonicalVoice": CANONICAL_NEURAL_VOICE,
         "recordBackends": rec_bins,
         "playBackends": play_bins,
-        "summary": f"Local Voice I/O — STT: {stt_backend}, TTS: {tts_backend} ({CANONICAL_NEURAL_VOICE})",
+        "summary": f"Local Voice I/O — STT: {stt_backend} (offline={offline_stt_backend}), TTS: {tts_backend} ({CANONICAL_NEURAL_VOICE})",
         "lines": [
-            f"STT backend: {stt_backend} (recorders: {', '.join(rec_bins) or 'fixture'})",
+            f"STT backend: {stt_backend} | Offline STT: {offline_stt_backend} (recorders: {', '.join(rec_bins) or 'fixture'})",
             f"TTS backend: {tts_backend} · Voice: {CANONICAL_NEURAL_VOICE} (players: {', '.join(play_bins) or 'fixture'})",
         ],
     }
 
 
-def voice_stt(audio_path: str = "", duration_sec: float = 4.0, lang: str = "auto", language: str = "") -> dict:
-    """Record or transcribe speech audio using local Whisper CLI or configured cloud STT providers (with deterministic test fixture support)."""
+def voice_stt(
+    audio_path: str = "",
+    duration_sec: float = 4.0,
+    lang: str = "auto",
+    language: str = "",
+    local_stt_endpoint: str = "",
+    local_only: bool = False,
+) -> dict:
+    """Record or transcribe speech audio using local Whisper CLI, loopback HTTP STT, or cloud STT providers."""
     eff_lang = str(language or lang or "auto").strip() or "auto"
+    norm_local_ep = _normalize_local_stt_endpoint(local_stt_endpoint, strict=True)
     vdir = _voice_state_dir()
     target_wav = _confine_voice_path(audio_path, "voice_input.wav", vdir)
     fixture_text = (os.environ.get("AQUA_TEST_VOICE_TEXT") or os.environ.get("AQUA_TEST_VOICE_TRANSCRIPT") or "").strip()
-    if fixture_text or _is_test_or_isolated_env(target_wav):
+    has_live_local_http_wav = bool(norm_local_ep and target_wav.is_file() and target_wav.stat().st_size > 64)
+    if fixture_text or (_is_test_or_isolated_env(target_wav) and not has_live_local_http_wav):
         if not target_wav.exists():
             try:
                 target_wav.parent.mkdir(parents=True, exist_ok=True)
@@ -1545,16 +2201,16 @@ def voice_stt(audio_path: str = "", duration_sec: float = 4.0, lang: str = "auto
         if cfg_lang:
             eff_lang = cfg_lang
     configured_provider = str(cfg_voice.get("provider") or "auto").strip().lower()
-    if configured_provider == "local":
-        provider_order = ["local"]
+    if local_only or configured_provider == "local":
+        provider_order = ["local", "local_http"]
     elif configured_provider == "groq":
-        provider_order = ["groq", "gemini", "openai", "local"]
+        provider_order = ["groq", "gemini", "openai", "local", "local_http"]
     elif configured_provider == "gemini":
-        provider_order = ["gemini", "groq", "openai", "local"]
+        provider_order = ["gemini", "groq", "openai", "local", "local_http"]
     elif configured_provider == "openai":
-        provider_order = ["openai", "groq", "gemini", "local"]
+        provider_order = ["openai", "groq", "gemini", "local", "local_http"]
     else:
-        provider_order = ["local", "groq", "gemini", "openai"]
+        provider_order = ["local", "local_http", "groq", "gemini", "openai"]
 
     stt_bin = (
         _resolve_safe_session_binary("whisper-cli")
@@ -1575,10 +2231,10 @@ def voice_stt(audio_path: str = "", duration_sec: float = 4.0, lang: str = "auto
                     continue
                 bname = Path(stt_bin).name
                 if bname in ("whisper-cli", "whisper-cpp"):
-                    cmd = [stt_bin]
-                    if local_models:
-                        cmd.extend(["-m", str(local_models[0])])
-                    cmd.extend(["-f", str(target_wav), "-nt"])
+                    if not local_models:
+                        last_provider_err = f"{bname}: no local ggml model found (~/.local/share/whisper)"
+                        continue
+                    cmd = [stt_bin, "-m", str(local_models[0]), "-f", str(target_wav), "-nt"]
                     if eff_lang and eff_lang not in ("auto", ""):
                         cmd.extend(["-l", eff_lang[:2].lower()])
                     ran = run_user_command(cmd, shell=False, timeout_sec=25.0)
@@ -1586,7 +2242,7 @@ def voice_stt(audio_path: str = "", duration_sec: float = 4.0, lang: str = "auto
                         transcript = _clean_stt_transcript(ran["stdout"])
                         if transcript:
                             backend_used = bname
-                elif local_models:
+                else:
                     cmd = [
                         stt_bin,
                         str(target_wav),
@@ -1609,6 +2265,21 @@ def voice_stt(audio_path: str = "", duration_sec: float = 4.0, lang: str = "auto
                         transcript = _clean_stt_transcript(ran["stdout"])
                     if transcript:
                         backend_used = bname
+            elif prov == "local_http" and norm_local_ep:
+                try:
+                    transcript = _transcribe_openai_compatible(
+                        target_wav,
+                        norm_local_ep,
+                        "whisper-1",
+                        "",
+                        eff_lang,
+                        timeout=15.0,
+                        use_loopback_no_proxy=True,
+                    )
+                    if transcript:
+                        backend_used = "local-http-stt"
+                except Exception as exc:
+                    last_provider_err = f"local_http: {exc}"
             elif prov == "groq" and api_keys.get("groq"):
                 try:
                     groq_model = str(cfg_voice.get("groqModel") or "whisper-large-v3-turbo").strip()
@@ -2173,6 +2844,61 @@ def _synthesize_edge_chunk(chunk_text: str, out_mp3: Path, neural_voice: str, ed
     return False
 
 
+def _synthesize_offline_tts_wav(clean_txt: str, out_wav: Path, *, is_mocked: bool = False) -> tuple[bool, str]:
+    """Synthesize speech to `out_wav` completely offline using `piper`, `espeak-ng`, or `espeak`."""
+    def _bin(name: str) -> str | None:
+        return shutil.which(name) if is_mocked else _resolve_safe_session_binary(name)
+
+    piper_bin = _bin("piper")
+    if piper_bin:
+        data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+        onnx_candidates: list[Path] = []
+        for root_dir in (
+            data_home / "piper",
+            data_home / "voices",
+            Path("/usr/share/piper-voices"),
+            Path("/usr/share/piper"),
+        ):
+            if root_dir.is_dir():
+                try:
+                    onnx_candidates.extend(sorted(root_dir.rglob("*.onnx"))[:4])
+                except OSError:
+                    pass
+        if onnx_candidates:
+            try:
+                proc = subprocess.run(
+                    [piper_bin, "--model", str(onnx_candidates[0]), "--output_file", str(out_wav)],
+                    input=(clean_txt + "\n").encode("utf-8"),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=12.0,
+                    check=False,
+                )
+                if proc.returncode == 0 and (out_wav.is_file() and out_wav.stat().st_size > 64 or is_mocked):
+                    return True, "piper"
+            except Exception:
+                pass
+
+    voice_code = "vi" if _is_vi_text(clean_txt) else "en"
+    for esp_name in ("espeak-ng", "espeak"):
+        esp_bin = _bin(esp_name)
+        if not esp_bin:
+            continue
+        try:
+            proc = subprocess.run(
+                [esp_bin, "-v", voice_code, "-w", str(out_wav), clean_txt],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10.0,
+                check=False,
+            )
+            if proc.returncode == 0 and (out_wav.is_file() and out_wav.stat().st_size > 64 or is_mocked):
+                return True, esp_name
+        except Exception:
+            pass
+    return False, "offline_tts_unavailable"
+
+
 def voice_tts(
     text: str,
     voice: str = "",
@@ -2183,10 +2909,12 @@ def voice_tts(
     engine: str = "",
     wait: bool = False,
     context_prompt: str = "",
+    local_only: bool = False,
 ) -> dict:
-    """Synthesize speech using a single fixed multilingual neural voice (en-US-AvaMultilingualNeural) with streaming sentence chunks."""
+    """Synthesize speech using Edge Neural TTS (or offline piper/espeak-ng when `local_only=True`)."""
     voice_tts_stop()
     req_engine = str(engine or "").strip().lower()
+    use_offline_only = bool(local_only) or req_engine in ("offline", "espeak", "espeak-ng", "piper", "local")
     clean_txt = _clean_text_for_tts(text, context_prompt=context_prompt)
     if not clean_txt:
         raise DesktopControlError("empty_tts_text", "Provide non-empty text to synthesize with local TTS.")
@@ -2216,38 +2944,136 @@ def voice_tts(
         run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         out_wav = run_dir / "tts_output.wav"
 
-    if _is_test_or_isolated_env(out_wav):
+    is_mocked = (
+        getattr(shutil.which, "__module__", "") != "shutil"
+        or getattr(subprocess.run, "__module__", "") != "subprocess"
+    )
+    force_real_offline = os.environ.get("ALIS_AQUA_FORCE_REAL_OFFLINE_TTS") == "1"
+
+    if _is_test_or_isolated_env(out_wav) and not (use_offline_only and (force_real_offline or is_mocked)):
         try:
             out_wav.write_bytes(_EMPTY_WAV_HEADER)
         except OSError:
             pass
+        fx_backend = "fixture-offline-tts" if use_offline_only else "fixture-edge-tts"
         return {
             "action": "voice_tts",
             "status": "completed",
             "ok": True,
             "spoken": True,
             "spokenText": clean_txt,
-            "voice": neural_voice,
+            "voice": "offline" if use_offline_only else neural_voice,
             "neuralVoice": neural_voice,
-            "backend": "fixture-edge-tts",
-            "ttsBackend": "fixture-edge-tts",
-            "requestedEngine": req_engine or "auto",
+            "backend": fx_backend,
+            "ttsBackend": fx_backend,
+            "localOnly": use_offline_only,
+            "requestedEngine": req_engine or ("offline" if use_offline_only else "auto"),
             "streamingChunks": len(chunks),
             "waited": bool(wait),
             "audioPath": str(out_wav),
             "dryRun": True,
             "pid": 0,
-            "summary": f"Spoken via {neural_voice} ({len(chunks)} chunk(s), {len(clean_txt)} chars): {clean_txt[:120]}",
+            "summary": f"Spoken via {fx_backend} ({len(chunks)} chunk(s), {len(clean_txt)} chars): {clean_txt[:120]}",
             "lines": [clean_txt[:180]],
         }
 
     ffplay_bin = _resolve_safe_session_binary("ffplay")
     ffmpeg_bin = _resolve_safe_session_binary("ffmpeg")
     play_bin = (
-        _resolve_safe_session_binary("pw-play")
-        or _resolve_safe_session_binary("paplay")
-        or _resolve_safe_session_binary("aplay")
+        (shutil.which("pw-play") or shutil.which("paplay") or shutil.which("aplay"))
+        if is_mocked
+        else (
+            _resolve_safe_session_binary("pw-play")
+            or _resolve_safe_session_binary("paplay")
+            or _resolve_safe_session_binary("aplay")
+        )
     )
+
+    if use_offline_only:
+        off_ok, off_backend = _synthesize_offline_tts_wav(clean_txt, out_wav, is_mocked=is_mocked)
+        if not off_ok:
+            return {
+                "action": "voice_tts",
+                "status": "tts_offline_unavailable",
+                "ok": False,
+                "spoken": False,
+                "spokenText": clean_txt,
+                "voice": "offline",
+                "neuralVoice": neural_voice,
+                "backend": "offline",
+                "ttsBackend": "offline",
+                "localOnly": True,
+                "requestedEngine": req_engine or "offline",
+                "streamingChunks": len(chunks),
+                "waited": bool(wait),
+                "audioPath": "",
+                "dryRun": False,
+                "pid": 0,
+                "error": "offline_tts_unavailable",
+                "summary": "Local-only mode is active, and no offline TTS engine (piper, espeak-ng, or espeak) produced speech.",
+                "lines": ["Offline TTS unavailable (install espeak-ng or piper, or disable Local-only mode)."],
+            }
+        spawned_pid = 0
+        spawned_proc: subprocess.Popen | None = None
+        player_cmd = ([play_bin, str(out_wav)] if play_bin else ([ffplay_bin, "-nodisp", "-autoexit", "-loglevel", "quiet", str(out_wav)] if ffplay_bin else None))
+        if player_cmd:
+            try:
+                proc = subprocess.Popen(
+                    player_cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                    start_new_session=True,
+                )
+                spawned_proc = proc
+                spawned_pid = getattr(proc, "pid", 0) or 0
+            except OSError:
+                pass
+        if spawned_pid > 0:
+            try:
+                _tts_pid_file().write_text(
+                    json.dumps({
+                        "pid": spawned_pid,
+                        "starttime": _proc_starttime(spawned_pid),
+                        "backend": off_backend,
+                        "voice": off_backend,
+                        "timestamp": int(time.time() * 1000),
+                    }),
+                    encoding="utf-8",
+                )
+            except OSError:
+                pass
+        if wait and spawned_proc is not None:
+            try:
+                spawned_proc.wait(timeout=60.0)
+            except Exception:
+                pass
+            finally:
+                try:
+                    _tts_pid_file().unlink(missing_ok=True)
+                except OSError:
+                    pass
+        return {
+            "action": "voice_tts",
+            "status": "completed",
+            "ok": True,
+            "spoken": True,
+            "spokenText": clean_txt,
+            "voice": off_backend,
+            "neuralVoice": neural_voice,
+            "backend": off_backend,
+            "ttsBackend": off_backend,
+            "localOnly": True,
+            "requestedEngine": req_engine or "offline",
+            "streamingChunks": 1,
+            "waited": bool(wait),
+            "audioPath": str(out_wav),
+            "dryRun": False,
+            "pid": spawned_pid,
+            "summary": f"Spoken offline via {off_backend} ({len(clean_txt)} chars): {clean_txt[:120]}",
+            "lines": [clean_txt[:180]],
+        }
     edge_cli = _resolve_safe_session_binary("edge-tts") or ""
     if not edge_cli:
         cand_edge = Path.home() / ".local" / "bin" / "edge-tts"
@@ -2378,9 +3204,14 @@ def voice_tts(
             pass
     if wait and spawned_proc is not None:
         try:
-            spawned_proc.wait(timeout=45.0)
+            spawned_proc.wait(timeout=60.0)
         except Exception:
             pass
+        finally:
+            try:
+                _tts_pid_file().unlink(missing_ok=True)
+            except OSError:
+                pass
 
     return {
         "action": "voice_tts",

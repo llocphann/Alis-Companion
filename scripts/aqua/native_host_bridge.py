@@ -743,6 +743,78 @@ def clipboard_paste(*, primary: bool = False, host_root: Path | None = None) -> 
     return False, ""
 
 
+def clipboard_paste_image(out_path: Path, *, host_root: Path | None = None) -> tuple[bool, str]:
+    """Extract an image MIME type from Wayland clipboard into `out_path` via `alis-native` or `wl-paste`."""
+    if is_test_or_isolated_env() or not has_wayland_session():
+        return False, "no_wayland_session"
+    mime_types: list[str] = []
+    list_proc = _run_native(
+        "clipboard",
+        ["paste", "--list-types"],
+        direct_binary="alis-native",
+        direct_args=["clipboard", "paste", "--list-types"],
+        timeout=2.0,
+        host_root=host_root,
+    )
+    if list_proc is not None and list_proc.returncode == 0:
+        mime_types = [ln.strip() for ln in (list_proc.stdout or b"").decode("utf-8", errors="replace").splitlines() if ln.strip()]
+    else:
+        wl_paste = shutil.which("wl-paste")
+        if wl_paste:
+            try:
+                p = subprocess.run([wl_paste, "--list-types"], capture_output=True, text=True, timeout=2.0, check=False)
+                if p.returncode == 0:
+                    mime_types = [ln.strip() for ln in (p.stdout or "").splitlines() if ln.strip()]
+            except Exception:
+                pass
+    chosen_mime = ""
+    for cand in ("image/png", "image/jpeg", "image/webp"):
+        if cand in mime_types:
+            chosen_mime = cand
+            break
+    if not chosen_mime:
+        for mt in mime_types:
+            if mt.startswith("image/"):
+                chosen_mime = mt
+                break
+    if not chosen_mime:
+        return False, "no_image_in_clipboard"
+
+    raw_bytes = b""
+    img_proc = _run_native(
+        "clipboard",
+        ["paste", "--type", chosen_mime],
+        direct_binary="alis-native",
+        direct_args=["clipboard", "paste", "--type", chosen_mime],
+        timeout=3.5,
+        host_root=host_root,
+    )
+    if img_proc is not None and img_proc.returncode == 0 and img_proc.stdout:
+        raw_bytes = bytes(img_proc.stdout)
+    elif shutil.which("wl-paste"):
+        try:
+            p = subprocess.run([shutil.which("wl-paste") or "wl-paste", "--type", chosen_mime], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=3.5, check=False)
+            if p.returncode == 0 and p.stdout:
+                raw_bytes = bytes(p.stdout)
+        except Exception:
+            pass
+    if len(raw_bytes) < 16:
+        return False, "clipboard_image_empty"
+
+    ext_map = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
+    ext = ext_map.get(chosen_mime, ".png")
+    dest = Path(out_path).with_suffix(ext)
+    dest.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    tmp_p = dest.with_suffix(f".tmp_{os.getpid()}{ext}")
+    tmp_p.write_bytes(raw_bytes)
+    try:
+        os.chmod(tmp_p, 0o600)
+    except OSError:
+        pass
+    os.replace(tmp_p, dest)
+    return True, str(dest)
+
+
 def has_native_vkeyboard(host_root: Path | None = None) -> bool:
     return bool(find_native_binary("alis-inputd", host_root=host_root) or find_native_dispatch(host_root=host_root))
 
@@ -804,6 +876,246 @@ def input_key(key_spec: str, host_root: Path | None = None) -> tuple[bool, str]:
         return True, "alis-inputd"
     err = (proc.stderr or b"").decode("utf-8", errors="replace").strip() if proc is not None else "vkeyboard_unavailable"
     return False, err or "input_key_failed"
+
+
+_VPOINTER_PROBE_CACHE: dict[str, tuple[float, bool]] = {}
+_VPOINTER_PROBE_TTL_SEC = 30.0
+
+
+def has_native_vpointer(host_root: Path | None = None) -> bool:
+    if is_test_or_isolated_env() or not has_wayland_session():
+        return False
+    bin_id = str(find_native_binary("alis-inputd", host_root=host_root) or find_native_dispatch(host_root=host_root) or "").strip()
+    if not bin_id:
+        return False
+    now_m = time.monotonic()
+    cached = _VPOINTER_PROBE_CACHE.get(bin_id)
+    if cached is not None and (now_m - cached[0]) < _VPOINTER_PROBE_TTL_SEC:
+        return cached[1]
+    proc = _run_native(
+        "input-pointer",
+        ["probe"],
+        direct_binary="alis-inputd",
+        direct_args=["--pointer", "probe"],
+        timeout=1.5,
+        host_root=host_root,
+    )
+    ok = bool(proc is not None and proc.returncode == 0)
+    _VPOINTER_PROBE_CACHE[bin_id] = (now_m, ok)
+    return ok
+
+
+def _detect_primary_output_extent(host_root: Path | None = None) -> tuple[int, int]:
+    if not is_test_or_isolated_env() and has_wayland_session():
+        niri_bin = shutil.which("niri")
+        if niri_bin:
+            try:
+                proc_all = subprocess.run(
+                    [niri_bin, "msg", "-j", "outputs"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    timeout=1.5,
+                    check=False,
+                )
+                if proc_all.returncode == 0 and proc_all.stdout:
+                    outs = json.loads(proc_all.stdout.decode("utf-8", errors="replace"))
+                    items = list(outs.values()) if isinstance(outs, dict) else (outs if isinstance(outs, list) else [])
+                    max_w = 0
+                    max_h = 0
+                    for out in items:
+                        if not isinstance(out, dict):
+                            continue
+                        logical = out.get("logical") if isinstance(out.get("logical"), dict) else None
+                        if isinstance(logical, dict):
+                            lx = int(logical.get("x") or 0)
+                            ly = int(logical.get("y") or 0)
+                            lw = int(logical.get("width") or 0)
+                            lh = int(logical.get("height") or 0)
+                            if lw > 0 and lh > 0:
+                                max_w = max(max_w, max(0, lx) + lw)
+                                max_h = max(max_h, max(0, ly) + lh)
+                    if max_w > 0 and max_h > 0:
+                        return max_w, max_h
+            except Exception:
+                pass
+            try:
+                proc = subprocess.run(
+                    [niri_bin, "msg", "-j", "focused-output"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    timeout=1.5,
+                    check=False,
+                )
+                if proc.returncode == 0 and proc.stdout:
+                    data = json.loads(proc.stdout.decode("utf-8", errors="replace"))
+                    logical = data.get("logical") if isinstance(data, dict) else None
+                    if isinstance(logical, dict):
+                        lw = int(logical.get("width") or 0)
+                        lh = int(logical.get("height") or 0)
+                        if lw > 0 and lh > 0:
+                            return lw, lh
+            except Exception:
+                pass
+    return 1920, 1080
+
+
+def _resolve_extent(width: int, height: int, host_root: Path | None = None) -> tuple[int, int]:
+    if int(width or 0) > 0 and int(height or 0) > 0:
+        return int(width), int(height)
+    return _detect_primary_output_extent(host_root=host_root)
+
+
+def input_pointer_move(
+    x: int,
+    y: int,
+    width: int = 0,
+    height: int = 0,
+    *,
+    host_root: Path | None = None,
+) -> tuple[bool, str]:
+    """Move Wayland virtual pointer to absolute coordinates via `alis-inputd --pointer move`."""
+    if not has_wayland_session():
+        return False, "no_wayland_display"
+    w, h = _resolve_extent(width, height, host_root=host_root)
+    px = max(0, min(w, int(x)))
+    py = max(0, min(h, int(y)))
+    args = ["move", "--x", str(px), "--y", str(py), "--width", str(w), "--height", str(h)]
+    proc = _run_native(
+        "input-pointer",
+        args,
+        direct_binary="alis-inputd",
+        direct_args=["--pointer", *args],
+        timeout=3.0,
+        host_root=host_root,
+    )
+    if proc is not None and proc.returncode == 0:
+        return True, "alis-inputd"
+    err = (proc.stderr or b"").decode("utf-8", errors="replace").strip() if proc is not None else "vpointer_unavailable"
+    return False, err or "input_pointer_move_failed"
+
+
+def input_pointer_click(
+    x: int | None = None,
+    y: int | None = None,
+    width: int = 0,
+    height: int = 0,
+    *,
+    button: str = "left",
+    double: bool = False,
+    host_root: Path | None = None,
+) -> tuple[bool, str]:
+    """Click Wayland virtual pointer via `alis-inputd --pointer click`."""
+    if not has_wayland_session():
+        return False, "no_wayland_display"
+    btn = str(button or "left").strip().lower()
+    if btn not in ("left", "right", "middle"):
+        btn = "left"
+    args = ["click", "--button", btn]
+    if double:
+        args.append("--double")
+    if x is not None and y is not None:
+        w, h = _resolve_extent(width, height, host_root=host_root)
+        px = max(0, min(w, int(x)))
+        py = max(0, min(h, int(y)))
+        args.extend(["--x", str(px), "--y", str(py), "--width", str(w), "--height", str(h)])
+    proc = _run_native(
+        "input-pointer",
+        args,
+        direct_binary="alis-inputd",
+        direct_args=["--pointer", *args],
+        timeout=3.0,
+        host_root=host_root,
+    )
+    if proc is not None and proc.returncode == 0:
+        return True, "alis-inputd"
+    err = (proc.stderr or b"").decode("utf-8", errors="replace").strip() if proc is not None else "vpointer_unavailable"
+    return False, err or "input_pointer_click_failed"
+
+
+def input_pointer_scroll(
+    delta: int,
+    *,
+    axis: str = "vertical",
+    x: int | None = None,
+    y: int | None = None,
+    width: int = 0,
+    height: int = 0,
+    host_root: Path | None = None,
+) -> tuple[bool, str]:
+    """Scroll Wayland virtual pointer wheel via `alis-inputd --pointer scroll`."""
+    if not has_wayland_session():
+        return False, "no_wayland_display"
+    d = max(-30, min(30, int(delta or 0)))
+    if d == 0:
+        return True, "alis-inputd"
+    ax = "horizontal" if str(axis or "vertical").strip().lower().startswith("h") else "vertical"
+    args = ["scroll", "--delta", str(d), "--axis", ax]
+    if x is not None and y is not None:
+        w, h = _resolve_extent(width, height, host_root=host_root)
+        px = max(0, min(w, int(x)))
+        py = max(0, min(h, int(y)))
+        args.extend(["--x", str(px), "--y", str(py), "--width", str(w), "--height", str(h)])
+    proc = _run_native(
+        "input-pointer",
+        args,
+        direct_binary="alis-inputd",
+        direct_args=["--pointer", *args],
+        timeout=3.0,
+        host_root=host_root,
+    )
+    if proc is not None and proc.returncode == 0:
+        return True, "alis-inputd"
+    err = (proc.stderr or b"").decode("utf-8", errors="replace").strip() if proc is not None else "vpointer_unavailable"
+    return False, err or "input_pointer_scroll_failed"
+
+
+def input_pointer_drag(
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    width: int = 0,
+    height: int = 0,
+    *,
+    button: str = "left",
+    steps: int = 10,
+    host_root: Path | None = None,
+) -> tuple[bool, str]:
+    """Drag Wayland virtual pointer from (x1, y1) to (x2, y2) via `alis-inputd --pointer drag`."""
+    if not has_wayland_session():
+        return False, "no_wayland_display"
+    w, h = _resolve_extent(width, height, host_root=host_root)
+    sx = max(0, min(w, int(x1)))
+    sy = max(0, min(h, int(y1)))
+    ex = max(0, min(w, int(x2)))
+    ey = max(0, min(h, int(y2)))
+    btn = str(button or "left").strip().lower()
+    if btn not in ("left", "right", "middle"):
+        btn = "left"
+    st = max(2, min(24, int(steps or 10)))
+    args = [
+        "drag",
+        "--x1", str(sx),
+        "--y1", str(sy),
+        "--x2", str(ex),
+        "--y2", str(ey),
+        "--width", str(w),
+        "--height", str(h),
+        "--button", btn,
+        "--steps", str(st),
+    ]
+    proc = _run_native(
+        "input-pointer",
+        args,
+        direct_binary="alis-inputd",
+        direct_args=["--pointer", *args],
+        timeout=4.0,
+        host_root=host_root,
+    )
+    if proc is not None and proc.returncode == 0:
+        return True, "alis-inputd"
+    err = (proc.stderr or b"").decode("utf-8", errors="replace").strip() if proc is not None else "vpointer_unavailable"
+    return False, err or "input_pointer_drag_failed"
 
 
 def _list_mpris_bus_names(timeout: float = 2.0) -> list[str]:

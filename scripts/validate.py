@@ -125,6 +125,7 @@ def main():
         "test-aqua-phase2-runtime.py", "test-aqua-phase3-swarm-qml.py", "test-aqua-hybrid-and-mascot.py",
         "test-aqua-response-and-tts-polish.py", "test-aqua-local-nexus-rag.py", "test-aqua-thinking-router.py",
         "test-aqua-thinking-immersion.py", "test-aqua-audit-hardening.py",
+        "test-aqua-desktop-agent-upgrades.py",
     ]
     qml_parser = (
         shutil.which("qmlformat6")

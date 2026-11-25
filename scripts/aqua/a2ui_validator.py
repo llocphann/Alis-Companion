@@ -72,6 +72,7 @@ PRIVILEGED_FUNCTION_CALLS = frozenset({
 
 ALLOWED_SERVER_EVENTS = frozenset({
     "confirm_action",
+    "cancel_schedule",
     "send_prompt",
     "followup_prompt",
     "choice_submit",
@@ -87,6 +88,7 @@ ALLOWED_SERVER_EVENTS = frozenset({
 
 PRIVILEGED_SERVER_EVENTS = frozenset({
     "confirm_action",
+    "cancel_schedule",
     "rollback_receipt",
     "run_tests",
     "open_editor",

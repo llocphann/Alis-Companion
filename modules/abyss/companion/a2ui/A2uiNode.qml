@@ -17,6 +17,7 @@ Item {
     property string scopePath: ""
     property int depth: 0
     property bool compactMode: false
+    property bool actionBusy: false
     property real maxContentWidth: 280
     property color colBoxSubtle: Qt.rgba(0.12, 0.14, 0.18, 0.90)
     property color colBoxLayer: Qt.rgba(0.15, 0.17, 0.22, 0.92)
@@ -165,6 +166,7 @@ Item {
                 scopePath: root.scopePath
                 depth: root.depth + 1
                 compactMode: root.compactMode
+                actionBusy: root.actionBusy
                 maxContentWidth: Math.max(40, cardRect.width - cardRect.padH * 2)
                 colBoxSubtle: root.colBoxSubtle
                 colBoxLayer: root.colBoxLayer
@@ -214,6 +216,7 @@ Item {
                     scopePath: colBox.isTemplate ? (A2ui.resolveAbsolutePath(colBox.templatePath, root.scopePath) + "/" + index) : root.scopePath
                     depth: root.depth + 1
                     compactMode: root.compactMode
+                actionBusy: root.actionBusy
                     maxContentWidth: colBox.width
                     colBoxSubtle: root.colBoxSubtle
                     colBoxLayer: root.colBoxLayer
@@ -277,6 +280,7 @@ Item {
                         scopePath: rowWrapHost.isTemplate ? (A2ui.resolveAbsolutePath(rowWrapHost.templatePath, root.scopePath) + "/" + index) : root.scopePath
                         depth: root.depth + 1
                         compactMode: root.compactMode
+                actionBusy: root.actionBusy
                         maxContentWidth: rowWrapHost.width
                         colBoxSubtle: root.colBoxSubtle
                         colBoxLayer: root.colBoxLayer
@@ -323,6 +327,7 @@ Item {
                         scopePath: rowWrapHost.isTemplate ? (A2ui.resolveAbsolutePath(rowWrapHost.templatePath, root.scopePath) + "/" + index) : root.scopePath
                         depth: root.depth + 1
                         compactMode: root.compactMode
+                actionBusy: root.actionBusy
                         maxContentWidth: rowWrapHost.hasExplicitWidth ? Math.max(48, rowWrapHost.width - (rowWrapHost.childCount > 1 ? 24 : 0)) : root.maxContentWidth
                         colBoxSubtle: root.colBoxSubtle
                         colBoxLayer: root.colBoxLayer
@@ -360,25 +365,37 @@ Item {
 
     Component {
         id: textComponent
-        Text {
-            id: txtItem
-            readonly property string resolvedText: String(A2ui.resolveValue(root.spec?.text, root.dataModel, root.scopeData, ""))
-            readonly property bool isCaption: String(root.spec?.variant ?? "body") === "caption"
-            readonly property bool hasMarkdown: /(?:^|\n)#{1,3}\s|\*\*|`[^`]+`|\*[^*]+\*/.test(resolvedText)
-            width: root.width > 0 ? Math.min(root.width, root.maxContentWidth) : Math.min(implicitWidth, root.maxContentWidth)
-            text: hasMarkdown ? A2ui.formatMarkdownText(resolvedText, String(root.colAccent), "rgba(255,255,255,0.08)") : resolvedText
-            textFormat: hasMarkdown ? Text.RichText : Text.PlainText
-            wrapMode: Text.WordWrap
-            maximumLineCount: Number(root.spec?.maxLines ?? 0) > 0 ? Number(root.spec.maxLines) : 100
-            elide: Number(root.spec?.maxLines ?? 0) > 0 ? Text.ElideRight : Text.ElideNone
-            color: root.resolveToneColor(root.spec?.tone ?? (isCaption ? "muted" : "default"))
-            horizontalAlignment: {
-                const a = String(root.spec?.align ?? "left");
-                return a === "center" ? Text.AlignHCenter : (a === "right" ? Text.AlignRight : Text.AlignLeft);
+        Item {
+            id: txtWrap
+            readonly property int requestedMaxLines: Number(root.spec?.maxLines ?? 0)
+            readonly property bool clampRichHeight: txtItem.hasMarkdown && requestedMaxLines > 0
+            readonly property real maxRichHeight: clampRichHeight ? Math.ceil(requestedMaxLines * (txtItem.font.pixelSize * 1.42) + 4) : 0
+            implicitWidth: txtItem.width
+            implicitHeight: clampRichHeight ? Math.min(txtItem.implicitHeight, maxRichHeight) : txtItem.implicitHeight
+            width: implicitWidth
+            height: implicitHeight
+            clip: clampRichHeight
+
+            Text {
+                id: txtItem
+                readonly property string resolvedText: String(A2ui.resolveValue(root.spec?.text, root.dataModel, root.scopeData, ""))
+                readonly property bool isCaption: String(root.spec?.variant ?? "body") === "caption"
+                readonly property bool hasMarkdown: /(?:^|\n)#{1,3}\s|\*\*|`[^`]+`|\*[^*]+\*/.test(resolvedText)
+                width: root.width > 0 ? Math.min(root.width, root.maxContentWidth) : Math.min(implicitWidth, root.maxContentWidth)
+                text: hasMarkdown ? A2ui.formatMarkdownText(resolvedText, String(root.colAccent), "rgba(255,255,255,0.08)") : resolvedText
+                textFormat: hasMarkdown ? Text.RichText : Text.PlainText
+                wrapMode: Text.WordWrap
+                maximumLineCount: txtWrap.requestedMaxLines > 0 ? txtWrap.requestedMaxLines : 100
+                elide: txtWrap.requestedMaxLines > 0 ? Text.ElideRight : Text.ElideNone
+                color: root.resolveToneColor(root.spec?.tone ?? (isCaption ? "muted" : "default"))
+                horizontalAlignment: {
+                    const a = String(root.spec?.align ?? "left");
+                    return a === "center" ? Text.AlignHCenter : (a === "right" ? Text.AlignRight : Text.AlignLeft);
+                }
+                font.family: Appearance?.font?.family?.main ?? "Roboto Flex"
+                font.pixelSize: isCaption ? (Appearance?.font?.pixelSize?.smallest ?? 11) : (Appearance?.font?.pixelSize?.small ?? 13)
+                renderType: Text.QtRendering
             }
-            font.family: Appearance?.font?.family?.main ?? "Roboto Flex"
-            font.pixelSize: isCaption ? (Appearance?.font?.pixelSize?.smallest ?? 11) : (Appearance?.font?.pixelSize?.small ?? 13)
-            renderType: Text.QtRendering
         }
     }
 
@@ -406,8 +423,11 @@ Item {
         RippleButton {
             id: a2uiBtn
             readonly property string variant: String(root.spec?.variant ?? "secondary")
+            readonly property bool isServerEventAction: A2ui.isPlainObject(root.spec?.action?.event) && typeof root.spec?.action?.event?.name === "string"
+            readonly property bool isBusyBlocked: root.actionBusy && isServerEventAction
             readonly property bool isDisabled: Boolean(A2ui.resolveValue(root.spec?.disabled, root.dataModel, root.scopeData, false))
                 || (root.spec?.action?.event?.name === "confirm_action" && Boolean(root.dataModel?.resolved))
+                || isBusyBlocked
             readonly property string childId: String(root.spec?.child ?? "")
             readonly property string fallbackLabel: String(A2ui.resolveValue(root.spec?.label, root.dataModel, root.scopeData, ""))
             readonly property string fallbackIcon: {
@@ -417,7 +437,7 @@ Item {
             readonly property color fgColor: variant === "primary" ? root.colOnPrimary : (variant === "danger" ? root.colOnError : root.colTextPrimary)
             focusPolicy: Qt.NoFocus
             enabled: !isDisabled
-            opacity: enabled ? 1.0 : 0.48
+            opacity: enabled ? 1.0 : (isBusyBlocked ? 0.6 : 0.48)
             buttonRadius: 8
             implicitWidth: Math.min(root.maxContentWidth, Math.max(44, btnCenterBox.implicitWidth + 18))
             implicitHeight: Math.max(26, btnCenterBox.implicitHeight + 8)
@@ -469,6 +489,7 @@ Item {
                         scopePath: root.scopePath
                         depth: root.depth + 1
                         compactMode: root.compactMode
+                actionBusy: root.actionBusy
                         maxContentWidth: Math.max(40, root.maxContentWidth - 20)
                         colBoxSubtle: root.colBoxSubtle
                         colBoxLayer: root.colBoxLayer
@@ -549,6 +570,7 @@ Item {
                         scopePath: listHost.isTemplate ? (A2ui.resolveAbsolutePath(listHost.templatePath, root.scopePath) + "/" + index) : root.scopePath
                         depth: root.depth + 1
                         compactMode: root.compactMode
+                actionBusy: root.actionBusy
                         maxContentWidth: vertList.width
                         colBoxSubtle: root.colBoxSubtle
                         colBoxLayer: root.colBoxLayer
@@ -586,6 +608,7 @@ Item {
                         scopePath: listHost.isTemplate ? (A2ui.resolveAbsolutePath(listHost.templatePath, root.scopePath) + "/" + index) : root.scopePath
                         depth: root.depth + 1
                         compactMode: root.compactMode
+                actionBusy: root.actionBusy
                         maxContentWidth: listHost.width
                         colBoxSubtle: root.colBoxSubtle
                         colBoxLayer: root.colBoxLayer
@@ -996,6 +1019,7 @@ Item {
                 scopePath: root.scopePath
                 depth: root.depth + 1
                 compactMode: root.compactMode
+                actionBusy: root.actionBusy
                 maxContentWidth: tabsCol.width
                 colBoxSubtle: root.colBoxSubtle
                 colBoxLayer: root.colBoxLayer

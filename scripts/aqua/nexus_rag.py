@@ -9,6 +9,7 @@ SQLite FTS5 indexes and sync manifests outside the vault in `XDG_STATE_HOME`
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -518,6 +519,15 @@ def _init_nexus_db(conn: sqlite3.Connection) -> None:
         "CREATE VIRTUAL TABLE IF NOT EXISTS nexus_fts USING fts5("
         "rel_path, title, folder, tags, heading, body, folded, tokenize='unicode61')"
     )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS nexus_embeddings ("
+        "chunk_key TEXT NOT NULL, "
+        "model_id TEXT NOT NULL, "
+        "dim INTEGER NOT NULL, "
+        "vec BLOB NOT NULL, "
+        "content_sha TEXT NOT NULL, "
+        "PRIMARY KEY(chunk_key, model_id))"
+    )
 
 
 def _index_single_file(
@@ -542,6 +552,8 @@ def _index_single_file(
 
     if is_existing:
         conn.execute("DELETE FROM nexus_fts WHERE rel_path = ?", (rel_str,))
+        prefix = f"{rel_str}\x1f"
+        conn.execute("DELETE FROM nexus_embeddings WHERE substr(chunk_key, 1, ?) = ?", (len(prefix), prefix))
     conn.execute(
         "INSERT OR REPLACE INTO nexus_files(rel_path, mtime_ns, size_bytes, title, folder, tags) "
         "VALUES (?, ?, ?, ?, ?, ?)",
@@ -616,6 +628,7 @@ def sync_nexus_vault_index(
         if prev_vault and prev_vault != str(vault):
             conn.execute("DELETE FROM nexus_files")
             conn.execute("DELETE FROM nexus_fts")
+            conn.execute("DELETE FROM nexus_embeddings")
 
         existing = {
             row[0]: (int(row[1]), int(row[2]))
@@ -668,6 +681,8 @@ def sync_nexus_vault_index(
         for rp in removed_paths:
             conn.execute("DELETE FROM nexus_files WHERE rel_path = ?", (rp,))
             conn.execute("DELETE FROM nexus_fts WHERE rel_path = ?", (rp,))
+            prefix = f"{rp}\x1f"
+            conn.execute("DELETE FROM nexus_embeddings WHERE substr(chunk_key, 1, ?) = ?", (len(prefix), prefix))
 
         conn.execute("INSERT OR REPLACE INTO nexus_meta(key, value) VALUES ('vault_path', ?)", (str(vault),))
         conn.execute("INSERT OR REPLACE INTO nexus_meta(key, value) VALUES ('last_sync_ms', ?)", (str(now_ms),))
@@ -881,6 +896,116 @@ def search_nexus_knowledge(
         conn.close()
 
     import knowledge_index
+
+    embed_ep, embed_model = knowledge_index.probe_warm_embedding_model()
+    vec_ranked: list[tuple[str, str]] = []
+    vec_scores: dict[tuple[str, str], float] = {}
+    if embed_ep and embed_model and str(query or "").strip():
+        conn_vec = sqlite3.connect(str(db_path), timeout=5.0)
+        try:
+            conn_vec.execute("PRAGMA busy_timeout=5000")
+            _init_nexus_db(conn_vec)
+            cand_where: list[str] = []
+            cand_params: list[object] = []
+            if folder:
+                f_low = f"%{folder.strip().lower()}%"
+                cand_where.append("(lower(folder) LIKE ? OR lower(rel_path) LIKE ?)")
+                cand_params.extend([f_low, f_low])
+            if tag:
+                cand_where.append("lower(tags) LIKE ?")
+                cand_params.append(f"%{tag.strip().lstrip('#').lower()}%")
+            cand_sql = "SELECT rel_path, title, folder, tags, heading, body FROM nexus_fts"
+            if cand_where:
+                cand_sql += " WHERE " + " AND ".join(cand_where)
+            cand_sql += " LIMIT 4000"
+            cand_rows = conn_vec.execute(cand_sql, cand_params).fetchall()
+
+            cached_map: dict[str, tuple[str, bytes]] = {
+                str(ck): (str(csha), bytes(blob))
+                for ck, csha, blob in conn_vec.execute(
+                    "SELECT chunk_key, content_sha, vec FROM nexus_embeddings WHERE model_id = ?",
+                    (embed_model,),
+                ).fetchall()
+            }
+
+            cand_meta: dict[tuple[str, str], tuple[str, str, str, str]] = {}
+            to_embed_keys: list[str] = []
+            to_embed_texts: list[str] = []
+            to_embed_shas: list[str] = []
+            for rp, ttl, fld, tgs, hd, bd in cand_rows:
+                rp_s, ttl_s, fld_s, tgs_s, hd_s, bd_s = str(rp), str(ttl), str(fld), str(tgs), str(hd), str(bd)
+                cand_meta[(rp_s, hd_s)] = (ttl_s, fld_s, tgs_s, bd_s)
+                ck = f"{rp_s}\x1f{hd_s}"
+                raw_txt = f"{ttl_s}\n{hd_s}\n{bd_s[:1500]}"
+                csha = hashlib.sha256(raw_txt.encode("utf-8", errors="replace")).hexdigest()
+                cached_entry = cached_map.get(ck)
+                if (cached_entry is None or cached_entry[0] != csha) and len(to_embed_keys) < 8:
+                    to_embed_keys.append(ck)
+                    to_embed_texts.append(raw_txt)
+                    to_embed_shas.append(csha)
+
+            if to_embed_texts:
+                for i in range(0, len(to_embed_texts), 16):
+                    batch_t = to_embed_texts[i:i + 16]
+                    batch_k = to_embed_keys[i:i + 16]
+                    batch_s = to_embed_shas[i:i + 16]
+                    vecs = knowledge_index.embed_texts(batch_t, embed_ep, embed_model, timeout=4.0)
+                    if len(vecs) == len(batch_k):
+                        up_rows = []
+                        for ck, csha, vec in zip(batch_k, batch_s, vecs):
+                            blob = knowledge_index.pack_float16(vec)
+                            if blob:
+                                up_rows.append((ck, embed_model, len(vec), blob, csha))
+                                cached_map[ck] = (csha, blob)
+                        if up_rows:
+                            conn_vec.executemany(
+                                "INSERT OR REPLACE INTO nexus_embeddings(chunk_key, model_id, dim, vec, content_sha) VALUES (?, ?, ?, ?, ?)",
+                                up_rows,
+                            )
+                            conn_vec.commit()
+
+            q_vecs = knowledge_index.embed_texts([str(query).strip()], embed_ep, embed_model, timeout=3.0)
+            if q_vecs and q_vecs[0]:
+                q_vec = q_vecs[0]
+                for (rp_s, hd_s), (ttl_s, fld_s, tgs_s, bd_s) in cand_meta.items():
+                    ck = f"{rp_s}\x1f{hd_s}"
+                    c_entry = cached_map.get(ck)
+                    if not c_entry:
+                        continue
+                    c_vec = knowledge_index.unpack_float16(c_entry[1])
+                    sim = knowledge_index.cosine_similarity(q_vec, c_vec)
+                    if sim > 0.22:
+                        vec_scores[(rp_s, hd_s)] = sim
+
+                if vec_scores:
+                    vec_ranked = [k for k, _ in sorted(vec_scores.items(), key=lambda it: -it[1])]
+                    by_key = {(str(c["relPath"]), str(c["heading"])): c for _, c in scored_rows}
+                    for r_key in vec_ranked[:24]:
+                        sim = vec_scores[r_key]
+                        if r_key in by_key:
+                            by_key[r_key]["semanticScore"] = round(sim, 4)
+                        else:
+                            ttl_s, fld_s, tgs_s, bd_s = cand_meta[r_key]
+                            scored_rows.append((
+                                sim * 4.5,
+                                {
+                                    "source": f"Nexus: {r_key[0]}",
+                                    "relPath": r_key[0],
+                                    "title": ttl_s,
+                                    "folder": fld_s,
+                                    "tags": [t.strip() for t in tgs_s.split(",") if t.strip()],
+                                    "heading": r_key[1],
+                                    "snippet": bd_s.strip(),
+                                    "score": round(sim * 4.5, 3),
+                                    "semanticScore": round(sim, 4),
+                                },
+                            ))
+        except Exception:
+            vec_ranked = []
+            vec_scores = {}
+        finally:
+            conn_vec.close()
+
     exact_ranked = [((str(c["relPath"]), str(c["heading"]))) for _, c in sorted(scored_rows, key=lambda x: (-x[0], x[1]["relPath"]))]
     lex_ranked = [
         (str(c["relPath"]), str(c["heading"]))
@@ -892,7 +1017,9 @@ def search_nexus_knowledge(
             ),
         )
     ]
-    rrf_scores = dict(knowledge_index.rrf_fuse([exact_ranked, lex_ranked], k=60))
+    rrf_lists = [exact_ranked, lex_ranked, vec_ranked] if vec_ranked else [exact_ranked, lex_ranked]
+    rrf_weights = [1.0, 0.8, 1.35] if vec_ranked else None
+    rrf_scores = dict(knowledge_index.rrf_fuse(rrf_lists, k=60, weights=rrf_weights))
     reranked: list[tuple[float, dict]] = []
     for base_sc, c in scored_rows:
         r_key = (str(c["relPath"]), str(c["heading"]))
@@ -923,6 +1050,8 @@ def search_nexus_knowledge(
         "dbPath": str(db_path),
         "indexedNotes": sync_info.get("indexedNotes", 0),
         "estimatedTokens": est_tokens,
+        "semanticUsed": bool(vec_ranked),
+        "embedModel": embed_model if vec_ranked else "",
     }
 
 
@@ -1136,4 +1265,96 @@ def save_rag_note(
         "relPath": rel_str,
         "path": str(dst),
         "folder": clean_folder,
+    }
+
+
+def backfill_semantic_embeddings(limit: int = 128, vault_path: str = "", endpoint: str = "") -> dict:
+    """Explicitly backfill missing semantic embeddings across Nexus vault chunks using any warm local embedder."""
+    import knowledge_index
+
+    embed_ep, embed_model = knowledge_index.probe_warm_embedding_model(endpoint=endpoint)
+    if not embed_ep or not embed_model:
+        return {
+            "ok": False,
+            "error": "no_warm_embedding_model",
+            "embedded": 0,
+            "totalChunks": 0,
+            "embeddedChunks": 0,
+            "remaining": 0,
+            "model": "",
+        }
+    vault = resolve_nexus_vault_path(vault_path)
+    db_path = external_rag_db_path()
+    if vault is not None and vault.is_dir():
+        try:
+            sync_nexus_vault_index(str(vault), force=False)
+        except Exception:
+            pass
+    if not db_path.is_file():
+        return {"ok": True, "embedded": 0, "totalChunks": 0, "embeddedChunks": 0, "remaining": 0, "model": embed_model}
+
+    max_batch = max(1, min(512, int(limit or 128)))
+    embedded_now = 0
+    total_chunks = 0
+    cached_count = 0
+    conn = sqlite3.connect(str(db_path), timeout=8.0)
+    try:
+        conn.execute("PRAGMA busy_timeout=8000")
+        _init_nexus_db(conn)
+        rows = conn.execute("SELECT rel_path, title, heading, body FROM nexus_fts LIMIT 4000").fetchall()
+        total_chunks = len(rows)
+        cached_map: dict[str, str] = {
+            str(ck): str(csha)
+            for ck, csha in conn.execute(
+                "SELECT chunk_key, content_sha FROM nexus_embeddings WHERE model_id = ?",
+                (embed_model,),
+            ).fetchall()
+        }
+        to_embed_keys: list[str] = []
+        to_embed_texts: list[str] = []
+        to_embed_shas: list[str] = []
+        missing_total = 0
+        for rp, ttl, hd, bd in rows:
+            ck = f"{rp}\x1f{hd}"
+            raw_txt = f"{ttl}\n{hd}\n{str(bd or '')[:1500]}"
+            csha = hashlib.sha256(raw_txt.encode("utf-8", errors="replace")).hexdigest()
+            if cached_map.get(ck) == csha:
+                cached_count += 1
+            else:
+                missing_total += 1
+                if len(to_embed_keys) < max_batch:
+                    to_embed_keys.append(ck)
+                    to_embed_texts.append(raw_txt)
+                    to_embed_shas.append(csha)
+
+        for i in range(0, len(to_embed_texts), 16):
+            bt = to_embed_texts[i:i + 16]
+            bk = to_embed_keys[i:i + 16]
+            bs = to_embed_shas[i:i + 16]
+            vecs = knowledge_index.embed_texts(bt, embed_ep, embed_model, timeout=6.0)
+            if len(vecs) == len(bk):
+                up_rows = []
+                for ck, csha, vec in zip(bk, bs, vecs):
+                    blob = knowledge_index.pack_float16(vec)
+                    if blob:
+                        up_rows.append((ck, embed_model, len(vec), blob, csha))
+                if up_rows:
+                    conn.executemany(
+                        "INSERT OR REPLACE INTO nexus_embeddings(chunk_key, model_id, dim, vec, content_sha) VALUES (?, ?, ?, ?, ?)",
+                        up_rows,
+                    )
+                    conn.commit()
+                    embedded_now += len(up_rows)
+                    cached_count += len(up_rows)
+        remaining = max(0, missing_total - embedded_now)
+    finally:
+        conn.close()
+
+    return {
+        "ok": True,
+        "embedded": embedded_now,
+        "totalChunks": total_chunks,
+        "embeddedChunks": cached_count,
+        "remaining": remaining,
+        "model": embed_model,
     }

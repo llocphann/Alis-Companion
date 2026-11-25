@@ -853,6 +853,11 @@ def sync_fts5_chunks(chunks: list[dict]) -> bool:
             conn.execute(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS rag_fts USING fts5(source, heading, body, tokenize='unicode61')"
             )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS rag_embeddings("
+                "chunk_sha TEXT NOT NULL, model_id TEXT NOT NULL, dim INTEGER NOT NULL, vec BLOB NOT NULL, "
+                "PRIMARY KEY(chunk_sha, model_id))"
+            )
             prev_row = conn.execute("SELECT val FROM rag_fts_meta WHERE key='chunks_sha256'").fetchone()
             fts_cnt_row = conn.execute("SELECT COUNT(*) FROM rag_fts").fetchone()
             fts_cnt = int(fts_cnt_row[0] or 0) if fts_cnt_row else 0
@@ -1011,10 +1016,84 @@ def query_hybrid_rag(
             lexical_scores[idx] = score
 
     import knowledge_index
+    vec_scores: dict[int, float] = {}
+    vec_ranked: list[int] = []
+    embed_ep, embed_model = knowledge_index.probe_warm_embedding_model()
+    if embed_ep and embed_model and str(query or "").strip():
+        db_path = _rag_db_path()
+        try:
+            db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            conn_v = sqlite3.connect(str(db_path), timeout=5.0)
+            try:
+                conn_v.execute("PRAGMA busy_timeout=5000")
+                conn_v.execute(
+                    "CREATE TABLE IF NOT EXISTS rag_embeddings("
+                    "chunk_sha TEXT NOT NULL, model_id TEXT NOT NULL, dim INTEGER NOT NULL, vec BLOB NOT NULL, "
+                    "PRIMARY KEY(chunk_sha, model_id))"
+                )
+                cached_vecs: dict[str, bytes] = {
+                    str(csha): bytes(blob)
+                    for csha, blob in conn_v.execute(
+                        "SELECT chunk_sha, vec FROM rag_embeddings WHERE model_id = ?",
+                        (embed_model,),
+                    ).fetchall()
+                }
+                chunk_shas: list[str] = []
+                miss_shas: list[str] = []
+                miss_texts: list[str] = []
+                miss_seen: set[str] = set()
+                for ch in chunks:
+                    raw_c = f"{str(ch.get('heading') or '')}\n{str(ch.get('text') or '')[:1500]}"
+                    csha = hashlib.sha256(raw_c.encode("utf-8", errors="replace")).hexdigest()
+                    chunk_shas.append(csha)
+                    if csha not in cached_vecs and csha not in miss_seen and len(miss_shas) < 8:
+                        miss_seen.add(csha)
+                        miss_shas.append(csha)
+                        miss_texts.append(raw_c)
+
+                if miss_texts:
+                    for i in range(0, len(miss_texts), 16):
+                        bt = miss_texts[i:i + 16]
+                        bs = miss_shas[i:i + 16]
+                        vecs = knowledge_index.embed_texts(bt, embed_ep, embed_model, timeout=4.0)
+                        if len(vecs) == len(bs):
+                            up_rows = []
+                            for csha, vec in zip(bs, vecs):
+                                blob = knowledge_index.pack_float16(vec)
+                                if blob:
+                                    up_rows.append((csha, embed_model, len(vec), blob))
+                                    cached_vecs[csha] = blob
+                            if up_rows:
+                                conn_v.executemany(
+                                    "INSERT OR REPLACE INTO rag_embeddings(chunk_sha, model_id, dim, vec) VALUES (?, ?, ?, ?)",
+                                    up_rows,
+                                )
+                                conn_v.commit()
+
+                q_vecs = knowledge_index.embed_texts([str(query).strip()], embed_ep, embed_model, timeout=3.0)
+                if q_vecs and q_vecs[0]:
+                    qv = q_vecs[0]
+                    for idx, csha in enumerate(chunk_shas):
+                        blob = cached_vecs.get(csha)
+                        if not blob:
+                            continue
+                        sim = knowledge_index.cosine_similarity(qv, knowledge_index.unpack_float16(blob))
+                        if sim > 0.22:
+                            vec_scores[idx] = sim
+                    vec_ranked = [idx for idx, _ in sorted(vec_scores.items(), key=lambda it: -it[1])]
+            finally:
+                conn_v.close()
+        except Exception:
+            vec_scores = {}
+            vec_ranked = []
+
     fts_ranked = [idx for idx, _ in sorted(fts_scores.items(), key=lambda it: -it[1])]
     lex_ranked = [idx for idx, _ in sorted(lexical_scores.items(), key=lambda it: -it[1])]
-    rrf_bonus = dict(knowledge_index.rrf_fuse([fts_ranked, lex_ranked], k=60))
-    for idx, base_score in lexical_scores.items():
+    rrf_lists = [fts_ranked, lex_ranked, vec_ranked] if vec_ranked else [fts_ranked, lex_ranked]
+    rrf_weights = [1.0, 0.8, 1.35] if vec_ranked else None
+    rrf_bonus = dict(knowledge_index.rrf_fuse(rrf_lists, k=60, weights=rrf_weights))
+    for idx in (set(lexical_scores.keys()) | set(vec_scores.keys())):
+        base_score = lexical_scores.get(idx, 0.0) + (vec_scores[idx] * 4.5 if idx in vec_scores else 0.0)
         boosted = base_score + rrf_bonus.get(idx, 0.0) * 12.0
         if boosted >= float(min_score):
             scored.append((boosted, chunks[idx]))

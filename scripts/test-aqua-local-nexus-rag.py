@@ -727,8 +727,8 @@ ShellRoot {
         onTriggered: {
             if (root.done)
                 return;
-            if (!Config.ready) {
-                root.require(++root.bootTicks < 100, "Config.ready timeout");
+            if (!Config.ready || (AlisIntergration.available && AlisIntergration.nexusEnabled && !AlisIntergration.nexus)) {
+                root.require(++root.bootTicks < 100, "Config.ready / AlisIntergration timeout");
                 return;
             }
             CompServices.AquaMind.agentToolsEnabled = true;

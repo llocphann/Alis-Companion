@@ -10,6 +10,7 @@ Item {
     objectName: surfaceId ? ("a2uiSurface-" + surfaceId) : "a2uiSurface"
     property var surface: null
     property bool compactMode: width < 320
+    property bool actionBusy: false
     property color colBoxSubtle: Qt.rgba(0.12, 0.14, 0.18, 0.90)
     property color colBoxLayer: Qt.rgba(0.15, 0.17, 0.22, 0.92)
     property color colBoxElevated: Qt.rgba(0.19, 0.21, 0.27, 0.94)
@@ -85,6 +86,7 @@ Item {
         dataModel: root.localDataModel
         depth: 0
         compactMode: root.compactMode
+        actionBusy: root.actionBusy
         maxContentWidth: root.width > 0 ? root.width : 280
         colBoxSubtle: root.colBoxSubtle
         colBoxLayer: root.colBoxLayer

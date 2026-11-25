@@ -1043,7 +1043,15 @@ def generate_mascot_commentary(payload: dict) -> dict:
     allow_fallback = bool(req.get("allowContextualFallback"))
     personality = str(req.get("personality") or "balanced").lower()
     lang_raw = str(req.get("language") or "en").strip().lower()
-    lang = "vi" if lang_raw.startswith("vi") else "en"
+    if lang_raw.startswith("vi"):
+        lang = "vi"
+    elif lang_raw == "auto":
+        sample_lang = str(req.get("lastUserPrompt") or "")
+        has_vi = bool(sample_lang and _contains_vietnamese_text(sample_lang))
+        env_vi = str(os.environ.get("LC_ALL") or os.environ.get("LANG") or "").lower().startswith("vi")
+        lang = "vi" if (has_vi or env_vi) else "en"
+    else:
+        lang = "en"
     recent = [
         " ".join(str(r).split())[:120]
         for r in (req.get("recentComments") or [])

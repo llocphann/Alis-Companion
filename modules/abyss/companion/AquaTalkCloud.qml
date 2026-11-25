@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Quickshell
 import qs.services
 import "../../../services"
 import qs.modules.common
@@ -29,7 +30,7 @@ Item {
     readonly property bool hasSwarmInputFocus: Boolean(activeSwarmPane && activeSwarmPane.visible && activeSwarmPane.hasActiveInputFocus)
     property int focusedA2uiInputCount: 0
     readonly property bool hasA2uiInputFocus: focusedA2uiInputCount > 0
-    readonly property bool hasActiveTextInputFocus: message.activeFocus || editorTextArea.activeFocus || clarificationCustomField.activeFocus || chatWeightField.activeFocus || root.hasSidebarInputFocus || root.hasSwarmInputFocus || root.hasA2uiInputFocus || root.anySelectableTextFocused || root.voiceStageActive
+    readonly property bool hasActiveTextInputFocus: message.activeFocus || sudoPasswordField.activeFocus || editorTextArea.activeFocus || clarificationCustomField.activeFocus || chatWeightField.activeFocus || root.hasSidebarInputFocus || root.hasSwarmInputFocus || root.hasA2uiInputFocus || root.anySelectableTextFocused || root.voiceStageActive
     readonly property bool keyboardFocusActive: root.visible && (root.wantsKeyboardFocus || root.hasActiveTextInputFocus)
     readonly property bool cloudHovered: root.visible && talkCloudHover.hovered
     readonly property AquaPocketPane activePocketPane: (root.visible && pocketPaneLoader.active) ? (pocketPaneLoader.item as AquaPocketPane) : null
@@ -69,6 +70,8 @@ Item {
         root.wantsKeyboardFocus = true;
         if (root.hasSwarmInputFocus && root.activeSwarmPane) {
             root.activeSwarmPane.focusComposer();
+        } else if (root.editing && !root.voiceStageActive && AquaMind.pendingSudoPassword && sudoPasswordField.visible && sudoPasswordField.enabled) {
+            sudoPasswordField.forceActiveFocus();
         } else if (root.editing && !root.voiceStageActive && message.visible && message.enabled) {
             message.forceActiveFocus();
         } else {
@@ -83,6 +86,8 @@ Item {
         root.wantsKeyboardFocus = false;
         if (message.activeFocus)
             message.focus = false;
+        if (sudoPasswordField.activeFocus)
+            sudoPasswordField.focus = false;
         if (editorTextArea.activeFocus)
             editorTextArea.focus = false;
         if (clarificationCustomField.activeFocus)
@@ -511,6 +516,114 @@ Item {
             needsArgs: false
         },
         {
+            name: "remind",
+            cmd: "/remind",
+            usage: "/remind in 15m to ...",
+            category: "Schedule",
+            icon: "alarm",
+            desc: "Create a reminder or timer",
+            needsArgs: true
+        },
+        {
+            name: "schedule",
+            cmd: "/schedule",
+            usage: "/schedule every day at 09:00 ...",
+            category: "Schedule",
+            icon: "event_repeat",
+            desc: "Schedule a recurring task",
+            needsArgs: true
+        },
+        {
+            name: "jobs",
+            cmd: "/jobs",
+            usage: "/jobs",
+            category: "Schedule",
+            icon: "schedule",
+            desc: "List active scheduled jobs",
+            needsArgs: false
+        },
+        {
+            name: "watch",
+            cmd: "/watch",
+            usage: "/watch <process>",
+            category: "Schedule",
+            icon: "visibility",
+            desc: "Watch a running process and notify",
+            needsArgs: true
+        },
+        {
+            name: "screen",
+            cmd: "/screen",
+            usage: "/screen [summary]",
+            category: "Desktop",
+            icon: "screenshot_monitor",
+            desc: "Summarize or inspect current screen",
+            needsArgs: false
+        },
+        {
+            name: "screenshot",
+            cmd: "/screenshot",
+            usage: "/screenshot [region|full]",
+            category: "Desktop",
+            icon: "photo_camera",
+            desc: "Capture screen or active window",
+            needsArgs: false
+        },
+        {
+            name: "web",
+            cmd: "/web",
+            usage: "/web <query>",
+            category: "Web",
+            icon: "travel_explore",
+            desc: "Search the web",
+            needsArgs: true
+        },
+        {
+            name: "browser",
+            cmd: "/browser",
+            usage: "/browser <url or task>",
+            category: "Web",
+            icon: "public",
+            desc: "Inspect or automate live browser page",
+            needsArgs: true
+        },
+        {
+            name: "bluetooth",
+            cmd: "/bluetooth",
+            usage: "/bluetooth [status|on|off|connect ...]",
+            category: "System",
+            icon: "bluetooth",
+            desc: "Inspect or toggle Bluetooth",
+            needsArgs: true
+        },
+        {
+            name: "wifi",
+            cmd: "/wifi",
+            usage: "/wifi [status|list|on|off|connect ...]",
+            category: "System",
+            icon: "wifi",
+            desc: "Inspect or connect Wi-Fi",
+            needsArgs: true
+        },
+        {
+            name: "audio",
+            cmd: "/audio",
+            usage: "/audio [volume|mute|status]",
+            category: "System",
+            icon: "volume_up",
+            desc: "Control system volume or audio output",
+            needsArgs: true
+        },
+        {
+            name: "power",
+            cmd: "/power",
+            usage: "/power [lock|suspend|profile]",
+            category: "System",
+            icon: "power_settings_new",
+            desc: "Lock screen or manage power state",
+            needsArgs: true
+        },
+        {
             name: "clear",
             cmd: "/clear",
             usage: "/clear",
@@ -881,21 +994,26 @@ Item {
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;");
+            .replace(/"/g, "&quot;")
+            .replace(/\t/g, "    ");
         const accentHex = String(AbyssStyle.accent);
         const mutedHex = String(Appearance?.colors?.colSubtext ?? "#8b949e");
         const strColor = String(Appearance?.colors?.colSuccess ?? "#7ee787");
         const tokenRe = /(&quot;(?:\\.|[^&]|&(?!quot;))*?&quot;|'(?:\\.|[^'\\])*?')|\b(const|let|var|function|return|if|else|for|while|switch|case|break|continue|import|from|export|default|class|def|async|await|try|except|finally|raise|with|as|pass|None|True|False|true|false|null|undefined|fn|pub|struct|enum|impl|match|mut|property|readonly|signal|int|real|bool|string)\b/g;
+        const preserveSpaces = s => String(s ?? "").replace(/ {2,}/g, m => "&nbsp;".repeat(m.length - 1) + " ");
         const lines = esc.split("\n");
         const out = [];
         for (let i = 0; i < lines.length; ++i) {
             const ln = lines[i];
-            const cmtMatch = /^(\s*)(\/\/.*|#.*)$/.exec(ln);
+            const leadMatch = /^( *)(.*)$/.exec(ln);
+            const leadHtml = leadMatch ? "&nbsp;".repeat(leadMatch[1].length) : "";
+            const body = leadMatch ? leadMatch[2] : ln;
+            const cmtMatch = /^(\/\/.*|#.*)$/.exec(body);
             if (cmtMatch) {
-                out.push(cmtMatch[1] + `<span style="color:${mutedHex};font-style:italic;">${cmtMatch[2]}</span>`);
+                out.push(leadHtml + `<span style="color:${mutedHex};font-style:italic;">${preserveSpaces(cmtMatch[1])}</span>`);
                 continue;
             }
-            out.push(ln.replace(tokenRe, (m, strTok, kwTok) => {
+            out.push(leadHtml + preserveSpaces(body).replace(tokenRe, (m, strTok, kwTok) => {
                 if (strTok !== undefined)
                     return `<span style="color:${strColor};">${strTok}</span>`;
                 if (kwTok !== undefined)
@@ -1216,7 +1334,7 @@ Item {
         AquaMind.dismiss();
     }
     function handleEscape(): bool {
-        if (!root.visible || root.embeddedMode)
+        if (!root.visible)
             return false;
         if (root.voiceStageActive) {
             AquaMind.cancelVoiceMode();
@@ -1224,6 +1342,14 @@ Item {
         }
         if (root.slashMenuOpen) {
             root.slashMenuDismissed = true;
+            return true;
+        }
+        if (root.profileStage !== 0) {
+            root.profileStage = 0;
+            Qt.callLater(() => {
+                if (root.editing && !root.voiceStageActive)
+                    root.focusPrimaryInput();
+            });
             return true;
         }
         if (root.hasA2uiInputFocus) {
@@ -1239,6 +1365,8 @@ Item {
             AquaMind.closeEditorPopup();
             return true;
         }
+        if (root.embeddedMode)
+            return false;
         root.closePopup();
         return true;
     }
@@ -1333,7 +1461,7 @@ Item {
     Rectangle {
         objectName: "aquaCloudBackground"
         anchors.fill: parent
-        radius: root.embeddedMode ? 14 : root.edgeRadius
+        radius: root.embeddedMode ? Appearance.rounding.normal : root.edgeRadius
         border.width: 1
         border.color: root.cloudBorderColor
         color: root.cloudColor
@@ -1349,7 +1477,7 @@ Item {
             }
         }
         Rectangle {
-            visible: root.panelMode
+            visible: root.panelMode && !root.embeddedMode
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
@@ -2097,16 +2225,74 @@ Item {
             height: Math.max(0, content.height - y - (thinkingCard.visible ? thinkingCard.height + content.spacing : 0) - (controlsColumn.visible ? controlsColumn.height + content.spacing : 0))
             Layout.fillWidth: true
             Layout.fillHeight: true
-            StyledText {
+            Column {
                 visible: root.profileStage === 0 && !root.slashMenuOpen && AquaMind.historyLoaded && !AquaMind.isWorking
                 anchors.centerIn: parent
-                width: Math.min(parent.width, 260)
-                horizontalAlignment: Text.AlignHCenter
-                text: "Splish! Ask anything, or / for commands."
-                textFormat: Text.PlainText
-                wrapMode: Text.WordWrap
-                color: Appearance.colors.colSubtext
-                font.pixelSize: Appearance.font.pixelSize.small
+                width: Math.min(parent.width - 12, 320)
+                spacing: 10
+                StyledText {
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    text: "Splish! Ask anything, or / for commands."
+                    textFormat: Text.PlainText
+                    wrapMode: Text.WordWrap
+                    color: Appearance.colors.colSubtext
+                    font.pixelSize: Appearance.font.pixelSize.small
+                }
+                Flow {
+                    objectName: "aquaStarterChipsRow"
+                    width: parent.width
+                    spacing: 6
+                    Repeater {
+                        model: [
+                            { id: "summarize-screen", label: "Summarize screen", icon: "screenshot_monitor", prompt: "Summarize what's on my screen right now", sendNow: true },
+                            { id: "system-status", label: "System status", icon: "monitoring", prompt: "Check system status (CPU, RAM, disk, battery, network)", sendNow: true },
+                            { id: "remind-15m", label: "Remind me in 15m", icon: "alarm", prompt: "Remind me in 15m to ", sendNow: false },
+                            { id: "search-notes", label: "Search notes", icon: "search", prompt: "Search my notes for ", sendNow: false }
+                        ]
+                        delegate: RippleButton {
+                            id: starterChipBtn
+                            required property var modelData
+                            objectName: "aquaStarterChip-" + modelData.id
+                            buttonRadius: 10
+                            implicitHeight: 26
+                            implicitWidth: Math.min(parent ? parent.width : 280, starterChipRow.implicitWidth + 16)
+                            colBackground: root.colBoxElevated
+                            colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.22)
+                            onClicked: {
+                                if (starterChipBtn.modelData.sendNow) {
+                                    AquaMind.sendMessage(starterChipBtn.modelData.prompt);
+                                } else {
+                                    message.text = starterChipBtn.modelData.prompt;
+                                    root.focusPrimaryInput();
+                                    message.cursorPosition = message.text.length;
+                                }
+                            }
+                            contentItem: Item {
+                                implicitWidth: starterChipRow.implicitWidth
+                                implicitHeight: starterChipRow.implicitHeight
+                                Row {
+                                    id: starterChipRow
+                                    anchors.centerIn: parent
+                                    spacing: 4
+                                    MaterialSymbol {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: starterChipBtn.modelData.icon
+                                        iconSize: 14
+                                        color: AbyssStyle.accent
+                                    }
+                                    StyledText {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                        text: starterChipBtn.modelData.label
+                                        font.pixelSize: Appearance.font.pixelSize.smallest
+                                        color: Appearance.colors.colOnLayer1
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         Item {
@@ -2382,7 +2568,7 @@ Item {
                                         anchors.fill: parent
                                         anchors.margins: 1
                                         fillMode: Image.PreserveAspectCrop
-                                        asynchronous: false
+                                        asynchronous: true
                                         sourceSize: Qt.size(Math.max(1, Math.round(bubble.thumbW * 2)), Math.max(1, Math.round(bubble.thumbH * 2)))
                                         source: bubbleThumbCard.imageUrl
                                     }
@@ -2509,6 +2695,7 @@ Item {
                                     width: a2uiSurfaceContainer.width
                                     surface: bubbleRow.uiSurface
                                     compactMode: a2uiSurfaceContainer.width < 320
+                                    actionBusy: AquaMind.a2uiActionBusy
                                     colBoxSubtle: root.colBoxSubtle
                                     colBoxLayer: root.colBoxLayer
                                     colBoxElevated: root.colBoxElevated
@@ -2671,11 +2858,9 @@ Item {
                                     root.speakingMessageKey = "";
                                     AquaMind.stopVoiceTts();
                                 } else {
-                                    if (AquaMind.ttsSpeaking)
-                                        AquaMind.stopVoiceTts();
                                     root.speakingMessageKey = bubbleHoverActionsRow.bubbleMsgKey;
                                     const spoken = String(bubbleRow.modelData?.spokenText ?? "").trim() || root.stripMarkdownToPlain(messageText.rawContent);
-                                    AquaMind.speakText(spoken);
+                                    AquaMind.speakText(spoken, true);
                                 }
                             }
                             StyledToolTip {
@@ -3623,7 +3808,7 @@ Item {
             x: 0
             y: root.editing ? Math.max(0, content.height - height) : ((todayContextHeader.visible ? todayContextHeader.height + content.spacing : 0) + (speechText.visible ? speechText.implicitHeight + content.spacing : 0) + (todayContextRows.visible ? todayContextRows.implicitHeight + content.spacing : 0))
             width: content.width
-            readonly property real topPanelsHeight: (profileBox.visible ? profileBox.implicitHeight + spacing : 0) + (clarificationCard.visible ? clarificationCard.implicitHeight + spacing : 0) + (slashCommandPopup.visible ? slashCommandPopup.implicitHeight + spacing : 0)
+            readonly property real topPanelsHeight: (profileBox.visible ? profileBox.implicitHeight + spacing : 0) + (clarificationCard.visible ? clarificationCard.implicitHeight + spacing : 0) + (slashCommandPopup.visible ? slashCommandPopup.implicitHeight + spacing : 0) + (toastBanner.visible ? toastBanner.implicitHeight + spacing : 0)
             readonly property real targetHeight: root.editing ? composer.implicitHeight + topPanelsHeight : 28
             height: targetHeight
             implicitHeight: targetHeight
@@ -4585,7 +4770,7 @@ Item {
                 y: (profileBox.visible ? profileBox.height + controlsColumn.spacing : 0) + (clarificationCard.visible ? clarificationCard.height + controlsColumn.spacing : 0)
                 width: content.width
                 height: implicitHeight
-                readonly property real maxSlashPopupHeight: Math.max(96, content.height - (thinkingCard.visible ? thinkingCard.implicitHeight + content.spacing : 0) - (profileBox.visible ? profileBox.implicitHeight + controlsColumn.spacing : 0) - (clarificationCard.visible ? clarificationCard.implicitHeight + controlsColumn.spacing : 0) - composer.implicitHeight - controlsColumn.spacing - 8)
+                readonly property real maxSlashPopupHeight: Math.max(96, content.height - (thinkingCard.visible ? thinkingCard.implicitHeight + content.spacing : 0) - (profileBox.visible ? profileBox.implicitHeight + controlsColumn.spacing : 0) - (clarificationCard.visible ? clarificationCard.implicitHeight + controlsColumn.spacing : 0) - (toastBanner.visible ? toastBanner.implicitHeight + controlsColumn.spacing : 0) - composer.implicitHeight - controlsColumn.spacing - 8)
                 implicitHeight: Math.min(182, maxSlashPopupHeight, 26 + Math.min(5, Math.max(1, root.filteredSlashCommands.length)) * 30 + 8)
                 radius: Math.max(10, Math.min(14, root.edgeRadius - 6))
                 color: Qt.rgba(Appearance.colors.colLayer1.r, Appearance.colors.colLayer1.g, Appearance.colors.colLayer1.b, 0.96)
@@ -4706,11 +4891,129 @@ Item {
             }
 
             Rectangle {
+                id: toastBanner
+                objectName: "aquaChatToastBanner"
+                visible: root.editing && !root.voiceStageActive && String(AquaMind.statusBannerMessage ?? "").trim().length > 0
+                x: 0
+                y: (profileBox.visible ? profileBox.height + controlsColumn.spacing : 0) + (clarificationCard.visible ? clarificationCard.height + controlsColumn.spacing : 0) + (slashCommandPopup.visible ? slashCommandPopup.height + controlsColumn.spacing : 0)
+                width: content.width
+                height: visible ? implicitHeight : 0
+                implicitHeight: toastBannerRow.implicitHeight + 10
+                radius: Math.max(9, Math.min(12, root.edgeRadius - 6))
+                readonly property bool isError: AquaMind.statusBannerKind === "error"
+                readonly property bool isWarning: AquaMind.statusBannerKind === "warning"
+                readonly property bool needsSettingsShortcut: /\b(?:model|provider|stt|whisper|endpoint|local-only|settings)\b/i.test(String(AquaMind.statusBannerMessage ?? ""))
+                color: isError
+                    ? Qt.alpha(Appearance.colors.colError, 0.16)
+                    : (isWarning ? Qt.alpha(AbyssStyle.accent, 0.15) : root.colBoxLayer)
+                border.width: 1
+                border.color: isError
+                    ? Qt.alpha(Appearance.colors.colError, 0.45)
+                    : (isWarning ? Qt.alpha(AbyssStyle.accent, 0.42) : Qt.alpha(AbyssStyle.accent, 0.25))
+                Timer {
+                    id: toastAutoDismissTimer
+                    interval: toastBanner.isError ? 6000 : 4500
+                    repeat: false
+                    onTriggered: AquaMind.dismissStatusBanner()
+                }
+                Connections {
+                    target: AquaMind
+                    function onStatusBannerMessageChanged(): void {
+                        if (String(AquaMind.statusBannerMessage ?? "").trim().length > 0)
+                            toastAutoDismissTimer.restart();
+                        else
+                            toastAutoDismissTimer.stop();
+                    }
+                }
+                RowLayout {
+                    id: toastBannerRow
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 6
+                    spacing: 6
+                    MaterialSymbol {
+                        text: toastBanner.isError ? "error_outline" : (toastBanner.isWarning ? "warning_amber" : "info")
+                        iconSize: 15
+                        textRenderType: Text.CurveRendering
+                        color: toastBanner.isError ? Appearance.colors.colError : AbyssStyle.accent
+                    }
+                    StyledText {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        text: String(AquaMind.statusBannerMessage ?? "")
+                        textFormat: Text.PlainText
+                        wrapMode: Text.Wrap
+                        maximumLineCount: 2
+                        elide: Text.ElideRight
+                        font.pixelSize: Appearance.font.pixelSize.smallest - 1
+                        color: AbyssStyle.textColor
+                    }
+                    RippleButton {
+                        id: toastSettingsBtn
+                        objectName: "aquaToastSettingsBtn"
+                        visible: toastBanner.needsSettingsShortcut
+                        Layout.preferredWidth: toastSettingsLbl.implicitWidth + 12
+                        Layout.preferredHeight: 20
+                        implicitWidth: Layout.preferredWidth
+                        implicitHeight: 20
+                        buttonRadius: 10
+                        colBackground: Qt.alpha(AbyssStyle.accent, 0.18)
+                        colBackgroundHover: Qt.alpha(AbyssStyle.accent, 0.30)
+                        onClicked: {
+                            AquaMind.dismissStatusBanner();
+                            if (typeof GlobalStates !== "undefined" && typeof GlobalStates.openSettingsPage === "function" && typeof SettingsPageRegistry !== "undefined" && Array.isArray(SettingsPageRegistry.pages)) {
+                                const idx = SettingsPageRegistry.pages.findIndex(p => p && p.key === "companion");
+                                if (idx >= 0) {
+                                    GlobalStates.openSettingsPage(idx);
+                                    return;
+                                }
+                            }
+                            if (AquaMind.liveModelAutoDetectAllowed)
+                                Quickshell.execDetached([Quickshell.shellPath("scripts/alis"), "settings-window"]);
+                        }
+                        contentItem: StyledText {
+                            id: toastSettingsLbl
+                            anchors.fill: parent
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            text: "Settings"
+                            font.pixelSize: Appearance.font.pixelSize.smallest - 2
+                            font.weight: Font.DemiBold
+                            color: AbyssStyle.accent
+                        }
+                    }
+                    RippleButton {
+                        id: toastDismissBtn
+                        objectName: "aquaToastDismissBtn"
+                        Layout.preferredWidth: 20
+                        Layout.preferredHeight: 20
+                        implicitWidth: 20
+                        implicitHeight: 20
+                        buttonRadius: 10
+                        colBackground: "transparent"
+                        colBackgroundHover: root.colBoxHover
+                        onClicked: AquaMind.dismissStatusBanner()
+                        contentItem: Item {
+                            MaterialSymbol {
+                                anchors.centerIn: parent
+                                text: "close"
+                                iconSize: 13
+                                textRenderType: Text.CurveRendering
+                                color: Appearance.colors.colSubtext
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
                 id: composer
                 objectName: "aquaChatComposer"
                 visible: root.editing
                 x: 0
-                y: (profileBox.visible ? profileBox.height + controlsColumn.spacing : 0) + (clarificationCard.visible ? clarificationCard.height + controlsColumn.spacing : 0) + (slashCommandPopup.visible ? slashCommandPopup.height + controlsColumn.spacing : 0)
+                y: (profileBox.visible ? profileBox.height + controlsColumn.spacing : 0) + (clarificationCard.visible ? clarificationCard.height + controlsColumn.spacing : 0) + (slashCommandPopup.visible ? slashCommandPopup.height + controlsColumn.spacing : 0) + (toastBanner.visible ? toastBanner.height + controlsColumn.spacing : 0)
                 width: content.width
                 height: implicitHeight
                 Layout.fillWidth: true
@@ -4764,8 +5067,9 @@ Item {
                     readonly property real imgPreviewOffset: (!root.voiceStageActive && attachedImagesStrip.visible) ? (attachedImagesStrip.height + 4) : 0
                     readonly property real filePreviewOffset: (!root.voiceStageActive && attachedFilesStrip.visible) ? (attachedFilesStrip.height + 4) : 0
                     readonly property real previewOffset: imgPreviewOffset + filePreviewOffset
+                    readonly property real activeInputHeight: AquaMind.pendingSudoPassword ? sudoPasswordField.height : messageInputFlickable.height
                     readonly property real standardTextInputStageHeight: 40 + 2 + composerRow.height
-                    height: root.voiceStageActive ? voiceStage.height : (previewOffset + message.implicitHeight + 2 + composerRow.height)
+                    height: root.voiceStageActive ? voiceStage.height : (previewOffset + activeInputHeight + 2 + composerRow.height)
                     implicitHeight: height
                     Item {
                         id: attachedImagesStrip
@@ -4802,7 +5106,7 @@ Item {
                                         Image {
                                             anchors.fill: parent
                                             fillMode: Image.PreserveAspectCrop
-                                            asynchronous: false
+                                            asynchronous: true
                                             sourceSize: Qt.size(48, 48)
                                             source: String(imgChip.modelData?.url ?? "")
                                         }
@@ -4916,160 +5220,245 @@ Item {
                             }
                         }
                     }
-                    MaterialTextField {
-                        id: message
-                        objectName: "aquaChatInput"
-                        visible: !root.voiceStageActive
+                    Flickable {
+                        id: messageInputFlickable
+                        visible: !root.voiceStageActive && !AquaMind.pendingSudoPassword
                         x: 0
                         y: composerContent.previewOffset
                         width: parent.width
-                        height: implicitHeight
-                        maximumLength: 1200
-                        wrapMode: TextInput.Wrap
+                        height: visible ? Math.min(124, Math.max(38, message.implicitHeight)) : 0
+                        contentWidth: width
+                        contentHeight: Math.max(height, message.implicitHeight)
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff; visible: false; width: 0 }
+
+                        TextArea {
+                            id: message
+                            objectName: "aquaChatInput"
+                            signal accepted()
+                            property int maximumLength: 8000
+                            visible: !root.voiceStageActive && !AquaMind.pendingSudoPassword
+                            width: messageInputFlickable.width
+                            height: Math.max(messageInputFlickable.height, implicitHeight)
+                            wrapMode: TextEdit.Wrap
+                            selectByMouse: true
+                            color: AbyssStyle.textColor
+                            selectionColor: Qt.alpha(AbyssStyle.accent, 0.32)
+                            selectedTextColor: AbyssStyle.textColor
+                            placeholderTextColor: Appearance.colors.colSubtext
+                            font.family: Appearance.font.family.main
+                            font.pixelSize: Appearance.font.pixelSize.small
+                            leftPadding: 8
+                            rightPadding: 8
+                            topPadding: 8
+                            bottomPadding: 8
+                            placeholderText: root.editing ? (AquaMind.voiceErrorNotice.length > 0 ? AquaMind.voiceErrorNotice : "Ask Companion or type / for commands...") : AquaMind.voiceErrorNotice
+                            Accessible.name: "Message"
+                            background: null
+                            onCursorRectangleChanged: {
+                                if (cursorRectangle.y < messageInputFlickable.contentY) {
+                                    messageInputFlickable.contentY = Math.max(0, cursorRectangle.y);
+                                } else if (cursorRectangle.y + cursorRectangle.height > messageInputFlickable.contentY + messageInputFlickable.height) {
+                                    messageInputFlickable.contentY = Math.min(
+                                        Math.max(0, messageInputFlickable.contentHeight - messageInputFlickable.height),
+                                        cursorRectangle.y + cursorRectangle.height - messageInputFlickable.height + 4
+                                    );
+                                }
+                            }
+                            onActiveFocusChanged: if (activeFocus)
+                                root.wantsKeyboardFocus = true
+                            TapHandler {
+                                onPressedChanged: if (pressed) {
+                                    root.wantsKeyboardFocus = true;
+                                    if (!message.activeFocus)
+                                        Qt.callLater(() => {
+                                            if (root.editing && !root.voiceStageActive && message.visible && message.enabled)
+                                                message.forceActiveFocus();
+                                        });
+                                }
+                            }
+                            onTextChanged: {
+                                if (text.length > message.maximumLength) {
+                                    const keepCur = Math.min(cursorPosition, message.maximumLength);
+                                    text = text.slice(0, message.maximumLength);
+                                    cursorPosition = keepCur;
+                                    return;
+                                }
+                                if (text.trim().length === 0 && AquaMind.pendingVoiceInputTurn) {
+                                    AquaMind.pendingVoiceInputTurn = false;
+                                }
+                                if (text.length > 0 && AquaMind.voiceErrorNotice.length > 0) {
+                                    AquaMind.voiceErrorNotice = "";
+                                }
+                                if (text.startsWith("/")) {
+                                    if (!/^\/[^\s]*\s/.test(text)) {
+                                        root.slashMenuDismissed = false;
+                                    }
+                                    root.slashSelectedIndex = 0;
+                                } else {
+                                    root.slashMenuDismissed = false;
+                                    root.slashSelectedIndex = 0;
+                                }
+                            }
+                            onAccepted: {
+                                if (root.slashMenuOpen && root.filteredSlashCommands.length > 0) {
+                                    const idx = Math.max(0, Math.min(root.filteredSlashCommands.length - 1, root.slashSelectedIndex));
+                                    const chosen = root.filteredSlashCommands[idx];
+                                    if (chosen && (chosen.needsArgs || root.slashRawInput.trim().toLowerCase() !== chosen.cmd)) {
+                                        root.selectSlashCommand(chosen, !chosen.needsArgs);
+                                        return;
+                                    }
+                                }
+                                root.submit();
+                            }
+                            Keys.onDownPressed: event => {
+                                if (root.slashMenuOpen && root.filteredSlashCommands.length > 0) {
+                                    event.accepted = true;
+                                    root.slashSelectedIndex = (root.slashSelectedIndex + 1) % root.filteredSlashCommands.length;
+                                    slashMenuList.positionViewAtIndex(root.slashSelectedIndex, ListView.Contain);
+                                    return;
+                                }
+                                if (root.promptHistoryIndex >= 0 && root.userPromptHistory.length > 0 && (!message.text.includes("\n") || message.cursorPosition >= message.text.length)) {
+                                    event.accepted = true;
+                                    if (root.promptHistoryIndex < root.userPromptHistory.length - 1) {
+                                        root.promptHistoryIndex += 1;
+                                        message.text = String(root.userPromptHistory[root.promptHistoryIndex] ?? "");
+                                    } else {
+                                        root.promptHistoryIndex = -1;
+                                        message.text = root.promptHistoryDraft;
+                                    }
+                                    message.cursorPosition = message.text.length;
+                                }
+                            }
+                            Keys.onUpPressed: event => {
+                                if (root.slashMenuOpen && root.filteredSlashCommands.length > 0) {
+                                    event.accepted = true;
+                                    root.slashSelectedIndex = (root.slashSelectedIndex - 1 + root.filteredSlashCommands.length) % root.filteredSlashCommands.length;
+                                    slashMenuList.positionViewAtIndex(root.slashSelectedIndex, ListView.Contain);
+                                    return;
+                                }
+                                if (root.userPromptHistory.length > 0 && (!message.text.includes("\n") || message.cursorPosition === 0 || root.promptHistoryIndex >= 0)) {
+                                    event.accepted = true;
+                                    if (root.promptHistoryIndex < 0) {
+                                        root.promptHistoryDraft = message.text;
+                                        root.promptHistoryIndex = root.userPromptHistory.length - 1;
+                                    } else if (root.promptHistoryIndex > 0) {
+                                        root.promptHistoryIndex -= 1;
+                                    }
+                                    message.text = String(root.userPromptHistory[root.promptHistoryIndex] ?? "");
+                                    message.cursorPosition = message.text.length;
+                                }
+                            }
+                            Keys.onTabPressed: event => {
+                                if (root.slashMenuOpen && root.filteredSlashCommands.length > 0) {
+                                    event.accepted = true;
+                                    const idx = Math.max(0, Math.min(root.filteredSlashCommands.length - 1, root.slashSelectedIndex));
+                                    root.selectSlashCommand(root.filteredSlashCommands[idx], false);
+                                }
+                            }
+                            Keys.onReturnPressed: event => {
+                                if (event.modifiers & Qt.ShiftModifier) {
+                                    const pos = Math.max(0, message.cursorPosition);
+                                    message.text = message.text.slice(0, pos) + "\n" + message.text.slice(pos);
+                                    message.cursorPosition = pos + 1;
+                                    event.accepted = true;
+                                    return;
+                                }
+                                event.accepted = true;
+                                message.accepted();
+                            }
+                            Keys.onEnterPressed: event => {
+                                if (event.modifiers & Qt.ShiftModifier) {
+                                    const pos = Math.max(0, message.cursorPosition);
+                                    message.text = message.text.slice(0, pos) + "\n" + message.text.slice(pos);
+                                    message.cursorPosition = pos + 1;
+                                    event.accepted = true;
+                                    return;
+                                }
+                                event.accepted = true;
+                                message.accepted();
+                            }
+                            Keys.onPressed: event => {
+                                if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_C && String(message.selectedText ?? "").length === 0 && root.copyActiveSelection()) {
+                                    event.accepted = true;
+                                    return;
+                                }
+                                if (event.key === Qt.Key_PageUp) {
+                                    if (root.scrollByPage(-1))
+                                        event.accepted = true;
+                                    return;
+                                }
+                                if (event.key === Qt.Key_PageDown) {
+                                    if (root.scrollByPage(1))
+                                        event.accepted = true;
+                                    return;
+                                }
+                                if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_V) {
+                                    let clipVal = "";
+                                    try {
+                                        if (typeof Quickshell !== "undefined" && Quickshell && "clipboardText" in Quickshell)
+                                            clipVal = String(Quickshell.clipboardText ?? "").trim();
+                                    } catch (e) {}
+                                    if (clipVal.length === 0) {
+                                        if (AquaMind.tryPasteClipboardImage()) {
+                                            event.accepted = true;
+                                            return;
+                                        }
+                                    }
+                                    const lines = clipVal.split(/\r?\n/).map(l => l.trim().replace(/^['"`]+|['"`]+$/g, "").trim()).filter(l => l.length > 0 && !l.startsWith("#"));
+                                    if (lines.length > 0 && lines.length <= 4 && lines.every(l => /^(?:\/|~\/|file:\/\/).+\.(?:png|jpe?g|webp|gif|bmp|svg|pdf|docx|xlsx|csv|md|txt|json|py|js|ts|qml|rs)$/i.test(l))) {
+                                        let attachedAny = false;
+                                        for (const ln of lines) {
+                                            if (AquaMind.attachFile(ln))
+                                                attachedAny = true;
+                                        }
+                                        if (attachedAny) {
+                                            event.accepted = true;
+                                            return;
+                                        }
+                                    }
+                                }
+                                if (clarificationCard.visible && message.text.length === 0 && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier))) {
+                                    const opts = Array.isArray(AquaMind.activeClarification?.options) ? AquaMind.activeClarification.options : [];
+                                    const numIdx = event.key - Qt.Key_1;
+                                    if (numIdx >= 0 && numIdx < Math.min(9, opts.length)) {
+                                        AquaMind.selectClarificationOption(numIdx);
+                                        event.accepted = true;
+                                        return;
+                                    }
+                                }
+                            }
+                            Keys.onEscapePressed: event => {
+                                if (root.handleEscape())
+                                    event.accepted = true;
+                            }
+                        }
+                    }
+                    MaterialTextField {
+                        id: sudoPasswordField
+                        objectName: "aquaSudoPasswordInput"
+                        visible: !root.voiceStageActive && AquaMind.pendingSudoPassword
+                        x: 0
+                        y: composerContent.previewOffset
+                        width: parent.width
+                        height: visible ? implicitHeight : 0
+                        maximumLength: 512
                         enableSettingsSearch: false
-                        echoMode: AquaMind.pendingSudoPassword ? TextInput.Password : TextInput.Normal
-                        placeholderText: AquaMind.pendingSudoPassword ? "Enter sudo password (or type 'cancel')..." : AquaMind.voiceErrorNotice
-                        Accessible.name: "Message"
+                        echoMode: TextInput.Password
+                        placeholderText: "Enter sudo password (or type 'cancel')..."
+                        Accessible.name: "Sudo password"
                         background: Rectangle {
                             color: "transparent"
                             border.width: 0
                         }
                         onActiveFocusChanged: if (activeFocus)
                             root.wantsKeyboardFocus = true
-                        TapHandler {
-                            onPressedChanged: if (pressed) {
-                                root.wantsKeyboardFocus = true;
-                                if (!message.activeFocus)
-                                    Qt.callLater(() => {
-                                        if (root.editing && !root.voiceStageActive && message.visible && message.enabled)
-                                            message.forceActiveFocus();
-                                    });
-                            }
-                        }
                         onTextChanged: {
-                            if (text.trim().length === 0 && AquaMind.pendingVoiceInputTurn) {
-                                AquaMind.pendingVoiceInputTurn = false;
-                            }
-                            if (text.length > 0 && AquaMind.voiceErrorNotice.length > 0) {
-                                AquaMind.voiceErrorNotice = "";
-                            }
-                            if (text.startsWith("/")) {
-                                if (!/^\/[^\s]*\s/.test(text)) {
-                                    root.slashMenuDismissed = false;
-                                }
-                                root.slashSelectedIndex = 0;
-                            } else {
-                                root.slashMenuDismissed = false;
-                                root.slashSelectedIndex = 0;
-                            }
+                            if (AquaMind.pendingSudoPassword && message.text !== text)
+                                message.text = text;
                         }
-                        onAccepted: {
-                            if (root.slashMenuOpen && root.filteredSlashCommands.length > 0) {
-                                const idx = Math.max(0, Math.min(root.filteredSlashCommands.length - 1, root.slashSelectedIndex));
-                                const chosen = root.filteredSlashCommands[idx];
-                                if (chosen && (chosen.needsArgs || root.slashRawInput.trim().toLowerCase() !== chosen.cmd)) {
-                                    root.selectSlashCommand(chosen, !chosen.needsArgs);
-                                    return;
-                                }
-                            }
-                            root.submit();
-                        }
-                        Keys.onDownPressed: event => {
-                            if (root.slashMenuOpen && root.filteredSlashCommands.length > 0) {
-                                event.accepted = true;
-                                root.slashSelectedIndex = (root.slashSelectedIndex + 1) % root.filteredSlashCommands.length;
-                                slashMenuList.positionViewAtIndex(root.slashSelectedIndex, ListView.Contain);
-                                return;
-                            }
-                            if (root.promptHistoryIndex >= 0 && root.userPromptHistory.length > 0 && (!message.text.includes("\n") || message.cursorPosition >= message.text.length)) {
-                                event.accepted = true;
-                                if (root.promptHistoryIndex < root.userPromptHistory.length - 1) {
-                                    root.promptHistoryIndex += 1;
-                                    message.text = String(root.userPromptHistory[root.promptHistoryIndex] ?? "");
-                                } else {
-                                    root.promptHistoryIndex = -1;
-                                    message.text = root.promptHistoryDraft;
-                                }
-                                message.cursorPosition = message.text.length;
-                            }
-                        }
-                        Keys.onUpPressed: event => {
-                            if (root.slashMenuOpen && root.filteredSlashCommands.length > 0) {
-                                event.accepted = true;
-                                root.slashSelectedIndex = (root.slashSelectedIndex - 1 + root.filteredSlashCommands.length) % root.filteredSlashCommands.length;
-                                slashMenuList.positionViewAtIndex(root.slashSelectedIndex, ListView.Contain);
-                                return;
-                            }
-                            if (root.userPromptHistory.length > 0 && (!message.text.includes("\n") || message.cursorPosition === 0 || root.promptHistoryIndex >= 0)) {
-                                event.accepted = true;
-                                if (root.promptHistoryIndex < 0) {
-                                    root.promptHistoryDraft = message.text;
-                                    root.promptHistoryIndex = root.userPromptHistory.length - 1;
-                                } else if (root.promptHistoryIndex > 0) {
-                                    root.promptHistoryIndex -= 1;
-                                }
-                                message.text = String(root.userPromptHistory[root.promptHistoryIndex] ?? "");
-                                message.cursorPosition = message.text.length;
-                            }
-                        }
-                        Keys.onTabPressed: event => {
-                            if (root.slashMenuOpen && root.filteredSlashCommands.length > 0) {
-                                event.accepted = true;
-                                const idx = Math.max(0, Math.min(root.filteredSlashCommands.length - 1, root.slashSelectedIndex));
-                                root.selectSlashCommand(root.filteredSlashCommands[idx], false);
-                            }
-                        }
-                        Keys.onPressed: event => {
-                            if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_C && String(message.selectedText ?? "").length === 0 && root.copyActiveSelection()) {
-                                event.accepted = true;
-                                return;
-                            }
-                            if (event.key === Qt.Key_PageUp) {
-                                if (root.scrollByPage(-1))
-                                    event.accepted = true;
-                                return;
-                            }
-                            if (event.key === Qt.Key_PageDown) {
-                                if (root.scrollByPage(1))
-                                    event.accepted = true;
-                                return;
-                            }
-                            if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && (event.modifiers & Qt.ShiftModifier)) {
-                                const pos = Math.max(0, message.cursorPosition);
-                                message.text = message.text.slice(0, pos) + "\n" + message.text.slice(pos);
-                                message.cursorPosition = pos + 1;
-                                event.accepted = true;
-                                return;
-                            }
-                            if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_V) {
-                                let clipVal = "";
-                                try {
-                                    if (typeof Quickshell !== "undefined" && Quickshell && "clipboardText" in Quickshell)
-                                        clipVal = String(Quickshell.clipboardText ?? "").trim();
-                                } catch (e) {}
-                                const lines = clipVal.split(/\r?\n/).map(l => l.trim().replace(/^['"`]+|['"`]+$/g, "").trim()).filter(l => l.length > 0 && !l.startsWith("#"));
-                                if (lines.length > 0 && lines.length <= 4 && lines.every(l => /^(?:\/|~\/|file:\/\/).+\.(?:png|jpe?g|webp|gif|bmp|svg|pdf|docx|xlsx|csv|md|txt|json|py|js|ts|qml|rs)$/i.test(l))) {
-                                    let attachedAny = false;
-                                    for (const ln of lines) {
-                                        if (AquaMind.attachFile(ln))
-                                            attachedAny = true;
-                                    }
-                                    if (attachedAny) {
-                                        event.accepted = true;
-                                        return;
-                                    }
-                                }
-                            }
-                            if (clarificationCard.visible && message.text.length === 0 && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier))) {
-                                const opts = Array.isArray(AquaMind.activeClarification?.options) ? AquaMind.activeClarification.options : [];
-                                const numIdx = event.key - Qt.Key_1;
-                                if (numIdx >= 0 && numIdx < Math.min(9, opts.length)) {
-                                    AquaMind.selectClarificationOption(numIdx);
-                                    event.accepted = true;
-                                    return;
-                                }
-                            }
-                        }
+                        onAccepted: root.submit()
                         Keys.onEscapePressed: event => {
                             if (root.handleEscape())
                                 event.accepted = true;
@@ -5080,7 +5469,7 @@ Item {
                         objectName: "aquaChatComposerRow"
                         visible: !root.voiceStageActive
                         x: 0
-                        y: message.y + message.height + 2
+                        y: (AquaMind.pendingSudoPassword ? (sudoPasswordField.y + sudoPasswordField.height) : (messageInputFlickable.y + messageInputFlickable.height)) + 2
                         width: parent.width
                         height: 32
                         property real spacing: 6
@@ -5141,8 +5530,16 @@ Item {
                                 }
                             }
                             Keys.onEscapePressed: event => {
-                                event.accepted = true;
-                                root.closePopup();
+                                if (root.profileStage !== 0) {
+                                    event.accepted = true;
+                                    root.profileStage = 0;
+                                    Qt.callLater(() => {
+                                        if (root.editing && !root.voiceStageActive)
+                                            root.focusPrimaryInput();
+                                    });
+                                } else if (root.handleEscape()) {
+                                    event.accepted = true;
+                                }
                             }
                             StyledToolTip {
                                 objectName: "aquaModelSelectorToolTip"
@@ -5193,8 +5590,16 @@ Item {
                                 }
                             }
                             Keys.onEscapePressed: event => {
-                                event.accepted = true;
-                                root.closePopup();
+                                if (root.profileStage !== 0) {
+                                    event.accepted = true;
+                                    root.profileStage = 0;
+                                    Qt.callLater(() => {
+                                        if (root.editing && !root.voiceStageActive)
+                                            root.focusPrimaryInput();
+                                    });
+                                } else if (root.handleEscape()) {
+                                    event.accepted = true;
+                                }
                             }
                             contentItem: Item {
                                 Row {
@@ -5895,8 +6300,30 @@ Item {
             }
         }
         function onActiveThreadIdChanged(): void {
+            root._renderedCodeBlockRegistry = ({});
             root.resetSelectionState();
             Qt.callLater(() => root.scrollToLatestMessage());
+        }
+        function onHistoryChanged(): void {
+            if (!Array.isArray(AquaMind.history) || AquaMind.history.length === 0)
+                root._renderedCodeBlockRegistry = ({});
+        }
+        function onPendingSudoPasswordChanged(): void {
+            if (AquaMind.pendingSudoPassword) {
+                sudoPasswordField.text = "";
+                if (root.editing && !root.voiceStageActive)
+                    Qt.callLater(() => {
+                        if (AquaMind.pendingSudoPassword && sudoPasswordField.visible)
+                            sudoPasswordField.forceActiveFocus();
+                    });
+            } else {
+                sudoPasswordField.text = "";
+                if (root.editing && !root.voiceStageActive && root.wantsKeyboardFocus)
+                    Qt.callLater(() => {
+                        if (!AquaMind.pendingSudoPassword && message.visible)
+                            message.forceActiveFocus();
+                    });
+            }
         }
         function onHistoryLoadedChanged(): void {
             if (AquaMind.historyLoaded && root.editing) {
@@ -5940,10 +6367,13 @@ Item {
         if (/^\/(?:clear|clean|cls)(?:\s+.*)?$/i.test(raw)) {
             AquaMind.clearConversation();
             message.text = "";
+            sudoPasswordField.text = "";
             return;
         }
-        if (AquaMind.sendMessage(message.text))
+        if (AquaMind.sendMessage(message.text)) {
             message.text = "";
+            sudoPasswordField.text = "";
+        }
     }
     onVisibleChanged: {
         if (visible && editing) {
@@ -5958,7 +6388,7 @@ Item {
                 if (root.editing && root.wantsKeyboardFocus) {
                     root.scrollToLatestMessage();
                     if (!root.voiceStageActive)
-                        message.forceActiveFocus();
+                        root.focusPrimaryInput();
                 }
             });
         } else {

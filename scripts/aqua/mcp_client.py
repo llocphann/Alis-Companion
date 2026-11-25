@@ -476,6 +476,47 @@ CURATED_TOOLS = {
         },
         {
             "server": "computer-use-linux",
+            "name": "mouse_scroll",
+            "description": "Scroll pointer wheel vertically or horizontally (optionally after moving to x, y or ref).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "x": {"type": "integer"},
+                    "y": {"type": "integer"},
+                    "delta": {"type": "integer", "description": "Discrete scroll steps (negative up/left, positive down/right)"},
+                    "axis": {"type": "string", "enum": ["vertical", "horizontal"]},
+                    "ref": {"type": "string"},
+                    "markId": {"type": "integer"},
+                    "element": {"type": "string"},
+                    "role": {"type": "string"},
+                    "targetWindowId": {"type": "integer"},
+                },
+            },
+        },
+        {
+            "server": "computer-use-linux",
+            "name": "mouse_drag",
+            "description": "Press, drag smoothly, and release pointer from (x, y) to (x2, y2).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "x": {"type": "integer"},
+                    "y": {"type": "integer"},
+                    "x2": {"type": "integer"},
+                    "y2": {"type": "integer"},
+                    "button": {"type": "string", "enum": ["left", "right", "middle"]},
+                    "steps": {"type": "integer"},
+                    "ref": {"type": "string"},
+                    "markId": {"type": "integer"},
+                    "element": {"type": "string"},
+                    "role": {"type": "string"},
+                    "targetWindowId": {"type": "integer"},
+                },
+                "required": ["x2", "y2"],
+            },
+        },
+        {
+            "server": "computer-use-linux",
             "name": "type_text",
             "description": "Type or fill text into an editable AT-SPI element (@e2) or focused Wayland window.",
             "inputSchema": {
@@ -1416,16 +1457,24 @@ def _execute_curated_tool(
                     element_name=str(arguments.get("element") or arguments.get("element_name") or arguments.get("elementQuery") or arguments.get("query") or ""),
                     role=str(arguments.get("role") or ""),
                     ref=str(arguments.get("ref") or ""),
+                    allow_live_input=arguments.get("allowLiveInput"),
+                    double=bool(arguments.get("double", False)),
                 )
             except ScreenContextError as exc:
                 raise McpError(exc.code, exc.message) from exc
+            ok_res = bool(res.get("ok", True))
             resolved_el = res.get("resolvedElement")
             label_suffix = f" ({resolved_el.get('ref') or resolved_el.get('tag', '')} {resolved_el.get('name', '')})" if isinstance(resolved_el, dict) else ""
+            out_txt = (
+                f"Clicked {res.get('button', 'left')} at ({res.get('x', 0)}, {res.get('y', 0)}){label_suffix}"
+                if ok_res
+                else str(res.get("summary") or "GUI click failed")
+            )
             return {
                 "server": server_name,
                 "tool": tool_name,
-                "isError": False,
-                "content": [{"type": "text", "text": f"Clicked {res.get('button', 'left')} at ({res.get('x', 0)}, {res.get('y', 0)}){label_suffix}"}],
+                "isError": not ok_res,
+                "content": [{"type": "text", "text": out_txt}],
                 "structured": res,
             }
         if tool_name == "mouse_move":
@@ -1439,14 +1488,75 @@ def _execute_curated_tool(
                     element_name=str(arguments.get("element") or arguments.get("element_name") or arguments.get("elementQuery") or arguments.get("query") or ""),
                     role=str(arguments.get("role") or ""),
                     ref=str(arguments.get("ref") or ""),
+                    allow_live_input=arguments.get("allowLiveInput"),
                 )
             except ScreenContextError as exc:
                 raise McpError(exc.code, exc.message) from exc
+            ok_res = bool(res.get("ok", True))
+            out_txt = (
+                f"Moved cursor to ({res.get('x', 0)}, {res.get('y', 0)})"
+                if ok_res
+                else str(res.get("summary") or "Pointer move failed")
+            )
             return {
                 "server": server_name,
                 "tool": tool_name,
-                "isError": False,
-                "content": [{"type": "text", "text": f"Moved cursor to ({res.get('x', 0)}, {res.get('y', 0)})"}],
+                "isError": not ok_res,
+                "content": [{"type": "text", "text": out_txt}],
+                "structured": res,
+            }
+        if tool_name == "mouse_scroll":
+            try:
+                res = perform_gui_action(
+                    "scroll",
+                    target_window_id=arguments.get("targetWindowId"),
+                    now_ms=arguments.get("nowMs"),
+                    x=int(arguments["x"]) if arguments.get("x") is not None else None,
+                    y=int(arguments["y"]) if arguments.get("y") is not None else None,
+                    mark_id=arguments.get("markId") if arguments.get("markId") is not None else arguments.get("mark_id"),
+                    element_name=str(arguments.get("element") or arguments.get("element_name") or arguments.get("elementQuery") or arguments.get("query") or ""),
+                    role=str(arguments.get("role") or ""),
+                    ref=str(arguments.get("ref") or ""),
+                    allow_live_input=arguments.get("allowLiveInput"),
+                    delta=int(arguments["delta"]) if arguments.get("delta") is not None else 3,
+                    axis=str(arguments.get("axis") or "vertical"),
+                )
+            except ScreenContextError as exc:
+                raise McpError(exc.code, exc.message) from exc
+            ok_res = bool(res.get("ok", True))
+            return {
+                "server": server_name,
+                "tool": tool_name,
+                "isError": not ok_res,
+                "content": [{"type": "text", "text": str(res.get("summary") or "Scrolled")}],
+                "structured": res,
+            }
+        if tool_name == "mouse_drag":
+            try:
+                res = perform_gui_action(
+                    "drag",
+                    target_window_id=arguments.get("targetWindowId"),
+                    now_ms=arguments.get("nowMs"),
+                    x=int(arguments["x"]) if arguments.get("x") is not None else None,
+                    y=int(arguments["y"]) if arguments.get("y") is not None else None,
+                    x2=int(arguments["x2"]) if arguments.get("x2") is not None else None,
+                    y2=int(arguments["y2"]) if arguments.get("y2") is not None else None,
+                    button=str(arguments.get("button") or "left"),
+                    steps=int(arguments["steps"]) if arguments.get("steps") is not None else 10,
+                    mark_id=arguments.get("markId") if arguments.get("markId") is not None else arguments.get("mark_id"),
+                    element_name=str(arguments.get("element") or arguments.get("element_name") or arguments.get("elementQuery") or arguments.get("query") or ""),
+                    role=str(arguments.get("role") or ""),
+                    ref=str(arguments.get("ref") or ""),
+                    allow_live_input=arguments.get("allowLiveInput"),
+                )
+            except ScreenContextError as exc:
+                raise McpError(exc.code, exc.message) from exc
+            ok_res = bool(res.get("ok", True))
+            return {
+                "server": server_name,
+                "tool": tool_name,
+                "isError": not ok_res,
+                "content": [{"type": "text", "text": str(res.get("summary") or "Dragged")}],
                 "structured": res,
             }
         if tool_name in ("type_text", "fill", "set_text"):
@@ -1461,13 +1571,15 @@ def _execute_curated_tool(
                     element_name=str(arguments.get("element") or arguments.get("element_name") or arguments.get("elementQuery") or arguments.get("query") or ""),
                     role=str(arguments.get("role") or ""),
                     ref=str(arguments.get("ref") or ""),
+                    allow_live_input=arguments.get("allowLiveInput"),
                 )
             except ScreenContextError as exc:
                 raise McpError(exc.code, exc.message) from exc
+            ok_res = bool(res.get("ok", True))
             return {
                 "server": server_name,
                 "tool": tool_name,
-                "isError": False,
+                "isError": not ok_res,
                 "content": [{"type": "text", "text": str(res.get("summary") or f"Typed text ({res.get('textLength', 0)} chars) via {res.get('backend', 'wayland')}")}],
                 "structured": res,
             }
@@ -1481,13 +1593,15 @@ def _execute_curated_tool(
                     element_name=str(arguments.get("element") or arguments.get("element_name") or arguments.get("elementQuery") or arguments.get("query") or ""),
                     role=str(arguments.get("role") or ""),
                     ref=str(arguments.get("ref") or ""),
+                    allow_live_input=arguments.get("allowLiveInput"),
                 )
             except ScreenContextError as exc:
                 raise McpError(exc.code, exc.message) from exc
+            ok_res = bool(res.get("ok", True))
             return {
                 "server": server_name,
                 "tool": tool_name,
-                "isError": False,
+                "isError": not ok_res,
                 "content": [{"type": "text", "text": str(res.get("summary") or "Focused element")}],
                 "structured": res,
             }
@@ -1498,14 +1612,21 @@ def _execute_curated_tool(
                     target_window_id=arguments.get("targetWindowId"),
                     now_ms=arguments.get("nowMs"),
                     key=str(arguments.get("key") or "Return"),
+                    allow_live_input=arguments.get("allowLiveInput"),
                 )
             except ScreenContextError as exc:
                 raise McpError(exc.code, exc.message) from exc
+            ok_res = bool(res.get("ok", True))
+            out_txt = (
+                f"Pressed key '{res.get('key', '')}' via {res.get('backend', 'wayland')}"
+                if ok_res
+                else str(res.get("summary") or "Key press failed")
+            )
             return {
                 "server": server_name,
                 "tool": tool_name,
-                "isError": False,
-                "content": [{"type": "text", "text": f"Pressed key '{res.get('key', '')}' via {res.get('backend', 'wayland')}"}],
+                "isError": not ok_res,
+                "content": [{"type": "text", "text": out_txt}],
                 "structured": res,
             }
         if tool_name == "window_action":
@@ -1517,13 +1638,15 @@ def _execute_curated_tool(
                         target_window_id=arguments.get("targetWindowId"),
                         require_scale=bool(arguments.get("requireScale", False)),
                         now_ms=arguments.get("nowMs"),
+                        allow_live_input=arguments.get("allowLiveInput"),
                     )
                 except ScreenContextError as exc:
                     raise McpError(exc.code, exc.message) from exc
+                ok_res = bool(gui_res.get("ok", True))
                 return {
                     "server": server_name,
                     "tool": tool_name,
-                    "isError": False,
+                    "isError": not ok_res,
                     "content": [{"type": "text", "text": gui_res["summary"]}],
                     "structured": gui_res,
                 }
@@ -1533,11 +1656,12 @@ def _execute_curated_tool(
                 res = desktop_control.manage_desktop(action=act, target=target, value=val)
             except desktop_control.DesktopControlError as exc:
                 raise McpError(exc.code, exc.message) from exc
+            ok_res = bool(res.get("ok", True))
             text = res["summary"] + ("\n" + "\n".join(res.get("lines", [])) if res.get("lines") else "")
             return {
                 "server": server_name,
                 "tool": tool_name,
-                "isError": False,
+                "isError": not ok_res,
                 "content": [{"type": "text", "text": text.strip()}],
                 "structured": res,
             }
@@ -1545,17 +1669,46 @@ def _execute_curated_tool(
 
     if server_name == "playwright-mcp":
         if tool_name in ("browser_snapshot", "browser_navigate"):
+            import cdp_client
+            import native_host_bridge
             from web_tools import WebToolError, capture_dom_snapshot, fetch_url_excerpt
+
             url = str(arguments.get("url") or arguments.get("target") or arguments.get("query") or "").strip()
             if not url and tool_name == "browser_navigate":
                 raise McpError("invalid_arguments", f"{tool_name} requires a non-empty 'url'.")
-            try:
-                if url:
-                    fetched = fetch_url_excerpt(url)
-                else:
-                    fetched = capture_dom_snapshot("")
-            except WebToolError as exc:
-                raise McpError(exc.code, exc.message) from exc
+            cdp_targets = cdp_client.probe_cdp_targets()
+            fetched = None
+            if cdp_targets:
+                try:
+                    ws_u = cdp_client.select_page_target(cdp_targets)
+                    if ws_u and url:
+                        cdp_client.cdp_navigate(url, ws_url=ws_u)
+                    if ws_u:
+                        fetched = cdp_client.cdp_snapshot(ws_url=ws_u)
+                except cdp_client.CdpError as exc:
+                    if exc.code == "ssrf_blocked":
+                        raise McpError(exc.code, exc.message) from exc
+                    fetched = None
+            if fetched is None:
+                try:
+                    if url:
+                        fetched = fetch_url_excerpt(url)
+                    else:
+                        fetched = capture_dom_snapshot("")
+                except WebToolError as exc:
+                    if not native_host_bridge.is_test_or_isolated_env() and not cdp_targets and not url:
+                        err_msg = (
+                            f"Browser {tool_name} failed: {exc.message} Also no live Chromium CDP target was found; "
+                            "start Chrome/Chromium with --remote-debugging-port=9222 or provide a URL."
+                        )
+                        return {
+                            "server": server_name,
+                            "tool": tool_name,
+                            "isError": True,
+                            "content": [{"type": "text", "text": err_msg}],
+                            "structured": {"ok": False, "error": exc.code, "cdpConnected": False},
+                        }
+                    raise McpError(exc.code, exc.message) from exc
             dom_lines = []
             for el in (fetched.get("elements") or [])[:15]:
                 ref = el.get("ref") or f"[e{el.get('id', '?')}]"
@@ -1573,8 +1726,11 @@ def _execute_curated_tool(
                 "content": [{"type": "text", "text": text.strip()}],
                 "structured": fetched,
             }
-        if tool_name in ("browser_click", "browser_type", "browser_fill", "browser_select"):
+        if tool_name in ("browser_click", "browser_type", "browser_fill", "browser_select", "browser_select_option"):
+            import cdp_client
+            import native_host_bridge
             from web_tools import WebToolError, interact_dom_element
+
             elem = str(arguments.get("element") or arguments.get("ref") or arguments.get("target") or arguments.get("query") or "target").strip()
             val = str(arguments.get("text") or arguments.get("value") or arguments.get("query") or "").strip()
             url_arg = str(arguments.get("url") or "").strip()
@@ -1583,11 +1739,42 @@ def _execute_curated_tool(
                 "browser_type": "type",
                 "browser_fill": "fill",
                 "browser_select": "select",
+                "browser_select_option": "select",
             }
+            act_name = act_map.get(tool_name, "click")
+            cdp_targets = cdp_client.probe_cdp_targets()
+            if cdp_targets:
+                try:
+                    ws_u = cdp_client.select_page_target(cdp_targets)
+                    if ws_u and url_arg:
+                        cdp_client.cdp_navigate(url_arg, ws_url=ws_u)
+                    cdp_res = cdp_client.cdp_interact(act_name, elem, value=val, ws_url=ws_u) if ws_u else {"ok": False}
+                    ok_cdp = bool(cdp_res.get("ok"))
+                    struct_p = dict(cdp_res)
+                    struct_p.setdefault("action", tool_name)
+                    struct_p.setdefault("element", elem)
+                    struct_p.setdefault("text", val)
+                    return {
+                        "server": server_name,
+                        "tool": tool_name,
+                        "isError": not ok_cdp,
+                        "content": [{"type": "text", "text": str(cdp_res.get("summary") or f"CDP {tool_name} on '{elem}'")}],
+                        "structured": struct_p,
+                    }
+                except cdp_client.CdpError as exc:
+                    return {
+                        "server": server_name,
+                        "tool": tool_name,
+                        "isError": True,
+                        "content": [{"type": "text", "text": f"Playwright CDP {tool_name} failed: {exc.message}"}],
+                        "structured": {"ok": False, "error": exc.code, "cdpConnected": True},
+                    }
             dom_res = None
+            dom_err: WebToolError | None = None
             try:
-                dom_res = interact_dom_element(act_map.get(tool_name, "click"), target=elem, value=val, url=url_arg)
-            except WebToolError:
+                dom_res = interact_dom_element(act_name, target=elem, value=val, url=url_arg)
+            except WebToolError as exc:
+                dom_err = exc
                 dom_res = None
             if dom_res and isinstance(dom_res, dict):
                 summary = f"Playwright {tool_name} on '{elem}': {dom_res.get('summary', '')}"
@@ -1595,9 +1782,28 @@ def _execute_curated_tool(
                 structured_payload.setdefault("action", tool_name)
                 structured_payload.setdefault("element", elem)
                 structured_payload.setdefault("text", val)
-            else:
-                summary = f"Playwright {tool_name} on '{elem}'" + (f" with '{val[:60]}'" if val else "")
-                structured_payload = {"action": tool_name, "element": elem, "text": val}
+                return {
+                    "server": server_name,
+                    "tool": tool_name,
+                    "isError": False,
+                    "content": [{"type": "text", "text": summary}],
+                    "structured": structured_payload,
+                }
+            if not native_host_bridge.is_test_or_isolated_env():
+                err_txt = (
+                    f"Playwright {tool_name} on '{elem}' failed"
+                    + (f" ({dom_err.message})" if dom_err else "")
+                    + ". Launch Chromium with --remote-debugging-port=9222 or capture a matching DOM snapshot first."
+                )
+                return {
+                    "server": server_name,
+                    "tool": tool_name,
+                    "isError": True,
+                    "content": [{"type": "text", "text": err_txt}],
+                    "structured": {"ok": False, "action": tool_name, "element": elem, "cdpConnected": False},
+                }
+            summary = f"Playwright {tool_name} on '{elem}'" + (f" with '{val[:60]}'" if val else "")
+            structured_payload = {"action": tool_name, "element": elem, "text": val}
             return {
                 "server": server_name,
                 "tool": tool_name,
@@ -1702,48 +1908,105 @@ def _execute_curated_tool(
 
     if server_name == "chrome-devtools-mcp":
         if tool_name in ("inspect_dom", "list_network_requests", "evaluate_script"):
+            import cdp_client
+            import native_host_bridge
+
             url = str(arguments.get("url") or arguments.get("target") or "").strip()
             selector = str(arguments.get("selector") or "document.body").strip()
             expr = str(arguments.get("expression") or arguments.get("query") or "").strip()
-            cdp_targets: list[dict] = []
-            try:
-                import native_host_bridge
-
-                if not native_host_bridge.is_test_or_isolated_env():
-                    cdp_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-                    with cdp_opener.open("http://127.0.0.1:9222/json/list", timeout=0.6) as resp:
-                        raw_t = json.loads(resp.read(65536).decode("utf-8", errors="replace"))
-                        if isinstance(raw_t, list):
-                            cdp_targets = [t for t in raw_t if isinstance(t, dict)][:10]
-            except Exception:
-                cdp_targets = []
+            cdp_targets = cdp_client.probe_cdp_targets()
+            ws_u = cdp_client.select_page_target(cdp_targets) if cdp_targets else ""
+            if ws_u:
+                try:
+                    if url:
+                        cdp_client.cdp_navigate(url, ws_url=ws_u)
+                    if tool_name == "evaluate_script":
+                        if not expr:
+                            raise McpError("invalid_arguments", "evaluate_script requires 'expression'.")
+                        ev = cdp_client.cdp_evaluate(expr, ws_url=ws_u)
+                        val_str = json.dumps(ev.get("value"), ensure_ascii=False) if not isinstance(ev.get("value"), str) else str(ev.get("value"))
+                        return {
+                            "server": server_name,
+                            "tool": tool_name,
+                            "isError": False,
+                            "content": [{"type": "text", "text": f"DevTools evaluate_script result: {val_str[:1200]}"}],
+                            "structured": {"cdpConnected": True, "targets": len(cdp_targets), "simulated": False, "value": ev.get("value")},
+                        }
+                    if tool_name == "list_network_requests":
+                        net = cdp_client.cdp_list_network(ws_url=ws_u)
+                        body = "\n".join(net.get("lines") or []) or "(no recorded resource requests)"
+                        return {
+                            "server": server_name,
+                            "tool": tool_name,
+                            "isError": False,
+                            "content": [{"type": "text", "text": f"DevTools network requests ({net.get('count', 0)}):\n{body}"}],
+                            "structured": {"cdpConnected": True, "targets": len(cdp_targets), "simulated": False, **net},
+                        }
+                    snap = cdp_client.cdp_snapshot(ws_url=ws_u)
+                    body = "\n".join(snap.get("domSnapshot") or snap.get("lines") or [])[:1600]
+                    return {
+                        "server": server_name,
+                        "tool": tool_name,
+                        "isError": False,
+                        "content": [{"type": "text", "text": f"DevTools inspect_dom ({snap.get('url')}):\n{body}"}],
+                        "structured": {"cdpConnected": True, "targets": len(cdp_targets), "simulated": False, **snap},
+                    }
+                except cdp_client.CdpError as exc:
+                    return {
+                        "server": server_name,
+                        "tool": tool_name,
+                        "isError": True,
+                        "content": [{"type": "text", "text": f"DevTools CDP {tool_name} failed: {exc.message}"}],
+                        "structured": {"cdpConnected": False, "targets": len(cdp_targets), "simulated": False, "error": exc.code},
+                    }
             if url:
                 from web_tools import WebToolError, fetch_url_excerpt
                 try:
                     fetched = fetch_url_excerpt(url)
                     text = (
-                        f"DevTools {tool_name} ({url}) [HTTP HTML fallback; CDP={'connected' if cdp_targets else 'unavailable'}]: "
+                        f"DevTools {tool_name} ({url}) [HTTP HTML fallback; CDP=unavailable]: "
                         f"{fetched.get('title') or 'OK'}\n" + "\n".join(fetched.get("lines", [])[:10])
                     )
+                    return {
+                        "server": server_name,
+                        "tool": tool_name,
+                        "isError": False,
+                        "content": [{"type": "text", "text": text.strip()}],
+                        "structured": {"cdpConnected": False, "targets": 0, "simulated": False, **fetched},
+                    }
                 except WebToolError as exc:
-                    text = f"DevTools {tool_name} ({url}): {exc.message}"
-            else:
-                from screen_context import observe_active_window
-                obs = observe_active_window(allow_screenshot=False)
-                if cdp_targets:
-                    tabs_txt = ", ".join(str(t.get("title") or t.get("url") or "tab")[:60] for t in cdp_targets[:4])
-                    text = f"DevTools {tool_name} (CDP connected, {len(cdp_targets)} target(s): {tabs_txt}; selector={selector}, expr={expr or 'none'})"
-                else:
-                    text = (
-                        f"DevTools {tool_name} [CDP port 9222 unavailable — active window metadata only] on "
-                        f"'{obs.get('packageId', 'browser')}' (selector={selector}, expr={expr or 'none'})"
-                    )
+                    return {
+                        "server": server_name,
+                        "tool": tool_name,
+                        "isError": True,
+                        "content": [{"type": "text", "text": f"DevTools {tool_name} ({url}) failed: {exc.message}"}],
+                        "structured": {"cdpConnected": False, "targets": 0, "simulated": False, "error": exc.code},
+                    }
+            if not native_host_bridge.is_test_or_isolated_env() or os.environ.get("ALIS_TEST_CDP_PORT"):
+                eff_p = os.environ.get("ALIS_TEST_CDP_PORT") or os.environ.get("ALIS_CDP_PORT") or "9222"
+                msg = (
+                    f"DevTools {tool_name} failed: no Chromium CDP target listening on 127.0.0.1:{eff_p}. "
+                    f"Launch Chrome/Chromium with --remote-debugging-port={eff_p} (or pass a URL)."
+                )
+                return {
+                    "server": server_name,
+                    "tool": tool_name,
+                    "isError": True,
+                    "content": [{"type": "text", "text": msg}],
+                    "structured": {"cdpConnected": False, "targets": 0, "simulated": False, "error": "cdp_unavailable"},
+                }
+            from screen_context import observe_active_window
+            obs = observe_active_window(allow_screenshot=False)
+            text = (
+                f"DevTools {tool_name} [CDP port 9222 unavailable — active window metadata only] on "
+                f"'{obs.get('packageId', 'browser')}' (selector={selector}, expr={expr or 'none'})"
+            )
             return {
                 "server": server_name,
                 "tool": tool_name,
                 "isError": False,
                 "content": [{"type": "text", "text": text.strip()}],
-                "structured": {"cdpConnected": bool(cdp_targets), "targets": len(cdp_targets), "simulated": not bool(cdp_targets)},
+                "structured": {"cdpConnected": False, "targets": 0, "simulated": True},
             }
         raise McpError("tool_not_found", f"Unknown tool '{tool_name}' on server '{server_name}'.")
 

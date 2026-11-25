@@ -492,6 +492,40 @@ Singleton {
     property int pendingDeleteStage: 0
     readonly property bool a2uiEnabled: options.a2uiEnabled !== false
     readonly property bool a2uiGenerativeEnabled: a2uiEnabled && options.a2uiGenerativeEnabled === true
+    readonly property bool liveGuiControlEnabled: options.liveGuiControlEnabled === true
+    readonly property string localSttEndpoint: String(options.localSttEndpoint ?? "").trim()
+    readonly property string ambientLanguage: String(options.ambientLanguage ?? "auto").trim() || "auto"
+    readonly property string sttLanguage: String(options.sttLanguage ?? "auto").trim() || "auto"
+    property bool offlineSttReady: false
+    property string offlineSttBackend: "none"
+    property bool cloudSttAvailable: false
+    property bool ttsReady: false
+    property string voiceInstallHint: ""
+    property bool _voiceStatusLoaded: false
+    property var scheduledJobs: []
+    property int activeScheduleCount: 0
+    property int activeProcessWatchCount: 0
+    property double nextScheduleDueMs: 0
+    property var capabilityStatus: ({
+        vpointerReady: false,
+        atspiReady: false,
+        cdpReady: false,
+        embedReady: false,
+        embedModel: ""
+    })
+    property bool semanticBackfillBusy: false
+    property string statusBannerMessage: ""
+    property string statusBannerKind: "info"
+    function showStatusBanner(msg, kind = "info"): void {
+        const clean = String(msg ?? "").trim();
+        if (!clean)
+            return;
+        statusBannerKind = String(kind || "info");
+        statusBannerMessage = clean.slice(0, 240);
+    }
+    function dismissStatusBanner(): void {
+        statusBannerMessage = "";
+    }
     readonly property bool a2uiActionBusy: a2uiActionWorker.running
     property var a2uiActionQueue: []
     readonly property var dialoguePreferences: (Ai.modelList, options.bondEnabled === true && ModelPolicy.isLocal(Ai.models[model]) ? ({
@@ -507,6 +541,14 @@ Singleton {
     property var pendingContextInbox: ({})
     property string lastSystemInstruction: ""
     property string _lastCheckInSyncToken: ""
+    onErrorMessageChanged: {
+        if (errorMessage && errorMessage.trim().length > 0)
+            showStatusBanner(errorMessage, "error");
+    }
+    onVoiceErrorNoticeChanged: {
+        if (voiceErrorNotice && voiceErrorNotice.trim().length > 0)
+            showStatusBanner(voiceErrorNotice, "warning");
+    }
     property var cancelledPrefixQueue: []
     function enqueueContextUpdate(kind, content, dedupeKey = "", sessionId = ""): bool {
         const cleanKind = String(kind ?? "ambient").trim().replace(/[^A-Za-z0-9_.:-]+/g, "_").slice(0, 64) || "ambient";
@@ -1369,7 +1411,9 @@ Singleton {
             op: "stt",
             audioPath: targetAudio,
             durationSec: Math.max(1, Math.min(15, voiceElapsedSeconds || 4)),
-            language: "auto"
+            language: root.sttLanguage || "auto",
+            localSttEndpoint: root.localSttEndpoint,
+            localOnly: root.localOnly
         };
         voiceWorker.running = true;
     }
@@ -1410,6 +1454,13 @@ Singleton {
         if (autoSend !== null && autoSend !== undefined) {
             setVoiceAutoSend(autoSend);
         }
+        if (liveModelAutoDetectAllowed && _voiceStatusLoaded && !offlineSttReady && !cloudSttAvailable && localSttEndpoint.length === 0) {
+            const hintMsg = voiceInstallHint || "No STT engine ready — configure Local STT URL or a Whisper model in Companion Settings.";
+            voiceErrorNotice = hintMsg;
+            toolNotice = hintMsg;
+        } else {
+            voiceErrorNotice = "";
+        }
         voiceSessionSerial += 1;
         voiceCaptureWorker.transcribeQueued = false;
         if (voiceWorker.running) {
@@ -1417,7 +1468,6 @@ Singleton {
             voiceWorker.running = false;
         }
         errorMessage = "";
-        voiceErrorNotice = "";
         voiceElapsedSeconds = 0;
         _resetVoiceInputMetrics();
         voiceTranscribing = false;
@@ -1540,7 +1590,9 @@ Singleton {
             text: clean,
             voice: "en-US-AvaMultilingualNeural",
             contextPrompt: ctxPrompt,
-            language: "auto"
+            language: root.sttLanguage || "auto",
+            localOnly: root.localOnly,
+            wait: true
         };
         voiceWorker.running = true;
         return true;
@@ -2028,6 +2080,16 @@ Singleton {
     function _handleProgressPayload(payload): void {
         if (!payload || typeof payload !== "object")
             return;
+        if (typeof payload?.thinkingSnippet === "string" && payload.thinkingSnippet.trim().length > 0) {
+            simulatedThinkingText = String(payload.thinkingSnippet);
+            if (agentLiveStage !== "deep")
+                agentLiveStage = "thinking";
+            if (typeof payload?.current === "string" && payload.current.trim().length > 0) {
+                currentActivityLine = String(payload.current).trim();
+                liveProgressStep = currentActivityLine;
+            }
+            return;
+        }
         if (payload?.type === "stream_delta" || payload?.kind === "stream_delta" || typeof payload?.streamDelta === "string") {
             const deltaText = String(payload.streamDelta ?? payload.delta ?? "");
             if (deltaText.length > 0) {
@@ -4091,6 +4153,10 @@ Singleton {
             persistHistory: true,
             a2uiEnabled: root.a2uiEnabled,
             a2uiGenerativeEnabled: root.a2uiGenerativeEnabled,
+            liveGuiControlEnabled: root.liveGuiControlEnabled,
+            localSttEndpoint: root.localSttEndpoint,
+            localOnly: root.localOnly,
+            sttLanguage: root.sttLanguage,
             systemPrompt: root.resolvedCompanionSystemPrompt,
             rulesText: root.rulesText
         }, isLiveAgentRuntime ? {
@@ -4350,7 +4416,8 @@ Singleton {
             localOnly: root.localOnly,
             character: root.character === "octo" ? "octo" : "aqua",
             personality: String(Config.options?.abyss?.companion?.personality ?? "balanced"),
-            language: "en",
+            language: root.ambientLanguage || "auto",
+            lastUserPrompt: String(root.lastUserPrompt || "").slice(0, 240),
             visualPeekEnabled: root.ambientVisualPeek,
             powerProfile: (Boolean(Config.options?.performance?.lowPower ?? false) || (typeof PowerProfiles !== "undefined" && PowerProfiles.profile === PowerProfile.PowerSaver))
                 ? "power-saver"
@@ -6025,7 +6092,7 @@ Singleton {
             finetuneExportWorker, browserOpenWorker, cancelledPrefixWorker,
             _thinkingRouterStatusProc, _thinkingRouterInstallProc,
             _thinkingRouterUninstallProc, providerWarmupWorker, ambientCommentaryWorker,
-            a2uiActionWorker
+            schedulerWorker, a2uiActionWorker
         ];
         for (const p of procs) {
             if (p && p.running) {
@@ -6188,7 +6255,7 @@ Singleton {
     }
     readonly property bool _useCompanionDaemon: !Boolean(Quickshell.env("AQUA_TEST_ENDPOINT") || Quickshell.env("ALIS_TEST_ISOLATED") || Quickshell.env("AI_FIXTURE_URL") || Quickshell.env("COMPANION_PROVIDER_RESULT"))
     readonly property var _localMindHotCmd: _useCompanionDaemon
-        ? ["/usr/bin/python3", AlisCompanion.packageRoot + "/scripts/aqua/local_mind.py", "--host-root", Quickshell.shellPath(""), "--use-daemon"]
+        ? ["/usr/bin/python3", AlisCompanion.packageRoot + "/scripts/aqua/daemon_call.py", "--host-root", Quickshell.shellPath(""), "--use-daemon"]
         : ["/usr/bin/python3", AlisCompanion.packageRoot + "/scripts/aqua/local_mind.py", "--host-root", Quickshell.shellPath("")]
     readonly property bool regenerating: historyDeleteTurnWorker.running
     Process {
@@ -6601,6 +6668,17 @@ Singleton {
                     root.executeClientActions(res.clientActions);
                 if (res.swarmState && typeof res.swarmState === "object")
                     root._applySwarmState(res.swarmState);
+                if (res.voiceStatus && typeof res.voiceStatus === "object") {
+                    root._voiceStatusLoaded = true;
+                    root.offlineSttReady = Boolean(res.voiceStatus.offlineSttReady);
+                    root.offlineSttBackend = String(res.voiceStatus.offlineSttBackend ?? "none");
+                    root.cloudSttAvailable = Boolean(res.voiceStatus.cloudSttAvailable);
+                    root.ttsReady = Boolean(res.voiceStatus.ttsReady);
+                    root.voiceInstallHint = String(res.voiceStatus.installHint ?? "");
+                }
+                if (Array.isArray(res.scheduleJobs) || res.intent === "desktop_schedule") {
+                    root.refreshScheduledJobs();
+                }
                 if (res.openSwarmTab === true)
                     root.swarmOpenRequested();
                 if (Array.isArray(res.subagentRuns)) {
@@ -6988,7 +7066,8 @@ Singleton {
             agentStatusFlushTimer.stop();
             write(JSON.stringify({
                 action: "agent_status",
-                screenshotRetentionDays: root.screenshotRetentionDays
+                screenshotRetentionDays: root.screenshotRetentionDays,
+                localSttEndpoint: root.localSttEndpoint
             }) + "\n");
         }
         onExited: (code, status) => {
@@ -7029,6 +7108,24 @@ Singleton {
                     root.storagePaths = res.storagePaths;
                 if (res.swarmState && typeof res.swarmState === "object")
                     root._applySwarmState(res.swarmState);
+                if (res.voiceStatus && typeof res.voiceStatus === "object") {
+                    root._voiceStatusLoaded = true;
+                    root.offlineSttReady = Boolean(res.voiceStatus.offlineSttReady);
+                    root.offlineSttBackend = String(res.voiceStatus.offlineSttBackend ?? "none");
+                    root.cloudSttAvailable = Boolean(res.voiceStatus.cloudSttAvailable);
+                    root.ttsReady = Boolean(res.voiceStatus.ttsReady);
+                    root.voiceInstallHint = String(res.voiceStatus.installHint ?? "");
+                }
+                if (res.schedules && typeof res.schedules === "object") {
+                    if (Array.isArray(res.schedules.jobs))
+                        root.scheduledJobs = res.schedules.jobs;
+                    root.activeScheduleCount = Number(res.schedules.activeCount ?? root.scheduledJobs.length);
+                    root.activeProcessWatchCount = Number(res.schedules.activeProcessWatchCount ?? 0);
+                    root.nextScheduleDueMs = Number(res.schedules.nextDueMs ?? 0);
+                }
+                if (res.capabilities && typeof res.capabilities === "object") {
+                    root.capabilityStatus = res.capabilities;
+                }
             }
         }
     }
@@ -8108,6 +8205,8 @@ Singleton {
             context: ctx,
             threadId: activeThreadId,
             language: "auto",
+            liveGuiControlEnabled: root.liveGuiControlEnabled,
+            nexusVaultPath: root.nexusVaultPath,
             hostRoot: Quickshell.shellPath("")
         };
         if (a2uiActionWorker.running) {
@@ -8471,6 +8570,268 @@ Singleton {
             if (remark.length > 0 && !root.conversationOpen && !root.contextOpen && !root.isWorking && !root.busy) {
                 root.showMascotRemark(remark, expr);
             }
+        }
+    }
+    property var utilityActionQueue: []
+    function _enqueueUtilityAction(reqObj): bool {
+        if (utilityActionWorker.running) {
+            root.utilityActionQueue = root.utilityActionQueue.concat([reqObj]).slice(-12);
+            return true;
+        }
+        utilityActionWorker.requestPayload = reqObj;
+        utilityActionWorker.running = true;
+        return true;
+    }
+    function refreshVoiceStatus(): bool {
+        return _enqueueUtilityAction({
+            action: "voice_action",
+            op: "status",
+            localSttEndpoint: root.localSttEndpoint,
+            localOnly: root.localOnly
+        });
+    }
+    function refreshScheduledJobs(): bool {
+        return _enqueueUtilityAction({
+            action: "scheduler_action",
+            op: "list"
+        });
+    }
+    function cancelScheduledJob(jobId): bool {
+        const cleanId = String(jobId ?? "").trim();
+        if (!cleanId)
+            return false;
+        return _enqueueUtilityAction({
+            action: "scheduler_action",
+            op: "cancel",
+            jobId: cleanId
+        });
+    }
+    function triggerSemanticBackfill(): bool {
+        if (root.semanticBackfillBusy)
+            return false;
+        root.semanticBackfillBusy = true;
+        return _enqueueUtilityAction({
+            action: "rag_action",
+            op: "backfill_embeddings",
+            vaultPath: root.nexusVaultPath,
+            limit: 128
+        });
+    }
+    function tryPasteClipboardImage(): bool {
+        return _enqueueUtilityAction({
+            action: "desktop_action",
+            op: "clipboard_paste_image"
+        });
+    }
+    Timer {
+        id: utilityActionFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (utilityActionWorker._exited && !utilityActionWorker._finalized) {
+                utilityActionWorker._stdoutDone = true;
+                utilityActionWorker._maybeFinalize();
+            }
+        }
+    }
+    Process {
+        id: utilityActionWorker
+        running: false
+        stdinEnabled: true
+        property var requestPayload: ({})
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
+        command: root._localMindHotCmd
+        stdout: StdioCollector {
+            id: utilityActionReply
+            onStreamFinished: {
+                utilityActionWorker._stdoutDone = true;
+                utilityActionWorker._maybeFinalize();
+            }
+        }
+        onStarted: {
+            utilityActionWorker._exited = false;
+            utilityActionWorker._exitCode = 0;
+            utilityActionWorker._stdoutDone = false;
+            utilityActionWorker._finalized = false;
+            utilityActionFlushTimer.stop();
+            write(JSON.stringify(utilityActionWorker.requestPayload) + "\n");
+        }
+        onExited: (code, status) => {
+            utilityActionWorker._exited = true;
+            utilityActionWorker._exitCode = code;
+            if (utilityActionWorker._stdoutDone)
+                utilityActionWorker._maybeFinalize();
+            else
+                utilityActionFlushTimer.restart();
+        }
+        function _maybeFinalize(): void {
+            if (!utilityActionWorker._exited || utilityActionWorker._finalized || !utilityActionWorker._stdoutDone)
+                return;
+            utilityActionWorker._finalized = true;
+            utilityActionFlushTimer.stop();
+            const act = String(utilityActionWorker.requestPayload?.action ?? "");
+            if (act === "rag_action")
+                root.semanticBackfillBusy = false;
+            const parsed = AquaHelperReplyGuard.parse(act, String(utilityActionReply.text ?? ""), utilityActionWorker._exitCode);
+            if (parsed.ok && parsed.result) {
+                const res = parsed.result;
+                if (act === "voice_action") {
+                    root._voiceStatusLoaded = true;
+                    root.offlineSttReady = Boolean(res.offlineSttReady);
+                    root.offlineSttBackend = String(res.offlineSttBackend ?? "none");
+                    root.cloudSttAvailable = Boolean(res.cloudSttAvailable);
+                    root.ttsReady = Boolean(res.ttsReady);
+                    root.voiceInstallHint = String(res.installHint ?? "");
+                    if (res.summary)
+                        root.toolNotice = String(res.summary).slice(0, 140);
+                } else if (act === "scheduler_action") {
+                    if (Array.isArray(res.jobs)) {
+                        root.scheduledJobs = res.jobs;
+                        root.activeScheduleCount = res.jobs.length;
+                        let pCnt = 0;
+                        let minDue = 0;
+                        for (const j of res.jobs) {
+                            if (j?.kind === "process_watch")
+                                pCnt += 1;
+                            const d = Number(j?.dueMs ?? 0);
+                            if (d > 0 && (minDue === 0 || d < minDue))
+                                minDue = d;
+                        }
+                        root.activeProcessWatchCount = pCnt;
+                        root.nextScheduleDueMs = minDue;
+                    }
+                    if (utilityActionWorker.requestPayload?.op === "cancel" && res.job) {
+                        const msg = "Cancelled scheduled job: " + String(res.job.title || res.job.id || "");
+                        root.toolNotice = msg.slice(0, 140);
+                        root.showStatusBanner(msg, "info");
+                    }
+                } else if (act === "rag_action" && res.op === "backfill_embeddings") {
+                    const embNow = Number(res.embedded ?? 0);
+                    const totC = Number(res.totalChunks ?? 0);
+                    const embC = Number(res.embeddedChunks ?? 0);
+                    const remC = Number(res.remaining ?? 0);
+                    const msg = res.ok
+                        ? ("Semantic index: +" + embNow + " embedded (" + embC + "/" + totC + (remC > 0 ? ", " + remC + " left" : "") + ")")
+                        : ("Semantic index unavailable: " + String(res.error || "no warm embedding model loaded"));
+                    root.toolNotice = msg.slice(0, 140);
+                    root.showStatusBanner(msg, res.ok ? "info" : "warning");
+                } else if (act === "desktop_action" && res.op === "clipboard_paste_image") {
+                    if (res.ok && res.path) {
+                        root.attachImage(String(res.path));
+                        root.showStatusBanner("Attached clipboard image: " + String(res.name || "clipboard.png"), "info");
+                    } else if (res.error && res.error !== "no_wayland_session") {
+                        root.showStatusBanner("Clipboard paste: no image found (" + String(res.error) + ")", "warning");
+                    }
+                }
+            } else if (parsed.error?.message && act === "rag_action") {
+                root.showStatusBanner(String(parsed.error.message), "warning");
+            }
+            if (root.utilityActionQueue.length > 0) {
+                const nextReq = root.utilityActionQueue[0];
+                root.utilityActionQueue = root.utilityActionQueue.slice(1);
+                utilityActionWorker.requestPayload = nextReq;
+                utilityActionWorker.running = true;
+            }
+        }
+    }
+    Timer {
+        id: schedulerPollTimer
+        interval: root.activeProcessWatchCount > 0
+            ? 15000
+            : Math.max(15000, Math.min(60000, root.nextScheduleDueMs > 0 ? Math.max(15000, Math.round(root.nextScheduleDueMs - Date.now())) : 30000))
+        repeat: true
+        running: root.liveModelAutoDetectAllowed && root.talkEnabled && !root.hostBlocked && (root.activeScheduleCount > 0 || root.activeProcessWatchCount > 0)
+        onTriggered: {
+            if (schedulerWorker.running)
+                return;
+            schedulerWorker.requestPayload = {
+                action: "scheduler_action",
+                op: "poll_due",
+                sendNotify: true
+            };
+            schedulerWorker.running = true;
+        }
+    }
+    Timer {
+        id: schedulerFlushTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (schedulerWorker._exited && !schedulerWorker._finalized) {
+                schedulerWorker._stdoutDone = true;
+                schedulerWorker._maybeFinalize();
+            }
+        }
+    }
+    Process {
+        id: schedulerWorker
+        running: false
+        stdinEnabled: true
+        property var requestPayload: ({})
+        property bool _exited: false
+        property int _exitCode: 0
+        property bool _stdoutDone: false
+        property bool _finalized: false
+        command: root._localMindHotCmd
+        stdout: StdioCollector {
+            id: schedulerReply
+            onStreamFinished: {
+                schedulerWorker._stdoutDone = true;
+                schedulerWorker._maybeFinalize();
+            }
+        }
+        onStarted: {
+            schedulerWorker._exited = false;
+            schedulerWorker._exitCode = 0;
+            schedulerWorker._stdoutDone = false;
+            schedulerWorker._finalized = false;
+            schedulerFlushTimer.stop();
+            write(JSON.stringify(schedulerWorker.requestPayload) + "\n");
+        }
+        onExited: (code, status) => {
+            schedulerWorker._exited = true;
+            schedulerWorker._exitCode = code;
+            if (schedulerWorker._stdoutDone) {
+                schedulerWorker._maybeFinalize();
+            } else {
+                schedulerFlushTimer.restart();
+            }
+        }
+        function _maybeFinalize(): void {
+            if (!schedulerWorker._exited || schedulerWorker._finalized || !schedulerWorker._stdoutDone)
+                return;
+            schedulerWorker._finalized = true;
+            schedulerFlushTimer.stop();
+            const parsed = AquaHelperReplyGuard.parse("scheduler_action", String(schedulerReply.text ?? ""), schedulerWorker._exitCode);
+            if (!parsed.ok || !parsed.result)
+                return;
+            const res = parsed.result;
+            if (typeof res.activeCount === "number")
+                root.activeScheduleCount = Number(res.activeCount);
+            if (typeof res.activeProcessWatchCount === "number")
+                root.activeProcessWatchCount = Number(res.activeProcessWatchCount);
+            if (res.nextDueMs !== undefined)
+                root.nextScheduleDueMs = Number(res.nextDueMs ?? 0);
+            if (!Array.isArray(res.fired) || res.fired.length === 0)
+                return;
+            const titles = res.fired.map(j => String(j?.title ?? j?.id ?? "Reminder").trim()).filter(Boolean);
+            const alertMsg = titles.join(" · ");
+            root.toolNotice = alertMsg.slice(0, 140);
+            root.showStatusBanner("⏰ " + alertMsg, "info");
+            root.refreshScheduledJobs();
+            if (root.conversationOpen) {
+                const lines = res.fired.map(j => "- **⏰ " + String(j?.title ?? j?.id ?? "Reminder") + "**" + (j?.prompt ? (" — " + String(j.prompt)) : "")).join("\n");
+                root.history = root.history.concat([{
+                    id: 0,
+                    role: "assistant",
+                    content: lines || ("⏰ " + alertMsg)
+                }]).slice(-2000);
+            }
+            if (!root.showMascotRemark(alertMsg, "alert"))
+                root.say(alertMsg, "scheduler");
         }
     }
 }

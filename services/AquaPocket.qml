@@ -16,15 +16,29 @@ Singleton {
     property bool busy: false
     property bool draining: false
     property var items: []
+    property var pinnedPaths: ({})
+    property var _queuedAddBatches: []
+    property string _queuedAddSource: "picker"
     property string notice: ""
     property var pending: null
     property int epoch: 0
     readonly property bool canSelect: permitted && !busy && !draining
     signal filesSwallowed(int count)
 
+    function isPinned(p): bool {
+        return Boolean(root.pinnedPaths && root.pinnedPaths[String(p ?? "")])
+    }
+    function togglePin(p): void {
+        const key = String(p ?? "")
+        if (!key) return
+        const next = Object.assign({}, root.pinnedPaths)
+        if (next[key]) delete next[key]
+        else next[key] = true
+        root.pinnedPaths = next
+    }
     function close(): void {opened=false}
     function revoke(): void {
-        epoch++;pending=null;busy=false;opened=false;items=[];notice="";deadline.stop()
+        epoch++;pending=null;busy=false;opened=false;items=[];_queuedAddBatches=[];notice="";deadline.stop()
         if (worker.running) {draining=true;worker.running=false}
     }
     onPermittedChanged: if (!permitted) revoke()
@@ -58,6 +72,23 @@ Singleton {
         }
         return true
     }
+    function addFilesBatched(values, source = "picker", openFloating = false): bool {
+        if (!Array.isArray(values) || values.length === 0)
+            return false
+        if (values.length <= 8)
+            return addFiles(values, source, openFloating)
+        const src = ["picker", "drop"].includes(source) ? source : "picker"
+        const capped = values.slice(0, 32)
+        const batches = []
+        for (let i = 0; i < capped.length; i += 8)
+            batches.push(capped.slice(i, i + 8))
+        _queuedAddSource = src
+        _queuedAddBatches = batches.slice(1)
+        const ok = addFiles(batches[0], src, openFloating)
+        if (!ok)
+            _queuedAddBatches = []
+        return ok
+    }
     function remove(id): bool {
         return Number.isSafeInteger(id) && id>0 && dispatch("remove",{id:id})
     }
@@ -67,8 +98,18 @@ Singleton {
         if (!permitted || !job || job.epoch!==serial || serial!==epoch) return
         pending=null;busy=false;deadline.stop()
         const response=Policy.reply(raw,job.action,code)
-        if (!response) {notice=Policy.error(raw);return}
+        if (!response) {
+            _queuedAddBatches=[]
+            notice=Policy.error(raw);return
+        }
         items=response.items
+        if (job.action==="add" && _queuedAddBatches.length > 0) {
+            const nextBatch = _queuedAddBatches.shift()
+            _queuedAddBatches = _queuedAddBatches.slice()
+            if (addFiles(nextBatch, _queuedAddSource, false))
+                return
+            _queuedAddBatches = []
+        }
         notice=job.action==="add" ? "References saved. File contents stay private."
             : job.action==="remove" || job.action==="clear" ? "References removed. Original files are unchanged." : ""
     }

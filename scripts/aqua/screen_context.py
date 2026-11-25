@@ -1276,6 +1276,13 @@ def perform_gui_action(
     element_name="",
     role="",
     ref="",
+    allow_live_input=None,
+    delta=0,
+    axis="vertical",
+    x2=None,
+    y2=None,
+    double=False,
+    steps=10,
 ):
     """Execute a verified Niri/AT-SPI/Wayland GUI action and read back the resulting state."""
     before = observe_active_window(allow_screenshot=False, now_ms=now_ms)
@@ -1346,9 +1353,56 @@ def perform_gui_action(
             "observation": obs,
         }
 
-    live_input = os.environ.get("ALIS_AQUA_LIVE_INPUT") == "1" and not os.environ.get("AQUA_TEST_ENDPOINT")
+    in_fixture_or_test = (
+        isinstance(fixture, dict)
+        or bool(os.environ.get("AQUA_TEST_ENDPOINT"))
+        or (os.environ.get("ALIS_TEST_ISOLATED") == "1" and os.environ.get("ALIS_AQUA_LIVE_INPUT") != "1")
+    )
+    live_input = (not in_fixture_or_test) and (
+        bool(allow_live_input)
+        if allow_live_input is not None
+        else (os.environ.get("ALIS_AQUA_LIVE_INPUT") == "1")
+    )
 
-    orig_action_type = str(action_type or "")
+    orig_action_type = str(action_type or "").strip().lower()
+    if orig_action_type == "double_click":
+        double = True
+        action_type = "click"
+        button = "left"
+    elif orig_action_type == "right_click":
+        action_type = "click"
+        button = "right"
+    else:
+        action_type = orig_action_type
+
+    if not in_fixture_or_test and not live_input and action_type in (
+        "click",
+        "move",
+        "scroll",
+        "drag",
+        "fill",
+        "set_text",
+        "type",
+        "key",
+        "focus_element",
+        "som_click",
+        "click_mark",
+        "click_element",
+        "atspi_action",
+    ):
+        return {
+            "ok": False,
+            "verified": False,
+            "dryRun": True,
+            "code": "live_gui_control_disabled",
+            "actionType": orig_action_type,
+            "backend": "disabled",
+            "beforeWindowId": current_win_id,
+            "afterWindowId": current_win_id,
+            "summary": "Live GUI control is off. Enable 'Live GUI control' in Companion Settings -> AI to execute real mouse/keyboard actions.",
+            "observation": obs,
+        }
+
     has_semantic_selector = (
         (ref is not None and str(ref).strip() != "")
         or (mark_id is not None and str(mark_id).strip() != "")
@@ -1365,7 +1419,7 @@ def perform_gui_action(
         "set_text",
         "focus_element",
     ) or (
-        orig_action_type in ("click", "move", "type")
+        orig_action_type in ("click", "double_click", "right_click", "move", "type", "scroll", "drag")
         and has_semantic_selector
     ):
         elements = list(obs.get("elements") or before.get("elements") or [])
@@ -1406,24 +1460,26 @@ def perform_gui_action(
         else:
             if live_input:
                 focused_via_atspi = _execute_atspi_headless(resolved_elem, "focus_element").get("executed", False)
-                if not focused_via_atspi and shutil.which("ydotool"):
-                    try:
-                        subprocess.run(
-                            ["ydotool", "mousemove", "--absolute", "-x", str(cx), "-y", str(cy)],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            timeout=1.5,
-                            check=False,
-                        )
-                        subprocess.run(
-                            ["ydotool", "click", "0xC0"],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            timeout=1.5,
-                            check=False,
-                        )
-                    except Exception:
-                        pass
+                if not focused_via_atspi:
+                    vp_ok, _vp_msg = native_host_bridge.input_pointer_click(cx, cy, button="left")
+                    if not vp_ok and shutil.which("ydotool"):
+                        try:
+                            subprocess.run(
+                                ["ydotool", "mousemove", "--absolute", "-x", str(cx), "-y", str(cy)],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                timeout=1.5,
+                                check=False,
+                            )
+                            subprocess.run(
+                                ["ydotool", "click", "0xC0"],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                timeout=1.5,
+                                check=False,
+                            )
+                        except Exception:
+                            pass
                 typed_ok = False
                 backend = "unavailable"
                 if txt:
@@ -1453,8 +1509,13 @@ def perform_gui_action(
                     if native_host_bridge.has_native_vkeyboard()
                     else ("wtype" if shutil.which("wtype") else ("ydotool" if shutil.which("ydotool") else "fixture-dry-run"))
                 )
-        elem_ref = str(resolved_elem.get("ref") or f"@e{resolved_elem['markId']}")
-        elem_desc = f" {elem_ref} [{resolved_elem['markId']}] '{resolved_elem.get('name') or resolved_elem.get('role')}'"
+        m_id = resolved_elem.get("markId")
+        elem_ref = str(resolved_elem.get("ref") or (f"@e{m_id}" if m_id is not None else ""))
+        elem_desc = (
+            f" {elem_ref} [{m_id}] '{resolved_elem.get('name') or resolved_elem.get('role')}'"
+            if m_id is not None
+            else f" {elem_ref} '{resolved_elem.get('name') or resolved_elem.get('role')}'"
+        )
         cursor_event = _emit_cursor_event(
             cx,
             cy,
@@ -1472,7 +1533,7 @@ def perform_gui_action(
             "value": txt[:120],
             "backend": backend,
             "ref": elem_ref,
-            "markId": int(resolved_elem["markId"]),
+            "markId": int(resolved_elem["markId"]) if resolved_elem.get("markId") is not None else None,
             "resolvedElement": resolved_elem,
             "cursorEvent": cursor_event,
             "beforeWindowId": current_win_id,
@@ -1492,31 +1553,41 @@ def perform_gui_action(
         executed_ok = True
         if headless_res.get("executed") or not live_input:
             backend = str(headless_res.get("backend") or "atspi-headless-focus")
-        elif shutil.which("ydotool"):
-            backend = "atspi+ydotool"
-            try:
-                p1 = subprocess.run(
-                    ["ydotool", "mousemove", "--absolute", "-x", str(cx), "-y", str(cy)],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=1.5,
-                    check=False,
-                )
-                p2 = subprocess.run(
-                    ["ydotool", "click", "0xC0"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=1.5,
-                    check=False,
-                )
-                executed_ok = p1.returncode == 0 and p2.returncode == 0
-            except Exception:
-                executed_ok = False
         else:
-            backend = "unavailable"
-            executed_ok = False
-        elem_ref = str(resolved_elem.get("ref") or f"@e{resolved_elem['markId']}")
-        elem_desc = f" {elem_ref} [{resolved_elem['markId']}] '{resolved_elem.get('name') or resolved_elem.get('role')}'"
+            vp_ok, _vp_detail = native_host_bridge.input_pointer_click(cx, cy, button="left")
+            if vp_ok:
+                backend = "atspi+alis-inputd"
+                executed_ok = True
+            elif shutil.which("ydotool"):
+                backend = "atspi+ydotool"
+                try:
+                    p1 = subprocess.run(
+                        ["ydotool", "mousemove", "--absolute", "-x", str(cx), "-y", str(cy)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=1.5,
+                        check=False,
+                    )
+                    p2 = subprocess.run(
+                        ["ydotool", "click", "0xC0"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=1.5,
+                        check=False,
+                    )
+                    executed_ok = p1.returncode == 0 and p2.returncode == 0
+                except Exception:
+                    executed_ok = False
+            else:
+                backend = "unavailable"
+                executed_ok = False
+        m_id = resolved_elem.get("markId")
+        elem_ref = str(resolved_elem.get("ref") or (f"@e{m_id}" if m_id is not None else ""))
+        elem_desc = (
+            f" {elem_ref} [{m_id}] '{resolved_elem.get('name') or resolved_elem.get('role')}'"
+            if m_id is not None
+            else f" {elem_ref} '{resolved_elem.get('name') or resolved_elem.get('role')}'"
+        )
         cursor_event = _emit_cursor_event(
             cx,
             cy,
@@ -1532,7 +1603,7 @@ def perform_gui_action(
             "y": cy,
             "backend": backend,
             "ref": elem_ref,
-            "markId": int(resolved_elem["markId"]),
+            "markId": int(resolved_elem["markId"]) if resolved_elem.get("markId") is not None else None,
             "resolvedElement": resolved_elem,
             "cursorEvent": cursor_event,
             "beforeWindowId": current_win_id,
@@ -1569,7 +1640,18 @@ def perform_gui_action(
                 backend = "atspi-headless-action"
 
         if live_input and not headless_executed:
-            if shutil.which("ydotool"):
+            vp_ok = False
+            vp_detail = ""
+            if action_type == "click":
+                vp_ok, vp_detail = native_host_bridge.input_pointer_click(
+                    cx, cy, button=btn, double=bool(double)
+                )
+            else:
+                vp_ok, vp_detail = native_host_bridge.input_pointer_move(cx, cy)
+            if vp_ok:
+                backend = "atspi+alis-inputd" if resolved_elem else "alis-inputd"
+                executed_ok = True
+            elif shutil.which("ydotool"):
                 backend = "atspi+ydotool" if resolved_elem else "ydotool"
                 try:
                     p1 = subprocess.run(
@@ -1582,49 +1664,69 @@ def perform_gui_action(
                     executed_ok = p1.returncode == 0
                     if executed_ok and action_type == "click":
                         btn_code = {"left": "0xC0", "right": "0xC1", "middle": "0xC2"}[btn]
-                        p2 = subprocess.run(
-                            ["ydotool", "click", btn_code],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            timeout=1.5,
-                            check=False,
-                        )
-                        executed_ok = p2.returncode == 0
+                        clicks = 2 if double else 1
+                        for _ in range(clicks):
+                            p2 = subprocess.run(
+                                ["ydotool", "click", btn_code],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                timeout=1.5,
+                                check=False,
+                            )
+                            executed_ok = executed_ok and (p2.returncode == 0)
                 except Exception:
                     executed_ok = False
             else:
                 backend = "unavailable"
                 executed_ok = False
         elif not backend:
-            backend = "atspi+ydotool" if resolved_elem and shutil.which("ydotool") else (
-                "atspi-fixture" if resolved_elem else ("ydotool" if shutil.which("ydotool") else "fixture-dry-run")
+            backend = "atspi+alis-inputd" if resolved_elem and native_host_bridge.has_native_vpointer() else (
+                "atspi+ydotool" if resolved_elem and shutil.which("ydotool") else (
+                    "atspi-fixture" if resolved_elem else (
+                        "alis-inputd" if native_host_bridge.has_native_vpointer() else (
+                            "ydotool" if shutil.which("ydotool") else "fixture-dry-run"
+                        )
+                    )
+                )
             )
-        elem_desc = f" [{resolved_elem['markId']}] '{resolved_elem.get('name') or resolved_elem.get('role')}'" if resolved_elem else ""
+        m_id = resolved_elem.get("markId") if resolved_elem else None
+        if resolved_elem:
+            lbl_txt = resolved_elem.get("name") or resolved_elem.get("role")
+            elem_desc = f" [{m_id}] '{lbl_txt}'" if m_id is not None else f" '{lbl_txt}'"
+        else:
+            elem_desc = ""
         if executed_ok:
+            click_verb = "Double-clicked" if double else "Clicked"
             summary = (
-                f"Clicked {btn}{elem_desc} at ({cx}, {cy}) via {backend}"
+                f"{click_verb} {btn}{elem_desc} at ({cx}, {cy}) via {backend}"
                 if action_type == "click"
                 else f"Moved cursor{elem_desc} to ({cx}, {cy}) via {backend}"
             )
         else:
             summary = (
-                f"Pointer {action_type}{elem_desc} at ({cx}, {cy}) could not be executed: "
-                "AT-SPI headless action did not match and no Wayland virtual pointer backend (ydotool) is available."
+                f"Pointer {orig_action_type}{elem_desc} at ({cx}, {cy}) could not be executed: "
+                "AT-SPI headless action did not match and no Wayland virtual pointer backend (alis-inputd/ydotool) executed."
             )
+        effective_act = (
+            "double_click"
+            if double
+            else ("right_click" if (orig_action_type == "right_click" or btn == "right") else action_type)
+        )
         cursor_event = _emit_cursor_event(
             cx,
             cy,
-            action_type,
+            effective_act,
             resolved_elem=resolved_elem,
             backend=backend,
             now_ms=now_ms,
         )
         res_payload = {
             "ok": executed_ok,
-            "actionType": action_type,
+            "actionType": effective_act,
             "x": cx,
             "y": cy,
             "button": btn,
+            "double": bool(double),
             "backend": backend,
             "cursorEvent": cursor_event,
             "beforeWindowId": current_win_id,
@@ -1634,10 +1736,125 @@ def perform_gui_action(
             "observation": obs,
         }
         if resolved_elem:
-            res_payload["markId"] = int(resolved_elem["markId"])
-            res_payload["ref"] = str(resolved_elem.get("ref") or f"@e{resolved_elem['markId']}")
+            if m_id is not None:
+                res_payload["markId"] = int(m_id)
+            res_payload["ref"] = str(resolved_elem.get("ref") or (f"@e{m_id}" if m_id is not None else ""))
             res_payload["resolvedElement"] = resolved_elem
         return res_payload
+
+    if action_type == "scroll":
+        d_val = int(delta or 0) or 3
+        d_val = max(-30, min(30, d_val))
+        ax = "horizontal" if str(axis or "vertical").strip().lower().startswith("h") else "vertical"
+        has_pos = (x is not None and y is not None) or (resolved_elem is not None)
+        cx = int(x or 0) if has_pos else 0
+        cy = int(y or 0) if has_pos else 0
+        executed_ok = True
+        err_reason = ""
+        if live_input:
+            ok_sc, sc_detail = native_host_bridge.input_pointer_scroll(
+                d_val,
+                axis=ax,
+                x=cx if has_pos else None,
+                y=cy if has_pos else None,
+            )
+            if ok_sc:
+                backend = "alis-inputd"
+            else:
+                executed_ok = False
+                backend = "unavailable"
+                err_reason = sc_detail or "no Wayland virtual pointer backend available"
+        else:
+            backend = "alis-inputd" if native_host_bridge.has_native_vpointer() else "fixture-dry-run"
+        cursor_event = (
+            _emit_cursor_event(
+                cx,
+                cy,
+                "scroll",
+                resolved_elem=resolved_elem,
+                backend=backend,
+                now_ms=now_ms,
+            )
+            if has_pos
+            else None
+        )
+        return {
+            "ok": executed_ok,
+            "actionType": "scroll",
+            "delta": d_val,
+            "axis": ax,
+            "x": cx,
+            "y": cy,
+            "backend": backend,
+            "cursorEvent": cursor_event,
+            "beforeWindowId": current_win_id,
+            "afterWindowId": current_win_id,
+            "verified": executed_ok,
+            "summary": (
+                f"Scrolled {ax} ({d_val:+d}) via {backend}"
+                if executed_ok
+                else f"Failed to scroll {ax} ({d_val:+d}): {err_reason}"
+            ),
+            "observation": obs,
+        }
+
+    if action_type == "drag":
+        if coordinates is not None and isinstance(coordinates, (list, tuple)) and len(coordinates) >= 2:
+            sx, sy = int(coordinates[0]), int(coordinates[1])
+        elif x is not None and y is not None:
+            sx, sy = int(x), int(y)
+        else:
+            raise ScreenContextError("missing_drag_start", "Drag requires start coordinates (x, y).")
+        if x2 is None or y2 is None:
+            raise ScreenContextError("missing_drag_target", "Drag requires target coordinates (x2, y2).")
+        ex, ey = int(x2), int(y2)
+        btn = str(button or "left").strip().lower()
+        if btn not in ("left", "right", "middle"):
+            btn = "left"
+        st = max(2, min(24, int(steps or 10)))
+        executed_ok = True
+        err_reason = ""
+        if live_input:
+            ok_dr, dr_detail = native_host_bridge.input_pointer_drag(
+                sx, sy, ex, ey, button=btn, steps=st
+            )
+            if ok_dr:
+                backend = "alis-inputd"
+            else:
+                executed_ok = False
+                backend = "unavailable"
+                err_reason = dr_detail or "no Wayland virtual pointer backend available"
+        else:
+            backend = "alis-inputd" if native_host_bridge.has_native_vpointer() else "fixture-dry-run"
+        cursor_event = _emit_cursor_event(
+            ex,
+            ey,
+            "drag",
+            resolved_elem=resolved_elem,
+            backend=backend,
+            now_ms=now_ms,
+        )
+        return {
+            "ok": executed_ok,
+            "actionType": "drag",
+            "x": sx,
+            "y": sy,
+            "x2": ex,
+            "y2": ey,
+            "button": btn,
+            "steps": st,
+            "backend": backend,
+            "cursorEvent": cursor_event,
+            "beforeWindowId": current_win_id,
+            "afterWindowId": current_win_id,
+            "verified": executed_ok,
+            "summary": (
+                f"Dragged {btn} from ({sx}, {sy}) to ({ex}, {ey}) via {backend}"
+                if executed_ok
+                else f"Failed to drag from ({sx}, {sy}) to ({ex}, {ey}): {err_reason}"
+            ),
+            "observation": obs,
+        }
 
     if action_type == "type":
         txt = str(text or "")

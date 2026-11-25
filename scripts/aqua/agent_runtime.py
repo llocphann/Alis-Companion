@@ -55,6 +55,8 @@ import history_store
 import mcp_client
 from mcp_client import McpError
 import memory_store
+import scheduler_store
+from scheduler_store import SchedulerError
 import domain_rag
 import rag_store
 from rag_store import RagStoreError
@@ -154,6 +156,7 @@ class _TurnState:
     current_turn_thread_id: str | None = None
     last_lmstudio_error: str = ""
     last_lmstudio_loaded_model: str = ""
+    live_gui_control: bool = False
 
 
 _TURN_STATE_VAR: contextvars.ContextVar[_TurnState | None] = contextvars.ContextVar(
@@ -1412,575 +1415,19 @@ def _extract_plan_search_query(goal_text: str, lang: str = "vi") -> str:
             q = "địa điểm " + q
     return q[:120] or str(goal_text or "").strip()[:120]
 
-AGENT_TOOL_SCHEMAS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "file_inspect",
-            "description": "Read a file or list/search a directory within permitted scope.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "query": {"type": "string"},
-                    "startLine": {"type": "integer"},
-                    "endLine": {"type": "integer"},
-                    "page": {"type": "integer"},
-                },
-                "required": ["path"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "file_mutate",
-            "description": "Create, edit, patch, copy, move, delete, or rollback a file with conflict and symlink checks.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "op": {"type": "string", "enum": ["create", "edit", "patch", "copy", "cut", "delete", "rollback"]},
-                    "path": {"type": "string"},
-                    "destPath": {"type": "string"},
-                    "content": {"type": "string"},
-                    "searchText": {"type": "string"},
-                    "mode": {"type": "string", "enum": ["write", "append", "replace"]},
-                },
-                "required": ["op", "path"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "code_inspect",
-            "description": "Search code, build a token-budgeted repo map, query LSP symbols/diagnostics, or run tests.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["search", "repo_map", "symbols", "definition", "references", "diagnostics", "run_tests"]},
-                    "workspace": {"type": "string"},
-                    "query": {"type": "string"},
-                    "file": {"type": "string"},
-                },
-                "required": ["action", "workspace"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "shell_run",
-            "description": "Execute a shell command in the user session within a permitted workspace.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string"},
-                    "cwd": {"type": "string"},
-                },
-                "required": ["command"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "desktop_control",
-            "description": "Control Niri windows, columns, workspaces, applications, audio volume, brightness, media playback, clipboard, notifications, or voice STT/TTS.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": [
-                            "list_windows",
-                            "focus_window",
-                            "close_window",
-                            "switch_workspace",
-                            "move_window_to_workspace",
-                            "consume_or_expel_window",
-                            "consume_window_into_column",
-                            "expel_window_from_column",
-                            "set_column_width",
-                            "set_window_height",
-                            "fullscreen_window",
-                            "toggle_window_floating",
-                            "center_column",
-                            "maximize_column",
-                            "expand_column_to_available_width",
-                            "focus_column_left",
-                            "focus_column_right",
-                            "move_column_left",
-                            "move_column_right",
-                            "launch_app",
-                            "volume",
-                            "brightness",
-                            "media",
-                            "clipboard_get",
-                            "clipboard_set",
-                            "primary_selection_get",
-                            "notify",
-                            "voice_stt",
-                            "voice_tts",
-                            "voice_tts_stop",
-                            "voice_status",
-                            "gui_click",
-                            "gui_fill",
-                            "gui_focus",
-                            "atspi_action",
-                            "som_click",
-                            "click",
-                            "fill",
-                            "set_text",
-                            "focus_element",
-                        ],
-                    },
-                    "action_type": {"type": "string"},
-                    "target": {"type": "string"},
-                    "element": {"type": "string"},
-                    "value": {"type": "string"},
-                    "text": {"type": "string"},
-                    "ref": {"type": "string", "description": "Semantic AT-SPI element reference (e.g. @e1, @e2)"},
-                    "markId": {"type": "integer"},
-                    "role": {"type": "string"},
-                    "x": {"type": "integer"},
-                    "y": {"type": "integer"},
-                },
-                "required": ["action"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "file_receipt_rollback",
-            "description": "Roll back a file edit/create/delete operation using its receiptId.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "receiptId": {"type": "string"},
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "voice_tts_stop",
-            "description": "Stop any active Companion TTS audio playback process immediately.",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "system_telemetry",
-            "description": "Get detailed Linux system telemetry: CPU load, RAM/Swap, disk space, battery, thermal sensors, and top processes.",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "process_manage",
-            "description": "List top processes, search processes by name, or terminate a process by PID.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["list", "search", "kill"]},
-                    "query": {"type": "string"},
-                    "pid": {"type": "integer"},
-                    "signal": {"type": "string"},
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "git_inspect",
-            "description": "Inspect Git repository status, branch, log, or diff in a workspace.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["status", "log", "diff", "branch"]},
-                    "workspace": {"type": "string"},
-                    "args": {"type": "string"},
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "rag_search",
-            "description": "Search the Companion RAG knowledge base across docs, Pocket files, and registered user sources with citations.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                    "page": {"type": "integer"},
-                },
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "mcp_call",
-            "description": "Invoke a Model Context Protocol (MCP) tool on an enabled MCP server, including Eyes & Hands servers (`computer-use-linux` for screenshots, AT-SPI2 UI tree, mouse/keyboard & window actions; `playwright-mcp` & `chrome-devtools-mcp` for browser DOM/snapshots/actions; `web-search-mcp` & `fetch-mcp` for live web search and URL reading; `graphify-mcp` for codebase knowledge graphs, god nodes & shortest paths; `pipewire-mpris-mcp` for audio/media/voice; `desktop-commander` for terminal/processes; `companion-system` for system/RAG/Pocket).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "server": {"type": "string"},
-                    "tool": {"type": "string"},
-                    "arguments": {"type": "object"},
-                },
-                "required": ["tool"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "web_search",
-            "description": "Search the live web (DuckDuckGo, Wikipedia, GitHub, SearXNG) or open a search query/URL in the user's browser.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                    "engine": {"type": "string", "enum": ["auto", "duckduckgo", "wikipedia", "github", "google", "youtube"]},
-                    "openBrowser": {"type": "boolean"},
-                },
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "web_fetch",
-            "description": "Fetch any web URL and extract clean readable text, headings, and links.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string"},
-                    "maxChars": {"type": "integer"},
-                },
-                "required": ["url"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "skill_run",
-            "description": "Execute a Companion Agent Skill (`SKILL.md`) by name.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "skill": {"type": "string"},
-                    "prompt": {"type": "string"},
-                },
-                "required": ["skill"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "skill_manage",
-            "description": "Hermes self-learning skill manager: list, inspect, create, patch/refine, or learn Agent Skills (`SKILL.md`) and `references/` files.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["list", "inspect", "create", "patch", "learn", "write_reference", "reflections"],
-                    },
-                    "name": {"type": "string"},
-                    "description": {"type": "string"},
-                    "instructions": {"type": "string"},
-                    "old_text": {"type": "string"},
-                    "new_text": {"type": "string"},
-                    "note": {"type": "string"},
-                    "target": {"type": "string"},
-                    "reference": {"type": "string"},
-                    "content": {"type": "string"},
-                },
-                "required": ["action"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "delegate_subagent",
-            "description": "Delegate a scoped subtask to an isolated-context specialist Subagent (`researcher`, `planner`, `executor`, `coder`, or `verifier`) running sequentially on the same single loaded local model.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "role": {
-                        "type": "string",
-                        "enum": ["researcher", "planner", "executor", "coder", "verifier"],
-                        "description": "Specialist subagent role to invoke in an isolated context window.",
-                    },
-                    "task": {
-                        "type": "string",
-                        "description": "Concrete subtask instructions for the subagent.",
-                    },
-                    "context_hint": {
-                        "type": "string",
-                        "description": "Optional compact context hint or file/domain pointers.",
-                    },
-                },
-                "required": ["role", "task"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_spill",
-            "description": "Read exact line ranges or search matches from a session-scoped tool output spill file (`spills/<session>/<call>.txt`) without re-running the tool.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "spill_id": {
-                        "type": "string",
-                        "description": "Spill identifier shown in the `[... spilled ...]` preview marker.",
-                    },
-                    "path": {
-                        "type": "string",
-                        "description": "Optional path inside the current session's spill directory.",
-                    },
-                    "offset_line": {
-                        "type": "integer",
-                        "description": "1-based starting line number (default 1).",
-                    },
-                    "limit_lines": {
-                        "type": "integer",
-                        "description": "Maximum number of lines to return (default 120, max 400).",
-                    },
-                    "grep": {
-                        "type": "string",
-                        "description": "Optional substring or regex pattern to filter matching lines.",
-                    },
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "alis_live_state",
-            "description": (
-                "Inspect live Alis shell, hardware, and integration state on this machine: weather/AQI/forecast, "
-                "local music/MPRIS, Pomodoro/timers, Todo, planner schedule, QuickNotes, notifications, screen time, "
-                "Spaced Repetition flashcards, Exercises Tracker workouts, CPU/GPU/RAM/Battery/Thinkfan/TLP, and Niri desktop."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "topic": {
-                        "type": "string",
-                        "enum": [
-                            "all",
-                            "weather",
-                            "music",
-                            "timers",
-                            "todos",
-                            "schedule",
-                            "quicknotes",
-                            "notifications",
-                            "screentime",
-                            "learning",
-                            "fitness",
-                            "system",
-                            "desktop",
-                        ],
-                    },
-                    "query": {"type": "string"},
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "nexus_knowledge",
-            "description": (
-                "Search, read, or inspect the user's Nexus/Obsidian Vault (notes, tags, daily journal, schedule, finance, "
-                "collections, and Markdown RAG notes in 90_System/99_RAG) or propose saving a RAG knowledge note."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["search", "read", "overview", "journal", "finance", "collections", "save_rag_note"],
-                    },
-                    "query": {"type": "string"},
-                    "path": {"type": "string"},
-                    "folder": {"type": "string"},
-                    "tag": {"type": "string"},
-                    "title": {"type": "string"},
-                    "content": {"type": "string"},
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "alis_service_control",
-            "description": (
-                "Control live Alis desktop services: playback & local music search (`music_toggle`, `music_next`, `music_prev`, "
-                "`music_shuffle`, `music_stop`, `music_play_query`), Pomodoro/stopwatch (`pomodoro_toggle`, `pomodoro_start`, "
-                "`pomodoro_pause`, `pomodoro_reset`, `stopwatch_toggle`, `stopwatch_reset`), display/power modes "
-                "(`night_light_set`, `night_light_toggle`, `gamemode_set`, `gamemode_toggle`, `dnd_set`, `dnd_toggle`), "
-                "`weather_refresh`, Nexus navigation (`nexus_open`, `nexus_open_note`, `nexus_open_daily`), "
-                "or confirmation-gated creation (`todo_add`, `quicknote_add`)."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string"},
-                    "target": {"type": "string"},
-                    "value": {"type": "string"},
-                },
-                "required": ["action"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "tool_search",
-            "description": (
-                "Discover and load additional specialized tools (such as git_inspect, web_search, web_fetch, "
-                "file_mutate, code_inspect, desktop_control, process_manage, mcp_call, skill_run, delegate_subagent) "
-                "into the active schema list on demand."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Keywords describing the capability needed (e.g. 'git diff', 'web fetch', 'kill process').",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of matching tools to load (default 6).",
-                    },
-                },
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "emit_ui_card",
-            "description": (
-                "Emit a single compact A2UI v1.0 interactive card (`<= 6 KB`) alongside your Markdown reply "
-                "(only available when Generative A2UI is enabled by the user). Allowed components: Column, Row, "
-                "Card, Divider, Text (body|caption), Icon (snake_case), Button, List, ChoicePicker, CheckBox, "
-                "TextField (never passwords), Slider, Tabs, Image (local path only)."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "surface": {
-                        "type": "object",
-                        "description": "Complete A2UI v1.0 createSurface envelope (`{version:'1.0', createSurface:{...}}`).",
-                    },
-                    "title": {"type": "string", "description": "Optional short card title if passing simplified fields."},
-                    "components": {"type": "array", "description": "A2UI v1.0 component list containing an id='root' item."},
-                    "dataModel": {"type": "object", "description": "Optional JSON dataModel object."},
-                },
-            },
-        },
-    },
-]
-
-CORE_AGENT_TOOL_NAMES: frozenset[str] = frozenset({
-    "file_inspect",
-    "shell_run",
-    "alis_live_state",
-    "nexus_knowledge",
-    "read_spill",
-    "tool_search",
-})
-
-_TAINT_SOURCE_TOOLS: frozenset[str] = frozenset({
-    "web_search",
-    "web_fetch",
-    "screen_observe",
-})
+from agent_tool_schemas import (  # noqa: E402
+    AGENT_TOOL_SCHEMAS,
+    CORE_AGENT_TOOL_NAMES,
+    _TAINT_SOURCE_TOOLS,
+    core_agent_tool_schemas,
+    search_agent_tool_schemas,
+    select_initial_tool_schemas,
+)
 
 
 def _issue_confirm_id(prefix: str = "conf") -> str:
     seed = f"{prefix}:{time.time_ns()}:{os.getpid()}:{os.urandom(6).hex()}"
     return f"{prefix}_{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:16]}"
-
-
-def search_agent_tool_schemas(query: str, limit: int = 6, *, include_generative_ui: bool = False) -> list[dict]:
-    """Search `AGENT_TOOL_SCHEMAS` by name, description, and parameter keywords."""
-    q = str(query or "").strip().lower()
-    terms = [t for t in re.split(r"[\s,;|/_-]+", q) if t]
-    max_items = max(1, min(16, int(limit or 6)))
-    pool = [
-        s
-        for s in AGENT_TOOL_SCHEMAS
-        if include_generative_ui or str((s.get("function") or {}).get("name") or "") != "emit_ui_card"
-    ]
-    if not terms:
-        return [s for s in pool if s.get("function", {}).get("name")][:max_items]
-    scored: list[tuple[int, dict]] = []
-    for schema in pool:
-        fn = schema.get("function") or {}
-        t_name = str(fn.get("name") or "").strip().lower()
-        t_desc = str(fn.get("description") or "").strip().lower()
-        props = ((fn.get("parameters") or {}).get("properties") or {})
-        prop_blob = " ".join(
-            f"{k} {str((v or {}).get('description') or '')}"
-            for k, v in props.items()
-            if isinstance(v, dict)
-        ).lower()
-        score = 0
-        for term in terms:
-            if term == t_name:
-                score += 10
-            elif term in t_name:
-                score += 6
-            if term in t_desc:
-                score += 3
-            if term in prop_blob:
-                score += 2
-        if score > 0:
-            scored.append((score, schema))
-    scored.sort(key=lambda pair: (-pair[0], str((pair[1].get("function") or {}).get("name") or "")))
-    return [pair[1] for pair in scored[:max_items]]
-
-
-def select_initial_tool_schemas(prompt: str = "", full: bool = False) -> list[dict]:
-    """Select compact core tools initially (`full=True` returns all `AGENT_TOOL_SCHEMAS`)."""
-    if full:
-        return list(AGENT_TOOL_SCHEMAS)
-    core = [
-        schema
-        for schema in AGENT_TOOL_SCHEMAS
-        if str((schema.get("function") or {}).get("name") or "") in CORE_AGENT_TOOL_NAMES
-    ]
-    return core if core else list(AGENT_TOOL_SCHEMAS)
 
 
 def _is_privileged_taint_sink(tool_name: str, args: dict | None = None) -> bool:
@@ -2004,7 +1451,30 @@ def _is_privileged_taint_sink(tool_name: str, args: dict | None = None) -> bool:
     if t_name == "process_manage":
         return act == "kill"
     if t_name == "desktop_control":
-        return act in ("launch_app", "gui_click", "gui_fill", "key_press", "clipboard_set", "close_window")
+        return act in (
+            "launch_app",
+            "gui_click",
+            "gui_fill",
+            "gui_type",
+            "gui_key",
+            "key_press",
+            "click",
+            "double_click",
+            "right_click",
+            "scroll",
+            "drag",
+            "fill",
+            "set_text",
+            "som_click",
+            "atspi_action",
+            "clipboard_set",
+            "close_window",
+            "session_power",
+            "bluetooth_disconnect",
+            "bluetooth_toggle",
+            "wifi_toggle",
+            "wifi_connect",
+        )
     if t_name == "code_inspect":
         return act == "run_tests"
     if t_name == "skill_manage":
@@ -2017,6 +1487,8 @@ def _is_privileged_taint_sink(tool_name: str, args: dict | None = None) -> bool:
             "desktop_action",
             "window_action",
             "mouse_click",
+            "mouse_scroll",
+            "mouse_drag",
             "type_text",
             "key_press",
         ):
@@ -2028,6 +1500,49 @@ def _is_privileged_taint_sink(tool_name: str, args: dict | None = None) -> bool:
     if t_name == "delegate_subagent":
         role = str(t_args.get("role") or "").strip().lower()
         return role in ("executor", "coder")
+    return False
+
+
+_FAILED_TOOL_OUTPUT_RE = re.compile(
+    r"^\[(?:[a-z0-9_]+)\s+(?:failed|error|blocked|unavailable|disabled|gui_action_failed|live_gui_control_disabled|[a-z0-9_]*(?:_failed|_blocked|_error|_unavailable|_disabled))\b[:\s\]]",
+    re.IGNORECASE,
+)
+
+
+def _is_tool_failure_output(out_str: str) -> bool:
+    s = str(out_str or "").strip()
+    if not s:
+        return False
+    if _FAILED_TOOL_OUTPUT_RE.match(s):
+        return True
+    low = s.lower()
+    if low.startswith("[desktop_control ") and any(tok in low for tok in ("failed", "disabled", "blocked", "error", "unavailable")):
+        return True
+    if low.startswith("[mcp_call ") and any(tok in low for tok in ("failed", "blocked", "error")):
+        return True
+    return False
+
+
+def _is_gui_tool_call(tool_name: str, args: dict | None) -> bool:
+    t_name = str(tool_name or "").strip()
+    t_args = args if isinstance(args, dict) else {}
+    if t_name == "gui_action":
+        return True
+    if t_name == "desktop_control":
+        act = str(t_args.get("action") or t_args.get("action_type") or "").strip().lower()
+        return act in (
+            "gui_click", "gui_fill", "gui_focus", "gui_type", "gui_key",
+            "key_press", "click", "double_click", "right_click",
+            "scroll", "drag", "fill", "set_text", "som_click",
+            "atspi_action", "focus_element", "move",
+        )
+    if t_name == "mcp_call":
+        srv = str(t_args.get("server") or "").strip().lower()
+        mcp_tool = str(t_args.get("tool") or "").strip().lower()
+        return srv == "computer-use-linux" and mcp_tool in (
+            "mouse_click", "som_click", "mouse_move", "mouse_scroll",
+            "mouse_drag", "type_text", "key_press",
+        )
     return False
 
 
@@ -2689,7 +2204,7 @@ def classify_intent(prompt: str, session_ctx: dict | None = None) -> dict:
             return {"kind": "clarification_reply", "language": lang}
 
     perm_state = inspect_permissions()
-    if perm_state.get("latestPending") or ctx.get("pendingDeletePath") or ctx.get("pendingMemoryForget") or ctx.get("pendingClientAction"):
+    if perm_state.get("latestPending") or ctx.get("pendingDeletePath") or ctx.get("pendingMemoryForget") or ctx.get("pendingClientAction") or ctx.get("pendingDesktopControl"):
         latest = perm_state.get("latestPending")
         if latest and latest.get("actionKind") == "system_sudo_op" and not raw.startswith("/"):
             return {"kind": "sudo_password_reply", "language": lang}
@@ -3032,6 +2547,45 @@ def classify_intent(prompt: str, session_ctx: dict | None = None) -> dict:
         folded,
     ):
         return {"kind": "desktop_control", "subkind": "notify", "language": lang}
+    if re.search(
+        r"\b(?:bluetooth|tai nghe bluetooth|ket noi bluetooth|ngat ket noi bluetooth|bat bluetooth|tat bluetooth|trang thai bluetooth)\b",
+        folded,
+    ):
+        return {"kind": "desktop_control", "subkind": "bluetooth", "language": lang}
+    if re.search(
+        r"\b(?:wi-?fi|mang khong day|bat wifi|tat wifi|danh sach wifi|ket noi wifi|trang thai wifi|wifi list|wifi status|turn on wifi|turn off wifi|connect wifi)\b",
+        folded,
+    ):
+        return {"kind": "desktop_control", "subkind": "wifi", "language": lang}
+    if re.search(
+        r"\b(?:thiet bi am thanh|thiet bi dau ra|thiet bi dau vao|chuyen loa|doi loa|doi tai nghe|doi micro|chuyen mic|tat mic|bat mic|khoa mic|mo mic|mute mic|unmute mic|toggle mic|audio devices|output device|input device|switch speaker|set sink|set source)\b",
+        folded,
+    ):
+        return {"kind": "desktop_control", "subkind": "audio_device", "language": lang}
+    if re.search(
+        r"\b(?:power profile|che do nguon|che do pin|power[- ]?saver|balanced profile|performance profile|(?:dat|chuyen|bat|xem|kiem tra|set|switch|get|status)\s+(?:che do\s+)?(?:hieu nang|tiet kiem pin|balanced|performance|power[- ]?saver))\b",
+        folded,
+    ):
+        return {"kind": "desktop_control", "subkind": "power_profile", "language": lang}
+    if re.search(
+        r"\b(?:khoa man hinh|lock screen|lock session|nghi may|ngu dong|sleep pc|suspend system|suspend pc|suspend laptop|tam ngung may)\b",
+        folded,
+    ):
+        return {"kind": "desktop_control", "subkind": "session_power", "language": lang}
+
+    # Persistent Scheduler (reminders, recurring schedules, process exit watcher)
+    if (
+        re.match(r"^/(?:remind|schedule|jobs|watches)\b", folded)
+        or re.search(
+            r"\b(?:nhac toi|nhac nho|hen gio|dat lich nhac|danh sach nhac nho|xem lich hen|huy nhac nho|huy lich hen|theo doi tien trinh|bao khi tien trinh|remind me|set a reminder|schedule reminder|list reminders|scheduled jobs|cancel reminder|cancel schedule|watch process|notify when process)\b",
+            folded,
+        )
+        or (
+            re.search(r"\b(?:moi ngay|moi sang|moi toi|hang ngay|daily|weekly|every\s+\d+\s*(?:min|minute|minutes|phut))\b", folded)
+            and re.search(r"\b(?:nhac|bao|thong bao|remind|notify|alert|run|kiem tra|check|\d{1,2}:\d{2})\b", folded)
+        )
+    ):
+        return {"kind": "desktop_schedule", "language": lang}
 
     # Undo / rollback
     if re.match(r"^/(?:undo|rollback)\b", folded) or re.search(r"\b(?:hoan tac|undo|rollback|quay lai buoc truoc|khoi phuc lai|khoi phuc thao tac vua roi|bo thay doi vua roi|revert last change|undo last action)\b", folded):
@@ -3674,7 +3228,7 @@ def _call_local_model_tool_turn(
                 "max_tokens": 2048 if enable_thinking else 1536,
                 "reasoning_effort": "high" if enable_thinking else "none",
                 "chat_template_kwargs": {"enable_thinking": bool(enable_thinking)},
-                "stream": False,
+                "stream": True,
             }
             if effective_mtp:
                 body["repetition_penalty"] = 1.0
@@ -3685,11 +3239,142 @@ def _call_local_model_tool_turn(
                 headers={"Content-Type": "application/json"},
             )
             req_timeout = 90 if is_live_lms else 25
+            emit_live_steps = (
+                os.environ.get("AQUA_TEST_AGENT_ENABLED") != "1"
+                and not os.environ.get("AQUA_TEST_ENDPOINT")
+                and not os.environ.get("AI_FIXTURE_URL")
+            )
+
+            def _is_turn_cancelled() -> bool:
+                ev = getattr(threading.current_thread(), "_aqua_cancel_event", None)
+                return bool(ev is not None and ev.is_set())
+
+            msg: dict = {}
+            usage: dict = {}
             with _urlopen_local(req, timeout=req_timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8", errors="replace"))
-            choice = (data.get("choices") or [{}])[0]
-            msg = choice.get("message") or {}
-            usage = data.get("usage") or {}
+                first_raw = resp.readline()
+                if not first_raw:
+                    return None
+                first_str = first_raw.decode("utf-8", errors="replace").strip()
+                if first_str.startswith("{"):
+                    rest_raw = resp.read()
+                    full_str = first_raw.decode("utf-8", errors="replace") + rest_raw.decode("utf-8", errors="replace")
+                    data = json.loads(full_str)
+                    choice = (data.get("choices") or [{}])[0]
+                    msg = choice.get("message") or {}
+                    usage = data.get("usage") or {}
+                else:
+                    content_parts: list[str] = []
+                    reasoning_parts: list[str] = []
+                    raw_tc_map: dict[int, dict] = {}
+                    last_step_emit = 0.0
+                    in_inline_think = False
+
+                    def _emit_step_json(obj: dict) -> None:
+                        if not emit_live_steps:
+                            return
+                        try:
+                            sys.stderr.write("__AQUA_STEP__:" + json.dumps(obj, ensure_ascii=False) + "\n")
+                            sys.stderr.flush()
+                        except Exception:
+                            pass
+
+                    def _handle_sse_tool_line(line_s: str) -> bool:
+                        nonlocal usage, last_step_emit, in_inline_think
+                        if _is_turn_cancelled():
+                            return False
+                        if not line_s or line_s.startswith(":"):
+                            return True
+                        if line_s.startswith("data:"):
+                            line_s = line_s[5:].strip()
+                        if line_s == "[DONE]":
+                            return False
+                        if not line_s.startswith("{"):
+                            return True
+                        try:
+                            chunk = json.loads(line_s)
+                        except Exception:
+                            return True
+                        if isinstance(chunk.get("usage"), dict):
+                            usage = chunk["usage"]
+                        ch_list = chunk.get("choices") or []
+                        if not (ch_list and isinstance(ch_list[0], dict)):
+                            return True
+                        delta = ch_list[0].get("delta") or ch_list[0].get("message") or {}
+                        r_piece = delta.get("reasoning_content") or delta.get("reasoning")
+                        if r_piece:
+                            reasoning_parts.append(str(r_piece))
+                            now_s = time.monotonic()
+                            if (now_s - last_step_emit) >= 0.22:
+                                last_step_emit = now_s
+                                snip = " ".join("".join(reasoning_parts)[-180:].split()).strip()
+                                if snip:
+                                    _emit_step_json({
+                                        "thinkingSnippet": snip,
+                                        "kind": "llm_think",
+                                        "status": "running",
+                                        "current": "Thinking: " + snip[-96:],
+                                    })
+                        tc_deltas = delta.get("tool_calls")
+                        if isinstance(tc_deltas, list):
+                            for td in tc_deltas:
+                                if not isinstance(td, dict):
+                                    continue
+                                idx = int(td.get("index") or 0)
+                                entry = raw_tc_map.setdefault(idx, {
+                                    "id": "",
+                                    "type": "function",
+                                    "function": {"name": "", "arguments": ""},
+                                })
+                                if td.get("id"):
+                                    entry["id"] = str(td["id"])
+                                if td.get("type"):
+                                    entry["type"] = str(td["type"])
+                                fn_d = td.get("function")
+                                if isinstance(fn_d, dict):
+                                    if fn_d.get("name"):
+                                        entry["function"]["name"] += str(fn_d["name"])
+                                    if fn_d.get("arguments") is not None:
+                                        entry["function"]["arguments"] += str(fn_d["arguments"])
+                                elif td.get("name"):
+                                    entry["function"]["name"] += str(td["name"])
+                        c_piece = delta.get("content")
+                        if c_piece:
+                            c_str = str(c_piece)
+                            content_parts.append(c_str)
+                            if not raw_tc_map:
+                                low_c = c_str.lower()
+                                if "<think" in low_c:
+                                    in_inline_think = True
+                                if not in_inline_think:
+                                    _emit_step_json({
+                                        "streamDelta": c_str,
+                                        "kind": "stream_delta",
+                                        "status": "running",
+                                    })
+                                if "</think" in low_c:
+                                    in_inline_think = False
+                        fr = ch_list[0].get("finish_reason")
+                        if fr in ("stop", "tool_calls", "length", "cancelled", "interrupted"):
+                            return False
+                        return True
+
+                    if _handle_sse_tool_line(first_str):
+                        for raw_line in resp:
+                            if _is_turn_cancelled():
+                                break
+                            s_line = raw_line.decode("utf-8", errors="replace").strip()
+                            if not _handle_sse_tool_line(s_line):
+                                break
+                    if _is_turn_cancelled():
+                        return None
+                    assembled_tcs = [raw_tc_map[k] for k in sorted(raw_tc_map.keys())]
+                    msg = {
+                        "role": "assistant",
+                        "content": "".join(content_parts),
+                        **({"reasoning_content": "".join(reasoning_parts)} if reasoning_parts else {}),
+                        **({"tool_calls": assembled_tcs} if assembled_tcs else {}),
+                    }
             tool_calls = []
             for tc in (msg.get("tool_calls") or []):
                 fn = tc.get("function") or {}
@@ -4036,47 +3721,153 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
             "gui_click",
             "gui_fill",
             "gui_focus",
+            "gui_type",
+            "gui_key",
+            "key_press",
             "atspi_action",
             "som_click",
             "click",
+            "double_click",
+            "right_click",
+            "scroll",
+            "drag",
             "fill",
             "set_text",
             "focus_element",
             "move",
         ):
-            mapped_act = (
-                "fill"
-                if act_dc in ("gui_fill", "fill", "set_text")
-                else (
-                    "focus_element"
-                    if act_dc in ("gui_focus", "focus_element")
-                    else (
-                        "atspi_action"
-                        if act_dc == "atspi_action"
-                        else ("move" if act_dc == "move" else ("click" if act_dc == "click" else "som_click"))
-                    )
-                )
-            )
+            act_map = {
+                "gui_fill": "fill",
+                "fill": "fill",
+                "set_text": "set_text",
+                "gui_focus": "focus_element",
+                "focus_element": "focus_element",
+                "atspi_action": "atspi_action",
+                "move": "move",
+                "click": "click",
+                "gui_click": "click" if (args.get("x") is not None and args.get("y") is not None) else "som_click",
+                "double_click": "double_click",
+                "right_click": "right_click",
+                "scroll": "scroll",
+                "drag": "drag",
+                "gui_type": "type",
+                "gui_key": "key",
+                "key_press": "key",
+            }
+            mapped_act = act_map.get(act_dc, "som_click")
             gui_res = perform_gui_action(
                 action_type=mapped_act,
                 x=int(args["x"]) if args.get("x") is not None else None,
                 y=int(args["y"]) if args.get("y") is not None else None,
+                button=str(args.get("button") or "left"),
                 text=str(args.get("value") or args.get("text") or ""),
+                key=str(args.get("key") or args.get("target") or ""),
                 mark_id=args.get("markId") if args.get("markId") is not None else args.get("mark_id"),
                 element_name=str(args.get("target") or args.get("element") or args.get("element_name") or ""),
                 role=str(args.get("role") or ""),
                 ref=str(args.get("ref") or ""),
+                allow_live_input=_tctx().live_gui_control,
+                delta=int(args.get("delta") or 0),
+                axis=str(args.get("axis") or "vertical"),
+                x2=int(args["x2"]) if args.get("x2") is not None else None,
+                y2=int(args["y2"]) if args.get("y2") is not None else None,
+                double=bool(args.get("double")),
                 now_ms=now_ms,
             )
             if isinstance(gui_res.get("cursorEvent"), dict):
                 session_ctx["_lastCursorEvent"] = gui_res["cursorEvent"]
+            if gui_res.get("ok") is False:
+                err_code = str(gui_res.get("code") or gui_res.get("backend") or "gui_action_failed")
+                return f"[desktop_control {err_code}: {gui_res.get('summary') or 'GUI action failed'}]"
             return str(gui_res.get("summary") or "Completed GUI action.")
+        if act_dc == "session_power":
+            sub_pow = str(args.get("value") or args.get("target") or "").strip().lower()
+            if sub_pow not in ("lock", "suspend"):
+                return "[desktop_control error: session_power requires value='lock' or 'suspend']"
+            cid = _issue_confirm_id("conf")
+            session_ctx["pendingDesktopControl"] = {
+                "confirmId": cid,
+                "action": "session_power",
+                "target": "",
+                "value": sub_pow,
+            }
+            session_ctx["pendingConfirmId"] = cid
+            save_session_context(session_ctx, now_ms=now_ms)
+            return f"[Confirmation required (confirmId={cid}) before executing session_power '{sub_pow}'. Ask the user to confirm.]"
+        if act_dc in ("wifi_toggle", "bluetooth_toggle"):
+            tgl_val = str(args.get("value") or "").strip().lower()
+            if tgl_val == "off":
+                cid = _issue_confirm_id("conf")
+                session_ctx["pendingDesktopControl"] = {
+                    "confirmId": cid,
+                    "action": act_dc,
+                    "target": str(args.get("target") or ""),
+                    "value": "off",
+                }
+                session_ctx["pendingConfirmId"] = cid
+                save_session_context(session_ctx, now_ms=now_ms)
+                return f"[Confirmation required (confirmId={cid}) before turning off {act_dc.replace('_toggle', '')}. Ask the user to confirm.]"
         res = desktop_control.manage_desktop(
             action=act_dc,
             target=str(args.get("target") or ""),
             value=str(args.get("value") or ""),
         )
+        if res.get("status") == "failed" or res.get("ok") is False:
+            return f"[desktop_control failed: {res.get('summary') or 'action failed'}]"
         return f"{res['summary']}\n" + "\n".join(res.get("lines", [])[:25])
+
+    if name == "desktop_schedule":
+        act_sc = str(args.get("action") or "list_jobs").strip().lower()
+        try:
+            if act_sc == "create_reminder":
+                job = scheduler_store.create_reminder(
+                    str(args.get("title") or "Reminder"),
+                    delay_minutes=args.get("delayMinutes"),
+                    at_time=str(args.get("atTime") or ""),
+                    prompt=str(args.get("prompt") or ""),
+                    now_ms=now_ms,
+                )
+                all_sc = scheduler_store.list_jobs()
+                session_ctx["_pendingScheduleJobs"] = [job] + [j for j in all_sc if j["id"] != job["id"]][:3]
+                session_ctx["_pendingScheduleTotal"] = len(all_sc)
+                return f"Created reminder `{job['id']}`: {job['title']} (dueMs={job['dueMs']})."
+            if act_sc == "create_recurring":
+                job = scheduler_store.create_recurring(
+                    str(args.get("title") or "Recurring task"),
+                    str(args.get("recurrence") or ""),
+                    prompt=str(args.get("prompt") or ""),
+                    now_ms=now_ms,
+                )
+                all_sc = scheduler_store.list_jobs()
+                session_ctx["_pendingScheduleJobs"] = [job] + [j for j in all_sc if j["id"] != job["id"]][:3]
+                session_ctx["_pendingScheduleTotal"] = len(all_sc)
+                return f"Created recurring job `{job['id']}` ({job['recurrence']}): {job['title']}."
+            if act_sc == "watch_process":
+                job = scheduler_store.create_process_watch(
+                    str(args.get("title") or ""),
+                    pid=int(args["pid"]) if args.get("pid") is not None else None,
+                    process_name=str(args.get("processName") or ""),
+                    prompt=str(args.get("prompt") or ""),
+                    now_ms=now_ms,
+                )
+                all_sc = scheduler_store.list_jobs()
+                session_ctx["_pendingScheduleJobs"] = [job] + [j for j in all_sc if j["id"] != job["id"]][:3]
+                session_ctx["_pendingScheduleTotal"] = len(all_sc)
+                return f"Watching process `{job['watchName'] or job['watchPid']}` (job `{job['id']}`)."
+            if act_sc == "cancel_job":
+                job = scheduler_store.cancel_job(str(args.get("jobId") or ""))
+                all_sc = scheduler_store.list_jobs()
+                session_ctx["_pendingScheduleJobs"] = all_sc[:4]
+                session_ctx["_pendingScheduleTotal"] = len(all_sc)
+                return f"Cancelled scheduled job `{job['id']}`."
+            jobs = scheduler_store.list_jobs()
+            session_ctx["_pendingScheduleJobs"] = jobs[:4]
+            session_ctx["_pendingScheduleTotal"] = len(jobs)
+            if not jobs:
+                return "No active scheduled jobs."
+            return "\n".join(f"- [{j['id']}] ({j['kind']}) {j['title']}" for j in jobs[:20])
+        except SchedulerError as exc:
+            return f"[desktop_schedule {exc.code}: {exc.message}]"
 
     if name in ("gui_action", "screen_observe"):
         if name == "screen_observe":
@@ -4101,15 +3892,26 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
             action_type=str(args.get("action") or args.get("action_type") or "click"),
             x=int(args["x"]) if args.get("x") is not None else None,
             y=int(args["y"]) if args.get("y") is not None else None,
+            button=str(args.get("button") or "left"),
             text=str(args.get("text") or args.get("value") or ""),
+            key=str(args.get("key") or ""),
             mark_id=args.get("markId") if args.get("markId") is not None else args.get("mark_id"),
             element_name=str(args.get("element") or args.get("element_name") or args.get("target") or ""),
             role=str(args.get("role") or ""),
             ref=str(args.get("ref") or ""),
+            allow_live_input=_tctx().live_gui_control,
+            delta=int(args.get("delta") or 0),
+            axis=str(args.get("axis") or "vertical"),
+            x2=int(args["x2"]) if args.get("x2") is not None else None,
+            y2=int(args["y2"]) if args.get("y2") is not None else None,
+            double=bool(args.get("double")),
             now_ms=now_ms,
         )
         if isinstance(gui_res.get("cursorEvent"), dict):
             session_ctx["_lastCursorEvent"] = gui_res["cursorEvent"]
+        if gui_res.get("ok") is False:
+            err_code = str(gui_res.get("code") or gui_res.get("backend") or "gui_action_failed")
+            return f"[gui_action {err_code}: {gui_res.get('summary') or 'GUI action failed'}]"
         return str(gui_res.get("summary") or "Completed GUI action.")
 
     if name in ("system_telemetry", "system_status"):
@@ -4167,8 +3969,31 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
 
     if name in ("code_inspect", "code_search"):
         ws = str(args.get("workspace") or args.get("path") or session_ctx.get("lastProject") or last_dir)
-        act = str(args.get("action") or ("search" if name == "code_search" else "repo_map"))
-        q_code = str(args.get("query") or args.get("pattern") or "").strip()
+        act = str(args.get("action") or ("search" if name == "code_search" else "repo_map")).strip().lower()
+        q_code = str(args.get("query") or args.get("pattern") or args.get("symbol") or "").strip()
+        file_arg = str(args.get("file") or args.get("filePath") or "").strip()
+        if act in ("symbols", "definition", "references", "diagnostics"):
+            lsp_res = query_lsp(ws, action=act, symbol=q_code, file_path=file_arg)
+            if act in ("symbols", "definition"):
+                syms = lsp_res.get("symbols") or []
+                lines_lsp = [
+                    f"{s.get('file', '')}:{s.get('line', 0)} [{s.get('kind', 'symbol')}] {s.get('name', '')}"
+                    for s in syms[:30]
+                ] or [f"No {act} matches found in `{ws}` via {lsp_res.get('lspBinary', 'ast')}."]
+            elif act == "references":
+                refs = lsp_res.get("references") or []
+                lines_lsp = [
+                    f"{r.get('file', '')}:{r.get('line', 0)}: {r.get('text', '')}"
+                    for r in refs[:30]
+                ] or [f"No references for `{q_code}` in `{ws}`."]
+            else:
+                diags = lsp_res.get("diagnostics") or []
+                lines_lsp = [
+                    f"{d.get('file', '')}:{d.get('line', 0)} [{d.get('severity', 'error')}] {d.get('message', '')}"
+                    for d in diags[:30]
+                ] or [f"0 diagnostics issues found in `{ws}` ({lsp_res.get('lspBinary', 'syntax_checker')})."]
+            raw_lsp = f"LSP {act} ({lsp_res.get('language', 'auto')} via {lsp_res.get('lspBinary', 'fallback')}):\n" + "\n".join(lines_lsp)
+            return spill_store.maybe_spill_tool_output(raw_lsp, session_id=active_sid, call_id=tc_id, tool_name=name)[0]
         if act == "repo_map" or (name == "code_search" and not q_code):
             rm = build_repo_map(ws, token_budget=360)
             return "\n".join(e["summary"] for e in rm.get("entries", [])[:16])
@@ -4190,15 +4015,19 @@ def _execute_llm_tool_call(tc: dict, session_ctx: dict, companion_root: Path, no
         return spill_store.maybe_spill_tool_output(raw_rag, session_id=active_sid, call_id=tc_id, tool_name=name)[0]
 
     if name == "mcp_call":
+        mcp_server_name = str(args.get("server") or "").strip()
         mcp_tool_name = str(args.get("tool") or "").strip()
         if mcp_tool_name in ("shell_exec", "execute_command"):
             perm_mcp = check_permission("shell_run", source="agent_step", now_ms=now_ms)
             if not perm_mcp["allowed"]:
                 return f"[mcp_call blocked: {perm_mcp['reason']} for {mcp_tool_name}]"
+        mcp_args = dict(args.get("arguments")) if isinstance(args.get("arguments"), dict) else {}
+        if mcp_server_name == "computer-use-linux":
+            mcp_args["allowLiveInput"] = bool(_tctx().live_gui_control)
         called = mcp_client.call_tool(
-            str(args.get("server") or ""),
+            mcp_server_name,
             mcp_tool_name,
-            args.get("arguments") if isinstance(args.get("arguments"), dict) else {},
+            mcp_args,
             companion_root=companion_root,
         )
         if isinstance((called.get("structured") or {}).get("cursorEvent"), dict):
@@ -5730,10 +5559,14 @@ def run_react_tool_loop(
     ctx = session_ctx if isinstance(session_ctx, dict) else load_session_context()
     ctx["_activeTurnOptions"] = dict(opts)
     ctx["_a2uiGenerativeAllowed"] = bool(opts.get("a2uiGenerativeEnabled") is True)
+    if "liveGuiControlEnabled" in opts:
+        _tctx().live_gui_control = bool(opts.get("liveGuiControlEnabled") is True)
     ctx["_turnTaintSources"] = []
     ctx.pop("_pendingTurnUiSurface", None)
     prev_pca = ctx.get("pendingClientAction")
     prev_pca_cid = str(prev_pca.get("confirmId") or "") if isinstance(prev_pca, dict) else ""
+    prev_pdc = ctx.get("pendingDesktopControl")
+    prev_pdc_cid = str(prev_pdc.get("confirmId") or "") if isinstance(prev_pdc, dict) else ""
     comp_root = Path(companion_root).resolve(strict=False) if companion_root else Path(__file__).resolve().parents[2]
     ts_ms = int(now_ms or int(time.time() * 1000))
     lang = detect_language(eff_prompt)
@@ -5814,7 +5647,7 @@ def run_react_tool_loop(
     allow_tainted_exec = opts.get("allowTaintedExecution") is True
     final_synthesis = ""
     step_counter = 0
-    max_iters = max(1, min(6, int(max_steps or 4)))
+    max_iters = max(1, min(8, int(max_steps or 4)))
     loop_budget_exhausted = False
     loop_stop_status = "completed"
 
@@ -5912,7 +5745,12 @@ def run_react_tool_loop(
             _emit_activity_step(f"Step {step_counter}: `{t_name}` ›", kind="tool", status="running")
             step_id = record_step_start(run_id, step_counter, t_name, side_effect=True, now_ms=ts_ms)
             err_sig = ""
-            if taint_sources and not allow_tainted_exec and _is_privileged_taint_sink(t_name, t_args):
+            gui_approved = (
+                _is_gui_tool_call(t_name, t_args)
+                and bool(_tctx().live_gui_control)
+                and int(ctx.get("guiApprovedUntilMs") or 0) > ts_ms
+            )
+            if taint_sources and not allow_tainted_exec and not gui_approved and _is_privileged_taint_sink(t_name, t_args):
                 taint_blocked = True
                 conf = create_pending_confirmation(
                     "tainted_tool_escalation",
@@ -6037,21 +5875,28 @@ def run_react_tool_loop(
     )
     pending_ca = ctx.pop("_pendingTurnClientActions", [])
     pending_surf = ctx.pop("_pendingTurnUiSurface", None)
+    pending_sched = ctx.pop("_pendingScheduleJobs", None)
+    pending_sched_total = ctx.pop("_pendingScheduleTotal", None)
     ctx.pop("_a2uiGenerativeAllowed", None)
     ctx.pop("_turnTaintSources", None)
     pending_conf_id = ""
     cur_pca = ctx.get("pendingClientAction")
     cur_pca_cid = str(cur_pca.get("confirmId") or "") if isinstance(cur_pca, dict) else ""
     new_pca_this_turn = bool(isinstance(cur_pca, dict) and cur_pca_cid and cur_pca_cid != prev_pca_cid)
+    cur_pdc = ctx.get("pendingDesktopControl")
+    cur_pdc_cid = str(cur_pdc.get("confirmId") or "") if isinstance(cur_pdc, dict) else ""
+    new_pdc_this_turn = bool(isinstance(cur_pdc, dict) and cur_pdc_cid and cur_pdc_cid != prev_pdc_cid)
     if new_pca_this_turn:
         pending_conf_id = cur_pca_cid
+    elif new_pdc_this_turn:
+        pending_conf_id = cur_pdc_cid
     elif taint_blocked:
         for st in reversed(tool_steps):
             if st.get("confirmationId"):
                 pending_conf_id = str(st["confirmationId"])
                 break
     # Confirmation gate always takes precedence; also re-validate generative surfaces against final turn taint state
-    if taint_blocked or new_pca_this_turn:
+    if taint_blocked or new_pca_this_turn or new_pdc_this_turn:
         pending_surf = None
     elif isinstance(pending_surf, dict):
         pending_surf, _ = a2ui_validator.validate_and_sanitize_surface(
@@ -6074,8 +5919,10 @@ def run_react_tool_loop(
         "clientActions": pending_ca if isinstance(pending_ca, list) else [],
         "taintSources": list(taint_sources),
         "taintBlocked": taint_blocked,
-        "requiresConfirmation": bool(taint_blocked or new_pca_this_turn),
+        "requiresConfirmation": bool(taint_blocked or new_pca_this_turn or new_pdc_this_turn),
         "confirmId": pending_conf_id,
+        **({"scheduleJobs": pending_sched} if (not taint_blocked and isinstance(pending_sched, list) and pending_sched) else {}),
+        **({"scheduleTotalCount": int(pending_sched_total)} if (not taint_blocked and isinstance(pending_sched, list) and pending_sched and pending_sched_total is not None) else {}),
         **({"uiSurface": pending_surf} if isinstance(pending_surf, dict) else {}),
     }
 
@@ -7232,8 +7079,9 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
                     tts_res = desktop_control.voice_tts(
                         text=str(result.get("spokenText") or result.get("text") or ""),
                         voice="en-US-AvaMultilingualNeural",
-                        language="auto",
+                        language=str(options.get("sttLanguage") or "auto"),
                         context_prompt=str(options.get("prompt") or ""),
+                        local_only=bool(options.get("localOnly", False)),
                     )
                 result["voiceReply"] = {
                     "spoken": bool(tts_res.get("spoken", True)),
@@ -7309,6 +7157,7 @@ def execute_agent_turn(options: dict, companion_root: Path, host_root: Path) -> 
 def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Path) -> dict:
     """Core implementation of the natural-language desktop agent turn."""
     _tctx().last_lmstudio_error = ""
+    _tctx().live_gui_control = bool(options.get("liveGuiControlEnabled") is True)
     snap_in = options.get("alisLocalSnapshot")
     if isinstance(snap_in, dict) and snap_in:
         alis_local_bridge.save_live_snapshot(snap_in)
@@ -7562,7 +7411,14 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 if attached_info["contextMarkdown"]
                 else prompt
             )
-            max_react_steps = int(options.get("maxReactSteps") or 5)
+            if options.get("maxReactSteps") is not None:
+                max_react_steps = int(options["maxReactSteps"])
+            else:
+                _gui_kw_re = re.compile(
+                    r"\b(screen|window|click|scroll|drag|gui|desktop|niri|button|type\s+into|nhấn|cuộn|kéo|cửa sổ|màn hình)\b",
+                    re.I,
+                )
+                max_react_steps = 6 if _gui_kw_re.search(prompt) else 5
             opt_temp = options.get("temperature")
             react_res = run_react_tool_loop(
                 endpoint_url=endpoint_url,
@@ -7614,6 +7470,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     "ponytailMode": ponytail_mode,
                     "clientActions": react_res.get("clientActions") or [],
                     "taintSources": react_res.get("taintSources") or [],
+                    **({"scheduleJobs": react_res["scheduleJobs"]} if isinstance(react_res.get("scheduleJobs"), list) else {}),
                     **({"uiSurface": react_res["uiSurface"]} if isinstance(react_res.get("uiSurface"), dict) else {}),
                     **res,
                     "userMessageId": u_id,
@@ -7678,6 +7535,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
         session_ctx["pendingDeleteConfirmId"] = ""
         session_ctx["pendingMemoryForget"] = None
         session_ctx["pendingClientAction"] = None
+        session_ctx["pendingDesktopControl"] = None
         session_ctx["pendingSudoOp"] = None
         session_ctx["pendingConfirmId"] = ""
         save_session_context(session_ctx, now_ms=now_ms)
@@ -8039,6 +7897,57 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
     # 5. Conversational Confirmation / Rejection for pending permission, delete, or memory forget
     if kind == "confirmation_response":
         decision = intent["decision"]
+        if isinstance(session_ctx.get("pendingDesktopControl"), dict):
+            pdc = dict(session_ctx.get("pendingDesktopControl") or {})
+            pdc_cid = str(pdc.get("confirmId") or session_ctx.get("pendingConfirmId") or "")
+            session_ctx["pendingDesktopControl"] = None
+            session_ctx["pendingConfirmId"] = ""
+            save_session_context(session_ctx, now_ms=now_ms)
+            pdc_res_state = "confirmed" if decision == "confirm" else "cancelled"
+            desk_out: dict | None = None
+            if decision == "confirm":
+                pdc_act = str(pdc.get("action") or "")
+                pdc_tgt = str(pdc.get("target") or "")
+                pdc_val = str(pdc.get("value") or "")
+                try:
+                    desk_out = desktop_control.manage_desktop(action=pdc_act, target=pdc_tgt, value=pdc_val)
+                    ok_exec = bool(desk_out.get("ok", True)) and desk_out.get("status") != "failed"
+                    msg = str(desk_out.get("summary") or f"Executed {pdc_act}.")
+                    res = _format_reply(
+                        msg,
+                        expression="happy" if ok_exec else "sad",
+                        status="completed" if ok_exec else "failed",
+                        language=lang,
+                        requires_confirmation=False,
+                        session_ctx=session_ctx,
+                    )
+                except DesktopControlError as exc:
+                    pdc_res_state = "failed"
+                    msg = f"Lỗi thực thi `{pdc_act}`: {exc}" if lang == "vi" else f"Failed `{pdc_act}`: {exc}"
+                    res = _format_reply(msg, expression="sad", status="failed", language=lang, session_ctx=session_ctx)
+            else:
+                msg = (
+                    "Đã huỷ thao tác hệ thống đang chờ."
+                    if lang == "vi"
+                    else "Cancelled pending system control action."
+                )
+                res = _format_reply(msg, expression="idle", status="cancelled", language=lang, session_ctx=session_ctx)
+            pdc_summary = a2ui_validator._clean_str(msg, 280).strip()
+            history_store.lock_confirm_surfaces(pdc_cid, resolution=pdc_res_state, outcome_summary=pdc_summary)
+            u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+            return {
+                "handled": True,
+                "intent": kind,
+                **({"desktopResult": desk_out} if isinstance(desk_out, dict) else {}),
+                "resolvedConfirmId": pdc_cid,
+                "resolvedConfirmResolution": pdc_res_state,
+                "resolvedConfirmSummary": pdc_summary,
+                **res,
+                "userMessageId": u_id,
+                "assistantMessageId": a_id,
+                "historySaved": saved,
+            }
+
         if session_ctx.get("pendingClientAction"):
             pca = dict(session_ctx.get("pendingClientAction") or {})
             pca_cid = str(pca.get("confirmId") or session_ctx.get("pendingConfirmId") or "")
@@ -8245,7 +8154,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                             )
                             fail_sum = a2ui_validator._clean_str(fail_msg, 280).strip()
                             history_store.lock_confirm_surfaces(res_cid, resolution="failed", outcome_summary=fail_sum)
-                            res = _format_reply(fail_msg, expression="worried", status="failed", language=lang, session_ctx=session_ctx)
+                            res = _format_reply(fail_msg, expression="sad", status="failed", language=lang, session_ctx=session_ctx)
                             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
                             return {
                                 "handled": True,
@@ -8258,6 +8167,30 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                                 "assistantMessageId": a_id,
                                 "historySaved": saved,
                             }
+                    if _is_tool_failure_output(tool_out):
+                        fail_msg = (
+                            f"Đã xác nhận `{tool_name}`, nhưng thao tác không thực thi được:\n\n{tool_out[:1000]}"
+                            if lang == "vi"
+                            else f"Confirmed `{tool_name}`, but execution did not succeed:\n\n{tool_out[:1000]}"
+                        )
+                        fail_sum = a2ui_validator._clean_str(fail_msg, 280).strip()
+                        history_store.lock_confirm_surfaces(res_cid, resolution="failed", outcome_summary=fail_sum)
+                        res = _format_reply(fail_msg, expression="sad", status="failed", language=lang, session_ctx=session_ctx)
+                        u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+                        return {
+                            "handled": True,
+                            "intent": kind,
+                            "resolvedConfirmId": res_cid,
+                            "resolvedConfirmResolution": "failed",
+                            "resolvedConfirmSummary": fail_sum,
+                            **res,
+                            "userMessageId": u_id,
+                            "assistantMessageId": a_id,
+                            "historySaved": saved,
+                        }
+                    if _is_gui_tool_call(tool_name, tool_args) and bool(_tctx().live_gui_control):
+                        session_ctx["guiApprovedUntilMs"] = int(now_ms) + 300_000
+                        save_session_context(session_ctx, now_ms=now_ms)
                     grant_msg = (
                         f"Đã xác nhận và thực thi `{tool_name}`." + (f"\n\n{tool_out[:1200]}" if tool_out else "")
                         if lang == "vi"
@@ -8628,6 +8561,8 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
         if kind == "voice_task":
             sub = str(intent.get("subkind") or "status")
             step_id = record_step_start(run_id, 1, f"voice_{sub}", side_effect=(sub == "tts"), now_ms=now_ms)
+            voice_local_ep = str(options.get("localSttEndpoint") or "").strip()
+            voice_local_only = bool(options.get("localOnly", False))
             if sub == "tts":
                 clean_tts = re.sub(
                     r"^(?:/tts\s+|/speak\s+|(?:hãy\s+|hay\s+|vui lòng\s+|vui long\s+|please\s+)?(?:đọc to|doc to|phát âm|phat am|nói to|noi to|speak aloud|read aloud|say out loud))\s*:?\s*",
@@ -8639,19 +8574,29 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     text=clean_tts,
                     language=lang,
                     context_prompt=str(prompt or ""),
+                    local_only=voice_local_only,
                 )
                 tts_backend = str(v_res.get("ttsBackend") or v_res.get("backend") or "tts")
-                msg = (
-                    f"🔊 Đã đọc thành tiếng qua `{tts_backend}`: \"{clean_tts}\""
-                    if lang == "vi"
-                    else f"🔊 Spoke aloud via `{tts_backend}`: \"{clean_tts}\""
-                )
+                if v_res.get("spoken") is False:
+                    msg = (
+                        f"🔇 Không thể đọc ngoại tuyến (`{v_res.get('error') or 'tts_unavailable'}`): {v_res.get('summary', '')}"
+                        if lang == "vi"
+                        else f"🔇 Could not speak aloud (`{v_res.get('error') or 'tts_unavailable'}`): {v_res.get('summary', '')}"
+                    )
+                else:
+                    msg = (
+                        f"🔊 Đã đọc thành tiếng qua `{tts_backend}`: \"{clean_tts}\""
+                        if lang == "vi"
+                        else f"🔊 Spoke aloud via `{tts_backend}`: \"{clean_tts}\""
+                    )
             elif sub == "stt":
                 audio_p = str(options.get("audioPath") or _extract_path_from_text(prompt, session_ctx) or "").strip()
                 v_res = desktop_control.voice_stt(
                     audio_path=audio_p,
                     duration_sec=int(options.get("durationSec") or 4),
-                    language=lang,
+                    language=str(options.get("sttLanguage") or lang),
+                    local_stt_endpoint=voice_local_ep,
+                    local_only=voice_local_only,
                 )
                 transcript = str(v_res.get("transcript") or "").strip()
                 stt_backend = str(v_res.get("sttBackend") or v_res.get("backend") or "stt")
@@ -8661,7 +8606,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     else f"🎙 Voice transcription (`{stt_backend}`): \"{transcript}\""
                 )
             else:
-                v_res = desktop_control.voice_status()
+                v_res = desktop_control.voice_status(local_stt_endpoint=voice_local_ep)
                 msg = (
                     f"🎙 Trạng thái Voice ngoại tuyến: {v_res.get('summary', '')}"
                     if lang == "vi"
@@ -8676,6 +8621,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 "handled": True,
                 "intent": kind,
                 "voiceResult": v_res,
+                **({"voiceStatus": v_res} if sub == "status" else {}),
                 **res,
                 "userMessageId": u_id,
                 "assistantMessageId": a_id,
@@ -8981,6 +8927,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                             "text": fill_text,
                             "targetWindowId": win_id,
                             "requireScale": True,
+                            "allowLiveInput": _tctx().live_gui_control,
                             "nowMs": now_ms,
                         },
                         companion_root=companion_root,
@@ -8992,6 +8939,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                             action_type=mcp_tool_name,
                             target_window_id=win_id,
                             require_scale=True,
+                            allow_live_input=_tctx().live_gui_control,
                             now_ms=now_ms,
                             text=fill_text,
                             mark_id=mark_val,
@@ -9010,6 +8958,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                             "action": "focus_window" if m_win else "inspect_window",
                             "targetWindowId": win_id,
                             "requireScale": req_scale,
+                            "allowLiveInput": _tctx().live_gui_control,
                             "nowMs": now_ms,
                         },
                         companion_root=companion_root,
@@ -9021,18 +8970,31 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                             action_type="focus_window" if m_win else "inspect_window",
                             target_window_id=win_id,
                             require_scale=req_scale,
+                            allow_live_input=_tctx().live_gui_control,
                             now_ms=now_ms,
                         )
             except McpError as exc:
                 raise ScreenContextError(exc.code, exc.message) from exc
             observations.append(gui_res["observation"])
-            msg = (
-                f"Đã thực hiện thao tác cửa sổ có kiểm chứng: {gui_res['summary']}."
-                if lang == "vi"
-                else f"Completed verified window action: {gui_res['summary']}."
+            gui_ok = gui_res.get("ok") is not False
+            if gui_ok:
+                msg = (
+                    f"Đã thực hiện thao tác cửa sổ có kiểm chứng: {gui_res['summary']}."
+                    if lang == "vi"
+                    else f"Completed verified window action: {gui_res['summary']}."
+                )
+            else:
+                msg = str(gui_res.get("summary") or "GUI action could not be executed.")
+            finish_run(run_id, status="completed" if gui_ok else "failed", now_ms=now_ms)
+            res = _format_reply(
+                msg,
+                expression="happy" if gui_ok else "thinking",
+                status="completed" if gui_ok else "failed",
+                run_id=run_id,
+                language=lang,
+                observations=observations,
+                session_ctx=session_ctx,
             )
-            finish_run(run_id, status="completed", now_ms=now_ms)
-            res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, observations=observations, session_ctx=session_ctx)
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
             is_explicit_som_cmd = folded_gui.startswith("/som")
             return {
@@ -10818,17 +10780,129 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                     desk_res = desktop_control.manage_desktop(action="clipboard_set", value=clip_val)
                 else:
                     desk_res = desktop_control.manage_desktop(action="clipboard_get")
+            elif sub in ("bluetooth", "wifi", "audio_device", "power_profile", "session_power"):
+                def _queue_desktop_confirm(c_act: str, c_tgt: str, c_val: str, c_vi: str, c_en: str) -> dict:
+                    cid = _issue_confirm_id("conf")
+                    session_ctx["pendingDesktopControl"] = {
+                        "confirmId": cid,
+                        "action": c_act,
+                        "target": c_tgt,
+                        "value": c_val,
+                    }
+                    session_ctx["pendingConfirmId"] = cid
+                    save_session_context(session_ctx, now_ms=now_ms)
+                    record_step_finish(step_id, status="awaiting_confirmation", detail={"action": c_act, "target": c_tgt, "value": c_val, "confirmId": cid})
+                    finish_run(run_id, status="awaiting_confirmation", now_ms=now_ms)
+                    c_msg = c_vi if lang == "vi" else c_en
+                    c_res = _format_reply(
+                        c_msg,
+                        expression="thinking",
+                        status="awaiting_confirmation",
+                        run_id=run_id,
+                        language=lang,
+                        requires_confirmation=True,
+                        confirm_id=cid,
+                        session_ctx=session_ctx,
+                    )
+                    u_id, a_id, saved = _persist_turn_to_history(prompt, c_res["text"]) if persist_history else (0, 0, False)
+                    return {"handled": True, "intent": kind, **c_res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
+
+                if sub == "session_power":
+                    sp_val = "suspend" if any(k in folded for k in ("nghi", "ngu", "sleep", "suspend", "tam ngung")) else "lock"
+                    lbl_vi = "tạm ngủ (suspend) hệ thống" if sp_val == "suspend" else "khoá màn hình (lock session)"
+                    lbl_en = "suspend the system" if sp_val == "suspend" else "lock the screen"
+                    return _queue_desktop_confirm(
+                        "session_power", "", sp_val,
+                        f"Xác nhận **{lbl_vi}**? Trả lời **đồng ý** hoặc **huỷ**.",
+                        f"Confirm action to **{lbl_en}**? Reply **confirm** or **cancel**.",
+                    )
+                if sub == "bluetooth":
+                    if any(k in folded for k in ("ngat ket noi", "disconnect", "ngat bluetooth")):
+                        m_dev = re.search(r"(?:bluetooth|ket noi|disconnect)\s+([^\n,.;]+)$", prompt, re.I)
+                        bt_tgt = m_dev.group(1).strip() if m_dev else ""
+                        return _queue_desktop_confirm(
+                            "bluetooth_disconnect", bt_tgt, "",
+                            f"Xác nhận ngắt kết nối Bluetooth `{bt_tgt or 'thiết bị'}`? Trả lời **đồng ý** hoặc **huỷ**.",
+                            f"Confirm disconnecting Bluetooth `{bt_tgt or 'device'}`? Reply **confirm** or **cancel**.",
+                        )
+                    if any(k in folded for k in ("ket noi", "connect")):
+                        m_dev = re.search(r"(?:bluetooth|ket noi|connect(?:\s+to)?)\s+([^\n,.;]+)$", prompt, re.I)
+                        bt_tgt = m_dev.group(1).strip() if m_dev else ""
+                        desk_res = desktop_control.manage_desktop(action="bluetooth_connect", target=bt_tgt)
+                    elif any(k in folded for k in ("bat", "turn on", "enable")) and "trang thai" not in folded:
+                        desk_res = desktop_control.manage_desktop(action="bluetooth_toggle", value="on")
+                    elif any(k in folded for k in ("tat", "turn off", "disable")) and "trang thai" not in folded:
+                        return _queue_desktop_confirm(
+                            "bluetooth_toggle", "", "off",
+                            "Xác nhận **tắt Bluetooth** (có thể ngắt tai nghe/thiết bị đang kết nối)? Trả lời **đồng ý** hoặc **huỷ**.",
+                            "Confirm **turning off Bluetooth** (may disconnect paired audio/input devices)? Reply **confirm** or **cancel**.",
+                        )
+                    elif "toggle" in folded or "dao" in folded:
+                        desk_res = desktop_control.manage_desktop(action="bluetooth_toggle", value="toggle")
+                    else:
+                        desk_res = desktop_control.manage_desktop(action="bluetooth_status")
+                elif sub == "wifi":
+                    if any(k in folded for k in ("tat wifi", "turn off wifi", "disable wifi")):
+                        return _queue_desktop_confirm(
+                            "wifi_toggle", "", "off",
+                            "Xác nhận **tắt Wi-Fi** (có thể làm gián đoạn kết nối mạng)? Trả lời **đồng ý** hoặc **huỷ**.",
+                            "Confirm **turning off Wi-Fi** (may drop active network connections)? Reply **confirm** or **cancel**.",
+                        )
+                    if any(k in folded for k in ("bat wifi", "turn on wifi", "enable wifi")):
+                        desk_res = desktop_control.manage_desktop(action="wifi_toggle", value="on")
+                    elif any(k in folded for k in ("danh sach wifi", "wifi list", "scan wifi", "mang wifi")):
+                        desk_res = desktop_control.manage_desktop(action="wifi_list")
+                    elif any(k in folded for k in ("ket noi wifi", "connect wifi", "connect to wifi")):
+                        m_q = re.search(r"""wifi\s+(?:to\s+|vao\s+)?["']([^"']+)["']""", prompt, re.I)
+                        m_ss = m_q or re.search(r"(?:ket\s*noi|connect)(?:\s+to)?\s+wifi\s+(?:to\s+|vao\s+)?([^\n,.;]+)", prompt, re.I) or re.search(r"\bwifi\s+(?:to\s+|vao\s+)?([^\n,.;]+)", prompt, re.I)
+                        ssid_tgt = m_ss.group(1).strip() if m_ss else ""
+                        desk_res = desktop_control.manage_desktop(action="wifi_connect", target=ssid_tgt)
+                    else:
+                        desk_res = desktop_control.manage_desktop(action="wifi_status")
+                elif sub == "audio_device":
+                    if any(k in folded for k in ("tat mic", "khoa mic", "mute mic")):
+                        desk_res = desktop_control.manage_desktop(action="mic_mute", value="mute")
+                    elif any(k in folded for k in ("bat mic", "mo mic", "unmute mic")):
+                        desk_res = desktop_control.manage_desktop(action="mic_mute", value="unmute")
+                    elif "toggle mic" in folded:
+                        desk_res = desktop_control.manage_desktop(action="mic_mute", value="toggle")
+                    elif any(k in folded for k in ("chuyen loa", "doi loa", "doi tai nghe", "set sink", "switch speaker", "output device")):
+                        m_au = re.search(r"(?:sang|to|sink|speaker|loa|tai nghe)\s+([^\n,.;]+)$", prompt, re.I)
+                        desk_res = desktop_control.manage_desktop(action="audio_set_sink", target=m_au.group(1).strip() if m_au else "")
+                    elif any(k in folded for k in ("doi micro", "chuyen mic", "set source", "input device")):
+                        m_au = re.search(r"(?:sang|to|source|mic|micro)\s+([^\n,.;]+)$", prompt, re.I)
+                        desk_res = desktop_control.manage_desktop(action="audio_set_source", target=m_au.group(1).strip() if m_au else "")
+                    else:
+                        desk_res = desktop_control.manage_desktop(action="audio_devices")
+                else:
+                    if any(k in folded for k in ("power-saver", "power saver", "tiet kiem")):
+                        p_val = "power-saver"
+                    elif any(k in folded for k in ("performance", "hieu nang")):
+                        p_val = "performance"
+                    elif any(k in folded for k in ("balanced", "can bang")):
+                        p_val = "balanced"
+                    else:
+                        p_val = "get"
+                    desk_res = desktop_control.manage_desktop(action="power_profile", value=p_val)
             else:
                 m_col = re.search(r":\s*([\s\S]+)$", prompt)
                 body_txt = m_col.group(1).strip() if m_col else prompt
                 desk_res = desktop_control.manage_desktop(action="notify", target="Alis Companion", value=body_txt)
 
-            record_step_finish(step_id, status="completed", detail=desk_res)
+            ok_dc = bool(desk_res.get("ok", True)) and desk_res.get("status") != "failed"
+            record_step_finish(step_id, status="completed" if ok_dc else "failed", detail=desk_res)
             advance_turn(run_id, now_ms=now_ms)
             body_lines = "\n".join(f"- {ln}" for ln in desk_res.get("lines", []))
             msg = f"{desk_res['summary']}" + (f":\n{body_lines}" if body_lines else "")
-            finish_run(run_id, status="completed", now_ms=now_ms)
-            res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
+            finish_run(run_id, status="completed" if ok_dc else "failed", now_ms=now_ms)
+            res = _format_reply(
+                msg,
+                expression="happy" if ok_dc else "sad",
+                status="completed" if ok_dc else "failed",
+                run_id=run_id,
+                language=lang,
+                session_ctx=session_ctx,
+            )
             u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
             return {
                 "handled": True,
@@ -10839,6 +10913,168 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
                 "assistantMessageId": a_id,
                 "historySaved": saved,
             }
+
+        if kind == "desktop_schedule":
+            folded = _fold_ascii(prompt)
+            step_id = record_step_start(run_id, 1, "desktop_schedule", side_effect=True, now_ms=now_ms)
+            jobs_for_card: list[dict] = []
+            sched_total = 0
+            try:
+                m_cancel_id = re.search(r"\b((?:rem|rec|watch|job)_[A-Za-z0-9_]+)\b", prompt)
+                if any(k in folded for k in ("huy nhac nho", "huy lich hen", "cancel reminder", "cancel schedule")) or re.match(r"^/(?:remind|schedule)\s+cancel\b", folded):
+                    if not m_cancel_id:
+                        raise SchedulerError("missing_job_id", "Specify a job ID (e.g. `rem_...`) to cancel.")
+                    cancelled = scheduler_store.cancel_job(m_cancel_id.group(1))
+                    all_jobs = scheduler_store.list_jobs()
+                    jobs_for_card = all_jobs[:4]
+                    sched_total = len(all_jobs)
+                    msg = (
+                        f"Đã huỷ lịch hẹn `{cancelled['id']}` ({cancelled['title']})."
+                        if lang == "vi"
+                        else f"Cancelled scheduled job `{cancelled['id']}` ({cancelled['title']})."
+                    )
+                elif any(k in folded for k in ("danh sach nhac nho", "xem lich hen", "list reminders", "scheduled jobs")) or re.match(r"^/(?:jobs|watches)\b", folded):
+                    all_jobs = scheduler_store.list_jobs()
+                    jobs_for_card = all_jobs[:4]
+                    sched_total = len(all_jobs)
+                    if all_jobs:
+                        lines = [f"- `{j['id']}` ({j['kind']}): {j['title']}" for j in all_jobs[:12]]
+                        msg = ("Lịch hẹn đang hoạt động:\n" if lang == "vi" else "Active scheduled jobs:\n") + "\n".join(lines)
+                    else:
+                        msg = "Hiện chưa có nhắc nhở hoặc lịch hẹn nào đang hoạt động." if lang == "vi" else "No active scheduled jobs right now."
+                elif any(k in folded for k in ("theo doi tien trinh", "bao khi tien trinh", "watch process", "notify when process")) or re.match(r"^/watch\b", folded):
+                    m_pid = re.search(r"\bpid\s*[:=]?\s*(\d+)\b|(?:^|\s)(\d{2,7})(?=$|\s)", folded)
+                    pid_val = int(m_pid.group(1) or m_pid.group(2)) if m_pid else None
+                    pname = ""
+                    if pid_val is None:
+                        m_pn = re.search(r"(?:tien trinh|process|/watch)\s+([A-Za-z0-9_.+-]+)", prompt, re.I)
+                        pname = m_pn.group(1).strip() if m_pn else ""
+                    created = scheduler_store.create_process_watch(
+                        title=prompt[:120],
+                        pid=pid_val,
+                        process_name=pname,
+                        prompt=prompt,
+                        now_ms=now_ms,
+                    )
+                    all_jobs = scheduler_store.list_jobs()
+                    jobs_for_card = [created] + [j for j in all_jobs if j["id"] != created["id"]][:3]
+                    sched_total = len(all_jobs)
+                    msg = (
+                        f"Đang theo dõi tiến trình `{created['watchName'] or created['watchPid']}` (mã `{created['id']}`) và sẽ báo khi kết thúc."
+                        if lang == "vi"
+                        else f"Watching process `{created['watchName'] or created['watchPid']}` (`{created['id']}`) and will notify on exit."
+                    )
+                else:
+                    matched_days: list[str] = []
+                    for pat, code in (
+                        (r"\b(?:monday|thu\s*2)\b", "mon"),
+                        (r"\b(?:tuesday|thu\s*3)\b", "tue"),
+                        (r"\b(?:wednesday|thu\s*4)\b", "wed"),
+                        (r"\b(?:thursday|thu\s*5)\b", "thu"),
+                        (r"\b(?:friday|thu\s*6)\b", "fri"),
+                        (r"\b(?:saturday|thu\s*7)\b", "sat"),
+                        (r"\b(?:sunday|chu\s*nhat)\b", "sun"),
+                    ):
+                        if re.search(pat, folded) and code not in matched_days:
+                            matched_days.append(code)
+                    is_recurring_req = (
+                        bool(re.search(r"\b(?:daily@\d{1,2}:\d{2}|weekly@[a-z,]+@\d{1,2}:\d{2}|every:\d+m)\b", folded))
+                        or any(k in folded for k in ("moi ngay", "moi sang", "moi toi", "hang ngay", "hang tuan", "moi tuan", "daily at", "weekly on"))
+                        or bool(re.search(r"\b(?:every|moi)\s+\d+\s*(?:phut|minutes?|mins?)\b", folded))
+                        or (bool(matched_days) and any(k in folded for k in ("every", "moi", "hang", "weekly")))
+                    )
+                    if is_recurring_req:
+                        m_spec = re.search(r"\b((?:daily@\d{1,2}:\d{2}|weekly@[a-z,]+@\d{1,2}:\d{2}|every:\d+m))\b", folded)
+                        m_every = re.search(r"\b(?:every|moi)\s+(\d+)\s*(?:phut|minutes?|mins?)\b", folded)
+                        m_hhmm = re.search(r"\b(\d{1,2}:\d{2})\b", prompt)
+                        hhmm_str = m_hhmm.group(1) if m_hhmm else "09:00"
+                        if m_spec:
+                            rec_spec = m_spec.group(1)
+                        elif m_every:
+                            rec_spec = f"every:{int(m_every.group(1))}m"
+                        elif matched_days or "weekly" in folded or "hang tuan" in folded or "moi tuan" in folded:
+                            days_tok = ",".join(matched_days) if matched_days else "mon"
+                            rec_spec = f"weekly@{days_tok}@{hhmm_str}"
+                        else:
+                            rec_spec = f"daily@{hhmm_str}"
+                        clean_ttl = re.sub(r"^/(?:remind|schedule)\s+", "", prompt, flags=re.I).strip()
+                        created = scheduler_store.create_recurring(clean_ttl[:160] or rec_spec, rec_spec, prompt=prompt, now_ms=now_ms)
+                        all_jobs = scheduler_store.list_jobs()
+                        jobs_for_card = [created] + [j for j in all_jobs if j["id"] != created["id"]][:3]
+                        sched_total = len(all_jobs)
+                        msg = (
+                            f"Đã tạo lịch lặp `{created['id']}` (`{created['recurrence']}`): {created['title']}."
+                            if lang == "vi"
+                            else f"Created recurring schedule `{created['id']}` (`{created['recurrence']}`): {created['title']}."
+                        )
+                    else:
+                        m_combo = re.search(
+                            r"\b(\d+)\s*(?:gio|tieng|hours?|hrs?|h)\s*(?:(?:va|and)\s*)?(\d+)\s*(?:phut|minutes?|mins?|m)\b",
+                            folded,
+                        )
+                        m_hrs = re.search(r"\b(?:sau\s+|in\s+)?(\d+)\s*(?:gio|tieng|hours?|hrs?|h)\b", folded)
+                        m_mins = re.search(r"\b(?:sau\s+|in\s+)?(\d+)\s*(?:phut|minutes?|mins?|m)\b", folded)
+                        m_hhmm = re.search(r"\b(\d{1,2}:\d{2})\b", prompt)
+                        delay_m = None
+                        at_t = ""
+                        used_default = False
+                        if m_combo:
+                            delay_m = int(m_combo.group(1)) * 60 + int(m_combo.group(2))
+                        elif m_hrs and m_mins:
+                            delay_m = int(m_hrs.group(1)) * 60 + int(m_mins.group(1))
+                        elif m_mins:
+                            delay_m = int(m_mins.group(1))
+                        elif m_hrs:
+                            delay_m = int(m_hrs.group(1)) * 60
+                        elif m_hhmm:
+                            at_t = m_hhmm.group(1)
+                        else:
+                            delay_m = 5
+                            used_default = True
+                        clean_ttl = re.sub(r"^/(?:remind|schedule)\s+", "", prompt, flags=re.I).strip()
+                        clean_ttl = re.sub(r"^(?:nhắc\s+tôi|nhac\s+toi|hẹn\s+giờ|hen\s+gio|remind\s+me)\s*", "", clean_ttl, flags=re.I).strip() or prompt[:120]
+                        created = scheduler_store.create_reminder(
+                            clean_ttl[:160],
+                            delay_minutes=delay_m,
+                            at_time=at_t,
+                            prompt=prompt,
+                            now_ms=now_ms,
+                        )
+                        all_jobs = scheduler_store.list_jobs()
+                        jobs_for_card = [created] + [j for j in all_jobs if j["id"] != created["id"]][:3]
+                        sched_total = len(all_jobs)
+                        fallback_note = (
+                            " (chưa thấy mốc giờ/phút cụ thể, tạm đặt mặc định 5 phút)"
+                            if (used_default and lang == "vi")
+                            else (" (no explicit duration found, defaulted to 5 minutes)" if used_default else "")
+                        )
+                        msg = (
+                            f"Đã tạo nhắc nhở `{created['id']}`{fallback_note}: {created['title']}."
+                            if lang == "vi"
+                            else f"Created reminder `{created['id']}`{fallback_note}: {created['title']}."
+                        )
+                record_step_finish(step_id, status="completed", detail={"jobs": len(jobs_for_card), "totalActive": sched_total})
+                advance_turn(run_id, now_ms=now_ms)
+                finish_run(run_id, status="completed", now_ms=now_ms)
+                res = _format_reply(msg, expression="happy", status="completed", run_id=run_id, language=lang, session_ctx=session_ctx)
+                u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+                return {
+                    "handled": True,
+                    "intent": kind,
+                    "scheduleJobs": jobs_for_card,
+                    "scheduleTotalCount": sched_total,
+                    **res,
+                    "userMessageId": u_id,
+                    "assistantMessageId": a_id,
+                    "historySaved": saved,
+                }
+            except SchedulerError as exc:
+                record_step_finish(step_id, status="failed", detail={"error": exc.code})
+                finish_run(run_id, status="failed", now_ms=now_ms)
+                err_msg = f"Không thể tạo/huỷ lịch hẹn ({exc.code}): {exc.message}" if lang == "vi" else f"Scheduler error ({exc.code}): {exc.message}"
+                res = _format_reply(err_msg, expression="sad", status="failed", run_id=run_id, language=lang, session_ctx=session_ctx)
+                u_id, a_id, saved = _persist_turn_to_history(prompt, res["text"]) if persist_history else (0, 0, False)
+                return {"handled": True, "intent": kind, "errorCode": exc.code, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
 
         # 16. File & Directory Operations (Full Home access + Sudo-gated System access + Complete Listing)
         if kind == "file_task":
@@ -11596,687 +11832,7 @@ def _execute_agent_turn_inner(options: dict, companion_root: Path, host_root: Pa
         return {"handled": True, "intent": kind, "errorCode": err_code, **res, "userMessageId": u_id, "assistantMessageId": a_id, "historySaved": saved}
 
 
-def handle_a2ui_action(
-    payload: dict,
-    companion_root: Path,
-    host_root: Path,
-) -> dict:
-    """Handle trusted UI events emitted by the Companion A2UI v1.0 QML renderer.
-
-    Never trusts raw `dataModel` snapshots (`sendDataModel: false`): only accepts
-    allowlisted event names and explicitly bound event `context` keys.
-    """
-    req = payload if isinstance(payload, dict) else {}
-    now_ms = int(req.get("nowMs") or int(time.time() * 1000))
-    surface_id = str(req.get("surfaceId") or "").strip()[:80]
-    event_name = str(req.get("eventName") or "").strip()
-    ctx_in = req.get("context") if isinstance(req.get("context"), dict) else {}
-    raw_lang = str(req.get("language") or "en").strip().lower()
-
-    if event_name not in a2ui_validator.ALLOWED_SERVER_EVENTS:
-        return {
-            "ok": False,
-            "op": "a2ui_action",
-            "eventName": event_name,
-            "surfaceId": surface_id,
-            "error": f"disallowed_event:{event_name}",
-        }
-
-    existing_surface_row = history_store.get_surface_by_id(surface_id) if surface_id else None
-    existing_cs = (
-        (existing_surface_row[1].get("createSurface") or {})
-        if existing_surface_row and isinstance(existing_surface_row[1], dict)
-        else {}
-    )
-    existing_meta = existing_cs.get("surfaceMeta") if isinstance(existing_cs.get("surfaceMeta"), dict) else {}
-    surf_is_tainted = bool(existing_meta.get("tainted") is True)
-    surf_is_generative = bool(
-        existing_meta.get("kind") == "generative"
-        or existing_meta.get("sourceKind") == "generative"
-        or surface_id.startswith("surf_gen")
-    )
-
-    if raw_lang.startswith("vi"):
-        lang = "vi"
-    elif raw_lang == "auto" and existing_cs:
-        sample_str = json.dumps(existing_cs.get("dataModel") or {}, ensure_ascii=False)
-        lang = "vi" if re.search(r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]", sample_str, re.I) else "en"
-    else:
-        lang = "en"
-
-    # Server-side security & CaMeL taint boundary enforcement (defense-in-depth)
-    if surf_is_generative and event_name in a2ui_validator.PRIVILEGED_SERVER_EVENTS:
-        return {
-            "ok": False,
-            "op": "a2ui_action",
-            "eventName": event_name,
-            "surfaceId": surface_id,
-            "error": f"privileged_event_forbidden:{event_name}",
-        }
-    if surf_is_tainted and event_name not in a2ui_validator.TAINTED_LOCAL_UI_EVENTS:
-        return {
-            "ok": False,
-            "op": "a2ui_action",
-            "eventName": event_name,
-            "surfaceId": surface_id,
-            "error": "tainted_surface_action_forbidden",
-        }
-
-    def _outcome_summary(raw_msg: str) -> str:
-        return a2ui_validator._clean_str(raw_msg, 280).strip()
-
-    # 1. Confirmation card actions (strictly matched against non-empty confirmId, trusted source="a2ui_confirm")
-    if event_name == "confirm_action":
-        confirm_id = str(ctx_in.get("confirmId") or req.get("confirmId") or "").strip()
-        decision = "confirm" if str(ctx_in.get("decision") or "").strip().lower() == "confirm" else "cancel"
-        session_ctx = load_session_context()
-
-        def _persist_confirm_outcome(res_state: str, cid_to_lock: str, summary: str) -> str:
-            clean_sum = _outcome_summary(summary)
-            if surface_id:
-                history_store.patch_surface_by_id(
-                    surface_id,
-                    lock_resolution=res_state,
-                    outcome_summary=clean_sum,
-                )
-            if cid_to_lock:
-                history_store.lock_confirm_surfaces(
-                    cid_to_lock,
-                    resolution=res_state,
-                    outcome_summary=clean_sum,
-                )
-            return clean_sum
-
-        def _failed_confirm_response(cid_to_lock: str, exc: Exception) -> dict:
-            err_txt = str(exc)[:160]
-            err_sum = _persist_confirm_outcome("failed", cid_to_lock, f"Error: {err_txt}")
-            return {
-                "ok": False,
-                "op": "a2ui_action",
-                "eventName": event_name,
-                "surfaceId": surface_id,
-                "resolved": True,
-                "resolution": "failed",
-                "requiresConfirmation": False,
-                "confirmId": "",
-                "error": err_txt,
-                "text": err_sum,
-                "expression": "sad",
-                "dataPatch": [
-                    {"path": "/resolved", "value": True},
-                    {"path": "/resolution", "value": "failed"},
-                    {"path": "/statusLabel", "value": "Failed"},
-                    {"path": "/outcomeSummary", "value": err_sum},
-                ],
-                "clientActions": [],
-            }
-
-        # Security: A2UI confirm_action MUST provide a non-empty confirmId matching the active pending request.
-        if not confirm_id:
-            missing_msg = _outcome_summary(
-                "Thiếu mã xác nhận hợp lệ; thao tác không được thực hiện."
-                if lang == "vi"
-                else "Missing valid confirmation ID; no action was executed."
-            )
-            return {
-                "ok": True,
-                "op": "a2ui_action",
-                "eventName": event_name,
-                "surfaceId": surface_id,
-                "stale": True,
-                "resolved": True,
-                "resolution": "expired",
-                "requiresConfirmation": False,
-                "confirmId": "",
-                "text": missing_msg,
-                "dataPatch": [
-                    {"path": "/resolved", "value": True},
-                    {"path": "/resolution", "value": "expired"},
-                    {"path": "/statusLabel", "value": "Expired"},
-                    {"path": "/outcomeSummary", "value": missing_msg},
-                ],
-                "clientActions": [],
-            }
-
-        # Sudo operations can NEVER be confirmed from A2UI (only cancelled)
-        if session_ctx.get("pendingSudoOp"):
-            sudo_obj = session_ctx.get("pendingSudoOp") or {}
-            sudo_cid = str(sudo_obj.get("confirmId") or session_ctx.get("pendingConfirmId") or "")
-            if sudo_cid and confirm_id == sudo_cid:
-                if decision == "confirm":
-                    return {
-                        "ok": True,
-                        "op": "a2ui_action",
-                        "eventName": event_name,
-                        "surfaceId": surface_id,
-                        "stale": False,
-                        "requiresConfirmation": True,
-                        "requiresSudoPassword": True,
-                        "confirmId": sudo_cid,
-                        "text": (
-                            "Vui lòng nhập mật khẩu `sudo` trực tiếp vào ô chat."
-                            if lang == "vi"
-                            else "Please enter your `sudo` password directly in the chat composer."
-                        ),
-                        "dataPatch": [],
-                        "clientActions": [],
-                    }
-                session_ctx["pendingSudoOp"] = None
-                session_ctx["pendingConfirmId"] = ""
-                save_session_context(session_ctx, now_ms=now_ms)
-                resolve_pending_confirmation(confirm_id=sudo_cid, decision="cancel", source="a2ui_confirm", now_ms=now_ms)
-                msg = "Đã huỷ thao tác hệ thống." if lang == "vi" else "Cancelled system path operation."
-                summary = _persist_confirm_outcome("cancelled", sudo_cid, msg)
-                return {
-                    "ok": True,
-                    "op": "a2ui_action",
-                    "eventName": event_name,
-                    "surfaceId": surface_id,
-                    "resolved": True,
-                    "resolution": "cancelled",
-                    "requiresConfirmation": False,
-                    "requiresSudoPassword": False,
-                    "confirmId": "",
-                    "text": msg,
-                    "spokenText": msg,
-                    "expression": "idle",
-                    "dataPatch": [
-                        {"path": "/resolved", "value": True},
-                        {"path": "/resolution", "value": "cancelled"},
-                        {"path": "/statusLabel", "value": "Cancelled"},
-                        {"path": "/outcomeSummary", "value": summary},
-                    ],
-                    "clientActions": [],
-                }
-
-        # Pending client action (todo_add, quicknote_add, rag_note_save)
-        if isinstance(session_ctx.get("pendingClientAction"), dict):
-            pca = dict(session_ctx.get("pendingClientAction") or {})
-            pca_cid = str(pca.get("confirmId") or session_ctx.get("pendingConfirmId") or "")
-            if pca_cid and confirm_id == pca_cid:
-                session_ctx["pendingClientAction"] = None
-                session_ctx["pendingConfirmId"] = ""
-                save_session_context(session_ctx, now_ms=now_ms)
-                res_state = "confirmed" if decision == "confirm" else "cancelled"
-                emitted_actions: list[dict] = []
-                if decision == "confirm":
-                    p_act = str(pca.get("action") or "")
-                    p_tgt = str(pca.get("target") or "")
-                    p_val = str(pca.get("value") or "")
-                    if p_act == "rag_note_save":
-                        try:
-                            saved_note = nexus_rag.save_rag_note(
-                                p_tgt or "Companion Note",
-                                p_val or p_tgt,
-                                folder=str(pca.get("folder") or "Knowledge"),
-                                vault_path=str(pca.get("vaultPath") or _tctx().current_turn_nexus_vault),
-                            )
-                        except Exception as exc:
-                            return _failed_confirm_response(pca_cid, exc)
-                        msg = (
-                            f"Đã lưu ghi chú RAG `{saved_note['title']}` vào Nexus (`{saved_note['relPath']}`)."
-                            if lang == "vi"
-                            else f"Saved RAG note `{saved_note['title']}` to Nexus (`{saved_note['relPath']}`)."
-                        )
-                    else:
-                        emitted_actions.append({"action": p_act, "target": p_tgt, "value": p_val})
-                        msg = (
-                            f"Đã xác nhận thực hiện `{p_act}` (`{p_tgt or p_val}`)."
-                            if lang == "vi"
-                            else f"Confirmed `{p_act}` (`{p_tgt or p_val}`)."
-                        )
-                else:
-                    msg = "Đã huỷ thao tác đang chờ." if lang == "vi" else "Cancelled pending action."
-                summary = _persist_confirm_outcome(res_state, pca_cid, msg)
-                return {
-                    "ok": True,
-                    "op": "a2ui_action",
-                    "eventName": event_name,
-                    "surfaceId": surface_id,
-                    "resolved": True,
-                    "resolution": res_state,
-                    "requiresConfirmation": False,
-                    "confirmId": "",
-                    "text": msg,
-                    "spokenText": msg,
-                    "expression": "happy" if decision == "confirm" else "idle",
-                    "dataPatch": [
-                        {"path": "/resolved", "value": True},
-                        {"path": "/resolution", "value": res_state},
-                        {"path": "/statusLabel", "value": "Confirmed" if decision == "confirm" else "Cancelled"},
-                        {"path": "/outcomeSummary", "value": summary},
-                    ],
-                    "clientActions": emitted_actions,
-                }
-
-        # Pending memory forget
-        if isinstance(session_ctx.get("pendingMemoryForget"), dict):
-            mem_target = dict(session_ctx.get("pendingMemoryForget") or {})
-            mem_cid = str(mem_target.get("confirmId") or session_ctx.get("pendingConfirmId") or "")
-            if mem_cid and confirm_id == mem_cid:
-                session_ctx["pendingMemoryForget"] = None
-                session_ctx["pendingConfirmId"] = ""
-                save_session_context(session_ctx, now_ms=now_ms)
-                res_state = "confirmed" if decision == "confirm" else "cancelled"
-                if decision == "confirm":
-                    try:
-                        if mem_target.get("all"):
-                            cnt = memory_store.forget_all()
-                            msg = f"Đã xoá {cnt} ghi nhớ." if lang == "vi" else f"Removed {cnt} memory item(s)."
-                        else:
-                            memory_store.forget_one(int(mem_target["id"]))
-                            msg = f"Đã xoá ghi nhớ #{mem_target['id']}." if lang == "vi" else f"Forgot memory #{mem_target['id']}."
-                    except Exception as exc:
-                        return _failed_confirm_response(mem_cid, exc)
-                else:
-                    msg = "Đã huỷ yêu cầu xoá ghi nhớ." if lang == "vi" else "Cancelled memory deletion."
-                summary = _persist_confirm_outcome(res_state, mem_cid, msg)
-                return {
-                    "ok": True,
-                    "op": "a2ui_action",
-                    "eventName": event_name,
-                    "surfaceId": surface_id,
-                    "resolved": True,
-                    "resolution": res_state,
-                    "requiresConfirmation": False,
-                    "confirmId": "",
-                    "text": msg,
-                    "spokenText": msg,
-                    "expression": "happy" if decision == "confirm" else "idle",
-                    "dataPatch": [
-                        {"path": "/resolved", "value": True},
-                        {"path": "/resolution", "value": res_state},
-                        {"path": "/statusLabel", "value": "Confirmed" if decision == "confirm" else "Cancelled"},
-                        {"path": "/outcomeSummary", "value": summary},
-                    ],
-                    "clientActions": [],
-                }
-
-        # Pending file delete
-        if session_ctx.get("pendingDeletePath"):
-            del_path = str(session_ctx.get("pendingDeletePath") or "")
-            del_cid = str(session_ctx.get("pendingDeleteConfirmId") or session_ctx.get("pendingConfirmId") or "")
-            if del_cid and confirm_id == del_cid:
-                session_ctx["pendingDeletePath"] = ""
-                session_ctx["pendingDeleteConfirmId"] = ""
-                session_ctx["pendingConfirmId"] = ""
-                save_session_context(session_ctx, now_ms=now_ms)
-                res_state = "confirmed" if decision == "confirm" else "cancelled"
-                try:
-                    if decision == "confirm":
-                        agent_file_op({"op": "delete", "targetPath": del_path, "confirmStep": 0, "nowMs": now_ms})
-                        agent_file_op({"op": "delete", "targetPath": del_path, "confirmStep": 1, "nowMs": now_ms + 1})
-                        deleted = agent_file_op({"op": "delete", "targetPath": del_path, "confirmStep": 2, "nowMs": now_ms + 2})
-                        msg = (
-                            f"Đã xoá `{Path(del_path).name}` ({deleted['summary']})."
-                            if lang == "vi"
-                            else f"Deleted `{Path(del_path).name}` ({deleted['summary']})."
-                        )
-                    else:
-                        agent_file_op({"op": "cancel_delete", "targetPath": del_path, "nowMs": now_ms})
-                        msg = f"Đã huỷ xoá `{Path(del_path).name}`." if lang == "vi" else f"Cancelled deleting `{Path(del_path).name}`."
-                except Exception as exc:
-                    return _failed_confirm_response(del_cid, exc)
-                summary = _persist_confirm_outcome(res_state, del_cid, msg)
-                return {
-                    "ok": True,
-                    "op": "a2ui_action",
-                    "eventName": event_name,
-                    "surfaceId": surface_id,
-                    "resolved": True,
-                    "resolution": res_state,
-                    "requiresConfirmation": False,
-                    "confirmId": "",
-                    "text": msg,
-                    "spokenText": msg,
-                    "expression": "happy" if decision == "confirm" else "idle",
-                    "dataPatch": [
-                        {"path": "/resolved", "value": True},
-                        {"path": "/resolution", "value": res_state},
-                        {"path": "/statusLabel", "value": "Confirmed" if decision == "confirm" else "Cancelled"},
-                        {"path": "/outcomeSummary", "value": summary},
-                    ],
-                    "clientActions": [],
-                }
-
-        # Pending permission_store confirmation (grant_directory, tainted_tool_escalation)
-        resolved_conf = resolve_pending_confirmation(
-            confirm_id=confirm_id,
-            decision="confirm" if decision == "confirm" else "cancel",
-            source="a2ui_confirm",
-            now_ms=now_ms,
-        )
-        if resolved_conf:
-            res_state = "confirmed" if decision == "confirm" else "cancelled"
-            resolved_cid = str(resolved_conf.get("confirmId") or confirm_id)
-            session_ctx["pendingConfirmId"] = ""
-            save_session_context(session_ctx, now_ms=now_ms)
-            follow_prompt = ""
-            if decision == "confirm":
-                p_data = resolved_conf.get("payload") or {}
-                if resolved_conf.get("actionKind") == "grant_directory":
-                    try:
-                        grant_permission(
-                            "directory",
-                            target=resolved_conf["targetPath"],
-                            levels=p_data.get("levels") or ["read", "write", "execute"],
-                            ttl_ms=int(p_data.get("ttlMs") or 3600_000),
-                            source="a2ui_confirm",
-                            now_ms=now_ms,
-                        )
-                    except Exception as exc:
-                        return _failed_confirm_response(resolved_cid, exc)
-                    follow_prompt = str(p_data.get("originalPrompt") or "")
-                    msg = (
-                        f"Đã xác nhận và cấp quyền cho `{resolved_conf['targetPath']}`."
-                        if lang == "vi"
-                        else f"Confirmed and granted permission for `{resolved_conf['targetPath']}`."
-                    )
-                elif resolved_conf.get("actionKind") == "tainted_tool_escalation":
-                    tool_lbl = str(p_data.get("tool") or resolved_conf.get("targetPath") or "").strip()
-                    tool_args = p_data.get("args") if isinstance(p_data.get("args"), dict) else {}
-                    tool_out = ""
-                    if tool_lbl:
-                        try:
-                            tool_out = _execute_llm_tool_call(
-                                {"name": tool_lbl, "args": tool_args},
-                                session_ctx,
-                                companion_root or Path(__file__).resolve().parents[2],
-                                now_ms,
-                            )
-                        except Exception as exc:
-                            return _failed_confirm_response(resolved_cid, exc)
-                    msg = (
-                        f"Đã xác nhận và thực thi công cụ `{tool_lbl or 'tool'}`."
-                        + (f"\n{tool_out[:800]}" if tool_out else "")
-                        if lang == "vi"
-                        else f"Confirmed and executed `{tool_lbl or 'tool'}`."
-                        + (f"\n{tool_out[:800]}" if tool_out else "")
-                    )
-                else:
-                    msg = (
-                        f"Đã xác nhận thao tác cho `{resolved_conf.get('targetPath', '')}`."
-                        if lang == "vi"
-                        else f"Confirmed action for `{resolved_conf.get('targetPath', '')}`."
-                    )
-            else:
-                msg = "Đã từ chối và huỷ thao tác đang chờ." if lang == "vi" else "Denied and cancelled pending action."
-            summary = _persist_confirm_outcome(res_state, resolved_cid, msg)
-            return {
-                "ok": True,
-                "op": "a2ui_action",
-                "eventName": event_name,
-                "surfaceId": surface_id,
-                "resolved": True,
-                "resolution": res_state,
-                "requiresConfirmation": False,
-                "confirmId": "",
-                "followUpPrompt": follow_prompt,
-                "text": msg,
-                "spokenText": msg,
-                "expression": "happy" if decision == "confirm" else "idle",
-                "dataPatch": [
-                    {"path": "/resolved", "value": True},
-                    {"path": "/resolution", "value": res_state},
-                    {"path": "/statusLabel", "value": "Confirmed" if decision == "confirm" else "Cancelled"},
-                    {"path": "/outcomeSummary", "value": summary},
-                ],
-                "clientActions": [],
-            }
-
-        # Stale or mismatched confirmation ID -> idempotently lock unresolved card without clobbering already-resolved outcome
-        stale_msg = _outcome_summary(
-            "Yêu cầu xác nhận này đã hết hạn hoặc đã xử lý trước đó."
-            if lang == "vi"
-            else "This confirmation request has already been resolved or expired."
-        )
-        existing_dm = existing_cs.get("dataModel") if isinstance(existing_cs.get("dataModel"), dict) else {}
-        if existing_dm.get("resolved") is True:
-            prev_res = str(existing_dm.get("resolution") or "expired")
-            prev_lbl = str(existing_dm.get("statusLabel") or "Resolved")
-            prev_out = str(existing_dm.get("outcomeSummary") or "")
-            stale_patches: list[dict[str, Any]] = [
-                {"path": "/resolved", "value": True},
-                {"path": "/resolution", "value": prev_res},
-                {"path": "/statusLabel", "value": prev_lbl},
-            ]
-            if prev_out:
-                stale_patches.append({"path": "/outcomeSummary", "value": prev_out})
-            stale_res_out = prev_res
-        else:
-            if surface_id:
-                history_store.patch_surface_by_id(surface_id, lock_resolution="expired", outcome_summary=stale_msg)
-            stale_patches = [
-                {"path": "/resolved", "value": True},
-                {"path": "/resolution", "value": "expired"},
-                {"path": "/statusLabel", "value": "Expired"},
-                {"path": "/outcomeSummary", "value": stale_msg},
-            ]
-            stale_res_out = "expired"
-        return {
-            "ok": True,
-            "op": "a2ui_action",
-            "eventName": event_name,
-            "surfaceId": surface_id,
-            "stale": True,
-            "resolved": True,
-            "resolution": stale_res_out,
-            "requiresConfirmation": False,
-            "confirmId": "",
-            "text": stale_msg,
-            "dataPatch": stale_patches,
-            "clientActions": [],
-        }
-
-    # 2. Plan checklist toggle / generic checkbox / choice / slider / form state persistence
-    if event_name in ("plan_toggle", "checklist_toggle", "choice_submit", "slider_change", "form_submit"):
-        patches: list[tuple[str, Any]] = []
-        if event_name == "plan_toggle" and "index" in ctx_in:
-            try:
-                idx = int(ctx_in["index"])
-                done_val = bool(ctx_in.get("done", False))
-                patches.append((f"/steps/{idx}/done", done_val))
-            except (TypeError, ValueError):
-                pass
-        else:
-            if "path" in ctx_in:
-                ptr = str(ctx_in.get("path") or "").strip()
-                if a2ui_validator._is_valid_pointer(ptr):
-                    # Supports A2UI v1.0 value=None key deletion!
-                    patches.append((ptr, ctx_in.get("value")))
-            if event_name == "form_submit":
-                # Preserve all submitted form fields, not just a single `path` key.
-                raw_fields = ctx_in.get("values") if isinstance(ctx_in.get("values"), dict) else (
-                    ctx_in.get("fields") if isinstance(ctx_in.get("fields"), dict) else None
-                )
-                if isinstance(raw_fields, dict):
-                    for fk, fv in list(raw_fields.items())[:24]:
-                        fk_s = str(fk or "").strip()
-                        if not fk_s:
-                            continue
-                        f_ptr = fk_s if fk_s.startswith("/") else f"/inputs/{fk_s}"
-                        if a2ui_validator._is_valid_pointer(f_ptr):
-                            patches.append((f_ptr, fv))
-                for ck, cv in list(ctx_in.items())[:24]:
-                    if ck in ("path", "value", "prompt", "values", "fields"):
-                        continue
-                    ck_s = str(ck or "").strip()
-                    if not ck_s:
-                        continue
-                    c_ptr = ck_s if ck_s.startswith("/") else f"/inputs/{ck_s}"
-                    if a2ui_validator._is_valid_pointer(c_ptr):
-                        patches.append((c_ptr, cv))
-        if surface_id and patches:
-            patched_surf = history_store.patch_surface_by_id(surface_id, patches)
-            if patched_surf is None:
-                return {
-                    "ok": False,
-                    "op": "a2ui_action",
-                    "eventName": event_name,
-                    "surfaceId": surface_id,
-                    "error": "surface_patch_failed",
-                    "text": (
-                        "Không thể lưu thay đổi thẻ (vượt giới hạn 6 KB hoặc thẻ không tồn tại)."
-                        if lang == "vi"
-                        else "Could not persist card update (exceeded 6 KB limit or surface not found)."
-                    ),
-                    "dataPatch": [],
-                    "clientActions": [],
-                }
-        follow_p = "" if surf_is_tainted else str(ctx_in.get("prompt") or "").strip()[:400]
-        return {
-            "ok": True,
-            "op": "a2ui_action",
-            "eventName": event_name,
-            "surfaceId": surface_id,
-            "followUpPrompt": follow_p,
-            "dataPatch": [{"path": p, "value": v} for p, v in patches],
-            "clientActions": [],
-        }
-
-    # 3. Rollback receipt button on Receipt Card
-    if event_name == "rollback_receipt":
-        rcpt_id = str(ctx_in.get("receiptId") or "").strip()
-        if not rcpt_id:
-            return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": "missing_receipt_id"}
-        try:
-            rb = agent_file_op({"op": "rollback", "receiptId": rcpt_id, "nowMs": now_ms})
-            if surface_id:
-                history_store.patch_surface_by_id(surface_id, [("/rolledBack", True)])
-            msg = str(rb.get("summary") or ("Đã hoàn tác thay đổi." if lang == "vi" else "Rolled back file edit."))
-            return {
-                "ok": True,
-                "op": "a2ui_action",
-                "eventName": event_name,
-                "surfaceId": surface_id,
-                "receiptId": rcpt_id,
-                "rolledBack": True,
-                "text": msg,
-                "spokenText": msg,
-                "expression": "happy",
-                "dataPatch": [{"path": "/rolledBack", "value": True}],
-                "clientActions": [],
-            }
-        except Exception as exc:
-            return {
-                "ok": False,
-                "op": "a2ui_action",
-                "eventName": event_name,
-                "surfaceId": surface_id,
-                "error": str(exc)[:160],
-            }
-
-    # 3b. Open file in user's preferred editor (non-generative trusted cards only; guarded above)
-    if event_name == "open_editor":
-        raw_fp = str(ctx_in.get("path") or ctx_in.get("file") or "").strip()
-        if not raw_fp or not a2ui_validator._is_safe_file_path(raw_fp):
-            return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": "invalid_file_path"}
-        if is_symlink_raw(raw_fp) or is_sensitive_path(raw_fp):
-            return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": "forbidden_file_path"}
-        target_p = Path(raw_fp).expanduser().resolve(strict=False)
-        if is_forbidden_path(target_p) or is_sensitive_path(target_p):
-            return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": "forbidden_file_path"}
-        try:
-            opened = agent_file_op({
-                "op": "open_editor",
-                "targetPath": str(target_p),
-                "nowMs": now_ms,
-                "forceExternal": bool(ctx_in.get("forceExternal", False)),
-            })
-            msg = str(opened.get("summary") or (f"Đã mở `{target_p.name}`." if lang == "vi" else f"Opened `{target_p.name}`."))
-            resp: dict[str, Any] = {
-                "ok": opened.get("status") != "failed",
-                "op": "a2ui_action",
-                "eventName": event_name,
-                "surfaceId": surface_id,
-                "targetPath": str(opened.get("targetPath") or target_p),
-                "text": msg,
-                "dataPatch": [],
-                "clientActions": [],
-            }
-            for k in ("editorMode", "editorPopup", "editorCommand"):
-                if k in opened:
-                    resp[k] = opened[k]
-            return resp
-        except Exception as exc:
-            return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": str(exc)[:160]}
-
-    # 3c. Save path or snippet to Companion Pocket
-    if event_name == "save_pocket":
-        import pocket as pocket_store
-
-        raw_path = str(ctx_in.get("path") or ctx_in.get("file") or "").strip()
-        raw_text = str(ctx_in.get("text") or ctx_in.get("content") or "").strip()
-        raw_label = str(ctx_in.get("label") or ctx_in.get("title") or "").strip()[:120]
-        try:
-            if raw_path:
-                if is_symlink_raw(raw_path) or is_sensitive_path(raw_path):
-                    return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": "invalid_pocket_path"}
-                target_p = Path(raw_path).expanduser().resolve(strict=False)
-                if is_forbidden_path(target_p) or is_sensitive_path(target_p) or not target_p.is_file():
-                    return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": "invalid_pocket_path"}
-                perm = check_permission("file_read", target_path=str(target_p), source="a2ui_save_pocket", now_ms=now_ms)
-                if not perm.get("allowed"):
-                    return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": "permission_denied"}
-                pk_res = pocket_store.dispatch({
-                    "version": 1,
-                    "consent": True,
-                    "action": "add",
-                    "urls": [target_p.as_uri()],
-                    "source": "drop",
-                })
-            elif raw_text:
-                notes_dir = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "alis-companion" / "pocket_clips"
-                notes_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-                slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", raw_label or "clip").strip("_")[:40] or "clip"
-                clip_file = (notes_dir / f"{slug}_{now_ms}.md").resolve(strict=False)
-                clip_file.write_text(raw_text[:8000], encoding="utf-8")
-                os.chmod(clip_file, 0o600)
-                pk_res = pocket_store.dispatch({
-                    "version": 1,
-                    "consent": True,
-                    "action": "add",
-                    "urls": [clip_file.as_uri()],
-                    "source": "drop",
-                })
-            else:
-                return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": "missing_pocket_payload"}
-            if surface_id:
-                history_store.patch_surface_by_id(surface_id, [("/savedToPocket", True)])
-            msg = "Đã lưu vào Pocket." if lang == "vi" else "Saved to Pocket."
-            return {
-                "ok": bool(pk_res.get("ok", True)),
-                "op": "a2ui_action",
-                "eventName": event_name,
-                "surfaceId": surface_id,
-                "text": msg,
-                "dataPatch": [{"path": "/savedToPocket", "value": True}],
-                "clientActions": [],
-            }
-        except Exception as exc:
-            return {"ok": False, "op": "a2ui_action", "eventName": event_name, "surfaceId": surface_id, "error": str(exc)[:160]}
-
-    # 4. Safe follow-up prompt dispatch (already enforced against generative run_tests & tainted surfaces above)
-    if event_name in ("send_prompt", "followup_prompt", "run_tests"):
-        follow_p = str(ctx_in.get("prompt") or ("/tests" if event_name == "run_tests" else "")).strip()[:500]
-        return {
-            "ok": True,
-            "op": "a2ui_action",
-            "eventName": event_name,
-            "surfaceId": surface_id,
-            "followUpPrompt": follow_p,
-            "dataPatch": [],
-            "clientActions": [],
-        }
-
-    return {
-        "ok": True,
-        "op": "a2ui_action",
-        "eventName": event_name,
-        "surfaceId": surface_id,
-        "dataPatch": [],
-        "clientActions": [],
-    }
+from a2ui_actions import handle_a2ui_action
 
 
 

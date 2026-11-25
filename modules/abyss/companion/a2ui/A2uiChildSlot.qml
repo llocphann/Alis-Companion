@@ -11,6 +11,7 @@ Item {
     property string scopePath: ""
     property int depth: 0
     property bool compactMode: false
+    property bool actionBusy: false
     property real maxContentWidth: 280
     property color colBoxSubtle: Qt.rgba(0.12, 0.14, 0.18, 0.90)
     property color colBoxLayer: Qt.rgba(0.15, 0.17, 0.22, 0.92)
@@ -48,6 +49,7 @@ Item {
             item.scopePath = Qt.binding(() => slot.scopePath);
             item.depth = Qt.binding(() => slot.depth);
             item.compactMode = Qt.binding(() => slot.compactMode);
+            item.actionBusy = Qt.binding(() => slot.actionBusy);
             item.maxContentWidth = Qt.binding(() => slot.maxContentWidth);
             item.colBoxSubtle = Qt.binding(() => slot.colBoxSubtle);
             item.colBoxLayer = Qt.binding(() => slot.colBoxLayer);

@@ -87,7 +87,7 @@ scope.field={ready:true};scope.PolkitService={active:false};scope.companionCurio
 scope.talkCloud={editing:false,onDemand:false};
 scope.companionExtension={get editing(){return scope.talkCloud.editing},get keyboardFocusOnDemand(){return scope.talkCloud.onDemand},get curiosityOwned(){return scope.companionCuriosity.owned}};
 window.presented=true;window.overviewDragging=false;window.editorOpen=false;
-for (const id of ['popup','polkitBody','dialogBody','aux','wallpaperBody','clipboardBody','settings','dashboardBody','nexusBody','controls','leftPanel','rightPanel','notification'])
+for (const id of ['popup','polkitBody','dialogBody','aux','wallpaperBody','clipboardBody','settings','dashboardBody','nexusBody','filesBody','controls','leftPanel','rightPanel','notification'])
     scope[id]={presented:false,ready:true,open:false,contentItem:{item:{keyboardFocus:false}}};
 const focus=()=>vm.runInContext(expression,scope);
 scope.settings.presented=true;assert.equal(focus(),2);

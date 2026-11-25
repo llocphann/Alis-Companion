@@ -1036,6 +1036,183 @@ ContentPage {
                             onToggledByUser: checked => AquaMind.setVoiceTtsEnabled(checked)
                         }
                     }
+
+                    RowLayout {
+                        objectName: "companionVoiceDiagnosticsRow"
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        Layout.minimumWidth: 0
+                        spacing: 10
+
+                        Rectangle {
+                            Layout.minimumWidth: 0
+                            implicitWidth: voiceDiagInner.implicitWidth + 20
+                            implicitHeight: 32
+                            radius: 10
+                            color: Appearance.colors.colLayer2
+
+                            RowLayout {
+                                id: voiceDiagInner
+                                anchors.centerIn: parent
+                                spacing: 6
+                                MaterialSymbol {
+                                    text: AquaMind.offlineSttReady ? "mic" : "mic_off"
+                                    iconSize: 16
+                                    color: AquaMind.offlineSttReady ? Appearance.colors.colPrimary : Appearance.colors.colSubtext
+                                }
+                                StyledText {
+                                    Layout.minimumWidth: 0
+                                    font.pixelSize: Appearance.font.pixelSize.smaller
+                                    color: Appearance.colors.colOnLayer2
+                                    text: (
+                                        "Offline STT: "
+                                        + (AquaMind.offlineSttReady ? AquaMind.offlineSttBackend : "unavailable")
+                                        + " · TTS: "
+                                        + (AquaMind.ttsReady ? ("ready (" + (AquaMind.localOnly ? "local offline" : "cloud/local") + ")") : "missing")
+                                    )
+                                }
+                            }
+                        }
+
+                        RippleButton {
+                            id: voiceRefreshBtn
+                            objectName: "aquaVoiceRefreshButton"
+                            Layout.preferredHeight: 32
+                            Layout.preferredWidth: voiceRefreshRow.implicitWidth + 18
+                            implicitHeight: 32
+                            implicitWidth: Layout.preferredWidth
+                            buttonRadius: 10
+                            colBackground: Appearance.colors.colLayer2
+                            colBackgroundHover: Appearance.colors.colLayer2Hover
+                            onClicked: AquaMind.refreshVoiceStatus()
+                            StyledToolTip {
+                                extraVisibleCondition: voiceRefreshBtn.hovered
+                                text: "Probe STT & TTS backend readiness"
+                            }
+                            contentItem: Item {
+                                implicitWidth: voiceRefreshRow.implicitWidth
+                                implicitHeight: voiceRefreshRow.implicitHeight
+                                Row {
+                                    id: voiceRefreshRow
+                                    anchors.centerIn: parent
+                                    spacing: 4
+                                    MaterialSymbol {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "refresh"
+                                        iconSize: 15
+                                        color: Appearance.colors.colPrimary
+                                    }
+                                    StyledText {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                        text: "Refresh"
+                                        font.pixelSize: Appearance.font.pixelSize.smaller
+                                        color: Appearance.colors.colOnLayer2
+                                    }
+                                }
+                            }
+                        }
+
+                        StyledText {
+                            Layout.minimumWidth: 0
+                            text: "Local STT URL"
+                            color: Appearance.colors.colSubtext
+                            font.pixelSize: Appearance.font.pixelSize.smaller
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            Layout.minimumWidth: 0
+                            implicitWidth: 140
+                            implicitHeight: 32
+                            radius: 10
+                            color: Appearance.colors.colLayer1
+                            border.width: 1
+                            border.color: Qt.alpha(Appearance.colors.colPrimary, localSttEndpointInput.activeFocus ? 0.8 : 0.3)
+
+                            StyledTextInput {
+                                id: localSttEndpointInput
+                                objectName: "aquaLocalSttEndpointInput"
+                                property string placeholderText: "http://127.0.0.1:8178/v1/audio/transcriptions"
+                                anchors.fill: parent
+                                anchors.leftMargin: 10
+                                anchors.rightMargin: 10
+                                verticalAlignment: Text.AlignVCenter
+                                clip: true
+                                selectByMouse: true
+                                activeFocusOnTab: true
+                                maximumLength: 240
+                                text: Config.options?.abyss?.companionMind?.localSttEndpoint ?? ""
+                                onAccepted: {
+                                    Config.setNestedValue("abyss.companionMind.localSttEndpoint", text.trim());
+                                    if (AquaMind.liveModelAutoDetectAllowed)
+                                        AquaMind.refreshVoiceStatus();
+                                }
+                                onEditingFinished: {
+                                    const nextVal = text.trim();
+                                    if (nextVal !== String(Config.options?.abyss?.companionMind?.localSttEndpoint ?? "").trim()) {
+                                        Config.setNestedValue("abyss.companionMind.localSttEndpoint", nextVal);
+                                        if (AquaMind.liveModelAutoDetectAllowed)
+                                            AquaMind.refreshVoiceStatus();
+                                    }
+                                }
+                            }
+                            StyledText {
+                                anchors.fill: localSttEndpointInput
+                                verticalAlignment: Text.AlignVCenter
+                                visible: localSttEndpointInput.text.length === 0
+                                elide: Text.ElideRight
+                                text: localSttEndpointInput.placeholderText
+                                color: Appearance.colors.colSubtext
+                                font.pixelSize: Appearance.font.pixelSize.smaller
+                            }
+                        }
+                    }
+
+                    StyledText {
+                        visible: !AquaMind.offlineSttReady
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: Appearance.font.pixelSize.smallest
+                        color: Appearance.colors.colSubtext
+                        text: "Hint: Install whisper-cli + a .ggml model, openai-whisper (Python), or enter a Local STT HTTP endpoint URL above."
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        Layout.minimumWidth: 0
+                        spacing: 12
+
+                        InlineChoice {
+                            objectName: "aquaSttLanguageChoice"
+                            label: "Voice STT language"
+                            description: "Preferred speech recognition language"
+                            comboMinWidth: 140
+                            options: [
+                                { displayName: "Auto", value: "auto" },
+                                { displayName: "Vietnamese", value: "vi" },
+                                { displayName: "English", value: "en" }
+                            ]
+                            currentValue: String(Config.options?.abyss?.companionMind?.sttLanguage ?? "auto")
+                            onSelected: value => Config.setNestedValue("abyss.companionMind.sttLanguage", String(value))
+                        }
+
+                        InlineChoice {
+                            objectName: "aquaAmbientLanguageChoice"
+                            label: "Commentary language"
+                            description: "Ambient mascot commentary language"
+                            comboMinWidth: 140
+                            options: [
+                                { displayName: "Auto", value: "auto" },
+                                { displayName: "Vietnamese", value: "vi" },
+                                { displayName: "English", value: "en" }
+                            ]
+                            currentValue: String(Config.options?.abyss?.companionMind?.ambientLanguage ?? "auto")
+                            onSelected: value => Config.setNestedValue("abyss.companionMind.ambientLanguage", String(value))
+                        }
+                    }
                 }
             }
 
@@ -1454,6 +1631,7 @@ ContentPage {
                             dualModelRoutingGrid,
                             aiSlidersGrid,
                             aiDesktopAccessGrid,
+                            capabilityReadinessStrip,
                             storageFoldersRow
                         ];
                         for (let i = 0; i < parts.length; ++i) {
@@ -2368,9 +2546,76 @@ ContentPage {
                         checked: AquaMind.a2uiGenerativeEnabled
                         onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.a2uiGenerativeEnabled", checked)
                     }
+                    CompactToggle {
+                        objectName: "aquaLiveGuiControlEnabled"
+                        Layout.preferredWidth: 1
+                        Layout.minimumWidth: 0
+                        buttonIcon: "mouse"
+                        text: "Live GUI control"
+                        tooltipText: "Off by default. Allow Companion to send real Wayland virtual pointer/keyboard and AT-SPI actions to desktop apps."
+                        checked: AquaMind.liveGuiControlEnabled
+                        onToggledByUser: checked => Config.setNestedValue("abyss.companionMind.liveGuiControlEnabled", checked)
+                    }
                 }
 
-                // ROW 5B: Storage & Capabilities Sub-Tabs (Skills [Built-in + Learned merged], MCP, RAG / State)
+                // Capability readiness strip
+                RowLayout {
+                    id: capabilityReadinessStrip
+                    objectName: "aquaCapabilityReadinessStrip"
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    Layout.minimumWidth: 0
+                    spacing: 6
+                    readonly property var capabilityBadges: [
+                        { id: "input", label: "Input", ready: Boolean(AquaMind.capabilityStatus?.vpointerReady) },
+                        { id: "atspi", label: "AT-SPI", ready: Boolean(AquaMind.capabilityStatus?.atspiReady) },
+                        { id: "cdp", label: "CDP", ready: Boolean(AquaMind.capabilityStatus?.cdpReady) },
+                        { id: "embed", label: "Embed", ready: Boolean(AquaMind.capabilityStatus?.embedReady) },
+                        { id: "stt", label: "STT", ready: AquaMind.offlineSttReady },
+                        { id: "tts", label: "TTS", ready: AquaMind.ttsReady }
+                    ]
+                    StyledText {
+                        text: "Capabilities"
+                        font.pixelSize: Appearance.font.pixelSize.smallest
+                        color: Appearance.colors.colSubtext
+                    }
+                    Flow {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        spacing: 6
+                        Repeater {
+                            model: capabilityReadinessStrip.capabilityBadges
+                            delegate: Rectangle {
+                                required property var modelData
+                                objectName: "aquaCapabilityBadge-" + modelData.id
+                                implicitWidth: capBadgeRow.implicitWidth + 12
+                                implicitHeight: 22
+                                radius: 7
+                                color: Appearance.colors.colLayer2
+                                Row {
+                                    id: capBadgeRow
+                                    anchors.centerIn: parent
+                                    spacing: 4
+                                    Rectangle {
+                                        width: 6
+                                        height: 6
+                                        radius: 3
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        color: modelData.ready ? Appearance.colors.colPrimary : Appearance.colors.colSubtext
+                                    }
+                                    StyledText {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: String(modelData.label ?? "")
+                                        font.pixelSize: Appearance.font.pixelSize.smallest - 1
+                                        color: modelData.ready ? Appearance.colors.colOnLayer2 : Appearance.colors.colSubtext
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ROW 5B: Storage & Capabilities Sub-Tabs (Skills [Built-in + Learned merged], MCP, RAG / State, Schedules)
                 RowLayout {
                     id: storageFoldersRow
                     objectName: "aquaStorageFoldersRow"
@@ -2519,6 +2764,50 @@ ContentPage {
                                     font.pixelSize: Appearance.font.pixelSize.smaller
                                     font.weight: root.activeStorageTab === "rag" ? Font.DemiBold : Font.Normal
                                     color: root.activeStorageTab === "rag" ? Appearance.colors.colOnPrimary : Appearance.colors.colOnLayer2
+                                }
+                            }
+                        }
+                    }
+
+                    RippleButton {
+                        id: storageTabSchedulesBtn
+                        objectName: "aquaStorageTabSchedules"
+                        Layout.preferredHeight: 32
+                        Layout.preferredWidth: storageTabSchedulesRow.implicitWidth + 24
+                        implicitHeight: 32
+                        implicitWidth: Layout.preferredWidth
+                        buttonRadius: 10
+                        colBackground: root.activeStorageTab === "schedules" ? Appearance.colors.colPrimary : Appearance.colors.colLayer2
+                        colBackgroundHover: root.activeStorageTab === "schedules" ? Appearance.colors.colPrimaryHover : Appearance.colors.colLayer2Hover
+                        onClicked: {
+                            root.activeStorageTab = "schedules";
+                            if (AquaMind.liveModelAutoDetectAllowed)
+                                AquaMind.refreshScheduledJobs();
+                        }
+                        StyledToolTip {
+                            extraVisibleCondition: storageTabSchedulesBtn.hovered
+                            text: "View active scheduled jobs and process watches (" + String(AquaMind.activeScheduleCount) + ")"
+                        }
+                        contentItem: Item {
+                            implicitWidth: storageTabSchedulesRow.implicitWidth
+                            implicitHeight: storageTabSchedulesRow.implicitHeight
+                            Row {
+                                id: storageTabSchedulesRow
+                                anchors.centerIn: parent
+                                spacing: 6
+                                MaterialSymbol {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "schedule"
+                                    iconSize: 16
+                                    color: root.activeStorageTab === "schedules" ? Appearance.colors.colOnPrimary : Appearance.colors.colPrimary
+                                }
+                                StyledText {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    text: "Schedules (" + String(AquaMind.activeScheduleCount) + ")"
+                                    font.pixelSize: Appearance.font.pixelSize.smaller
+                                    font.weight: root.activeStorageTab === "schedules" ? Font.DemiBold : Font.Normal
+                                    color: root.activeStorageTab === "schedules" ? Appearance.colors.colOnPrimary : Appearance.colors.colOnLayer2
                                 }
                             }
                         }
@@ -3297,6 +3586,45 @@ ContentPage {
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
                             }
+                            RippleButton {
+                                id: buildSemanticIdxBtn
+                                objectName: "aquaBuildSemanticIndexButton"
+                                Layout.preferredHeight: 28
+                                Layout.preferredWidth: semanticIdxRow.implicitWidth + 16
+                                implicitHeight: 28
+                                implicitWidth: Layout.preferredWidth
+                                buttonRadius: 9
+                                enabled: !AquaMind.semanticBackfillBusy && AquaMind.agentToolsEnabled
+                                colBackground: Appearance.colors.colLayer2
+                                colBackgroundHover: Appearance.colors.colLayer2Hover
+                                onClicked: AquaMind.triggerSemanticBackfill()
+                                StyledToolTip {
+                                    extraVisibleCondition: buildSemanticIdxBtn.hovered
+                                    text: "Generate local vector embeddings for vault notes"
+                                }
+                                contentItem: Item {
+                                    implicitWidth: semanticIdxRow.implicitWidth
+                                    implicitHeight: semanticIdxRow.implicitHeight
+                                    Row {
+                                        id: semanticIdxRow
+                                        anchors.centerIn: parent
+                                        spacing: 4
+                                        MaterialSymbol {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: "auto_awesome"
+                                            iconSize: 14
+                                            color: Appearance.colors.colPrimary
+                                        }
+                                        StyledText {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            text: AquaMind.semanticBackfillBusy ? "Indexing..." : "Build semantic index"
+                                            font.pixelSize: Appearance.font.pixelSize.smallest
+                                            color: Appearance.colors.colOnLayer2
+                                        }
+                                    }
+                                }
+                            }
                             CompactToggle {
                                 objectName: "aquaAgentDocRagToggle"
                                 Layout.fillWidth: false
@@ -3389,6 +3717,180 @@ ContentPage {
                                                 text: String(modelData.value ?? "")
                                                 font.pixelSize: Appearance.font.pixelSize.smaller
                                                 color: Appearance.colors.colSubtext
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ROW 5C-4: Scheduled Jobs & Process Watches Section
+                Rectangle {
+                    id: schedulesListSection
+                    objectName: "aquaSchedulesListSection"
+                    visible: root.activeStorageTab === "schedules"
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    Layout.minimumWidth: 0
+                    implicitHeight: schedulesListColumn.implicitHeight + 20
+                    radius: 12
+                    color: Appearance.colors.colLayer1
+                    border.width: 1
+                    border.color: Qt.alpha(Appearance.colors.colPrimary, 0.18)
+
+                    ColumnLayout {
+                        id: schedulesListColumn
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 10
+                        spacing: 8
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            Layout.minimumWidth: 0
+                            spacing: 8
+                            MaterialSymbol {
+                                text: "schedule"
+                                iconSize: 18
+                                color: Appearance.colors.colPrimary
+                            }
+                            StyledText {
+                                objectName: "aquaSchedulesSectionHeader"
+                                text: "Scheduled Jobs & Process Watches"
+                                font.weight: Font.DemiBold
+                            }
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                            }
+                            RippleButton {
+                                id: refreshSchedulesBtn
+                                objectName: "aquaRefreshSchedulesButton"
+                                Layout.preferredHeight: 26
+                                Layout.preferredWidth: refreshSchedRow.implicitWidth + 14
+                                implicitHeight: 26
+                                implicitWidth: Layout.preferredWidth
+                                buttonRadius: 8
+                                colBackground: Appearance.colors.colLayer2
+                                colBackgroundHover: Appearance.colors.colLayer2Hover
+                                onClicked: AquaMind.refreshScheduledJobs()
+                                contentItem: Item {
+                                    implicitWidth: refreshSchedRow.implicitWidth
+                                    implicitHeight: refreshSchedRow.implicitHeight
+                                    Row {
+                                        id: refreshSchedRow
+                                        anchors.centerIn: parent
+                                        spacing: 4
+                                        MaterialSymbol {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: "refresh"
+                                            iconSize: 14
+                                            color: Appearance.colors.colPrimary
+                                        }
+                                        StyledText {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            text: "Refresh"
+                                            font.pixelSize: Appearance.font.pixelSize.smallest
+                                            color: Appearance.colors.colOnLayer2
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        StyledText {
+                            visible: !Array.isArray(AquaMind.scheduledJobs) || AquaMind.scheduledJobs.length === 0
+                            Layout.fillWidth: true
+                            text: "No active scheduled jobs or process watches."
+                            font.pixelSize: Appearance.font.pixelSize.smaller
+                            color: Appearance.colors.colSubtext
+                        }
+
+                        ColumnLayout {
+                            visible: Array.isArray(AquaMind.scheduledJobs) && AquaMind.scheduledJobs.length > 0
+                            Layout.fillWidth: true
+                            spacing: 6
+                            Repeater {
+                                model: Array.isArray(AquaMind.scheduledJobs) ? AquaMind.scheduledJobs : []
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    required property int index
+                                    objectName: "aquaScheduleRow-" + index
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
+                                    Layout.minimumWidth: 0
+                                    implicitHeight: 38
+                                    radius: 8
+                                    color: Appearance.colors.colLayer2
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 10
+                                        anchors.rightMargin: 8
+                                        spacing: 8
+                                        MaterialSymbol {
+                                            text: modelData?.kind === "process_watch" ? "visibility" : (modelData?.recurrence ? "event_repeat" : "alarm")
+                                            iconSize: 16
+                                            color: Appearance.colors.colPrimary
+                                        }
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            spacing: 1
+                                            StyledText {
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
+                                                elide: Text.ElideRight
+                                                text: String(modelData?.title || modelData?.prompt || modelData?.id || "Scheduled job")
+                                                font.pixelSize: Appearance.font.pixelSize.smaller
+                                                font.weight: Font.DemiBold
+                                                color: Appearance.colors.colOnLayer2
+                                            }
+                                            StyledText {
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
+                                                elide: Text.ElideRight
+                                                text: {
+                                                    if (modelData?.kind === "process_watch")
+                                                        return "Process: " + String(modelData?.watchName || (modelData?.watchPid ? ("PID " + modelData.watchPid) : ""));
+                                                    const rec = String(modelData?.recurrence ?? "");
+                                                    if (rec.length > 0)
+                                                        return rec;
+                                                    if (modelData?.dueMs)
+                                                        return new Date(Number(modelData.dueMs)).toLocaleString();
+                                                    return String(modelData?.kind ?? "once");
+                                                }
+                                                font.pixelSize: Appearance.font.pixelSize.smallest - 1
+                                                color: Appearance.colors.colSubtext
+                                            }
+                                        }
+                                        RippleButton {
+                                            id: cancelJobBtn
+                                            objectName: "aquaScheduleCancel-" + String(modelData?.id ?? index)
+                                            Layout.preferredHeight: 24
+                                            Layout.preferredWidth: cancelJobTxt.implicitWidth + 14
+                                            implicitHeight: 24
+                                            implicitWidth: Layout.preferredWidth
+                                            buttonRadius: 7
+                                            colBackground: Appearance.colors.colLayer1
+                                            colBackgroundHover: Qt.alpha(Appearance.colors.colError, 0.18)
+                                            onClicked: AquaMind.cancelScheduledJob(String(modelData?.id ?? ""))
+                                            contentItem: Item {
+                                                implicitWidth: cancelJobTxt.implicitWidth
+                                                implicitHeight: cancelJobTxt.implicitHeight
+                                                StyledText {
+                                                    id: cancelJobTxt
+                                                    anchors.centerIn: parent
+                                                    horizontalAlignment: Text.AlignHCenter
+                                                    text: "Cancel"
+                                                    font.pixelSize: Appearance.font.pixelSize.smallest - 1
+                                                    font.weight: Font.DemiBold
+                                                    color: Appearance.colors.colError
+                                                }
                                             }
                                         }
                                     }

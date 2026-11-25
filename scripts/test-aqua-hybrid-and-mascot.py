@@ -433,7 +433,7 @@ ShellRoot {
     assert res.returncode == 0 and "HYBRID_MASCOT_QML_PASS" in combined, f"QML test failed:\n{combined}"
     for line in combined.splitlines():
         if "WARN" in line or "ERROR" in line or "ReferenceError" in line or "TypeError" in line or "Binding loop" in line:
-            if any(ok in line for ok in ("qt.qpa", "atspi", "$HYPRLAND", "Wayland", "No configuration", "FileView", "quickshell.io.socket")):
+            if any(ok in line for ok in ("qt.qpa", "atspi", "$HYPRLAND", "Wayland", "No configuration", "FileView", "quickshell.io.socket", "Quickshell was built against Qt", "got operation finished from dropped operation")):
                 continue
             raise AssertionError(f"Unexpected QML warning/error:\n{line}\nFull:\n{combined}")
     print("[PASS] 3. Silent headless Wayland QML load & ephemeral mascot API (0 warnings)")

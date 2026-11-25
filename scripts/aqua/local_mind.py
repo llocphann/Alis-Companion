@@ -1120,20 +1120,30 @@ def journal_modules():
     folder=HOST/'scripts/todo'
     if _has_journal_pair(folder) is None:
         import hashlib
-        bundled_manifest=HOST/'optional/alis-intergration/manifest.json'
-        if bundled_manifest.is_file():
+        def _verify_manifest_helpers(manifest_path: Path, rel_paths: tuple[str, ...]) -> None:
+            if not manifest_path.is_file():
+                return
             try:
-                mdata=json.loads(bundled_manifest.read_text(encoding='utf-8'))
+                mdata=json.loads(manifest_path.read_text(encoding='utf-8'))
                 mfiles=mdata.get('files') if isinstance(mdata,dict) else None
                 if isinstance(mfiles,dict):
-                    for rel in ('scripts/todo/obsidian_daily_todo.py','scripts/todo/obsidian_todo.py','scripts/todo/nexus_daily_todo.py','scripts/todo/nexus_todo.py'):
-                        target_f=bundled_manifest.parent/rel
+                    for rel in rel_paths:
+                        target_f=manifest_path.parent/rel
                         if rel in mfiles and (not target_f.is_file() or hashlib.sha256(target_f.read_bytes()).hexdigest()!=mfiles[rel]):
                             raise MindError('integration_unavailable','Obsidian integration is unavailable or needs repair.')
             except MindError:
                 raise
             except Exception:
                 raise MindError('integration_unavailable','Obsidian integration is unavailable or needs repair.')
+
+        _helper_rels=(
+            'scripts/todo/obsidian_daily_todo.py','scripts/todo/obsidian_todo.py',
+            'scripts/todo/nexus_daily_todo.py','scripts/todo/nexus_todo.py',
+            'plugins/nexus/scripts/todo/obsidian_daily_todo.py','plugins/nexus/scripts/todo/obsidian_todo.py',
+            'plugins/nexus/scripts/todo/nexus_daily_todo.py','plugins/nexus/scripts/todo/nexus_todo.py',
+        )
+        _verify_manifest_helpers(HOST/'optional/alis-intergration/manifest.json', _helper_rels)
+        _verify_manifest_helpers(HOST/'optional/alis-intergration/plugins/nexus/plugin-manifest.json', _helper_rels)
         inspector=HOST/'scripts/alis-intergration-status.py'
         if not inspector.is_file():raise MindError('integration_unavailable','Obsidian integration is not installed.')
         spec=importlib.util.spec_from_file_location('alis_intergration_status',inspector)
@@ -1145,9 +1155,24 @@ def journal_modules():
         host_resolved=HOST.resolve()
         data_home=Path(os.environ.get('XDG_DATA_HOME',Path.home()/'.local/share')).resolve()
         sibling_repo=(host_resolved.parent/'Alis-Intergration').resolve()
-        if not (found_root.is_relative_to(host_resolved) or found_root.is_relative_to(data_home) or found_root==sibling_repo):
+        def _is_trusted_root(path: Path) -> bool:
+            return path.is_relative_to(host_resolved) or path.is_relative_to(data_home) or path==sibling_repo or path.is_relative_to(sibling_repo)
+        if not _is_trusted_root(found_root):
             raise MindError('integration_unavailable','Obsidian integration is unavailable or needs repair.')
-        folder=found_root/'scripts/todo'
+        candidates=[]
+        plugin_roots=found.get('pluginRoots')
+        if isinstance(plugin_roots,dict) and plugin_roots.get('nexus'):
+            nexus_root=Path(str(plugin_roots['nexus'])).resolve()
+            if _is_trusted_root(nexus_root):
+                _verify_manifest_helpers(nexus_root/'plugin-manifest.json', _helper_rels)
+                candidates.append(nexus_root/'scripts/todo')
+        candidates.append(found_root/'plugins/nexus/scripts/todo')
+        candidates.append(found_root/'scripts/todo')
+        folder=candidates[-1]
+        for cand in candidates:
+            if _has_journal_pair(cand) is not None:
+                folder=cand
+                break
     folder=folder.resolve()
     pair=_has_journal_pair(folder)
     if pair is None:
@@ -1697,35 +1722,79 @@ def unload_llm_action(payload):
             'providers':['test'],
             'summary':'Unloaded idle local LLM models (dry-run).'
         }
+    include_embeddings=bool((payload or {}).get('includeEmbeddings',False))
+    def _is_embed_entry(mid,mtype=''):
+        low=str(mid or '').lower()
+        return 'embed' in str(mtype or '').lower() or any(k in low for k in ('embed','bge-','nomic','e5-','minilm','gte-'))
     providers=[]
-    # 1. LM Studio (`lms unload --all`)
+    preserved_embeddings=[]
+    unloaded_models=[]
+    # 1. LM Studio: prefer selective `lms unload <id>` so warm embedding models stay loaded
+    lms_base=str((payload or {}).get('lmstudioUrl') or 'http://127.0.0.1:1234').rstrip('/')
     lms_candidates=[
         shutil.which('lms'),
         str(Path.home()/'.lmstudio/bin/lms'),
         str(Path.home()/'.cache/lm-studio/bin/lms'),
     ]
-    for lms_bin in lms_candidates:
-        if lms_bin and Path(lms_bin).is_file() and os.access(lms_bin,os.X_OK):
+    lms_bin=next((b for b in lms_candidates if b and Path(b).is_file() and os.access(b,os.X_OK)),None)
+    if lms_bin:
+        loaded_llm_ids=[]
+        probed_lms=False
+        try:
+            opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open(f'{lms_base}/api/v0/models',timeout=2.0) as resp:
+                lms_data=json.loads(resp.read().decode('utf-8',errors='replace'))
+            if isinstance(lms_data,dict) and isinstance(lms_data.get('data'),list):
+                probed_lms=True
+                for item in lms_data['data']:
+                    if not isinstance(item,dict) or str(item.get('state') or '').lower()!='loaded':
+                        continue
+                    mid=str(item.get('id') or '').strip()
+                    if not mid:
+                        continue
+                    if not include_embeddings and _is_embed_entry(mid,item.get('type','')):
+                        preserved_embeddings.append(mid)
+                    else:
+                        loaded_llm_ids.append(mid)
+        except Exception:
+            probed_lms=False
+        if probed_lms:
+            for mid in loaded_llm_ids:
+                try:
+                    proc=subprocess.run([lms_bin,'unload',mid],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=8.0,check=False,text=True)
+                    _ensure_lmstudio_runtime_temp()
+                    if proc.returncode==0:
+                        unloaded_models.append(mid)
+                        if 'lmstudio' not in providers:
+                            providers.append('lmstudio')
+                except Exception:
+                    _ensure_lmstudio_runtime_temp()
+        elif include_embeddings or not preserved_embeddings:
             try:
                 proc=subprocess.run([lms_bin,'unload','--all'],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=8.0,check=False,text=True)
                 _ensure_lmstudio_runtime_temp()
                 if proc.returncode==0:
                     providers.append('lmstudio')
-                break
             except Exception:
                 _ensure_lmstudio_runtime_temp()
-    # 2. Ollama (`keep_alive: 0` on loaded models)
+    # 2. Ollama (`keep_alive: 0` on loaded non-embedding models)
+    ollama_base=str((payload or {}).get('ollamaUrl') or 'http://127.0.0.1:11434').rstrip('/')
     try:
-        ps_data=request_json('http://127.0.0.1:11434','/api/ps',None,timeout=2)
+        ps_data=request_json(ollama_base,'/api/ps',None,timeout=2)
         for m in (ps_data.get('models') or []):
             m_name=str(m.get('name') or m.get('model') or '').strip()
-            if m_name:
-                try:
-                    request_json('http://127.0.0.1:11434','/api/generate',{'model':m_name,'keep_alive':0},timeout=3)
-                    if 'ollama' not in providers:
-                        providers.append('ollama')
-                except Exception:
-                    pass
+            if not m_name:
+                continue
+            if not include_embeddings and _is_embed_entry(m_name):
+                preserved_embeddings.append(m_name)
+                continue
+            try:
+                request_json(ollama_base,'/api/generate',{'model':m_name,'keep_alive':0},timeout=3)
+                unloaded_models.append(m_name)
+                if 'ollama' not in providers:
+                    providers.append('ollama')
+            except Exception:
+                pass
     except Exception:
         pass
     # 3. Lingering llama-server (`--alias aqua-local`)
@@ -1737,30 +1806,40 @@ def unload_llm_action(payload):
         'unloaded':True,
         'dryRun':False,
         'providers':providers,
-        'summary':'Unloaded idle local LLM models ('+(', '.join(providers) if providers else 'idle')+')'
+        'unloadedModels':unloaded_models,
+        'preservedEmbeddings':preserved_embeddings,
+        'summary':'Unloaded idle local LLM models ('+(', '.join(providers) if providers else 'idle')+')',
     }
 
 
 def voice_action(payload):
     import desktop_control
     op=str(payload.get('op') or 'status').strip().lower()
+    local_stt_ep=str(payload.get('localSttEndpoint') or '').strip()
+    local_only=bool(payload.get('localOnly',False))
     try:
         if op=='stt':
             return desktop_control.voice_stt(
                 audio_path=str(payload.get('audioPath') or ''),
                 duration_sec=int(payload.get('durationSec') or 4),
                 language=str(payload.get('language') or 'auto'),
+                local_stt_endpoint=local_stt_ep,
+                local_only=local_only,
             )
         if op=='tts':
             return desktop_control.voice_tts(
                 text=str(payload.get('text') or ''),
+                voice=str(payload.get('voice') or ''),
                 language=str(payload.get('language') or 'auto'),
                 rate=payload.get('rate') or '',
+                engine=str(payload.get('engine') or ''),
+                wait=bool(payload.get('wait',False)),
                 context_prompt=str(payload.get('contextPrompt') or ''),
+                local_only=local_only,
             )
         if op in ('stop','tts_stop','voice_tts_stop'):
             return desktop_control.voice_tts_stop()
-        return desktop_control.voice_status()
+        return desktop_control.voice_status(local_stt_endpoint=local_stt_ep)
     except desktop_control.DesktopControlError as exc:
         raise MindError(exc.code,str(exc)) from exc
 
@@ -1787,6 +1866,48 @@ def dispatch(payload):
     if action=='ambient_commentary':
         import ambient_commentary
         return ambient_commentary.generate_mascot_commentary(payload)
+    if action=='scheduler_action':
+        import scheduler_store
+        op=str(payload.get('op') or 'list').strip().lower()
+        try:
+            if op=='poll_due':
+                return scheduler_store.poll_due_jobs(
+                    now_ms=payload.get('nowMs'),
+                    send_notify=bool(payload.get('sendNotify',False)),
+                )
+            if op=='create':
+                kind_s=str(payload.get('kind') or 'reminder').strip().lower()
+                if kind_s=='recurring':
+                    job=scheduler_store.create_recurring(
+                        str(payload.get('title') or 'Recurring schedule'),
+                        str(payload.get('recurrence') or ''),
+                        prompt=str(payload.get('prompt') or ''),
+                        now_ms=payload.get('nowMs'),
+                    )
+                elif kind_s=='process_watch':
+                    job=scheduler_store.create_process_watch(
+                        str(payload.get('title') or ''),
+                        pid=int(payload['pid']) if payload.get('pid') is not None else None,
+                        process_name=str(payload.get('processName') or ''),
+                        prompt=str(payload.get('prompt') or ''),
+                        now_ms=payload.get('nowMs'),
+                    )
+                else:
+                    job=scheduler_store.create_reminder(
+                        str(payload.get('title') or 'Reminder'),
+                        delay_minutes=payload.get('delayMinutes'),
+                        due_ms=payload.get('dueMs'),
+                        at_time=str(payload.get('atTime') or ''),
+                        prompt=str(payload.get('prompt') or ''),
+                        now_ms=payload.get('nowMs'),
+                    )
+                return {'ok':True,'job':job,'jobs':scheduler_store.list_jobs()}
+            if op=='cancel':
+                job=scheduler_store.cancel_job(str(payload.get('jobId') or ''))
+                return {'ok':True,'job':job,'jobs':scheduler_store.list_jobs()}
+            return {'ok':True,'jobs':scheduler_store.list_jobs(include_completed=bool(payload.get('includeCompleted',False)))}
+        except scheduler_store.SchedulerError as exc:
+            raise MindError(exc.code,str(exc)) from exc
     if action=='voice_action':return voice_action(payload)
     if action=='voice_tts_stop':
         import desktop_control
@@ -1801,6 +1922,23 @@ def dispatch(payload):
             format=str(payload.get('format') or 'sharegpt'),
         )
     if action=='pocket_save_item':return pocket_save_action(payload)
+    if action=='desktop_action':
+        op_da=str(payload.get('op') or '').strip().lower()
+        if op_da=='clipboard_paste_image':
+            import native_host_bridge
+            import time as _time
+            state_home=Path(os.environ.get('XDG_STATE_HOME',Path.home()/'.local'/'state'))
+            att_dir=state_home/'alis-companion'/'attachments'
+            dst=att_dir/f"clip_{int(_time.time()*1000)}_{os.getpid()}.png"
+            ok_clip,detail_clip=native_host_bridge.clipboard_paste_image(dst,host_root=HOST)
+            return {
+                'op':'clipboard_paste_image',
+                'ok':bool(ok_clip),
+                'path':str(detail_clip) if ok_clip else '',
+                'name':Path(detail_clip).name if ok_clip else '',
+                'error':'' if ok_clip else str(detail_clip),
+            }
+        raise MindError('invalid_desktop_action',f'Unsupported desktop_action op: {op_da}')
     if action=='rag_action':return rag_action(payload)
     if action=='mcp_action':return mcp_action(payload)
     if action=='skill_action':return skill_action(payload)
@@ -1889,6 +2027,13 @@ def rag_action(payload):
             mig=nexus_rag.migrate_legacy_rag_to_nexus(explicit_vault)
             sync_res=nexus_rag.sync_nexus_vault_index(explicit_vault,force=True)
             return {'op':'reindex_nexus','migration':mig,'storageInfo':rag_store.storage_info(),**sync_res}
+        if op=='backfill_embeddings':
+            res_bf=nexus_rag.backfill_semantic_embeddings(
+                limit=int(payload.get('limit') or 128),
+                vault_path=explicit_vault,
+                endpoint=str(payload.get('endpoint') or ''),
+            )
+            return {'op':'backfill_embeddings',**res_bf}
         if op=='save_note':
             if payload.get('confirmed') is not True:
                 raise MindError('explicit_consent_required','Confirm before saving a RAG knowledge note to Nexus.')
@@ -2063,6 +2208,7 @@ def agent_action(action, payload):
                 'defaultRulesText':state.get('defaultRulesText',''),
             }
         if action=='agent_status':
+            import desktop_control
             import mcp_client
             import nexus_rag
             import rag_store
@@ -2091,6 +2237,26 @@ def agent_action(action, payload):
             nx_ov=nexus_rag.get_nexus_overview() if rag_info['storageMode']=='nexus' else {}
             rstate=rule_store.load_rules_state(payload.get('nowMs'))
             import swarm_store
+            import scheduler_store
+            import cdp_client
+            import knowledge_index
+            import native_host_bridge
+            sched_sum=scheduler_store.schedule_summary()
+            embed_ep,embed_model=knowledge_index.probe_warm_embedding_model()
+            atspi_ok=False
+            if not native_host_bridge.is_test_or_isolated_env() and native_host_bridge.has_wayland_session():
+                try:
+                    import importlib.util as _iu
+                    atspi_ok=_iu.find_spec('gi') is not None
+                except Exception:
+                    atspi_ok=False
+            cap_status={
+                'vpointerReady':bool(native_host_bridge.has_native_vpointer()),
+                'atspiReady':bool(atspi_ok),
+                'cdpReady':bool(cdp_client.probe_cdp_targets()),
+                'embedReady':bool(embed_ep and embed_model),
+                'embedModel':str(embed_model or ''),
+            }
             return {
                 'contractVersion':1,
                 'reconciledRuns':reconciled,
@@ -2105,6 +2271,9 @@ def agent_action(action, payload):
                 'ragSources':rag_store.list_sources(),
                 'mcpServers':mcp_client.list_servers(),
                 'swarmState':swarm_store.load_state(payload.get('nowMs')),
+                'voiceStatus':desktop_control.voice_status(local_stt_endpoint=str(payload.get('localSttEndpoint') or '')),
+                'schedules':sched_sum,
+                'capabilities':cap_status,
                 'storagePaths':{
                     'skillsDir':str(user_skills_dir),
                     'builtinSkillsDir':str(builtin_skills_dir),

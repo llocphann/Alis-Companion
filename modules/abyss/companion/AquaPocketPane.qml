@@ -17,22 +17,17 @@ Item {
     property bool embeddedMode: false
     property bool confirmClear:false
     property string searchQuery: ""
-    property var pinnedPaths: ({})
+    readonly property var pinnedPaths: AquaPocket.pinnedPaths
     property var undoClearPaths: []
     function isImagePath(p): bool {
         const s = String(p ?? "").toLowerCase()
         return /\.(png|jpe?g|webp|gif|bmp|svg)$/.test(s)
     }
     function isPinned(p): bool {
-        return Boolean(root.pinnedPaths && root.pinnedPaths[String(p ?? "")])
+        return AquaPocket.isPinned(p)
     }
     function togglePin(p): void {
-        const key = String(p ?? "")
-        if (!key) return
-        const next = Object.assign({}, root.pinnedPaths)
-        if (next[key]) delete next[key]
-        else next[key] = true
-        root.pinnedPaths = next
+        AquaPocket.togglePin(p)
     }
     readonly property var visibleItems: {
         const raw = Array.isArray(AquaPocket.items) ? AquaPocket.items : []
@@ -195,7 +190,7 @@ Item {
                 Accessible.name:root.confirmClear ? Translation.tr("Confirm clear") : Translation.tr("Clear")
                 onClicked: {
                     if (root.confirmClear) {
-                        const saved = (AquaPocket.items ?? []).map(it => String(it?.path ?? "")).filter(Boolean).slice(0, 8)
+                        const saved = (AquaPocket.items ?? []).map(it => String(it?.path ?? "")).filter(Boolean).slice(0, 32)
                         if (saved.length > 0) {
                             root.undoClearPaths = saved
                             undoClearTimer.restart()
@@ -285,7 +280,7 @@ Item {
                         const urls = root.undoClearPaths.map(p => p.startsWith("file://") ? p : ("file://" + p))
                         root.undoClearPaths = []
                         undoClearTimer.stop()
-                        AquaPocket.addFiles(urls, "picker", false)
+                        AquaPocket.addFilesBatched(urls, "picker", false)
                     }
                     contentItem: Item {
                         StyledText {
